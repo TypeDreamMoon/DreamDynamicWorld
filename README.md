@@ -22,8 +22,9 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
 
 1. Enable the plugin (it depends on Niagara). Build.
 2. **Tools ▸ DreamWind: Setup Assets** (or `UnrealEditor-Cmd.exe <project> -run=DreamWindSetup`).
-   Creates `/DreamWind/MPC_DreamWind` and `/DreamWind/RT_DreamWindVolume` at the paths in
-   *Project Settings ▸ DreamPlugin ▸ Dream Wind*. Both are committed with the plugin already.
+   Creates `/DreamWind/MPC_DreamWind`, the volume / terrain render targets at the paths in
+   *Project Settings ▸ DreamPlugin ▸ Dream Wind*, and the wind presets `/DreamWind/Presets/DWP_Calm |
+   DWP_Breeze | DWP_Storm`. All are committed with the plugin already.
 3. Optionally drop an **`ADreamWindGlobal`** actor in the level to author the global wind (direction,
    speed, gusts, turbulence). Without it the project default applies.
    Its **Bake Terrain Map** button traces the level's collision into a `UDreamWindTerrainMap`
@@ -60,6 +61,11 @@ Wind->AddRadialImpulse(Explosion, 800.f, 3000.f, 0.3f);          // shockwave
 Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 2 s
 ```
 `UDreamWindSourceComponent` on an actor gives a persistent, moving source (fan, wake, vortex).
+
+**Weather states.** `UDreamWindPreset` is a data asset holding one global wind; the plugin ships
+`DWP_Calm` (150 cm/s), `DWP_Breeze` (600) and `DWP_Storm` (2200). `Wind->ApplyPreset(Preset, 3.f)`
+blends to it, `ApplyPresetKeepDirection` changes strength without turning the wind, and
+`ADreamWindGlobal` can be pinned to a preset (*Preset*, which then replaces its inline *Wind*).
 
 **Interiors and wind zones.** The terrain bake looks straight down, so it cannot know that a house is
 hollow. Place a source of type **Shelter** instead: an oriented box (`BoxExtent` in the component's
@@ -196,5 +202,6 @@ DreamWind/
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs
   Content/                  generated assets (MPC, RT, materials, Niagara) — regenerable
+  Content/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
   Content/Maps/             Lvl_DreamWindTest + its baked wind terrain
 ```

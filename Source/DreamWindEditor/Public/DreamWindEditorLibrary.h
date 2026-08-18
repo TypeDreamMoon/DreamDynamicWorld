@@ -46,6 +46,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static UTextureRenderTarget2D* EnsureTerrainTexture(bool bSaveAsset = true);
 
+	/** The shipped wind presets (/DreamWind/Presets/DWP_Calm, DWP_Breeze, DWP_Storm); existing ones are left alone. */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
+	static bool EnsurePresets(bool bSaveAssets = true);
+
 	/**
 	 * Bake a terrain map from the world's collision into Target. Bounds left invalid = the bounds of the
 	 * level's static geometry. Marks the target dirty; does not save.

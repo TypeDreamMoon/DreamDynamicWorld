@@ -15,6 +15,7 @@ class UMaterialParameterCollectionInstance;
 class UTextureRenderTargetVolume;
 class UTextureRenderTarget2D;
 class UDreamWindTerrainMap;
+class UDreamWindPreset;
 class FDreamWindVolumeRenderer;
 class FDreamWindViewExtension;
 
@@ -130,6 +131,17 @@ public:
 	/** Convenience: change only direction and speed, keeping gust/turbulence settings. */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind")
 	void SetGlobalWindDirectionAndSpeed(FVector Direction, float Speed, float BlendTime = 0.0f);
+
+	/** Blend to a preset's wind over BlendTime seconds (0 = snap). Null presets are ignored. */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind")
+	void ApplyPreset(const UDreamWindPreset* Preset, float BlendTime = 2.0f);
+
+	/**
+	 * Blend to a preset's wind but keep the current direction - for weather that changes strength
+	 * without turning (or when the level's ADreamWindGlobal owns the direction).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind")
+	void ApplyPresetKeepDirection(const UDreamWindPreset* Preset, float BlendTime = 2.0f);
 
 	/** The global wind currently in effect (mid-blend values included). */
 	UFUNCTION(BlueprintPure, Category = "DreamWind")

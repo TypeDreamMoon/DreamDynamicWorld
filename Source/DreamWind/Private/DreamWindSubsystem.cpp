@@ -4,6 +4,7 @@
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
 #include "DreamWindSourceComponent.h"
+#include "DreamWindPreset.h"
 #include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
 #include "DreamWindViewExtension.h"
@@ -994,6 +995,24 @@ void UDreamWindSubsystem::SetGlobalWindDirectionAndSpeed(FVector Direction, floa
 	Wind.Direction = Direction;
 	Wind.Speed = FMath::Max(Speed, 0.0f);
 	SetGlobalWind(Wind, BlendTime);
+}
+
+void UDreamWindSubsystem::ApplyPreset(const UDreamWindPreset* Preset, float BlendTime)
+{
+	if (Preset)
+	{
+		SetGlobalWind(Preset->Wind, BlendTime);
+	}
+}
+
+void UDreamWindSubsystem::ApplyPresetKeepDirection(const UDreamWindPreset* Preset, float BlendTime)
+{
+	if (Preset)
+	{
+		FDreamWindGlobalWind Wind = Preset->Wind;
+		Wind.Direction = BlendDuration > 0.0f ? BlendToWind.Direction : CurrentWind.Direction;
+		SetGlobalWind(Wind, BlendTime);
+	}
 }
 
 FVector UDreamWindSubsystem::GetGlobalWindDirection() const

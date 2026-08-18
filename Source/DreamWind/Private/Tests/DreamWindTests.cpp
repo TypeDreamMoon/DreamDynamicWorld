@@ -9,6 +9,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "DreamWindHlslShim.h"
+#include "DreamWindPreset.h"
 #include "DreamWindSettings.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindTypes.h"
@@ -400,6 +401,43 @@ bool FDreamWindSubsystemTickTest::RunTest(const FString& Parameters)
 	Wind->CancelImpulse(Handle);
 	Wind->Tick(1.0f / 60.0f);
 	TestEqual(TEXT("No live sources after cancel"), Wind->GetLiveSourceCount(), 0);
+
+	// a shelter component desc through the live path: calm inside, untouched outside
+	{
+		FDreamWindSourceDesc Shelter;
+		Shelter.Type = EDreamWindSourceType::Shelter;
+		Shelter.Position = Centre + FVector(3000, 0, 0);
+		Shelter.BoxExtent = FVector(400, 400, 300);
+		Shelter.BoxRotation = FRotator(0, 45, 0);
+		Shelter.Strength = 0.0f;
+		Shelter.InnerRadiusFraction = 0.6f;
+		const FDreamWindImpulseHandle ShelterHandle = Wind->AddImpulse(Shelter, 5.0f, 0.0f);
+		Wind->Tick(1.0f / 60.0f);
+		TestEqual(TEXT("Shelter impulse is a live source"), Wind->GetLiveSourceCount(), 1);
+		const FDreamWindSampleResult Inside = Wind->SampleWind(Shelter.Position, EDreamWindQuality::Cheap);
+		TestTrue(TEXT("Shelter interior is calm"), Inside.Speed < 1.0f);
+		const FDreamWindSampleResult Outside = Wind->SampleWind(Shelter.Position + FVector(0, 0, 900), EDreamWindQuality::Cheap);
+		TestTrue(TEXT("Above the shelter the wind is untouched"), FMath::Abs(Outside.Velocity.X - 500.0) < 1.0);
+		Wind->CancelImpulse(ShelterHandle);
+		Wind->Tick(1.0f / 60.0f);
+	}
+
+	// presets: the shipped storm preset blends in (0 s = snap) and keeps the current direction on request
+	if (const UDreamWindPreset* Storm = LoadObject<UDreamWindPreset>(nullptr, TEXT("/DreamWind/Presets/DWP_Storm.DWP_Storm")))
+	{
+		Wind->SetGlobalWindDirectionAndSpeed(FVector(0, 1, 0), 500.0f, 0.0f);
+		Wind->ApplyPresetKeepDirection(Storm, 0.0f);
+		Wind->Tick(1.0f / 60.0f);
+		TestTrue(TEXT("Preset speed applied"), FMath::IsNearlyEqual(Wind->GetGlobalWind().Speed, Storm->Wind.Speed));
+		TestTrue(TEXT("Direction kept"), Wind->GetGlobalWindDirection().Y > 0.99);
+		Wind->ApplyPreset(Storm, 0.0f);
+		Wind->Tick(1.0f / 60.0f);
+		TestTrue(TEXT("Preset direction applied"), Wind->GetGlobalWindDirection().X > 0.99);
+	}
+	else
+	{
+		AddInfo(TEXT("DWP_Storm not found - preset check skipped"));
+	}
 
 	// restore the project default so the session is not left with the test wind
 	Wind->SetGlobalWind(UDreamWindSettings::Get()->DefaultWind, 0.0f);

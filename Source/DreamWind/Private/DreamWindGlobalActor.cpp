@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWindGlobalActor.h"
+#include "DreamWindPreset.h"
 #include "DreamWindModule.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindSettings.h"
@@ -55,7 +56,7 @@ void ADreamWindGlobal::ApplyToWorld()
 	{
 		if (UDreamWindSubsystem* Subsystem = World->GetSubsystem<UDreamWindSubsystem>())
 		{
-			Subsystem->SetGlobalWind(Wind, BlendTime);
+			Subsystem->SetGlobalWind(Preset ? Preset->Wind : Wind, BlendTime);
 			if (TerrainMap)
 			{
 				Subsystem->SetTerrainMap(TerrainMap);

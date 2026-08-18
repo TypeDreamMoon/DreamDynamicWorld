@@ -10,6 +10,7 @@
 
 class UArrowComponent;
 class UBillboardComponent;
+class UDreamWindPreset;
 
 /**
  * Level authoring for the global wind: place one per level. Its arrow shows the direction, and its
@@ -25,7 +26,11 @@ class DREAMWIND_API ADreamWindGlobal : public AInfo
 public:
 	ADreamWindGlobal();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ShowOnlyInnerProperties))
+	/** When set, this preset's wind is applied instead of the inline Wind below. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind")
+	TObjectPtr<UDreamWindPreset> Preset;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ShowOnlyInnerProperties, EditCondition = "Preset == nullptr"))
 	FDreamWindGlobalWind Wind;
 
 	/** Seconds to blend from whatever wind is in effect when this actor applies (0 = snap). */

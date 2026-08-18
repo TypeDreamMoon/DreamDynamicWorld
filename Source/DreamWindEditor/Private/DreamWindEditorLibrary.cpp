@@ -3,6 +3,7 @@
 #include "DreamWindEditorLibrary.h"
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
+#include "DreamWindPreset.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -209,5 +210,58 @@ bool UDreamWindEditorLibrary::EnsureAssets(bool bSaveAssets)
 	const bool bMPC = EnsureParameterCollection(bSaveAssets) != nullptr;
 	const bool bRT = EnsureVolumeTexture(bSaveAssets) != nullptr;
 	const bool bTerrain = EnsureTerrainTexture(bSaveAssets) != nullptr;
-	return bMPC && bRT && bTerrain;
+	const bool bPresets = EnsurePresets(bSaveAssets);
+	return bMPC && bRT && bTerrain && bPresets;
+}
+
+bool UDreamWindEditorLibrary::EnsurePresets(bool bSaveAssets)
+{
+	using namespace DreamWind::EditorSetup;
+
+	struct FPresetSpec
+	{
+		const TCHAR* Name;
+		const TCHAR* Description;
+		float Speed, GustStrength, GustWavelength, GustSpeedScale, GustFrequency, TurbulenceStrength, TurbulenceWavelength;
+	};
+	// Speeds in cm/s: 150 = leaves rustle, 600 = a fresh breeze, 2200 = a gale (Beaufort 8-9)
+	static const FPresetSpec Specs[] = {
+		{ TEXT("DWP_Calm"),   TEXT("Barely there: leaves rustle, grass tips tremble. Interiors, dawn, cutscenes."),        150.0f, 0.25f, 3000.0f, 0.8f, 0.10f, 0.20f,  700.0f },
+		{ TEXT("DWP_Breeze"), TEXT("A fresh breeze with visible gust fronts - the everyday outdoor wind."),                600.0f, 0.50f, 4000.0f, 0.8f, 0.15f, 0.35f,  900.0f },
+		{ TEXT("DWP_Storm"),  TEXT("Gale: everything leans, long violent gust fronts, strong lateral turbulence."),      2200.0f, 0.85f, 7000.0f, 0.9f, 0.25f, 0.60f, 1400.0f },
+	};
+
+	bool bAllOk = true;
+	for (const FPresetSpec& Spec : Specs)
+	{
+		const FString PackageName = FString::Printf(TEXT("/DreamWind/Presets/%s"), Spec.Name);
+		if (UDreamWindPreset* Existing = LoadObject<UDreamWindPreset>(nullptr, *(PackageName + TEXT(".") + Spec.Name)))
+		{
+			continue; // designers may have tuned it
+		}
+		UPackage* Package = CreatePackage(*PackageName);
+		if (!Package)
+		{
+			UE_LOG(LogDreamWind, Error, TEXT("Cannot create package '%s'."), *PackageName);
+			bAllOk = false;
+			continue;
+		}
+		Package->FullyLoad();
+		UDreamWindPreset* Preset = NewObject<UDreamWindPreset>(Package, Spec.Name, RF_Public | RF_Standalone);
+		Preset->Description = FText::FromString(Spec.Description);
+		Preset->Wind.Direction = FVector(1.0, 0.0, 0.0);
+		Preset->Wind.Speed = Spec.Speed;
+		Preset->Wind.GustStrength = Spec.GustStrength;
+		Preset->Wind.GustWavelength = Spec.GustWavelength;
+		Preset->Wind.GustSpeedScale = Spec.GustSpeedScale;
+		Preset->Wind.GustFrequency = Spec.GustFrequency;
+		Preset->Wind.TurbulenceStrength = Spec.TurbulenceStrength;
+		Preset->Wind.TurbulenceWavelength = Spec.TurbulenceWavelength;
+		FAssetRegistryModule::AssetCreated(Preset);
+		if (bSaveAssets && !SavePackageFor(Preset))
+		{
+			bAllOk = false;
+		}
+	}
+	return bAllOk;
 }
