@@ -821,7 +821,7 @@ void UDreamWindSubsystem::UpdateTerrainTexture()
 						.SetFlags(ETextureCreateFlags::ShaderResource)
 						.SetInitialState(ERHIAccess::CopySrc)
 						.SetInitActionBulkData(&BulkData);
-					FTextureRHIRef Staging = RHICreateTexture(Desc);
+					FTextureRHIRef Staging = RHICmdList.CreateTexture(Desc);
 					if (Staging.IsValid())
 					{
 						TransitionAndCopyTexture(RHICmdList, Staging, Dst, FRHICopyTextureInfo());
