@@ -1,0 +1,58 @@
+// DreamWind debug: paints the wind field on any surface.
+//
+//   hue        = horizontal wind direction (red +X, green +Y, blue -X, ...)
+//   brightness = speed / SpeedForFullBrightness
+//   stripes    = gust fronts (bright bands travelling downwind)
+//
+// Put it on a big flat plane, fire impulses, walk the camera around: you see the analytic gust
+// fronts, the curl turbulence, and (with "Wind High Quality" on) the dynamic volume window.
+
+VirtualFunction(Name="MF_DreamWindSample")
+{
+	Options = {
+		Asset = Path(Plugins.DreamWind, "MaterialFunctions/MF_DreamWindSample");
+		Description = "DreamWind wind sample: Velocity (cm/s), Gust, Speed, Direction at a world position.";
+	}
+	Inputs = {
+		vec3 WorldPosition;
+	}
+	Outputs = {
+		vec3  Velocity;
+		float Gust;
+		float Speed;
+		vec3  Direction;
+	}
+}
+
+Shader(Name="Materials/M_DreamWindDebug", Root="Plugin.DreamWind")
+{
+	Properties = {
+		float SpeedForFullBrightness = 1200.0 [Group="Debug"; Desc="cm/s that maps to full brightness"];
+		float GustContrast = 0.35 [Group="Debug"; Desc="how strongly the gust factor modulates the brightness"];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "Unlit";
+		TwoSided = true;
+	}
+
+	Outputs = {
+		vec3 Color;
+		Base.EmissiveColor = Color;
+	}
+
+	Graph = {
+		float3 WorldPos = UE.WorldPosition();
+		float3 Velocity; float Gust; float Speed; float3 Direction;
+		MF_DreamWindSample(WorldPos, Velocity, Gust, Speed, Direction);
+
+		// direction -> colour: +X red, +Y green, -X cyan-ish, -Y magenta-ish (a cheap hue wheel)
+		float3 DirColor = saturate(float3(Direction.x, Direction.y, -Direction.x) * 0.5 + 0.5);
+		float Brightness = saturate(Speed / max(SpeedForFullBrightness, 1.0));
+		float GustBand = lerp(1.0, saturate(Gust), GustContrast);
+		Color = DirColor * Brightness * GustBand;
+	}
+}

@@ -1,0 +1,82 @@
+// DreamWind demo: grass / small foliage bent by the world wind through World Position Offset.
+//
+// One call to MF_DreamWindSample gives the wind at the vertex; the tip mask (UV V or vertex colour
+// red, per mesh) turns velocity into bend, and a gust-scaled sine adds side flutter. Sampled at
+// "Wind High Quality = false" by default: the cheap analytic wind, no texture fetch, three noise
+// evaluations per vertex.
+//
+// Performance reminder: set World Position Offset Disable Distance on the foliage type / mesh so far
+// instances stop animating (and stop invalidating VSM pages) — see the plugin README.
+
+VirtualFunction(Name="MF_DreamWindSample")
+{
+	Options = {
+		Asset = Path(Plugins.DreamWind, "MaterialFunctions/MF_DreamWindSample");
+		Description = "DreamWind wind sample: Velocity (cm/s), Gust, Speed, Direction at a world position.";
+	}
+	Inputs = {
+		vec3 WorldPosition;
+	}
+	Outputs = {
+		vec3  Velocity;
+		float Gust;
+		float Speed;
+		vec3  Direction;
+	}
+}
+
+Shader(Name="Materials/M_DreamWindGrass", Root="Plugin.DreamWind")
+{
+	Properties = {
+		vec3  TipColor  = vec3(0.36, 0.62, 0.16) [Group="Color"];
+		vec3  RootColor = vec3(0.10, 0.22, 0.05) [Group="Color"];
+		float Roughness = 0.85                   [Group="Color"];
+
+		float WindResponse   = 0.06 [Group="Wind"; Desc="cm of tip bend per cm/s of wind. 0.06 at 600 cm/s bends 36 cm."];
+		float FlutterAmount  = 5.0  [Group="Wind"; Desc="cm of side-to-side tip flutter at full gust."];
+		float FlutterSpeed   = 9.0  [Group="Wind"; Desc="flutter frequency, rad/s."];
+		float MaskFromVertexColor = 0.0 [Group="Wind"; Desc="0 = tip mask from 1-UV.y (card grass), 1 = from vertex colour red."];
+		float MaskPower      = 1.5  [Group="Wind"; Desc="stiffens the blade toward the root."];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "DefaultLit";
+		TwoSided = true;
+		bUsedWithInstancedStaticMeshes = true;
+		bUsedWithNanite = true;
+	}
+
+	Outputs = {
+		vec3  BaseColor;
+		vec3  Offset;
+		float Rough;
+		Base.BaseColor = BaseColor;
+		Base.WorldPositionOffset = Offset;
+		Base.Roughness = Rough;
+	}
+
+	Graph = {
+		float3 WorldPos = UE.WorldPosition();
+		float3 Velocity; float Gust; float Speed; float3 Direction;
+		MF_DreamWindSample(WorldPos, Velocity, Gust, Speed, Direction);
+
+		// tip mask: 1 at the tip, 0 at the root
+		float2 UV = UE.TexCoord();
+		float4 VC = UE.VertexColor();
+		float Mask = pow(saturate(lerp(1.0 - UV.y, VC.r, MaskFromVertexColor)), MaskPower);
+
+		// bend along the wind
+		float3 Bend = Velocity * (WindResponse * Mask);
+
+		// flutter across the wind, stronger in gusts, gone in calm air
+		float Phase = UE.Time() * FlutterSpeed + (WorldPos.x + WorldPos.y) * 0.02 + UE.PerInstanceRandom() * 6.2831;
+		float Flutter = sin(Phase) * FlutterAmount * Mask * Mask * saturate(Speed * 0.002) * Gust;
+		Offset = Bend + float3(-Direction.y * Flutter, Direction.x * Flutter, 0.0);
+
+		BaseColor = lerp(RootColor, TipColor, Mask);
+		Rough = Roughness;
+	}
+}
