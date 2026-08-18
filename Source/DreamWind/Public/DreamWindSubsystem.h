@@ -278,6 +278,9 @@ private:
 	FVector SnapToVoxels(const FVector& Center, float VoxelSize) const;
 	void UpdateDebugDisplay();
 	void DrawDebug();
+	void DrawDebugField(UWorld* World);
+	/** Player camera in game worlds, the last reported view origin in the editor. */
+	FVector FindCameraLocation() const;
 	void ResolveAssets();
 	FVector ChooseVolumeCenter() const;
 

@@ -53,7 +53,31 @@ namespace DreamWind
 		TEXT("Override the dynamic volume: -1 = project setting, 0 = off, 1 = on."), ECVF_Default);
 	static int32 GCVarDebugDraw = 0;
 	static FAutoConsoleVariableRef CVarDebugDraw(TEXT("DreamWind.DebugDraw"), GCVarDebugDraw,
-		TEXT("Draw the wind: 1 = volume window, sources and the global direction; 2 = also a field of arrows around the volume centre."), ECVF_Default);
+		TEXT("Draw the wind: 1 = volume windows, sources and the global direction; 2 = also the arrow field (a lattice fixed in world space, drawn around the camera); 3 = the arrow field only."), ECVF_Default);
+	static int32 GCVarDebugField3D = 1;
+	static FAutoConsoleVariableRef CVarDebugField3D(TEXT("DreamWind.DebugDraw.Field3D"), GCVarDebugField3D,
+		TEXT("Arrow field shape: 1 = a 3D lattice inside a sphere of Range around the camera (default); 0 = flat sheet(s): Layers horizontal layers starting at world Z = Height, within Range in XY."), ECVF_Default);
+	static float GCVarDebugRange = 2000.0f;
+	static FAutoConsoleVariableRef CVarDebugRange(TEXT("DreamWind.DebugDraw.Range"), GCVarDebugRange,
+		TEXT("Arrow field: radius around the camera (cm) inside which lattice cells are drawn. Default 2000."), ECVF_Default);
+	static float GCVarDebugSpacing = 250.0f;
+	static FAutoConsoleVariableRef CVarDebugSpacing(TEXT("DreamWind.DebugDraw.Spacing"), GCVarDebugSpacing,
+		TEXT("Arrow field: lattice spacing (cm); the lattice is anchored at the world origin in X, Y and Z. Default 250. Widened automatically when the range would need more than 4096 cells."), ECVF_Default);
+	static float GCVarDebugHeight = 100.0f;
+	static FAutoConsoleVariableRef CVarDebugHeight(TEXT("DreamWind.DebugDraw.Height"), GCVarDebugHeight,
+		TEXT("Arrow field, sheet mode (Field3D 0): world Z of the first layer (cm). Default 100."), ECVF_Default);
+	static int32 GCVarDebugLayers = 1;
+	static FAutoConsoleVariableRef CVarDebugLayers(TEXT("DreamWind.DebugDraw.Layers"), GCVarDebugLayers,
+		TEXT("Arrow field, sheet mode (Field3D 0): number of horizontal layers, one Spacing apart, starting at Height. Default 1."), ECVF_Default);
+	static float GCVarDebugMaxSpeed = 1500.0f;
+	static FAutoConsoleVariableRef CVarDebugMaxSpeed(TEXT("DreamWind.DebugDraw.MaxSpeed"), GCVarDebugMaxSpeed,
+		TEXT("Arrow field: wind speed (cm/s) that maps to the top of the colour ramp / full brightness. Default 1500."), ECVF_Default);
+	static float GCVarDebugScale = 0.25f;
+	static FAutoConsoleVariableRef CVarDebugScale(TEXT("DreamWind.DebugDraw.Scale"), GCVarDebugScale,
+		TEXT("Arrow field: arrow length in cm per cm/s of wind (clamped to 90% of the spacing). Default 0.25."), ECVF_Default);
+	static int32 GCVarDebugColor = 0;
+	static FAutoConsoleVariableRef CVarDebugColor(TEXT("DreamWind.DebugDraw.Color"), GCVarDebugColor,
+		TEXT("Arrow field colouring: 0 = speed ramp (blue -> green -> yellow -> red up to MaxSpeed), 1 = direction hue like M_DreamWindDebug (+X red, +Y green, -X cyan) with brightness = speed, 2 = gust factor (blue = lull, white = nominal, red = strong gust)."), ECVF_Default);
 	static float GCVarTimeScale = -1.0f;
 	static FAutoConsoleVariableRef CVarTimeScale(TEXT("DreamWind.TimeScale"), GCVarTimeScale,
 		TEXT("Override the wind time scale: <0 = the value set through the API (default 1), 0 freezes the wind."), ECVF_Default);
@@ -450,27 +474,7 @@ FVector UDreamWindSubsystem::ChooseVolumeCenter() const
 	}
 	else
 	{
-		bool bFound = false;
-		if (const UWorld* World = GetWorld(); World && World->IsGameWorld())
-		{
-			if (const APlayerController* PC = World->GetFirstPlayerController())
-			{
-				if (PC->PlayerCameraManager)
-				{
-					Center = PC->PlayerCameraManager->GetCameraLocation();
-					bFound = true;
-				}
-				else if (const APawn* Pawn = PC->GetPawn())
-				{
-					Center = Pawn->GetActorLocation();
-					bFound = true;
-				}
-			}
-		}
-		if (!bFound && bHasViewOrigin)
-		{
-			Center = LatestViewOrigin;
-		}
+		Center = FindCameraLocation();
 	}
 
 	return Center;
@@ -900,6 +904,11 @@ void UDreamWindSubsystem::DrawDebug()
 		return;
 	}
 	using namespace DreamWind::Hlsl;
+	if (DreamWind::GCVarDebugDraw >= 3)
+	{
+		DrawDebugField(World);
+		return;
+	}
 	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
 	const FVector Dir = DreamWind::SafeDirection(CurrentWind.Direction);
 
@@ -950,22 +959,134 @@ void UDreamWindSubsystem::DrawDebug()
 		}
 	}
 
-	// a coarse field of arrows: what the CPU sample says around the centre (level 2)
+	// the arrow field (levels 2 and 3)
 	if (DreamWind::GCVarDebugDraw >= 2)
 	{
-		const float Spacing = 400.0f;
-		for (int32 X = -6; X <= 6; ++X)
+		DrawDebugField(World);
+	}
+}
+
+namespace DreamWind
+{
+	static FColor SpeedRampColor(float T)
+	{
+		// blue -> green -> yellow -> red
+		static const FLinearColor Stops[4] = { FLinearColor(0.15f, 0.35f, 1.0f), FLinearColor(0.15f, 0.9f, 0.45f), FLinearColor(1.0f, 0.85f, 0.15f), FLinearColor(1.0f, 0.15f, 0.1f) };
+		T = FMath::Clamp(T, 0.0f, 1.0f) * 3.0f;
+		const int32 I = FMath::Min(int32(T), 2);
+		return FMath::Lerp(Stops[I], Stops[I + 1], T - float(I)).ToFColor(false);
+	}
+
+	static FColor DirectionHueColor(const FVector& Dir, float Brightness)
+	{
+		// the same wheel as M_DreamWindDebug: +X red, +Y green, -X cyan-ish, -Y magenta-ish
+		const FLinearColor C(FMath::Clamp(float(Dir.X) * 0.5f + 0.5f, 0.0f, 1.0f), FMath::Clamp(float(Dir.Y) * 0.5f + 0.5f, 0.0f, 1.0f), FMath::Clamp(float(-Dir.X) * 0.5f + 0.5f, 0.0f, 1.0f));
+		return (C * FMath::Clamp(Brightness, 0.08f, 1.0f)).ToFColor(false);
+	}
+
+	static FColor GustColor(float Gust)
+	{
+		// lull (0) blue, nominal (1) white, strong gust (2) red
+		const FLinearColor C = Gust < 1.0f
+			? FMath::Lerp(FLinearColor(0.2f, 0.4f, 1.0f), FLinearColor::White, FMath::Clamp(Gust, 0.0f, 1.0f))
+			: FMath::Lerp(FLinearColor::White, FLinearColor(1.0f, 0.15f, 0.1f), FMath::Clamp(Gust - 1.0f, 0.0f, 1.0f));
+		return C.ToFColor(false);
+	}
+}
+
+void UDreamWindSubsystem::DrawDebugField(UWorld* World)
+{
+	// A 3D lattice anchored at the world origin (X, Y and Z): the arrows stay put while the camera moves
+	// and cells appear/disappear at the range boundary. Sampled with the CPU path (analytic + terrain +
+	// sources, no volume read-back), so it is exactly what cloth and gameplay queries see.
+	const FVector Cam = FindCameraLocation();
+	const bool b3D = DreamWind::GCVarDebugField3D != 0;
+	const float Range = FMath::Max(DreamWind::GCVarDebugRange, 50.0f);
+	const int32 Layers = b3D ? 1 : FMath::Clamp(DreamWind::GCVarDebugLayers, 1, 16);
+	float Spacing = FMath::Max(DreamWind::GCVarDebugSpacing, 10.0f);
+	{
+		// keep the cell count sane whatever the range: widen the lattice instead of dropping cells
+		constexpr float MaxCells = 4096.0f;
+		const float Needed = b3D
+			? (4.0f / 3.0f) * PI * FMath::Cube(Range / Spacing)
+			: PI * FMath::Square(Range / Spacing) * float(Layers);
+		if (Needed > MaxCells)
 		{
-			for (int32 Y = -6; Y <= 6; ++Y)
+			Spacing = b3D
+				? Range * FMath::Pow((4.0f / 3.0f) * PI / MaxCells, 1.0f / 3.0f)
+				: Range * FMath::Sqrt(PI * float(Layers) / MaxCells);
+		}
+	}
+	const float MaxSpeed = FMath::Max(DreamWind::GCVarDebugMaxSpeed, 1.0f);
+	const float Scale = FMath::Max(DreamWind::GCVarDebugScale, 0.0f);
+	const int32 ColorMode = DreamWind::GCVarDebugColor;
+
+	const int32 X0 = FMath::FloorToInt(float(Cam.X - Range) / Spacing), X1 = FMath::CeilToInt(float(Cam.X + Range) / Spacing);
+	const int32 Y0 = FMath::FloorToInt(float(Cam.Y - Range) / Spacing), Y1 = FMath::CeilToInt(float(Cam.Y + Range) / Spacing);
+	// 3D: every lattice plane inside the sphere; sheet mode: Layers planes from Height upward
+	const int32 Z0 = b3D ? FMath::FloorToInt(float(Cam.Z - Range) / Spacing) : 0;
+	const int32 Z1 = b3D ? FMath::CeilToInt(float(Cam.Z + Range) / Spacing) : Layers - 1;
+	const float RangeSq = Range * Range;
+	const float TooCloseSq = FMath::Square(Spacing * 0.6f); // do not draw cells sitting on the lens
+	int32 Drawn = 0;
+	for (int32 L = Z0; L <= Z1; ++L)
+	{
+		const double Z = b3D ? double(L) * Spacing : double(DreamWind::GCVarDebugHeight) + double(L) * Spacing;
+		for (int32 X = X0; X <= X1; ++X)
+		{
+			for (int32 Y = Y0; Y <= Y1; ++Y)
 			{
-				const FVector P = VolumeCenter + FVector(X * Spacing, Y * Spacing, 0.0);
+				const FVector P(double(X) * Spacing, double(Y) * Spacing, Z);
+				const float DistSq = b3D ? float(FVector::DistSquared(P, Cam)) : float(FVector::DistSquaredXY(P, Cam));
+				if (DistSq > RangeSq || DistSq < TooCloseSq)
+				{
+					continue;
+				}
 				const FDreamWindSampleResult R = SampleWind(P, EDreamWindQuality::Cheap);
-				const float Len = FMath::Clamp(R.Speed * 0.25f, 10.0f, Spacing * 0.9f);
-				const uint8 G = uint8(FMath::Clamp(R.Gust, 0.0f, 2.0f) * 127.0f);
-				DrawDebugDirectionalArrow(World, P, P + R.Direction * Len, 25.0f, FColor(255, G, 60), false, -1.0f, 0, 1.5f);
+				const float Speed01 = FMath::Clamp(R.Speed / MaxSpeed, 0.0f, 1.0f);
+				FColor Colour;
+				switch (ColorMode)
+				{
+				case 1:  Colour = DreamWind::DirectionHueColor(R.Direction, Speed01); break;
+				case 2:  Colour = DreamWind::GustColor(R.Gust); break;
+				default: Colour = DreamWind::SpeedRampColor(Speed01); break;
+				}
+				if (R.Speed < MaxSpeed * 0.01f)
+				{
+					// calm cell (a shelter, the eye of a vortex): a dot, so calm reads as calm and not as "no data"
+					DrawDebugPoint(World, P, 5.0f, Colour, false, -1.0f, 0);
+				}
+				else
+				{
+					const float Len = FMath::Clamp(R.Speed * Scale, Spacing * 0.08f, Spacing * 0.9f);
+					DrawDebugDirectionalArrow(World, P, P + R.Direction * Len, FMath::Clamp(Len * 0.25f, 6.0f, 40.0f), Colour, false, -1.0f, 0, 1.0f + 2.0f * Speed01);
+				}
+				++Drawn;
 			}
 		}
 	}
+
+	static const TCHAR* ColorNames[] = { TEXT("speed"), TEXT("direction"), TEXT("gust") };
+	DrawDebugString(World, Cam + FVector(0, 0, -60), FString::Printf(TEXT("DreamWind field (%s): %d cells, spacing %.0f, range %.0f, colour = %s (0..%.0f cm/s)"), b3D ? TEXT("3D") : TEXT("sheet"), Drawn, Spacing, Range, ColorNames[FMath::Clamp(ColorMode, 0, 2)], MaxSpeed), nullptr, FColor(200, 200, 200), 0.0f, true);
+}
+
+FVector UDreamWindSubsystem::FindCameraLocation() const
+{
+	if (const UWorld* World = GetWorld(); World && World->IsGameWorld())
+	{
+		if (const APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (PC->PlayerCameraManager)
+			{
+				return PC->PlayerCameraManager->GetCameraLocation();
+			}
+			if (const APawn* Pawn = PC->GetPawn())
+			{
+				return Pawn->GetActorLocation();
+			}
+		}
+	}
+	return bHasViewOrigin ? LatestViewOrigin : VolumeCenter;
 }
 
 // -------------------------------------------------------------------------------------------------

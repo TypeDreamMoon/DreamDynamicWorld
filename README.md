@@ -77,8 +77,21 @@ sample and the Niagara DI apply them directly, materials get them through the dy
 cap is reached. `ADreamWindSourceActor` draws the box.
 
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
-tests), `DreamWind.TimeScale`, `DreamWind.DebugDraw 1` (volume windows, sources, global arrow) or `2`
-(also a field of CPU-sampled arrows around the volume centre).
+tests), `DreamWind.TimeScale`, and the debug view:
+
+* `DreamWind.DebugDraw 1` — volume windows, sources (spheres / shelter boxes), the global arrow;
+  `2` — also the **arrow field**; `3` — the arrow field only.
+* The arrow field is a **3D lattice fixed in world space** (anchored at the world origin in X, Y and Z),
+  and only the cells inside `DreamWind.DebugDraw.Range` (cm, default 2000) of the **player camera**
+  (the viewport camera in the editor) are drawn — walk through it and the arrows stay put. Each cell is
+  one CPU sample (analytic + terrain + sources, what cloth and gameplay see): the arrow points along the
+  wind, its length is `Speed × DreamWind.DebugDraw.Scale` (default 0.25 cm per cm/s), and its colour is
+  `DreamWind.DebugDraw.Color` — `0` speed ramp blue → green → yellow → red up to
+  `DreamWind.DebugDraw.MaxSpeed` (1500), `1` direction hue (the same wheel as `M_DreamWindDebug`),
+  `2` gust factor (blue lull → white → red gust). Calm cells (shelters, the eye of a vortex) draw as dots.
+* `DreamWind.DebugDraw.Spacing` (default 250 cm) is widened automatically if the range would need more
+  than 4096 cells; `DreamWind.DebugDraw.Field3D 0` gives flat sheet(s) instead — `Layers` planes from
+  world Z `Height` upward.
 
 ## Test map
 
@@ -98,8 +111,10 @@ DreamWind Content ▸ Maps; make sure the viewport is **Realtime**). It has ever
   dark) and a two-wall **corridor** whose shelter is a 900 cm/s wind zone along it.
 
 Try: select `DreamWindGlobal` and drag *Wind ▸ Direction / Speed / Gust Strength*; type
-`DreamWind.DebugDraw 2` for the CPU arrow field; toggle *Wind Volume* off on a grass instance to see
-what the analytic layer alone gives; `DreamWind.Volume 0` to A/B the whole volume.
+`DreamWind.DebugDraw 3` for the 3D arrow field (`DreamWind.DebugDraw.Range 3000` to see more of it,
+`.Color 1` for direction hues); toggle *Wind Volume* off on a grass instance to see what the analytic
+layer alone gives; `DreamWind.Volume 0` to A/B the whole volume. The PlayerStart sits between the fan
+lane and the hut, so PIE drops you in the middle of it.
 
 The three demo actors (`DreamWindDemoActors.h`, `DreamWindImpulseEmitter.h`) are plain C++ and stay
 usable in your own levels; none of the runtime depends on them.
