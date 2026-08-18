@@ -64,6 +64,12 @@ ADreamWindGrassField::ADreamWindGrassField()
 	Grass->SetMobility(EComponentMobility::Static);
 	Grass->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Grass->SetCastShadow(false);
+	// Keep the blades out of Lumen's surface cache and the distance-field scene: Lumen builds a card set
+	// per ISM instance and re-captures the ones near the camera as it moves, which for thousands of
+	// blades is hundreds of captures per frame (measured 30-70 ms GPU while flying along the ground).
+	// The blades are tiny and cast no shadow; their GI contribution is not worth that.
+	Grass->bAffectDynamicIndirectLighting = false;
+	Grass->bAffectDistanceFieldLighting = false;
 	Grass->NumCustomDataFloats = 0;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> ConeFinder(TEXT("/Engine/BasicShapes/Cone.Cone"));

@@ -44,9 +44,11 @@ void ADreamWindImpulseEmitter::Fire()
 void ADreamWindImpulseEmitter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (Sphere)
+	// SetSphereRadius recreates the render state; only touch it when the radius actually changed.
+	const float WantedRadius = FMath::Max(Impulse.Radius, 10.0f);
+	if (Sphere && !FMath::IsNearlyEqual(Sphere->GetUnscaledSphereRadius(), WantedRadius))
 	{
-		Sphere->SetSphereRadius(FMath::Max(Impulse.Radius, 10.0f), false);
+		Sphere->SetSphereRadius(WantedRadius, false);
 	}
 	TimeToNext -= DeltaSeconds;
 	if (TimeToNext <= 0.0f)

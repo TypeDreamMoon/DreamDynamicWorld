@@ -29,12 +29,14 @@ System(Name="Effects/NS_DreamWindDebug", Root="Plugin.DreamWind")
             LocalSpace         = false;
             Determinism        = true;
             RandomSeed         = 3;
-            AllocationMode     = Fixed;
+            AllocationMode     = Manual;             // an estimate, not a cap: the grid can be as dense as User.GridX/GridY ask
             PreAllocationCount = 1024;
         }
 
         EmitterUpdate = {
-            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            // One loop that never ends: the grid is spawned exactly once. (An Infinite loop behaviour with
+            // the default 1 s duration re-spawns the grid every second on top of the immortal particles.)
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Once, LoopDurationMode = Infinite);
             SpawnParticlesInGrid(XCount = User.GridX, YCount = User.GridY, ZCount = 1);
         }
 

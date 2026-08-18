@@ -124,6 +124,13 @@ usable in your own levels; none of the runtime depends on them.
 * Measured (i9-14900KF, editor viewport, `ProfileGPU`): near volume update 0.018 ms + far 0.022 ms +
   two 0.004 ms history copies ≈ **0.05 ms GPU** for both levels; `NS_DreamWindLeaves` GPU sim 0.015 ms.
   CPU (`DreamWind.Perf.CpuSample`): cheap sample **0.05 µs**, full **0.09 µs**; sources add a few ns each.
+* **Lumen and instanced wind foliage.** Lumen's surface cache builds a card set per ISM instance and
+  re-captures the ones near the camera as it moves; with thousands of small non-Nanite blades that is
+  the full capture budget every frame (measured on the test map: 227–300 card captures, 33–70 ms GPU
+  in `LumenSceneUpdate`, render thread stalled behind it, 18 fps while flying along the ground).
+  `ADreamWindGrassField` therefore ships with *Affect Dynamic Indirect Lighting* and *Affect Distance
+  Field Lighting* off on its instanced component (2 captures, 0.07 ms, 120 fps at the same spot).
+  Do the same on your own grass/foliage components — the wind is not the cost, the surface cache is.
 
 ## Tests
 

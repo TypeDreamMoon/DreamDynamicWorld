@@ -45,6 +45,9 @@ public:
 /**
  * A field of grass blades (one instanced static mesh, deterministic scatter) using the DreamWind grass
  * material. Rebuilds whenever a property changes; keep Count moderate in the editor.
+ * The instanced component ships with Affect Dynamic Indirect Lighting / Distance Field Lighting off:
+ * dense instanced foliage in Lumen's surface cache costs hundreds of card captures per frame near the
+ * ground. Do the same on your own wind foliage.
  */
 UCLASS(HideCategories = (Input, Replication, Collision, HLOD, Physics, Networking, LevelInstance, DataLayers, Cooking))
 class DREAMWIND_API ADreamWindGrassField : public AActor
