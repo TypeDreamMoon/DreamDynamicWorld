@@ -35,7 +35,7 @@ Shader(Name="Materials/M_DreamWindGrass", Root="Plugin.DreamWind")
 		float WindResponse   = 0.06 [Group="Wind"; Desc="cm of tip bend per cm/s of wind. 0.06 at 600 cm/s bends 36 cm."];
 		float FlutterAmount  = 5.0  [Group="Wind"; Desc="cm of side-to-side tip flutter at full gust."];
 		float FlutterSpeed   = 9.0  [Group="Wind"; Desc="flutter frequency, rad/s."];
-		float MaskFromVertexColor = 0.0 [Group="Wind"; Desc="0 = tip mask from 1-UV.y (card grass), 1 = from vertex colour red."];
+		float MaskMode       = 0.0  [Group="Wind"; Desc="tip mask source: 0 = height inside the mesh's own bounds (works on any mesh), 1 = 1-UV.y (card grass), 2 = vertex colour red."];
 		float MaskPower      = 1.5  [Group="Wind"; Desc="stiffens the blade toward the root."];
 	}
 
@@ -63,10 +63,16 @@ Shader(Name="Materials/M_DreamWindGrass", Root="Plugin.DreamWind")
 		float3 Velocity; float Gust; float Speed; float3 Direction;
 		MF_DreamWindSample(WorldPos, Velocity, Gust, Speed, Direction);
 
-		// tip mask: 1 at the tip, 0 at the root
+		// tip mask: 1 at the tip, 0 at the root. Default = height inside the instance's own local bounds,
+		// so any upright mesh works without authoring; UV / vertex colour for authored foliage.
+		float3 LocalPos    = UE.Expression(Class = LocalPosition, OutputType = float3);
+		float3 BoundsMin   = UE.Expression(Class = Bounds, OutputType = float3, OutputIndex = 2);
+		float3 BoundsSize  = UE.Expression(Class = Bounds, OutputType = float3, OutputIndex = 1);
+		float  HeightMask  = saturate((LocalPos.z - BoundsMin.z) / max(BoundsSize.z, 1.0));
 		float2 UV = UE.TexCoord();
 		float4 VC = UE.VertexColor();
-		float Mask = pow(saturate(lerp(1.0 - UV.y, VC.r, MaskFromVertexColor)), MaskPower);
+		float  Mask = lerp(lerp(HeightMask, 1.0 - UV.y, saturate(MaskMode)), VC.r, saturate(MaskMode - 1.0));
+		Mask = pow(Mask, MaskPower);
 
 		// bend along the wind
 		float3 Bend = Velocity * (WindResponse * Mask);

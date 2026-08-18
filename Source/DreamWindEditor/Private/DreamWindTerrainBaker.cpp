@@ -216,9 +216,14 @@ bool UDreamWindEditorLibrary::BakeTerrainMapForActor(ADreamWindGlobal* Actor)
 	bool bCreated = false;
 	if (!Map)
 	{
-		// next to the level: /Game/Maps/Foo -> /Game/Maps/Foo_WindTerrain
+		// next to the level: /Game/Maps/Foo -> /Game/Maps/Foo_WindTerrain. An unsaved or engine-owned
+		// level (untitled, a template) gets its map under /Game instead of polluting /Temp or /Engine.
 		const FString LevelPackage = World->GetOutermost()->GetName();
-		const FString PackageName = LevelPackage + TEXT("_WindTerrain");
+		FString PackageName = LevelPackage + TEXT("_WindTerrain");
+		if (LevelPackage.StartsWith(TEXT("/Engine/")) || LevelPackage.StartsWith(TEXT("/Temp/")) || !FPackageName::IsValidLongPackageName(LevelPackage))
+		{
+			PackageName = TEXT("/Game/DreamWind/Terrain/") + World->GetName() + TEXT("_WindTerrain");
+		}
 		const FString AssetName = FPackageName::GetLongPackageAssetName(PackageName);
 		UPackage* Package = CreatePackage(*PackageName);
 		Package->FullyLoad();

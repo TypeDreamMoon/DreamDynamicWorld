@@ -65,6 +65,28 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
 tests), `DreamWind.TimeScale`, `DreamWind.DebugDraw 1` (volume windows, sources, global arrow) or `2`
 (also a field of CPU-sampled arrows around the volume centre).
 
+## Test map
+
+Open **`/DreamWind/Maps/Lvl_DreamWindTest`** (Content Browser ▸ Settings ▸ *Show Plugin Content* ▸
+DreamWind Content ▸ Maps; make sure the viewport is **Realtime**). It has everything wired up:
+
+* a 9 000-blade `ADreamWindGrassField` (engine cone + `M_DreamWindGrass`, bounds-based tip mask), the
+  green tips lean with the global wind and ripple with the gusts;
+* a `WindDebugPlane` (`M_DreamWindDebug`: hue = direction, brightness = speed) with the CPU
+  `NS_WindArrows` grid on top, and the GPU `NS_Leaves` drifting over the field;
+* four "hills" (cubes) and a baked `Lvl_DreamWindTest_WindTerrain` on `DreamWindGlobal`, so wind speeds
+  up on the tops and steers around them;
+* an `ADreamWindSourceActor` **fan lane** (directional source, arrow shows the push), a **vortex**
+  source, and an `ADreamWindImpulseEmitter` that fires a radial burst every 4 s — all live in the
+  editor viewport, no PIE needed.
+
+Try: select `DreamWindGlobal` and drag *Wind ▸ Direction / Speed / Gust Strength*; type
+`DreamWind.DebugDraw 2` for the CPU arrow field; toggle *Wind Volume* off on a grass instance to see
+what the analytic layer alone gives; `DreamWind.Volume 0` to A/B the whole volume.
+
+The three demo actors (`DreamWindDemoActors.h`, `DreamWindImpulseEmitter.h`) are plain C++ and stay
+usable in your own levels; none of the runtime depends on them.
+
 ## Architecture notes
 
 * `Shaders/Shared/DreamWindShared.h` is the single source of the analytic model. It is written in the
@@ -129,10 +151,12 @@ DreamWind/
   Shaders/Shared/DreamWindShared.h        the model (HLSL + C++)
   Shaders/Private/DreamWindVolumeUpdate.usf
   Shaders/Private/NiagaraDataInterfaceDreamWindTemplate.ush
-  Source/DreamWind          runtime: subsystem, settings, source component, global actor, volume renderer
+  Source/DreamWind          runtime: subsystem, settings, source component, global actor, volume renderer,
+                            terrain map, demo actors (source actor, grass field, impulse emitter)
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs
   Content/                  generated assets (MPC, RT, materials, Niagara) — regenerable
+  Content/Maps/             Lvl_DreamWindTest + its baked wind terrain
 ```
