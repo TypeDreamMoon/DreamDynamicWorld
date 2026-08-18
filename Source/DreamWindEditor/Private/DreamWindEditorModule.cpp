@@ -4,6 +4,7 @@
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
 
+#include "DreamWindGlobalActor.h"
 #include "DreamWindSetupCommandlet.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "ISettingsModule.h"
@@ -19,10 +20,15 @@ public:
 	virtual void StartupModule() override
 	{
 		UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FDreamWindEditorModule::RegisterMenus));
+		FDreamWindEditorHooks::BakeTerrainMap.BindLambda([](ADreamWindGlobal* Actor)
+		{
+			UDreamWindEditorLibrary::BakeTerrainMapForActor(Actor);
+		});
 	}
 
 	virtual void ShutdownModule() override
 	{
+		FDreamWindEditorHooks::BakeTerrainMap.Unbind();
 		UToolMenus::UnRegisterStartupCallback(this);
 		UToolMenus::UnregisterOwner(this);
 	}

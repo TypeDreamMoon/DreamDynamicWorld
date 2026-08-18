@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWindGlobalActor.h"
+#include "DreamWindModule.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindSettings.h"
 #include "Components/ArrowComponent.h"
@@ -55,7 +56,23 @@ void ADreamWindGlobal::ApplyToWorld()
 		if (UDreamWindSubsystem* Subsystem = World->GetSubsystem<UDreamWindSubsystem>())
 		{
 			Subsystem->SetGlobalWind(Wind, BlendTime);
+			if (TerrainMap)
+			{
+				Subsystem->SetTerrainMap(TerrainMap);
+			}
 		}
+	}
+}
+
+void ADreamWindGlobal::BakeTerrainMap()
+{
+	if (FDreamWindEditorHooks::BakeTerrainMap.IsBound())
+	{
+		FDreamWindEditorHooks::BakeTerrainMap.Execute(this);
+	}
+	else
+	{
+		UE_LOG(LogDreamWind, Warning, TEXT("BakeTerrainMap needs the DreamWindEditor module (editor builds only)."));
 	}
 }
 

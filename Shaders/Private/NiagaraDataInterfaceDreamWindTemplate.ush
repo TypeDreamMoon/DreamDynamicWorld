@@ -10,28 +10,55 @@ float4  {ParameterName}_P1;
 float4  {ParameterName}_P2;
 float4  {ParameterName}_V0;
 float4  {ParameterName}_V1;
+float4  {ParameterName}_V2;
+float4  {ParameterName}_V3;
+float4  {ParameterName}_T0;
+float4  {ParameterName}_T1;
 float3  {ParameterName}_SystemLWCTile;
 uint    {ParameterName}_NumSources;
 StructuredBuffer<float4> {ParameterName}_Sources;
 Texture3D<float4> {ParameterName}_VolumeTexture;
 SamplerState      {ParameterName}_VolumeSampler;
+Texture3D<float4> {ParameterName}_VolumeFarTexture;
+SamplerState      {ParameterName}_VolumeFarSampler;
+Texture2D<float4> {ParameterName}_TerrainTexture;
+SamplerState      {ParameterName}_TerrainSampler;
 
 void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, out float Out_Gust)
 {
 	const float3 WorldPos = In_Position + {ParameterName}_SystemLWCTile * UE_LWC_RENDER_TILE_SIZE;
 
 	const FDreamWindParams P = DW_UnpackParams({ParameterName}_P0, {ParameterName}_P1, {ParameterName}_P2);
-	const FDreamWindSample S = {AnalyticFunction}(P, WorldPos);
+	FDreamWindSample S = {AnalyticFunction}(P, WorldPos);
+	{
+		const FDreamWindTerrainParams TP = DW_UnpackTerrain({ParameterName}_T0, {ParameterName}_T1);
+		const float2 TUV = DW_TerrainUV(WorldPos, TP);
+		const float Inside = DW_TerrainInside(TUV, TP);
+		if (Inside > 0.0f)
+		{
+			S = DW_ApplyTerrain(S, {ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, TUV, 0), TP, Inside);
+		}
+	}
 	float3 V = S.Velocity;
 
 	float VolumeMask = 0.0f;
 #if {SampleVolume}
+	// near level wins inside its window; the far level covers the rest of its own window
 	const FDreamWindVolumeParams VP = DW_UnpackVolume({ParameterName}_V0, {ParameterName}_V1);
-	VolumeMask = DW_VolumeMask(WorldPos, VP);
-	if (VolumeMask > 0.0f)
+	const FDreamWindVolumeParams VPF = DW_UnpackVolume({ParameterName}_V2, {ParameterName}_V3);
+	const float NearMask = DW_VolumeMask(WorldPos, VP);
+	const float FarMask = DW_VolumeMask(WorldPos, VPF);
+	float3 Residual = 0;
+	if (FarMask > 0.0f)
 	{
-		V += {ParameterName}_VolumeTexture.SampleLevel({ParameterName}_VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz * VolumeMask;
+		Residual = {ParameterName}_VolumeFarTexture.SampleLevel({ParameterName}_VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0).xyz * FarMask;
 	}
+	if (NearMask > 0.0f)
+	{
+		Residual = lerp(Residual, {ParameterName}_VolumeTexture.SampleLevel({ParameterName}_VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz, NearMask);
+	}
+	V += Residual;
+	VolumeMask = max(NearMask, FarMask);
 #endif
 
 #if {ApplySources}

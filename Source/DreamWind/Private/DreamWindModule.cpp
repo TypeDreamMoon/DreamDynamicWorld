@@ -7,6 +7,8 @@
 
 DEFINE_LOG_CATEGORY(LogDreamWind);
 
+FDreamWindEditorHooks::FBakeTerrainMap FDreamWindEditorHooks::BakeTerrainMap;
+
 void FDreamWindModule::StartupModule()
 {
 	// /Plugin/DreamWind/Shared/DreamWindShared.h and /Plugin/DreamWind/Private/*.usf

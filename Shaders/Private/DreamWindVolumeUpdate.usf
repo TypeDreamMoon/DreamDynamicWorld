@@ -8,6 +8,8 @@
 float4 P0;
 float4 P1;
 float4 P2;
+float4 T0;
+float4 T1;
 float3 PrevCenter;
 float  PrevValid;
 float3 NewCenter;
@@ -22,6 +24,8 @@ float  AdvectScale;
 StructuredBuffer<float4> Sources;
 Texture3D<float4> PrevVolume;
 SamplerState PrevSampler;
+Texture2D<float4> TerrainTexture;
+SamplerState TerrainSampler;
 RWTexture3D<float4> OutVolume;
 
 float4 SamplePrev(float3 WorldPos)
@@ -48,7 +52,16 @@ void MainCS(uint3 DTid : SV_DispatchThreadID)
 	const float3 WorldPos = NewCenter - HalfExtent + (float3(DTid) + 0.5f) * VoxelSize;
 
 	const FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
-	const FDreamWindSample Analytic = DW_SampleAnalyticCheap(P, WorldPos);
+	FDreamWindSample Analytic = DW_SampleAnalyticCheap(P, WorldPos);
+	{
+		const FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1);
+		const float2 TUV = DW_TerrainUV(WorldPos, TP);
+		const float Inside = DW_TerrainInside(TUV, TP);
+		if (Inside > 0.0f)
+		{
+			Analytic = DW_ApplyTerrain(Analytic, TerrainTexture.SampleLevel(TerrainSampler, TUV, 0), TP, Inside);
+		}
+	}
 
 	float4 Residual = 0;
 	if (PrevValid > 0.5f)

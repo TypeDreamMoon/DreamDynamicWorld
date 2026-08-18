@@ -10,6 +10,7 @@
 #include "NiagaraShaderParametersBuilder.h"
 #include "NiagaraSystemInstance.h"
 #include "NiagaraTypes.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/TextureRenderTargetVolume.h"
 #include "Engine/World.h"
 #include "RenderGraphBuilder.h"
@@ -46,13 +47,49 @@ struct FNDIDreamWindInstanceData_RT
 	FVector4f P2 = FVector4f::Zero();
 	FVector4f V0 = FVector4f::Zero();
 	FVector4f V1 = FVector4f::Zero();
-	TArray<FVector4f> Sources;                 // three float4 per source
-	TWeakObjectPtr<UTexture> VolumeTexture;    // read on the render thread only through TextureReferenceRHI
+	FVector4f V2 = FVector4f::Zero();
+	FVector4f V3 = FVector4f::Zero();
+	FVector4f T0 = FVector4f::Zero();
+	FVector4f T1 = FVector4f::Zero();
+	TArray<FVector4f> Sources;                   // three float4 per source
+	TWeakObjectPtr<UTexture> VolumeTexture;      // read on the render thread only through TextureReferenceRHI
+	TWeakObjectPtr<UTexture> VolumeFarTexture;
+	TWeakObjectPtr<UTexture> TerrainTexture;
 
 	// per graph-builder transient state
 	FRDGBufferSRVRef TransientSourcesSRV = nullptr;
 	FRDGTextureRef TransientVolumeTexture = nullptr;
+	FRDGTextureRef TransientVolumeFarTexture = nullptr;
+	FRDGTextureRef TransientTerrainTexture = nullptr;
 };
+
+/** Registers a render target's RHI texture with the graph once per builder; null when it is not usable. */
+static FRDGTextureRef RegisterTextureForDispatch(const FNiagaraDataInterfaceSetShaderParametersContext& Context, FRDGBuilder& GraphBuilder, const TWeakObjectPtr<UTexture>& WeakTexture, FRDGTextureRef& InOutTransient, const TCHAR* Name, ETextureDimension Dimension)
+{
+	if (InOutTransient == nullptr)
+	{
+		// The weak pointer is only dereferenced for its RHI reference, which is safe on the render thread.
+		if (UTexture* Texture = WeakTexture.GetEvenIfUnreachable())
+		{
+			FTextureReferenceRHIRef TextureRef = Texture->TextureReference.TextureReferenceRHI;
+			if (TextureRef.IsValid())
+			{
+				FTextureRHIRef Resolved = TextureRef->GetReferencedTexture();
+				if (Resolved.IsValid() && Resolved->GetDesc().Dimension == Dimension)
+				{
+					InOutTransient = GraphBuilder.FindExternalTexture(Resolved);
+					if (InOutTransient == nullptr)
+					{
+						InOutTransient = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(Resolved, Name));
+						GraphBuilder.UseInternalAccessMode(InOutTransient);
+						Context.GetRDGExternalAccessQueue().Add(InOutTransient);
+					}
+				}
+			}
+		}
+	}
+	return InOutTransient;
+}
 
 struct FNDIDreamWindProxy : public FNiagaraDataInterfaceProxy
 {
@@ -65,6 +102,8 @@ struct FNDIDreamWindProxy : public FNiagaraDataInterfaceProxy
 		Data = MoveTemp(*FromGT);
 		Data.TransientSourcesSRV = nullptr;
 		Data.TransientVolumeTexture = nullptr;
+		Data.TransientVolumeFarTexture = nullptr;
+		Data.TransientTerrainTexture = nullptr;
 		FromGT->~FNDIDreamWindInstanceData_RT();
 	}
 
@@ -76,6 +115,8 @@ struct FNDIDreamWindProxy : public FNiagaraDataInterfaceProxy
 			{
 				Data->TransientSourcesSRV = nullptr;
 				Data->TransientVolumeTexture = nullptr;
+				Data->TransientVolumeFarTexture = nullptr;
+				Data->TransientTerrainTexture = nullptr;
 			}
 		}
 	}
@@ -191,6 +232,10 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->P2 = GT->Frame.P2;
 	RT->V0 = GT->Frame.V0;
 	RT->V1 = GT->Frame.V1;
+	RT->V2 = GT->Frame.V2;
+	RT->V3 = GT->Frame.V3;
+	RT->T0 = GT->Frame.T0;
+	RT->T1 = GT->Frame.T1;
 	RT->Sources.Reserve(GT->Frame.Sources.Num() * 3);
 	for (const FDreamWindSourceData& S : GT->Frame.Sources)
 	{
@@ -199,6 +244,8 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 		RT->Sources.Add(ToVector4f(S.Misc));
 	}
 	RT->VolumeTexture = GT->Frame.VolumeTexture.Get();
+	RT->VolumeFarTexture = GT->Frame.VolumeFarTexture.Get();
+	RT->TerrainTexture = GT->Frame.TerrainTexture.Get();
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -261,6 +308,8 @@ void UNiagaraDataInterfaceDreamWind::VMSampleWind(FVectorVMExternalFunctionConte
 	const TArray<FDreamWindSourceData>& Sources = InstData->Frame.Sources;
 	const bool bFull = Quality == EDreamWindQuality::Full;
 	const bool bHave = InstData->bHaveWind;
+	const FDreamWindTerrainParams TP = InstData->Frame.GetTerrainParams();
+	const FDreamWindTerrainCpuData* Terrain = (TP.Enabled > 0.0f && InstData->Frame.TerrainCpu.IsValid()) ? InstData->Frame.TerrainCpu.Get() : nullptr;
 
 	for (int32 i = 0; i < Context.GetNumInstances(); ++i)
 	{
@@ -273,7 +322,16 @@ void UNiagaraDataInterfaceDreamWind::VMSampleWind(FVectorVMExternalFunctionConte
 		}
 		const FVector WorldPos = InstData->LWCConverter.ConvertSimulationPositionToWorld(SimPos);
 		const float3 Pos = ToHlsl(WorldPos);
-		const FDreamWindSample S = bFull ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos);
+		FDreamWindSample S = bFull ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos);
+		if (Terrain)
+		{
+			const float2 UV = DW_TerrainUV(Pos, TP);
+			const float Inside = DW_TerrainInside(UV, TP);
+			if (Inside > 0.0f)
+			{
+				S = DW_ApplyTerrain(S, ToHlsl(Terrain->Sample(Pos.x, Pos.y)), TP, Inside);
+			}
+		}
 		float3 V = S.Velocity;
 		if (bApplySources)
 		{
@@ -355,15 +413,21 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 
 	SP->SystemLWCTile = Context.GetSystemLWCTile();
 	SP->VolumeSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	SP->VolumeFarSampler = SP->VolumeSampler;
+	SP->TerrainSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	FRDGTextureRef BlackVolume = Context.GetComputeDispatchInterface().GetBlackTexture(GraphBuilder, ETextureDimension::Texture3D);
+	FRDGTextureRef BlackTexture = Context.GetComputeDispatchInterface().GetBlackTexture(GraphBuilder, ETextureDimension::Texture2D);
 
 	if (!Data)
 	{
 		SP->P0 = FVector4f(1, 0, 0, 0);
-		SP->P1 = SP->P2 = SP->V0 = SP->V1 = FVector4f::Zero();
+		SP->P1 = SP->P2 = SP->V0 = SP->V1 = SP->V2 = SP->V3 = SP->T0 = SP->T1 = FVector4f::Zero();
 		SP->NumSources = 0;
 		static const TArray<FVector4f> Empty;
 		SP->Sources = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.NDISources.Dummy"), Empty));
-		SP->VolumeTexture = Context.GetComputeDispatchInterface().GetBlackTexture(GraphBuilder, ETextureDimension::Texture3D);
+		SP->VolumeTexture = BlackVolume;
+		SP->VolumeFarTexture = BlackVolume;
+		SP->TerrainTexture = BlackTexture;
 		return;
 	}
 
@@ -372,6 +436,10 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	SP->P2 = Data->P2;
 	SP->V0 = Data->V0;
 	SP->V1 = Data->V1;
+	SP->V2 = Data->V2;
+	SP->V3 = Data->V3;
+	SP->T0 = Data->T0;
+	SP->T1 = Data->T1;
 	SP->NumSources = uint32(Data->Sources.Num() / 3);
 
 	if (Data->TransientSourcesSRV == nullptr)
@@ -383,38 +451,41 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	SP->Sources = Data->TransientSourcesSRV;
 
 	FRDGTextureRef VolumeRDG = nullptr;
-	if (bSampleVolume && Data->V1.W > 0.5f && Context.IsResourceBound(&SP->VolumeTexture))
+	FRDGTextureRef VolumeFarRDG = nullptr;
+	if (bSampleVolume)
 	{
-		if (Data->TransientVolumeTexture == nullptr)
+		if (Data->V1.W > 0.5f && Context.IsResourceBound(&SP->VolumeTexture))
 		{
-			// The weak pointer is only dereferenced for its RHI reference, which is safe on the render thread.
-			if (UTexture* Texture = Data->VolumeTexture.GetEvenIfUnreachable())
-			{
-				FTextureReferenceRHIRef TextureRef = Texture->TextureReference.TextureReferenceRHI;
-				if (TextureRef.IsValid())
-				{
-					FTextureRHIRef Resolved = TextureRef->GetReferencedTexture();
-					if (Resolved.IsValid() && Resolved->GetDesc().Dimension == ETextureDimension::Texture3D)
-					{
-						Data->TransientVolumeTexture = GraphBuilder.FindExternalTexture(Resolved);
-						if (Data->TransientVolumeTexture == nullptr)
-						{
-							Data->TransientVolumeTexture = GraphBuilder.RegisterExternalTexture(CreateRenderTarget(Resolved, TEXT("DreamWind.NDIVolume")));
-							GraphBuilder.UseInternalAccessMode(Data->TransientVolumeTexture);
-							Context.GetRDGExternalAccessQueue().Add(Data->TransientVolumeTexture);
-						}
-					}
-				}
-			}
+			VolumeRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->VolumeTexture, Data->TransientVolumeTexture, TEXT("DreamWind.NDIVolume"), ETextureDimension::Texture3D);
 		}
-		VolumeRDG = Data->TransientVolumeTexture;
+		if (Data->V3.W > 0.5f && Context.IsResourceBound(&SP->VolumeFarTexture))
+		{
+			VolumeFarRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->VolumeFarTexture, Data->TransientVolumeFarTexture, TEXT("DreamWind.NDIVolumeFar"), ETextureDimension::Texture3D);
+		}
 	}
+	FRDGTextureRef TerrainRDG = nullptr;
+	if (Data->T1.X > 0.5f && Context.IsResourceBound(&SP->TerrainTexture))
+	{
+		TerrainRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->TerrainTexture, Data->TransientTerrainTexture, TEXT("DreamWind.NDITerrain"), ETextureDimension::Texture2D);
+	}
+	if (TerrainRDG == nullptr)
+	{
+		SP->T1.X = 0.0f;
+		TerrainRDG = BlackTexture;
+	}
+	SP->TerrainTexture = TerrainRDG;
 	if (VolumeRDG == nullptr)
 	{
-		SP->V1.W = 0.0f;   // volume off for this dispatch
-		VolumeRDG = Context.GetComputeDispatchInterface().GetBlackTexture(GraphBuilder, ETextureDimension::Texture3D);
+		SP->V1.W = 0.0f;   // near level off for this dispatch
+		VolumeRDG = BlackVolume;
+	}
+	if (VolumeFarRDG == nullptr)
+	{
+		SP->V3.W = 0.0f;   // far level off for this dispatch
+		VolumeFarRDG = BlackVolume;
 	}
 	SP->VolumeTexture = VolumeRDG;
+	SP->VolumeFarTexture = VolumeFarRDG;
 }
 
 #undef LOCTEXT_NAMESPACE

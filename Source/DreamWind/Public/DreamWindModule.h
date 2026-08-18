@@ -18,11 +18,25 @@ namespace DreamWind
 		inline const FName MPC_P2(TEXT("DreamWind_P2"));
 		inline const FName MPC_V0(TEXT("DreamWind_V0"));
 		inline const FName MPC_V1(TEXT("DreamWind_V1"));
+		inline const FName MPC_V2(TEXT("DreamWind_V2"));
+		inline const FName MPC_V3(TEXT("DreamWind_V3"));
+		inline const FName MPC_T0(TEXT("DreamWind_T0"));
+		inline const FName MPC_T1(TEXT("DreamWind_T1"));
 
 		/** Virtual shader directory mapped to <Plugin>/Shaders. */
 		inline const TCHAR* ShaderVirtualDirectory = TEXT("/Plugin/DreamWind");
 	}
 }
+
+class ADreamWindGlobal;
+
+/** Hooks the editor module fills in so runtime objects can offer editor-only actions. */
+struct DREAMWIND_API FDreamWindEditorHooks
+{
+	DECLARE_DELEGATE_OneParam(FBakeTerrainMap, ADreamWindGlobal* /*Actor*/);
+	/** Bound by DreamWindEditor: bake (or re-bake) the terrain map of a level actor. */
+	static FBakeTerrainMap BakeTerrainMap;
+};
 
 class FDreamWindModule : public IModuleInterface
 {

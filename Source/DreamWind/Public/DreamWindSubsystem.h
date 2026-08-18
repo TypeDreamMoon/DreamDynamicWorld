@@ -13,8 +13,26 @@ class UWindDirectionalSourceComponent;
 class UMaterialParameterCollection;
 class UMaterialParameterCollectionInstance;
 class UTextureRenderTargetVolume;
+class UTextureRenderTarget2D;
+class UDreamWindTerrainMap;
 class FDreamWindVolumeRenderer;
 class FDreamWindViewExtension;
+
+/** Thread-safe CPU copy of a terrain map, shared by the subsystem and Niagara CPU sims. */
+struct DREAMWIND_API FDreamWindTerrainCpuData
+{
+	FBox2D Bounds = FBox2D(ForceInit);
+	int32 Width = 0;
+	int32 Height = 0;
+	TArray<FVector4f> Texels;
+
+	/** Bilinear fetch, clamped to the border: (speed multiplier, steer.x, steer.y, height). */
+	FVector4f Sample(double WorldX, double WorldY) const;
+	bool IsInside(double WorldX, double WorldY) const
+	{
+		return Bounds.bIsValid && WorldX >= Bounds.Min.X && WorldX <= Bounds.Max.X && WorldY >= Bounds.Min.Y && WorldY <= Bounds.Max.Y;
+	}
+};
 
 /**
  * Everything a GPU consumer needs for one frame, in the packed layout the shared header unpacks.
@@ -26,13 +44,22 @@ struct DREAMWIND_API FDreamWindFrameData
 	FVector4f P0 = FVector4f(1, 0, 0, 0);
 	FVector4f P1 = FVector4f::Zero();
 	FVector4f P2 = FVector4f::Zero();
-	/** DW_UnpackVolume(V0, V1) */
+	/** DW_UnpackVolume(V0, V1) - near level; DW_UnpackVolume(V2, V3) - far level */
 	FVector4f V0 = FVector4f::Zero();
 	FVector4f V1 = FVector4f::Zero();
+	FVector4f V2 = FVector4f::Zero();
+	FVector4f V3 = FVector4f::Zero();
+	/** DW_UnpackTerrain(T0, T1) */
+	FVector4f T0 = FVector4f::Zero();
+	FVector4f T1 = FVector4f::Zero();
 	/** Live sources this frame, strongest first, already envelope-scaled. */
 	TArray<DreamWind::Hlsl::FDreamWindSourceData> Sources;
-	/** Volume render target (may be null when the volume is disabled or the asset is missing). */
+	/** Volume render targets (null when a level is disabled or its asset is missing). */
 	TWeakObjectPtr<UTextureRenderTargetVolume> VolumeTexture;
+	TWeakObjectPtr<UTextureRenderTargetVolume> VolumeFarTexture;
+	/** Terrain map render target (null when off) and the CPU copy of the active map. */
+	TWeakObjectPtr<UTextureRenderTarget2D> TerrainTexture;
+	TSharedPtr<const FDreamWindTerrainCpuData, ESPMode::ThreadSafe> TerrainCpu;
 	/** Game-thread frame this data was built on. */
 	uint64 FrameNumber = 0;
 
@@ -45,6 +72,16 @@ struct DREAMWIND_API FDreamWindFrameData
 	{
 		using namespace DreamWind::Hlsl;
 		return DW_UnpackVolume(ToHlsl(V0), ToHlsl(V1));
+	}
+	DreamWind::Hlsl::FDreamWindVolumeParams GetVolumeFarParams() const
+	{
+		using namespace DreamWind::Hlsl;
+		return DW_UnpackVolume(ToHlsl(V2), ToHlsl(V3));
+	}
+	DreamWind::Hlsl::FDreamWindTerrainParams GetTerrainParams() const
+	{
+		using namespace DreamWind::Hlsl;
+		return DW_UnpackTerrain(ToHlsl(T0), ToHlsl(T1));
 	}
 };
 
@@ -152,6 +189,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DreamWind")
 	int32 GetLiveSourceCount() const { return FrameData.Sources.Num(); }
 
+	// ---- Terrain modulation (L1) --------------------------------------------------------------
+
+	/** Use this baked terrain map (null = the project default, or none). ADreamWindGlobal calls this on load. */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind|Terrain")
+	void SetTerrainMap(UDreamWindTerrainMap* Map);
+
+	UFUNCTION(BlueprintPure, Category = "DreamWind|Terrain")
+	UDreamWindTerrainMap* GetTerrainMap() const { return TerrainMap; }
+
 	/** Persistent, possibly moving sources register themselves here (see UDreamWindSourceComponent). */
 	void RegisterSourceComponent(UDreamWindSourceComponent* Component);
 	void UnregisterSourceComponent(UDreamWindSourceComponent* Component);
@@ -161,8 +207,9 @@ public:
 	/** Packed data for this frame (game thread). */
 	const FDreamWindFrameData& GetFrameData() const { return FrameData; }
 
-	/** The volume render target in use, or null. */
+	/** The volume render targets in use, or null. */
 	UTextureRenderTargetVolume* GetVolumeTexture() const { return VolumeTexture; }
+	UTextureRenderTargetVolume* GetVolumeFarTexture() const { return VolumeFarTexture; }
 
 	/** Where the volume window is centred this frame (world space). */
 	FVector GetVolumeCenter() const { return VolumeCenter; }
@@ -182,6 +229,14 @@ public:
 	/** Total simulated frames; handy for tests. */
 	uint64 GetTickCount() const { return TickCounter; }
 
+	/** The engine WindDirectionalSource component this subsystem drives (null when the bridge is off). */
+	UFUNCTION(BlueprintPure, Category = "DreamWind")
+	UWindDirectionalSourceComponent* GetEngineWindComponent() const { return EngineWindComponent; }
+
+	/** True when this world drives the shared volume render target this frame. */
+	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
+	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
+
 private:
 	struct FActiveImpulse
 	{
@@ -199,7 +254,15 @@ private:
 	void UpdateEngineWindSource();
 	void UpdateMaterialParameterCollection();
 	void UpdateVolume(float DeltaTime);
+	void UpdateTerrainTexture();
+	/** Applies the terrain map (if any) to an analytic sample on the CPU. */
+	DreamWind::Hlsl::FDreamWindSample ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const;
+	bool UpdateVolumeLevel(float WindDelta, UTextureRenderTargetVolume* Texture, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer,
+		float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty);
+	static void EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer);
+	FVector SnapToVoxels(const FVector& Center, float VoxelSize) const;
 	void UpdateDebugDisplay();
+	void DrawDebug();
 	void ResolveAssets();
 	FVector ChooseVolumeCenter() const;
 
@@ -242,7 +305,22 @@ private:
 	// volume
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTargetVolume> VolumeTexture;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTargetVolume> VolumeFarTexture;
 	TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe> VolumeRenderer;
+	TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe> VolumeRendererFar;
+	FVector VolumeCenterFar = FVector::ZeroVector;
+	FVector PrevVolumeCenterFar = FVector::ZeroVector;
+	bool bVolumeHistoryDirtyFar = true;
+
+	// terrain
+	UPROPERTY(Transient)
+	TObjectPtr<UDreamWindTerrainMap> TerrainMap;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> TerrainTexture;
+	TSharedPtr<const FDreamWindTerrainCpuData, ESPMode::ThreadSafe> TerrainCpu;
+	bool bTerrainTextureDirty = false;
+	bool bTerrainMapExplicit = false;
 	TSharedPtr<FDreamWindViewExtension, ESPMode::ThreadSafe> ViewExtension;
 	FVector VolumeCenter = FVector::ZeroVector;
 	FVector PrevVolumeCenter = FVector::ZeroVector;

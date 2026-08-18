@@ -9,6 +9,8 @@
 
 class UMaterialParameterCollection;
 class UTextureRenderTargetVolume;
+class UTextureRenderTarget2D;
+class UDreamWindTerrainMap;
 
 /**
  * Project Settings > DreamPlugin > Moon Wind.
@@ -114,9 +116,46 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume")
 	bool bVolumeSnapToVoxels = true;
 
+	/**
+	 * A second, coarser volume around the first: same voxel count, VolumeFarVoxelScale times the voxel
+	 * size, so impulses and wakes keep working far from the camera at one more pass and one more MB.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume")
+	bool bVolumeFarLevel = true;
+
+	/** Voxel size of the far level relative to the near one. 4 with 100 cm voxels covers 256 m x 256 m x 128 m. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ClampMin = "2", ClampMax = "16", EditCondition = "bVolumeFarLevel"))
+	float VolumeFarVoxelScale = 4.0f;
+
+	/** Volume render target of the far level. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (AllowedClasses = "/Script/Engine.TextureRenderTargetVolume", EditCondition = "bVolumeFarLevel"))
+	FSoftObjectPath VolumeFarTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindVolumeFar.RT_DreamWindVolumeFar"));
+
 	/** Maximum live sources uploaded to the GPU per frame; the strongest survive. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ClampMin = "1", ClampMax = "256"))
 	int32 MaxGpuSources = 64;
+
+	// ---- Terrain modulation (L1) --------------------------------------------------------------
+
+	/** Modulate the wind by a baked terrain map (ridges faster, hollows sheltered, steering toward valleys). */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain")
+	bool bTerrainEnabled = true;
+
+	/** Multiplies the baked steering offset. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (ClampMin = "0", UIMax = "3"))
+	float TerrainSteerScale = 1.0f;
+
+	/** 0 = ignore the baked speed multiplier, 1 = apply it fully. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (ClampMin = "0", ClampMax = "1"))
+	float TerrainSpeedScale = 1.0f;
+
+	/** 2D render target materials read the active terrain map through; the subsystem uploads the map into it. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindTerrain.RT_DreamWindTerrain"));
+
+	/** Terrain map used when the level's ADreamWindGlobal has none. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/DreamWind.DreamWindTerrainMap"))
+	FSoftObjectPath DefaultTerrainMap;
 
 	// ---- Debug --------------------------------------------------------------------------------
 

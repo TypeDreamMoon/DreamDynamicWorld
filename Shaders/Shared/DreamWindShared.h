@@ -312,4 +312,70 @@ float DW_VolumeMask(float3 WorldPos, FDreamWindVolumeParams V)
 	return m * V.Enabled;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Terrain modulation (L1). A baked 2D map over the level: R = speed multiplier (ridges > 1,
+// hollows < 1), GB = horizontal steering offset added to the wind direction (toward valleys),
+// A = normalised height for debugging. Consumers fetch the texel (GPU: texture, CPU: cached array)
+// and call DW_ApplyTerrain; outside the map or when disabled the wind passes through unchanged.
+// ---------------------------------------------------------------------------------------------
+
+struct FDreamWindTerrainParams
+{
+	float2 Min;         // world XY of texel (0,0)
+	float2 InvSize;     // 1 / world size of the map per axis
+	float  Enabled;     // 0 or 1
+	float  SteerScale;  // multiplies the baked steering offset
+	float  SpeedScale;  // 0 = ignore the baked multiplier, 1 = apply it fully
+	float  Unused;
+};
+
+FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1)
+{
+	FDreamWindTerrainParams T;
+	T.Min        = float2(T0.x, T0.y);
+	T.InvSize    = float2(T0.z, T0.w);
+	T.Enabled    = T1.x;
+	T.SteerScale = T1.y;
+	T.SpeedScale = T1.z;
+	T.Unused     = T1.w;
+	return T;
+}
+
+/** UV of a world position in the terrain map; outside [0,1] means outside the map. */
+float2 DW_TerrainUV(float3 WorldPos, FDreamWindTerrainParams T)
+{
+	return (float2(WorldPos.x, WorldPos.y) - T.Min) * T.InvSize;
+}
+
+/** 1 when the UV lies inside the map (and the map is enabled), 0 otherwise. */
+float DW_TerrainInside(float2 UV, FDreamWindTerrainParams T)
+{
+	float inside = (UV.x >= 0.0f && UV.x <= 1.0f && UV.y >= 0.0f && UV.y <= 1.0f) ? 1.0f : 0.0f;
+	return inside * T.Enabled;
+}
+
+/** Applies a fetched terrain texel to an analytic sample. Texel = (speed mult, steer.x, steer.y, height). */
+FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTerrainParams T, float Inside)
+{
+	if (Inside <= 0.0f)
+	{
+		return S;
+	}
+	float speedMul = lerp(1.0f, max(Texel.x, 0.0f), saturate(T.SpeedScale));
+	float2 steer = float2(Texel.y, Texel.z) * T.SteerScale;
+	float2 v2 = float2(S.Velocity.x, S.Velocity.y);
+	float sp = length(v2);
+	if (sp > 0.001f)
+	{
+		float2 d = v2 * (1.0f / sp) + steer;
+		float dl = length(d);
+		if (dl > 0.001f)
+		{
+			v2 = d * (sp / dl);
+		}
+	}
+	S.Velocity = float3(v2.x * speedMul, v2.y * speedMul, S.Velocity.z * speedMul);
+	return S;
+}
+
 #endif // DREAMWIND_SHARED_H

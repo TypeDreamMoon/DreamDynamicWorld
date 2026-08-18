@@ -2,61 +2,94 @@
 //
 // MF_DreamWindSample(WorldPosition) -> Velocity (cm/s), Gust, Speed, Direction
 //
-// The maths is NOT written here: both HLSL helpers hoist /Plugin/DreamWind/Shared/DreamWindShared.h,
+// The maths is NOT written here: the HLSL helper hoists /Plugin/DreamWind/Shared/DreamWindShared.h,
 // the single source the subsystem (C++), the Niagara data interface and the volume compute share.
 // The global wind arrives through MPC_DreamWind (written by UDreamWindSubsystem every frame); the
 // dynamic volume (impulses, wakes, residual gusts) through RT_DreamWindVolume, both created by
 // Tools > DreamWind: Setup Assets.
 //
-// "Wind High Quality" is a static switch a material instance can flip: on = 2 gust octaves + 2 curl
-// octaves + vertical turbulence + the dynamic volume; off = the cheap analytic wind (3 noise
-// evaluations, no texture fetch) meant for grass and other vertex-heavy consumers.
+// Two static switches a material instance can flip. They reach the HLSL as literal 0/1 constants,
+// so the shader compiler folds the branch and the unused work disappears:
+//   "Wind Volume"       (default ON)  - add the dynamic volume (near + far level) inside its window:
+//                                       up to 2 texture fetches. This is what makes grass answer
+//                                       impulses and wakes.
+//   "Wind High Quality" (default OFF) - 2 gust octaves + 2 curl octaves + vertical turbulence
+//                                       instead of the cheap 3-evaluation wind. For hero foliage.
 
-Function float4 DreamWind_SampleFull(
+Function float4 DreamWind_Sample(
 	in float3 WorldPos,
 	in float4 P0, in float4 P1, in float4 P2,
-	in float4 V0, in float4 V1,
-	in VolumeTexture Volume)
+	in float4 V0, in float4 V1, in float4 V2, in float4 V3,
+	in float4 T0, in float4 T1,
+	in VolumeTexture Volume, in VolumeTexture VolumeFar,
+	in Texture2D Terrain,
+	in float HighQuality,
+	in float UseVolume)
 {
 	#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
 	FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
-	FDreamWindSample S = DW_SampleAnalytic(P, WorldPos);
+	FDreamWindSample S = (FDreamWindSample)0;
+	if (HighQuality > 0.5f)
+	{
+		S = DW_SampleAnalytic(P, WorldPos);
+	}
+	else
+	{
+		S = DW_SampleAnalyticCheap(P, WorldPos);
+	}
+
+	// terrain modulation (L1): a baked map over the level, no-op outside it or when off
+	FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1);
+	float2 TUV = DW_TerrainUV(WorldPos, TP);
+	float Inside = DW_TerrainInside(TUV, TP);
+	if (Inside > 0.0f)
+	{
+		S = DW_ApplyTerrain(S, Terrain.SampleLevel(TerrainSampler, TUV, 0), TP, Inside);
+	}
 	float3 V = S.Velocity;
 
-	FDreamWindVolumeParams VP = DW_UnpackVolume(V0, V1);
-	float M = DW_VolumeMask(WorldPos, VP);
-	if (M > 0.0f)
+	if (UseVolume > 0.5f)
 	{
-		V += Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz * M;
+		// near level wins inside its window; the far level covers the rest of its own window
+		FDreamWindVolumeParams VP = DW_UnpackVolume(V0, V1);
+		FDreamWindVolumeParams VPF = DW_UnpackVolume(V2, V3);
+		float NearMask = DW_VolumeMask(WorldPos, VP);
+		float FarMask = DW_VolumeMask(WorldPos, VPF);
+		float3 Residual = float3(0.0f, 0.0f, 0.0f);
+		if (FarMask > 0.0f)
+		{
+			Residual = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0).xyz * FarMask;
+		}
+		if (NearMask > 0.0f)
+		{
+			Residual = lerp(Residual, Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz, NearMask);
+		}
+		V += Residual;
 	}
 	return float4(V, S.Gust);
-}
-
-Function float4 DreamWind_SampleCheap(
-	in float3 WorldPos,
-	in float4 P0, in float4 P1, in float4 P2)
-{
-	#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
-	FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
-	FDreamWindSample S = DW_SampleAnalyticCheap(P, WorldPos);
-	return float4(S.Velocity, S.Gust);
 }
 
 ShaderFunction(Name="MaterialFunctions/MF_DreamWindSample", Root="Plugin.DreamWind")
 {
 	Settings = {
-		Description       = "DreamWind: wind velocity (cm/s), gust factor, speed and direction at a world position. Static switch 'Wind High Quality' adds detail octaves and the dynamic volume.";
+		Description       = "DreamWind: wind velocity (cm/s), gust factor, speed and direction at a world position. Static switches: 'Wind Volume' (impulses/wakes, default on), 'Wind High Quality' (detail octaves, default off).";
 		ExposeToLibrary   = true;
 		LibraryCategories = "DreamWind";
 	}
 
 	Properties = {
-		const VolumeTexture WindVolume = Path(Plugin.DreamWind, "RT_DreamWindVolume");
+		const VolumeTexture WindVolume    = Path(Plugin.DreamWind, "RT_DreamWindVolume");
+		const VolumeTexture WindVolumeFar = Path(Plugin.DreamWind, "RT_DreamWindVolumeFar");
+		const Texture2D     WindTerrain   = Path(Plugin.DreamWind, "RT_DreamWindTerrain");
 		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P0") P0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P1") P1;
 		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P2") P2;
 		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V0") V0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V1") V1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V2") V2;
+		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V3") V3;
+		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_T0") T0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_T1") T1;
 	}
 
 	Inputs = {
@@ -71,9 +104,9 @@ ShaderFunction(Name="MaterialFunctions/MF_DreamWindSample", Root="Plugin.DreamWi
 	}
 
 	Graph = {
-		float4 Full  = DreamWind_SampleFull(WorldPosition, P0, P1, P2, V0, V1, WindVolume);
-		float4 Cheap = DreamWind_SampleCheap(WorldPosition, P0, P1, P2);
-		float4 R = UE.StaticSwitchParameter(Name = "Wind High Quality", True = Full, False = Cheap, Default = false, Group = "DreamWind");
+		float HighQuality = UE.StaticSwitchParameter(Name = "Wind High Quality", True = 1.0, False = 0.0, Default = false, Group = "DreamWind");
+		float UseVolume   = UE.StaticSwitchParameter(Name = "Wind Volume",       True = 1.0, False = 0.0, Default = true,  Group = "DreamWind");
+		float4 R = DreamWind_Sample(WorldPosition, P0, P1, P2, V0, V1, V2, V3, T0, T1, WindVolume, WindVolumeFar, WindTerrain, HighQuality, UseVolume);
 
 		Velocity  = R.xyz;
 		Gust      = R.w;

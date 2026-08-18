@@ -25,6 +25,7 @@ public:
 	{
 		FDreamWindFrameData Frame;
 		FTextureRenderTargetResource* TargetResource = nullptr;
+		FTextureRenderTargetResource* TerrainResource = nullptr;
 		FIntVector Resolution = FIntVector(64, 64, 32);
 		FVector3f PrevCenter = FVector3f::ZeroVector;
 		FVector3f NewCenter = FVector3f::ZeroVector;

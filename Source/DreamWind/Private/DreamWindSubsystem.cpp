@@ -4,13 +4,24 @@
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
 #include "DreamWindSourceComponent.h"
+#include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
 #include "DreamWindViewExtension.h"
 
 #include "Components/WindDirectionalSourceComponent.h"
+#include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
 #include "Engine/Engine.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/TextureRenderTargetVolume.h"
+#include "Containers/ResourceArray.h"
+#include "RenderingThread.h"
+#include "RenderUtils.h"
+#include "RHIResources.h"
+#include "RHICommandList.h"
+#include "RHIUtilities.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Materials/MaterialParameterCollection.h"
@@ -31,6 +42,29 @@ namespace DreamWind
 {
 	/** Only one world may drive the shared volume render target at a time; game worlds win over the editor world. */
 	static TWeakObjectPtr<UDreamWindSubsystem> GVolumeDriver;
+
+	// Console overrides for A/B tests and profiling. -1 = follow the project settings.
+	static int32 GCVarEnable = -1;
+	static FAutoConsoleVariableRef CVarEnable(TEXT("DreamWind.Enable"), GCVarEnable,
+		TEXT("Override the wind master switch: -1 = project setting, 0 = off (calm), 1 = on."), ECVF_Default);
+	static int32 GCVarVolume = -1;
+	static FAutoConsoleVariableRef CVarVolume(TEXT("DreamWind.Volume"), GCVarVolume,
+		TEXT("Override the dynamic volume: -1 = project setting, 0 = off, 1 = on."), ECVF_Default);
+	static int32 GCVarDebugDraw = 0;
+	static FAutoConsoleVariableRef CVarDebugDraw(TEXT("DreamWind.DebugDraw"), GCVarDebugDraw,
+		TEXT("Draw the wind: 1 = volume window, sources and the global direction; 2 = also a field of arrows around the volume centre."), ECVF_Default);
+	static float GCVarTimeScale = -1.0f;
+	static FAutoConsoleVariableRef CVarTimeScale(TEXT("DreamWind.TimeScale"), GCVarTimeScale,
+		TEXT("Override the wind time scale: <0 = the value set through the API (default 1), 0 freezes the wind."), ECVF_Default);
+
+	static bool IsWindEnabledBySettings(const UDreamWindSettings* Settings)
+	{
+		return GCVarEnable < 0 ? Settings->bEnabled : (GCVarEnable != 0);
+	}
+	static bool IsVolumeEnabledBySettings(const UDreamWindSettings* Settings)
+	{
+		return GCVarVolume < 0 ? Settings->bVolumeEnabled : (GCVarVolume != 0);
+	}
 
 	static FVector SafeDirection(const FVector& In)
 	{
@@ -54,6 +88,30 @@ namespace DreamWind
 }
 
 // -------------------------------------------------------------------------------------------------
+
+FVector4f FDreamWindTerrainCpuData::Sample(double WorldX, double WorldY) const
+{
+	if (Width <= 0 || Height <= 0 || Texels.Num() != Width * Height || !Bounds.bIsValid)
+	{
+		return FVector4f(1, 0, 0, 0);
+	}
+	const FVector2D Size = Bounds.GetSize();
+	const double U = (WorldX - Bounds.Min.X) / FMath::Max(Size.X, 1.0);
+	const double V = (WorldY - Bounds.Min.Y) / FMath::Max(Size.Y, 1.0);
+	const double FX = FMath::Clamp(U * Width - 0.5, 0.0, double(Width - 1));
+	const double FY = FMath::Clamp(V * Height - 0.5, 0.0, double(Height - 1));
+	const int32 X0 = FMath::FloorToInt32(FX);
+	const int32 Y0 = FMath::FloorToInt32(FY);
+	const int32 X1 = FMath::Min(X0 + 1, Width - 1);
+	const int32 Y1 = FMath::Min(Y0 + 1, Height - 1);
+	const float TX = float(FX - X0);
+	const float TY = float(FY - Y0);
+	const FVector4f A = Texels[Y0 * Width + X0];
+	const FVector4f B = Texels[Y0 * Width + X1];
+	const FVector4f C = Texels[Y1 * Width + X0];
+	const FVector4f D = Texels[Y1 * Width + X1];
+	return FMath::Lerp(FMath::Lerp(A, B, TX), FMath::Lerp(C, D, TX), TY);
+}
 
 UDreamWindSubsystem::UDreamWindSubsystem()
 {
@@ -93,10 +151,20 @@ void UDreamWindSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	TimeScale = 1.0f;
 
 	VolumeRenderer = MakeShared<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>();
+	VolumeRendererFar = MakeShared<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>();
 
 	if (FApp::CanEverRender())
 	{
 		ViewExtension = FSceneViewExtensions::NewExtension<FDreamWindViewExtension>(GetWorld(), this);
+	}
+
+	if (Settings->DefaultTerrainMap.IsValid())
+	{
+		if (UDreamWindTerrainMap* DefaultMap = Cast<UDreamWindTerrainMap>(Settings->DefaultTerrainMap.TryLoad()))
+		{
+			SetTerrainMap(DefaultMap);
+			bTerrainMapExplicit = false;
+		}
 	}
 
 	// A first frame of data so samples taken before the first tick already see the default wind.
@@ -126,6 +194,11 @@ void UDreamWindSubsystem::Deinitialize()
 	{
 		VolumeRenderer->EnqueueReset();
 		VolumeRenderer.Reset();
+	}
+	if (VolumeRendererFar.IsValid())
+	{
+		VolumeRendererFar->EnqueueReset();
+		VolumeRendererFar.Reset();
 	}
 
 	if (EngineWindComponent)
@@ -175,17 +248,19 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 		return;
 	}
 
-	bEnabledThisFrame = Settings->bEnabled;
+	bEnabledThisFrame = DreamWind::IsWindEnabledBySettings(Settings);
 	if (!bEnabledThisFrame)
 	{
 		// Keep the frame data honest (calm) but do nothing else.
 		FrameData.Sources.Reset();
 		FrameData.P0 = FVector4f(1, 0, 0, 0);
 		FrameData.V1.W = 0.0f;
+		FrameData.V3.W = 0.0f;
 		return;
 	}
 
-	const float WindDelta = DeltaTime * TimeScale;
+	const float EffectiveTimeScale = DreamWind::GCVarTimeScale >= 0.0f ? DreamWind::GCVarTimeScale : TimeScale;
+	const float WindDelta = DeltaTime * EffectiveTimeScale;
 	WindTime += WindDelta;
 
 	AdvanceGlobalWind(DeltaTime);
@@ -197,6 +272,7 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	{
 		ResolveAssets();
 		UpdateEngineWindSource();
+		UpdateTerrainTexture();
 		UpdateVolume(WindDelta);
 		UpdateMaterialParameterCollection();
 	}
@@ -204,6 +280,10 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	if (Settings->bShowDebugText)
 	{
 		UpdateDebugDisplay();
+	}
+	if (DreamWind::GCVarDebugDraw > 0)
+	{
+		DrawDebug();
 	}
 
 	++TickCounter;
@@ -308,15 +388,39 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 	FrameData.P1 = FVector4f(CurrentWind.GustStrength, CurrentWind.GustWavelength, CurrentWind.GustSpeedScale, CurrentWind.GustFrequency);
 	FrameData.P2 = FVector4f(CurrentWind.TurbulenceStrength, CurrentWind.TurbulenceWavelength, static_cast<float>(WindTime), static_cast<float>(Settings->Seed));
 
-	// Volume window for this frame. Whether it is actually driven is decided in UpdateVolume,
-	// which flips V1.w back to 0 when this world does not own the render target.
-	VolumeCenter = ChooseVolumeCenter();
+	// Volume windows for this frame. Whether they are actually driven is decided in UpdateVolume,
+	// which flips V1.w / V3.w back to 0 when this world does not own the render targets.
+	const FVector RawCenter = ChooseVolumeCenter();
 	const FIntVector Res = Settings->VolumeResolution;
 	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
+	const float VoxelFar = Voxel * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
+	VolumeCenter = SnapToVoxels(RawCenter, Voxel);
+	VolumeCenterFar = SnapToVoxels(RawCenter, VoxelFar);
 	const FVector3f Extent(float(Res.X) * Voxel, float(Res.Y) * Voxel, float(Res.Z) * Voxel);
+	const FVector3f ExtentFar(float(Res.X) * VoxelFar, float(Res.Y) * VoxelFar, float(Res.Z) * VoxelFar);
 	FrameData.V0 = FVector4f(float(VolumeCenter.X), float(VolumeCenter.Y), float(VolumeCenter.Z), Settings->VolumeBorderFade);
 	FrameData.V1 = FVector4f(1.0f / Extent.X, 1.0f / Extent.Y, 1.0f / Extent.Z, 0.0f);
+	FrameData.V2 = FVector4f(float(VolumeCenterFar.X), float(VolumeCenterFar.Y), float(VolumeCenterFar.Z), Settings->VolumeBorderFade);
+	FrameData.V3 = FVector4f(1.0f / ExtentFar.X, 1.0f / ExtentFar.Y, 1.0f / ExtentFar.Z, 0.0f);
 	FrameData.VolumeTexture = nullptr;
+	FrameData.VolumeFarTexture = nullptr;
+
+	// Terrain map: geometry from the active map; enabled only when both the map and its texture exist
+	// (the texture flag is finalised in UpdateTerrainTexture, the CPU side needs only the map).
+	const bool bTerrain = Settings->bTerrainEnabled && TerrainCpu.IsValid() && TerrainCpu->Bounds.bIsValid;
+	if (bTerrain)
+	{
+		const FVector2D Size = TerrainCpu->Bounds.GetSize();
+		FrameData.T0 = FVector4f(float(TerrainCpu->Bounds.Min.X), float(TerrainCpu->Bounds.Min.Y), 1.0f / float(FMath::Max(Size.X, 1.0)), 1.0f / float(FMath::Max(Size.Y, 1.0)));
+		FrameData.T1 = FVector4f(1.0f, Settings->TerrainSteerScale, Settings->TerrainSpeedScale, 0.0f);
+	}
+	else
+	{
+		FrameData.T0 = FVector4f::Zero();
+		FrameData.T1 = FVector4f::Zero();
+	}
+	FrameData.TerrainCpu = bTerrain ? TerrainCpu : nullptr;
+	FrameData.TerrainTexture = nullptr;
 	FrameData.FrameNumber = GFrameCounter;
 }
 
@@ -352,15 +456,20 @@ FVector UDreamWindSubsystem::ChooseVolumeCenter() const
 		}
 	}
 
-	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
-	if (Settings->bVolumeSnapToVoxels)
-	{
-		const double Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
-		Center.X = FMath::RoundToDouble(Center.X / Voxel) * Voxel;
-		Center.Y = FMath::RoundToDouble(Center.Y / Voxel) * Voxel;
-		Center.Z = FMath::RoundToDouble(Center.Z / Voxel) * Voxel;
-	}
 	return Center;
+}
+
+FVector UDreamWindSubsystem::SnapToVoxels(const FVector& Center, float VoxelSize) const
+{
+	if (!UDreamWindSettings::Get()->bVolumeSnapToVoxels)
+	{
+		return Center;
+	}
+	const double Voxel = FMath::Max(VoxelSize, 1.0f);
+	return FVector(
+		FMath::RoundToDouble(Center.X / Voxel) * Voxel,
+		FMath::RoundToDouble(Center.Y / Voxel) * Voxel,
+		FMath::RoundToDouble(Center.Z / Voxel) * Voxel);
 }
 
 void UDreamWindSubsystem::ReportViewOrigin(const FVector& ViewOrigin, bool bIsGameView)
@@ -401,7 +510,7 @@ void UDreamWindSubsystem::ResolveAssets()
 		}
 	}
 
-	if (!VolumeTexture && bRetryDue && Settings->bVolumeEnabled && Settings->VolumeTexture.IsValid())
+	if (!VolumeTexture && bRetryDue && DreamWind::IsVolumeEnabledBySettings(Settings) && Settings->VolumeTexture.IsValid())
 	{
 		VolumeTexture = Cast<UTextureRenderTargetVolume>(Settings->VolumeTexture.TryLoad());
 		if (!VolumeTexture && !bAssetsResolved)
@@ -410,27 +519,32 @@ void UDreamWindSubsystem::ResolveAssets()
 		}
 	}
 
+	if (!VolumeFarTexture && bRetryDue && Settings->bVolumeFarLevel && DreamWind::IsVolumeEnabledBySettings(Settings) && Settings->VolumeFarTexture.IsValid())
+	{
+		VolumeFarTexture = Cast<UTextureRenderTargetVolume>(Settings->VolumeFarTexture.TryLoad());
+		if (!VolumeFarTexture && !bAssetsResolved)
+		{
+			UE_LOG(LogDreamWind, Warning, TEXT("Far volume render target '%s' not found. Run Tools > DreamWind > Setup Assets, or turn the far level off."), *Settings->VolumeFarTexture.ToString());
+		}
+	}
+
+	if (!TerrainTexture && bRetryDue && Settings->bTerrainEnabled && Settings->TerrainTexture.IsValid())
+	{
+		TerrainTexture = Cast<UTextureRenderTarget2D>(Settings->TerrainTexture.TryLoad());
+		bTerrainTextureDirty = TerrainTexture != nullptr;
+		if (!TerrainTexture && !bAssetsResolved)
+		{
+			UE_LOG(LogDreamWind, Warning, TEXT("Terrain render target '%s' not found. Materials ignore the terrain map until Tools > DreamWind > Setup Assets has run."), *Settings->TerrainTexture.ToString());
+		}
+	}
+
 	if (VolumeTexture)
 	{
-		const FIntVector Res = Settings->VolumeResolution;
-		const bool bMismatch =
-			VolumeTexture->SizeX != Res.X || VolumeTexture->SizeY != Res.Y || VolumeTexture->SizeZ != Res.Z ||
-			VolumeTexture->GetFormat() != PF_FloatRGBA || !VolumeTexture->bSupportsUAV;
-		if (bMismatch)
-		{
-			UE_LOG(LogDreamWind, Log, TEXT("Re-initialising wind volume render target '%s' to %dx%dx%d RGBA16F with UAV support (in memory)."),
-				*VolumeTexture->GetPathName(), Res.X, Res.Y, Res.Z);
-			VolumeTexture->bSupportsUAV = true;
-			VolumeTexture->bHDR = true;
-			VolumeTexture->OverrideFormat = PF_FloatRGBA;
-			VolumeTexture->ClearColor = FLinearColor::Transparent;
-			VolumeTexture->Init(Res.X, Res.Y, Res.Z, PF_FloatRGBA);
-			VolumeTexture->UpdateResourceImmediate(true);
-			if (VolumeRenderer.IsValid())
-			{
-				VolumeRenderer->EnqueueReset();
-			}
-		}
+		EnsureVolumeTextureMatches(VolumeTexture, Settings->VolumeResolution, VolumeRenderer);
+	}
+	if (VolumeFarTexture)
+	{
+		EnsureVolumeTextureMatches(VolumeFarTexture, Settings->VolumeResolution, VolumeRendererFar);
 	}
 
 	if (bRetryDue)
@@ -529,6 +643,33 @@ void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_P2, ToLinearColor(ToHlsl(FrameData.P2)));
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V0, ToLinearColor(ToHlsl(FrameData.V0)));
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V1, ToLinearColor(ToHlsl(FrameData.V1)));
+	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V2, ToLinearColor(ToHlsl(FrameData.V2)));
+	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V3, ToLinearColor(ToHlsl(FrameData.V3)));
+	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
+	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
+}
+
+void UDreamWindSubsystem::EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer)
+{
+	const bool bMismatch =
+		Texture->SizeX != Res.X || Texture->SizeY != Res.Y || Texture->SizeZ != Res.Z ||
+		Texture->GetFormat() != PF_FloatRGBA || !Texture->bSupportsUAV;
+	if (!bMismatch)
+	{
+		return;
+	}
+	UE_LOG(LogDreamWind, Log, TEXT("Re-initialising wind volume render target '%s' to %dx%dx%d RGBA16F with UAV support (in memory)."),
+		*Texture->GetPathName(), Res.X, Res.Y, Res.Z);
+	Texture->bSupportsUAV = true;
+	Texture->bHDR = true;
+	Texture->OverrideFormat = PF_FloatRGBA;
+	Texture->ClearColor = FLinearColor::Transparent;
+	Texture->Init(Res.X, Res.Y, Res.Z, PF_FloatRGBA);
+	Texture->UpdateResourceImmediate(true);
+	if (Renderer.IsValid())
+	{
+		Renderer->EnqueueReset();
+	}
 }
 
 void UDreamWindSubsystem::UpdateVolume(float WindDelta)
@@ -536,13 +677,14 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
 	UWorld* World = GetWorld();
 
-	if (!Settings->bVolumeEnabled || !VolumeTexture || !VolumeRenderer.IsValid())
+	FrameData.V1.W = 0.0f;
+	FrameData.V3.W = 0.0f;
+	if (!DreamWind::IsVolumeEnabledBySettings(Settings) || !VolumeTexture || !VolumeRenderer.IsValid())
 	{
-		FrameData.V1.W = 0.0f;
 		return;
 	}
 
-	// Arbitrate the shared render target between worlds.
+	// Arbitrate the shared render targets between worlds.
 	UDreamWindSubsystem* Driver = DreamWind::GVolumeDriver.Get();
 	if (Driver != this)
 	{
@@ -553,38 +695,58 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 		{
 			DreamWind::GVolumeDriver = this;
 			bVolumeHistoryDirty = true;
+			bVolumeHistoryDirtyFar = true;
 		}
 		else
 		{
-			FrameData.V1.W = 0.0f;
 			return;
 		}
 	}
 
-	FTextureRenderTargetResource* Resource = VolumeTexture->GameThread_GetRenderTargetResource();
+	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
+	if (UpdateVolumeLevel(WindDelta, VolumeTexture, VolumeRenderer, Voxel, VolumeCenter, PrevVolumeCenter, bVolumeHistoryDirty))
+	{
+		FrameData.V1.W = 1.0f;
+		FrameData.VolumeTexture = VolumeTexture;
+	}
+	if (Settings->bVolumeFarLevel && VolumeFarTexture && VolumeRendererFar.IsValid())
+	{
+		const float VoxelFar = Voxel * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
+		if (UpdateVolumeLevel(WindDelta, VolumeFarTexture, VolumeRendererFar, VoxelFar, VolumeCenterFar, PrevVolumeCenterFar, bVolumeHistoryDirtyFar))
+		{
+			FrameData.V3.W = 1.0f;
+			FrameData.VolumeFarTexture = VolumeFarTexture;
+		}
+	}
+}
+
+bool UDreamWindSubsystem::UpdateVolumeLevel(float WindDelta, UTextureRenderTargetVolume* Texture, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer,
+	float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty)
+{
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	FTextureRenderTargetResource* Resource = Texture->GameThread_GetRenderTargetResource();
 	if (!Resource)
 	{
-		FrameData.V1.W = 0.0f;
-		return;
+		return false;
 	}
 
 	FDreamWindVolumeRenderer::FUpdateArgs Args;
 	Args.Frame = FrameData;
 	Args.TargetResource = Resource;
+	Args.TerrainResource = (TerrainTexture && FrameData.T1.X > 0.5f) ? TerrainTexture->GameThread_GetRenderTargetResource() : nullptr;
 	Args.Resolution = Settings->VolumeResolution;
-	Args.PrevCenter = FVector3f(PrevVolumeCenter);
-	Args.NewCenter = FVector3f(VolumeCenter);
-	Args.VoxelSize = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
+	Args.PrevCenter = FVector3f(InOutPrevCenter);
+	Args.NewCenter = FVector3f(Center);
+	Args.VoxelSize = VoxelSize;
 	Args.DeltaTime = FMath::Max(WindDelta, 0.0f);
 	Args.DecayFactor = FMath::Exp(-Args.DeltaTime / FMath::Max(Settings->VolumeDecayTime, 0.01f));
 	Args.bAdvect = Settings->bVolumeAdvect;
-	Args.bResetHistory = bVolumeHistoryDirty;
-	VolumeRenderer->EnqueueUpdate(MoveTemp(Args));
+	Args.bResetHistory = bInOutHistoryDirty;
+	Renderer->EnqueueUpdate(MoveTemp(Args));
 
-	bVolumeHistoryDirty = false;
-	PrevVolumeCenter = VolumeCenter;
-	FrameData.V1.W = 1.0f;
-	FrameData.VolumeTexture = VolumeTexture;
+	bInOutHistoryDirty = false;
+	InOutPrevCenter = Center;
+	return true;
 }
 
 void UDreamWindSubsystem::UpdateDebugDisplay()
@@ -598,7 +760,183 @@ void UDreamWindSubsystem::UpdateDebugDisplay()
 	GEngine->AddOnScreenDebugMessage(Key, 0.0f, FColor::Cyan,
 		FString::Printf(TEXT("DreamWind  dir(%.2f %.2f %.2f) speed %.0f cm/s  gust %.2f  turb %.2f  t=%.1fs  sources %d  volume %s @ (%.0f %.0f %.0f)"),
 			Dir.X, Dir.Y, Dir.Z, CurrentWind.Speed, CurrentWind.GustStrength, CurrentWind.TurbulenceStrength, WindTime,
-			FrameData.Sources.Num(), FrameData.V1.W > 0.5f ? TEXT("on") : TEXT("off"), VolumeCenter.X, VolumeCenter.Y, VolumeCenter.Z));
+			FrameData.Sources.Num(), FrameData.V1.W > 0.5f ? (FrameData.V3.W > 0.5f ? TEXT("near+far") : TEXT("near")) : TEXT("off"), VolumeCenter.X, VolumeCenter.Y, VolumeCenter.Z));
+}
+
+void UDreamWindSubsystem::UpdateTerrainTexture()
+{
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	if (!Settings->bTerrainEnabled || !TerrainTexture)
+	{
+		FrameData.T1.X = 0.0f;   // GPU consumers: no texture, no terrain
+		return;
+	}
+	if (!TerrainCpu.IsValid() || !TerrainCpu->Bounds.bIsValid)
+	{
+		FrameData.T1.X = 0.0f;
+		return;
+	}
+
+	if (bTerrainTextureDirty)
+	{
+		bTerrainTextureDirty = false;
+		const int32 W = TerrainCpu->Width;
+		const int32 H = TerrainCpu->Height;
+		if (TerrainTexture->SizeX != W || TerrainTexture->SizeY != H || TerrainTexture->GetFormat() != PF_FloatRGBA)
+		{
+			TerrainTexture->InitCustomFormat(W, H, PF_FloatRGBA, true);
+			TerrainTexture->UpdateResourceImmediate(false);
+		}
+		FTextureRenderTargetResource* Resource = TerrainTexture->GameThread_GetRenderTargetResource();
+		if (Resource)
+		{
+			// Upload through a staging texture created with the data, then a GPU copy: works for
+			// render targets on every RHI, unlike a raw UpdateTexture2D.
+			TSharedPtr<const FDreamWindTerrainCpuData, ESPMode::ThreadSafe> Data = TerrainCpu;
+			ENQUEUE_RENDER_COMMAND(DreamWindTerrainUpload)(
+				[Resource, Data, W, H](FRHICommandListImmediate& RHICmdList)
+				{
+					FRHITexture* Dst = Resource->GetRenderTargetTexture();
+					if (!Dst)
+					{
+						return;
+					}
+					TArray<FFloat16Color> Pixels;
+					Pixels.SetNumUninitialized(W * H);
+					for (int32 i = 0; i < W * H; ++i)
+					{
+						const FVector4f& T = Data->Texels[i];
+						Pixels[i] = FFloat16Color(FLinearColor(T.X, T.Y, T.Z, T.W));
+					}
+					struct FPixelsBulkData final : public FResourceBulkDataInterface
+					{
+						const void* Ptr; uint32 Bytes;
+						FPixelsBulkData(const void* InPtr, uint32 InBytes) : Ptr(InPtr), Bytes(InBytes) {}
+						virtual const void* GetResourceBulkData() const override { return Ptr; }
+						virtual uint32 GetResourceBulkDataSize() const override { return Bytes; }
+						virtual void Discard() override {}
+					};
+					FPixelsBulkData BulkData(Pixels.GetData(), uint32(Pixels.Num() * sizeof(FFloat16Color)));
+					const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(TEXT("DreamWind.TerrainUpload"), W, H, PF_FloatRGBA)
+						.SetFlags(ETextureCreateFlags::ShaderResource)
+						.SetInitialState(ERHIAccess::CopySrc)
+						.SetInitActionBulkData(&BulkData);
+					FTextureRHIRef Staging = RHICreateTexture(Desc);
+					if (Staging.IsValid())
+					{
+						TransitionAndCopyTexture(RHICmdList, Staging, Dst, FRHICopyTextureInfo());
+					}
+				});
+		}
+	}
+	FrameData.T1.X = 1.0f;
+	FrameData.TerrainTexture = TerrainTexture;
+}
+
+void UDreamWindSubsystem::SetTerrainMap(UDreamWindTerrainMap* Map)
+{
+	bTerrainMapExplicit = true;
+	if (TerrainMap == Map && (Map == nullptr || TerrainCpu.IsValid()))
+	{
+		return;
+	}
+	TerrainMap = Map;
+	if (Map && Map->IsValidMap())
+	{
+		TSharedRef<FDreamWindTerrainCpuData, ESPMode::ThreadSafe> Cpu = MakeShared<FDreamWindTerrainCpuData, ESPMode::ThreadSafe>();
+		Cpu->Bounds = Map->Bounds;
+		Cpu->Width = Map->Width;
+		Cpu->Height = Map->Height;
+		Cpu->Texels = Map->Texels;
+		TerrainCpu = Cpu;
+	}
+	else
+	{
+		TerrainCpu.Reset();
+	}
+	bTerrainTextureDirty = true;
+}
+
+DreamWind::Hlsl::FDreamWindSample UDreamWindSubsystem::ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const
+{
+	using namespace DreamWind::Hlsl;
+	if (!FrameData.TerrainCpu.IsValid() || FrameData.T1.X <= 0.0f)
+	{
+		return S;
+	}
+	const FDreamWindTerrainParams T = FrameData.GetTerrainParams();
+	const float2 UV = DW_TerrainUV(Pos, T);
+	const float Inside = DW_TerrainInside(UV, T);
+	if (Inside <= 0.0f)
+	{
+		return S;
+	}
+	const FVector4f Texel = FrameData.TerrainCpu->Sample(Pos.x, Pos.y);
+	return DW_ApplyTerrain(S, ToHlsl(Texel), T, Inside);
+}
+
+void UDreamWindSubsystem::DrawDebug()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	using namespace DreamWind::Hlsl;
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	const FVector Dir = DreamWind::SafeDirection(CurrentWind.Direction);
+
+	// volume window
+	if (FrameData.V1.W > 0.5f)
+	{
+		const FIntVector Res = Settings->VolumeResolution;
+		const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
+		const FVector HalfExtent(Res.X * Voxel * 0.5, Res.Y * Voxel * 0.5, Res.Z * Voxel * 0.5);
+		DrawDebugBox(World, VolumeCenter, HalfExtent, FColor(80, 200, 255), false, -1.0f, 0, 2.0f);
+	}
+	if (FrameData.V3.W > 0.5f)
+	{
+		const FIntVector Res = Settings->VolumeResolution;
+		const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f) * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
+		const FVector HalfExtent(Res.X * Voxel * 0.5, Res.Y * Voxel * 0.5, Res.Z * Voxel * 0.5);
+		DrawDebugBox(World, VolumeCenterFar, HalfExtent, FColor(40, 120, 200), false, -1.0f, 0, 1.0f);
+	}
+
+	// global direction at the volume centre / camera
+	const FVector ArrowBase = VolumeCenter + FVector(0, 0, 50);
+	DrawDebugDirectionalArrow(World, ArrowBase, ArrowBase + Dir * FMath::Clamp(CurrentWind.Speed * 0.5f, 100.0f, 800.0f), 60.0f, FColor::Cyan, false, -1.0f, 0, 4.0f);
+	DrawDebugString(World, ArrowBase + FVector(0, 0, 40), FString::Printf(TEXT("DreamWind %.0f cm/s  gust %.2f  t %.1f"), CurrentWind.Speed, CurrentWind.GustStrength, WindTime), nullptr, FColor::Cyan, 0.0f, true);
+
+	// sources
+	for (const FDreamWindSourceData& S : FrameData.Sources)
+	{
+		const FVector Centre(S.PositionRadius.x, S.PositionRadius.y, S.PositionRadius.z);
+		const int32 Type = int32(S.Misc.x);
+		const FColor Colour = Type == DW_SOURCE_RADIAL ? FColor::Orange : (Type == DW_SOURCE_VORTEX ? FColor::Magenta : FColor::Yellow);
+		DrawDebugSphere(World, Centre, S.PositionRadius.w, 16, Colour, false, -1.0f, 0, 1.0f);
+		if (Type != DW_SOURCE_RADIAL)
+		{
+			const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
+			DrawDebugDirectionalArrow(World, Centre, Centre + Axis * FMath::Min(S.PositionRadius.w, 300.0f), 40.0f, Colour, false, -1.0f, 0, 3.0f);
+		}
+	}
+
+	// a coarse field of arrows: what the CPU sample says around the centre (level 2)
+	if (DreamWind::GCVarDebugDraw >= 2)
+	{
+		const float Spacing = 400.0f;
+		for (int32 X = -6; X <= 6; ++X)
+		{
+			for (int32 Y = -6; Y <= 6; ++Y)
+			{
+				const FVector P = VolumeCenter + FVector(X * Spacing, Y * Spacing, 0.0);
+				const FDreamWindSampleResult R = SampleWind(P, EDreamWindQuality::Cheap);
+				const float Len = FMath::Clamp(R.Speed * 0.25f, 10.0f, Spacing * 0.9f);
+				const uint8 G = uint8(FMath::Clamp(R.Gust, 0.0f, 2.0f) * 127.0f);
+				DrawDebugDirectionalArrow(World, P, P + R.Direction * Len, 25.0f, FColor(255, G, 60), false, -1.0f, 0, 1.5f);
+			}
+		}
+	}
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -649,7 +987,7 @@ FDreamWindSampleResult UDreamWindSubsystem::SampleWind(FVector WorldPosition, ED
 
 	const FDreamWindParams P = FrameData.GetParams();
 	const float3 Pos = ToHlsl(WorldPosition);
-	const FDreamWindSample S = (Quality == EDreamWindQuality::Full) ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos);
+	const FDreamWindSample S = ApplyTerrain((Quality == EDreamWindQuality::Full) ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos), Pos);
 
 	float3 V = S.Velocity;
 	for (const FDreamWindSourceData& Source : FrameData.Sources)

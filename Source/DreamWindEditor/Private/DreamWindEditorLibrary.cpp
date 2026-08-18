@@ -5,6 +5,7 @@
 #include "DreamWindSettings.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/TextureRenderTargetVolume.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Misc/PackageName.h"
@@ -74,7 +75,7 @@ UMaterialParameterCollection* UDreamWindEditorLibrary::EnsureParameterCollection
 		bCreated = true;
 	}
 
-	static const FName Names[] = { DreamWind::Names::MPC_P0, DreamWind::Names::MPC_P1, DreamWind::Names::MPC_P2, DreamWind::Names::MPC_V0, DreamWind::Names::MPC_V1 };
+	static const FName Names[] = { DreamWind::Names::MPC_P0, DreamWind::Names::MPC_P1, DreamWind::Names::MPC_P2, DreamWind::Names::MPC_V0, DreamWind::Names::MPC_V1, DreamWind::Names::MPC_V2, DreamWind::Names::MPC_V3, DreamWind::Names::MPC_T0, DreamWind::Names::MPC_T1 };
 	bool bChanged = false;
 	MPC->PreEditChange(nullptr);
 	for (const FName& Name : Names)
@@ -105,16 +106,27 @@ UMaterialParameterCollection* UDreamWindEditorLibrary::EnsureParameterCollection
 
 UTextureRenderTargetVolume* UDreamWindEditorLibrary::EnsureVolumeTexture(bool bSaveAsset)
 {
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	UTextureRenderTargetVolume* Near = EnsureVolumeTextureAt(Settings->VolumeTexture, bSaveAsset);
+	if (Settings->bVolumeFarLevel)
+	{
+		EnsureVolumeTextureAt(Settings->VolumeFarTexture, bSaveAsset);
+	}
+	return Near;
+}
+
+UTextureRenderTargetVolume* UDreamWindEditorLibrary::EnsureVolumeTextureAt(const FSoftObjectPath& Path, bool bSaveAsset)
+{
 	using namespace DreamWind::EditorSetup;
 	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
 
 	FString PackageName, AssetName;
-	if (!SplitAssetPath(Settings->VolumeTexture, PackageName, AssetName))
+	if (!SplitAssetPath(Path, PackageName, AssetName))
 	{
 		return nullptr;
 	}
 
-	UTextureRenderTargetVolume* RT = Cast<UTextureRenderTargetVolume>(Settings->VolumeTexture.TryLoad());
+	UTextureRenderTargetVolume* RT = Cast<UTextureRenderTargetVolume>(Path.TryLoad());
 	bool bCreated = false;
 	if (!RT)
 	{
@@ -150,9 +162,52 @@ UTextureRenderTargetVolume* UDreamWindEditorLibrary::EnsureVolumeTexture(bool bS
 	return RT;
 }
 
+UTextureRenderTarget2D* UDreamWindEditorLibrary::EnsureTerrainTexture(bool bSaveAsset)
+{
+	using namespace DreamWind::EditorSetup;
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+
+	FString PackageName, AssetName;
+	if (!SplitAssetPath(Settings->TerrainTexture, PackageName, AssetName))
+	{
+		return nullptr;
+	}
+
+	UTextureRenderTarget2D* RT = Cast<UTextureRenderTarget2D>(Settings->TerrainTexture.TryLoad());
+	bool bCreated = false;
+	if (!RT)
+	{
+		UPackage* Package = CreatePackage(*PackageName);
+		Package->FullyLoad();
+		RT = NewObject<UTextureRenderTarget2D>(Package, *AssetName, RF_Public | RF_Standalone);
+		bCreated = true;
+	}
+	if (bCreated || RT->GetFormat() != PF_FloatRGBA)
+	{
+		RT->PreEditChange(nullptr);
+		RT->ClearColor = FLinearColor(1, 0, 0, 0);   // multiplier 1, no steering
+		RT->AddressX = TA_Clamp;
+		RT->AddressY = TA_Clamp;
+		RT->InitCustomFormat(4, 4, PF_FloatRGBA, true);
+		RT->PostEditChange();
+		RT->UpdateResourceImmediate(true);
+	}
+	if (bCreated)
+	{
+		FAssetRegistryModule::AssetCreated(RT);
+		if (bSaveAsset)
+		{
+			SavePackageFor(RT);
+		}
+	}
+	UE_LOG(LogDreamWind, Display, TEXT("Terrain render target %s: %s"), *RT->GetPathName(), bCreated ? TEXT("created") : TEXT("up to date"));
+	return RT;
+}
+
 bool UDreamWindEditorLibrary::EnsureAssets(bool bSaveAssets)
 {
 	const bool bMPC = EnsureParameterCollection(bSaveAssets) != nullptr;
 	const bool bRT = EnsureVolumeTexture(bSaveAssets) != nullptr;
-	return bMPC && bRT;
+	const bool bTerrain = EnsureTerrainTexture(bSaveAssets) != nullptr;
+	return bMPC && bRT && bTerrain;
 }

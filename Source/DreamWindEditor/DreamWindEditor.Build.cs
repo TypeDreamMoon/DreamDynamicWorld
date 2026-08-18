@@ -27,6 +27,9 @@ public class DreamWindEditor : ModuleRules
 			"Projects",
 			"Settings",
 			"DeveloperSettings",
+			"Landscape",
+			"RenderCore",
+			"RHI",
 		});
 	}
 }

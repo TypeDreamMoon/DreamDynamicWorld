@@ -6,8 +6,9 @@ plus a small camera-following volume for the things that must move air locally.
 
 | Layer | What | Cost | Who reads it |
 | :-- | :-- | :-- | :-- |
-| **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations | everyone |
-| **L2 volume** | 64×64×32 RGBA16F window that follows the camera; residual wind, impulses, wakes; advected and decayed each frame | one compute pass ≈ 0.05 ms, 1 MB | materials (opt-in), Niagara GPU |
+| **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
+| **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys | 1 bilinear fetch, ~1 MB per 256² map | everyone |
+| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
 | **L3 sources** | spherical velocity fields: directional / radial / vortex, transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
@@ -25,15 +26,26 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
    *Project Settings ▸ DreamPlugin ▸ Dream Wind*. Both are committed with the plugin already.
 3. Optionally drop an **`ADreamWindGlobal`** actor in the level to author the global wind (direction,
    speed, gusts, turbulence). Without it the project default applies.
+   Its **Bake Terrain Map** button traces the level's collision into a `UDreamWindTerrainMap`
+   (`<Level>_WindTerrain` next to the map), assigns and applies it. Bake bounds default to the level's
+   static geometry; the bake settings (resolution, blur radius = the size of a "ridge", exposure gain,
+   steer gain, max steer) live on the actor.
 4. Remove hand-placed `WindDirectionalSource` actors — DreamWind drives one for you.
 
 ## Using it
 
 **Materials.** Call `MF_DreamWindSample(WorldPosition)` → `Velocity` (cm/s), `Gust`, `Speed`,
-`Direction`. Bend geometry with `Velocity * (Response * TipMask)` in World Position Offset. The
-static switch **Wind High Quality** (off by default) adds the second gust/turbulence octaves and the
-dynamic volume; keep it off for grass. See `DShader/Materials/M_DreamWindGrass.dsm` and
-`M_DreamWindDebug.dsm` (paints direction as hue, speed as brightness — put it on a big plane).
+`Direction`. Bend geometry with `Velocity * (Response * TipMask)` in World Position Offset. Two static
+switches, exposed on every material instance:
+
+* **Wind Volume** (on) — adds the dynamic volume inside its windows: up to two texture fetches. This
+  is what makes grass answer impulses and wakes; turn it off on the cheapest foliage.
+* **Wind High Quality** (off) — 2 gust octaves + 2 curl octaves + vertical turbulence instead of the
+  3-evaluation cheap wind. Hero foliage, cloth-like sheets.
+
+The flags reach the HLSL as literal constants, so the shader compiler folds the branch away. See
+`DShader/Materials/M_DreamWindGrass.dsm` and `M_DreamWindDebug.dsm` (paints direction as hue, speed as
+brightness — put it on a big plane).
 
 **Niagara.** Add a `Dream Wind` data interface (User parameter) and use `DreamWindForce(Wind, Drag,
 Strength, Lift)` in Particle Update before *Solve Forces and Velocity*; or call
@@ -49,6 +61,10 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
 ```
 `UDreamWindSourceComponent` on an actor gives a persistent, moving source (fan, wake, vortex).
 
+**Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
+tests), `DreamWind.TimeScale`, `DreamWind.DebugDraw 1` (volume windows, sources, global arrow) or `2`
+(also a field of CPU-sampled arrows around the volume centre).
+
 ## Architecture notes
 
 * `Shaders/Shared/DreamWindShared.h` is the single source of the analytic model. It is written in the
@@ -61,9 +77,17 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
   GPU the volume blends the *total* wind toward the source (residual toward `source − analytic`).
 * The volume is re-based every frame by the update pass (semi-Lagrangian back-trace through the
   previous window), so following the camera costs no copy; cells that were outside the old window start
-  from zero. Only one world drives the shared render target at a time (game worlds beat the editor world).
-* The MPC carries five float4 (`DreamWind_P0..P2`, `V0`, `V1`) in exactly the layout
-  `DW_UnpackParams` / `DW_UnpackVolume` expect; the DI and the compute pass use the same packing.
+  from zero. Two levels share one shader: the far level runs the same pass with 4× voxels; consumers
+  take the near level inside its window and the far level outside it. Only one world drives the shared
+  render targets at a time (game worlds beat the editor world).
+* The MPC carries nine float4 (`DreamWind_P0..P2`, `V0`/`V1` near window, `V2`/`V3` far window,
+  `T0`/`T1` terrain map) in exactly the layout `DW_UnpackParams` / `DW_UnpackVolume` /
+  `DW_UnpackTerrain` expect; the DI and the compute pass use the same packing.
+* Terrain: the map is a data asset of plain floats (`UDreamWindTerrainMap::Texels`), so the CPU sample
+  reads the very numbers the GPU does; the subsystem uploads the active map into `RT_DreamWindTerrain`
+  (a fixed 2D render target materials reference) whenever it changes. Height relative to a box-blurred
+  copy = exposure → speed multiplier; the blurred slope, clamped, → steering toward lower ground. Texels
+  with nothing under them count as the lowest ground seen, not as a pit.
 
 ## Performance guidance
 
@@ -72,9 +96,19 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
   flag is separate (`bEvaluateWorldPositionOffsetInRayTracing`).
 * Prefer the cheap sample (3 noise evaluations, no texture) in vertex-heavy materials; reserve the
   full sample + volume for particles, cloth-like effects and hero foliage.
-* Volume: 64×64×32 at 100 cm voxels covers 64 m × 64 m × 32 m for 1 MB and one 0.05-ish ms pass.
-  Raise resolution or voxel size in the settings; the render target is re-initialised in memory.
-* CPU: `SampleWind(Cheap)` is ~1–2 µs; sources add a few ns each.
+* Volume: 64×64×32 at 100 cm voxels covers 64 m × 64 m × 32 m for 1 MB and one pass; the far level
+  (4 m voxels, 256 m) doubles both. Raise resolution or voxel size in the settings; the render targets are
+  re-initialised in memory. Turn the far level off (`bVolumeFarLevel`) for interiors.
+* Measured (i9-14900KF, editor viewport, `ProfileGPU`): near volume update 0.018 ms + far 0.022 ms +
+  two 0.004 ms history copies ≈ **0.05 ms GPU** for both levels; `NS_DreamWindLeaves` GPU sim 0.015 ms.
+  CPU (`DreamWind.Perf.CpuSample`): cheap sample **0.05 µs**, full **0.09 µs**; sources add a few ns each.
+
+## Tests
+
+`Automation RunTests DreamWind.` — `DreamWind.Shared.*` are pure C++ over the shared model
+(determinism, continuity across lattice cells and in time, calm wind, source blending, packing),
+`DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
+subsystem tick with an impulse in whichever editor/game world is up.
 
 ## Verification (2026-08-18)
 
@@ -84,6 +118,9 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
   `NS_DreamWindDebug` (CPU) and `NS_DreamWindLeaves` (GPU) run — see `Saved/Screenshots` for the
   arrow grid following gusts and impulses.
 * Shared header: compiles as C++ (UBT), HLSL SM5 (fxc) and SM6 (dxc).
+* 2026-08-18 (later): far volume level active (`V3.w = 1`), terrain bake over the showcase map lands in
+  the MPC (`T0/T1`), CPU sample on a baked ridge reads 1.4× the flat speed, the debug plane and the CPU
+  arrow grid agree on the steered directions; 8/8 `DreamWind.*` tests green.
 
 ## Layout
 
