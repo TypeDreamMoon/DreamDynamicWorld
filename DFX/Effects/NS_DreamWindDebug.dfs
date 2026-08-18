@@ -1,0 +1,82 @@
+// DreamWind debug: a grid of velocity-aligned sprites that shows the wind field around the system.
+//
+// Every particle sits on a fixed grid point and, each frame, takes the wind at that point as its
+// velocity WITHOUT moving (no solver), so a velocity-aligned sprite becomes a little arrow: length =
+// speed, colour = gust factor (blue calm .. white nominal .. red gust). CPU sim, so this is also the
+// quickest way to eyeball the CPU/GPU parity: put a GPU DreamWind system next to it.
+System(Name="Effects/NS_DreamWindDebug", Root="Plugin.DreamWind")
+{
+    Settings = {
+        ModulePaths = ["/DreamWind/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-6000, -6000, -1000, 6000, 6000, 1000);
+    }
+
+    Properties = {
+        DI<DreamWind> Wind;
+        int    GridX        = 24                 [ Group="Grid" ];
+        int    GridY        = 24                 [ Group="Grid" ];
+        Vector GridSize     = (4800, 4800, 0)    [ Group="Grid"; Description="Bounding box of the grid, cm." ];
+        float  Height       = 150.0              [ Group="Grid"; Description="cm above the system origin." ];
+        float  ArrowScale   = 0.25               [ Group="Look"; Description="sprite length in cm per cm/s of wind." ];
+        float  ArrowWidth   = 6.0                [ Group="Look" ];
+    }
+
+    Emitter Arrows
+    {
+        Settings = {
+            SimTarget          = CPU;
+            LocalSpace         = false;
+            Determinism        = true;
+            RandomSeed         = 3;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 1024;
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnParticlesInGrid(XCount = User.GridX, YCount = User.GridY, ZCount = 1);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode      = DirectSet,
+                Lifetime          = 100000.0,
+                ColorMode         = DirectSet,
+                Color             = (1.0, 1.0, 1.0, 1.0),
+                SpriteSizeMode    = Uniform,
+                UniformSpriteSize = 10.0
+            );
+            Spawn/Location/V2/GridLocation(
+                DimensionsDefinition = BoundingBoxSize,
+                XYZDimensions        = User.GridSize,
+                Offset               = hlsl { float3(0.0, 0.0, User.Height) },
+                GridXCount           = User.GridX,
+                GridYCount           = User.GridY,
+                GridZCount           = 1
+            );
+            float Particles.DreamWindGust = 1.0;
+        }
+
+        ParticleUpdate = {
+            ParticleState(KillParticlesWhenLifetimeHasElapsed = false);
+            // Drag high enough to track the wind within a frame; no solver, so the arrows stay put.
+            DreamWindForce(Wind = User.Wind, Drag = 200.0, Strength = 1.0, Lift = 0.0);
+            Vector2 Particles.SpriteSize = hlsl { float2(max(length(Particles.Velocity) * User.ArrowScale, 4.0), User.ArrowWidth) };
+            Color Particles.Color = hlsl {
+                lerp(lerp(float4(0.2, 0.4, 1.0, 1.0), float4(1.0, 1.0, 1.0, 1.0), saturate(Particles.DreamWindGust)),
+                     float4(1.0, 0.25, 0.1, 1.0), saturate(Particles.DreamWindGust - 1.0))
+            };
+        }
+
+        SpriteRenderer Arrow
+        {
+            Alignment  = VelocityAligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+        }
+    }
+}

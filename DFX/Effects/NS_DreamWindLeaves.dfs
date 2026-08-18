@@ -1,0 +1,80 @@
+// DreamWind demo: leaves carried by the world wind (GPU).
+//
+// Spawns leaves in a box around the system, lets DreamWindForce pull them along the wind (analytic
+// gusts and turbulence, sources, and the dynamic volume near the camera), adds a little gravity and a
+// tumble. Drop it in a level, set the global wind, fire an impulse: the leaves answer.
+System(Name="Effects/NS_DreamWindLeaves", Root="Plugin.DreamWind")
+{
+    Settings = {
+        ModulePaths = ["/DreamWind/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-8000, -8000, -4000, 8000, 8000, 4000);
+    }
+
+    Properties = {
+        DI<DreamWind> Wind;
+        float  SpawnRate   = 120.0            [ Group="Spawn" ];
+        Vector SpawnExtent = (4000, 4000, 600) [ Group="Spawn"; Description="Half-size of the spawn box, cm." ];
+        float  Lifetime    = 9.0              [ Group="Spawn" ];
+        float  LeafSize    = 10.0             [ Group="Look" ];
+        Color  LeafColor   = (0.75, 0.45, 0.12, 1.0) [ Group="Look" ];
+        float  Drag        = 1.8              [ Group="Wind"; Description="1/s, how tightly leaves follow the air." ];
+        float  Lift        = 60.0             [ Group="Wind"; Description="cm/s of extra lift per unit of gust." ];
+        float  Gravity     = -140.0           [ Group="Wind"; Description="cm/s^2; light leaves sink slowly." ];
+    }
+
+    Emitter Leaves
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 2048;
+            FixedBounds        = box(-8000, -8000, -4000, 8000, 8000, 4000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.SpawnRate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode          = DirectSet,
+                Lifetime              = User.Lifetime,
+                ColorMode             = DirectSet,
+                Color                 = User.LeafColor,
+                SpriteSizeMode        = RandomUniform,
+                UniformSpriteSizeMin  = hlsl { User.LeafSize * 0.6 },
+                UniformSpriteSizeMax  = hlsl { User.LeafSize * 1.4 },
+                SpriteRotationMode    = Random
+            );
+            BoxLocation(BoxSize = hlsl { User.SpawnExtent * 2.0 }, CoordinateSpace = Simulation);
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            DreamWindForce(Wind = User.Wind, Drag = User.Drag, Strength = 1.0, Lift = User.Lift);
+            GravityForce(Gravity = hlsl { float3(0.0, 0.0, User.Gravity) });
+            SolveForcesAndVelocity();
+            SpriteRotationRate(RotationRate = 90.0);
+            // fade in over the first 10% and out over the last 15% of the lifetime
+            Color Particles.Color = hlsl {
+                float4(User.LeafColor.rgb,
+                       User.LeafColor.a * saturate(Particles.NormalizedAge * 10.0) * saturate((1.0 - Particles.NormalizedAge) * 6.7))
+            };
+        }
+
+        SpriteRenderer Leaf
+        {
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+}
