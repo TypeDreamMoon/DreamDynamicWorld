@@ -15,6 +15,12 @@ enum class EDreamWindSourceType : uint8
 	Radial      = 1,
 	/** Swirls around Direction used as an axis: tornadoes, spin attacks. */
 	Vortex      = 2,
+	/**
+	 * An oriented box in which the wind becomes Direction * Strength. Strength 0 makes a sheltered
+	 * interior (house, cave, the lee of a wall - the L1 terrain bake cannot see "inside"); Strength > 0
+	 * makes a wind zone (corridor draft, wind tunnel). Uses BoxExtent / BoxRotation instead of Radius.
+	 */
+	Shelter     = 3,
 };
 
 /** Quality of the analytic (L0) evaluation. */
@@ -69,7 +75,10 @@ struct DREAMWIND_API FDreamWindGlobalWind
 	float TurbulenceWavelength = 900.0f;
 };
 
-/** A source of wind: a velocity field with a spherical footprint. Consumers blend TOWARD it, never add. */
+/**
+ * A source of wind: a velocity field with a footprint (a sphere, or an oriented box for Shelter).
+ * Consumers blend TOWARD it, never add.
+ */
 USTRUCT(BlueprintType)
 struct DREAMWIND_API FDreamWindSourceDesc
 {
@@ -82,15 +91,23 @@ struct DREAMWIND_API FDreamWindSourceDesc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source")
 	FVector Position = FVector::ZeroVector;
 
-	/** Footprint radius, cm. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "1"))
+	/** Footprint radius, cm. Shelter boxes derive it from BoxExtent (bounding sphere, used for culling). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "1", EditCondition = "Type != EDreamWindSourceType::Shelter"))
 	float Radius = 500.0f;
 
-	/** Push direction (Directional) or swirl axis (Vortex). Ignored by Radial. Normalised on use. */
+	/** Half extents of a Shelter box, cm (local X/Y/Z before BoxRotation). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
+	FVector BoxExtent = FVector(500.0, 500.0, 300.0);
+
+	/** Orientation of a Shelter box. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
+	FRotator BoxRotation = FRotator::ZeroRotator;
+
+	/** Push direction (Directional), swirl axis (Vortex) or zone wind direction (Shelter). Ignored by Radial. Normalised on use. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source")
 	FVector Direction = FVector(1.0, 0.0, 0.0);
 
-	/** Velocity the source wants at full weight, cm/s. */
+	/** Velocity the source wants at full weight, cm/s. A Shelter with 0 is calm air. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source")
 	float Strength = 1500.0f;
 
@@ -98,9 +115,15 @@ struct DREAMWIND_API FDreamWindSourceDesc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "0", UIMax = "60"))
 	float InjectRate = 20.0f;
 
-	/** Fraction of the radius that receives full weight before the smooth falloff starts. */
+	/** Fraction of the radius (or box extent) that receives full weight before the smooth falloff starts. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "0", ClampMax = "1"))
 	float InnerRadiusFraction = 0.2f;
+
+	/** Radius of the sphere that contains the footprint (Radius, or the box's bounding sphere). */
+	float GetBoundingRadius() const
+	{
+		return Type == EDreamWindSourceType::Shelter ? static_cast<float>(BoxExtent.GetAbs().Size()) : Radius;
+	}
 };
 
 /** Result of a wind query. */

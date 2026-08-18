@@ -347,7 +347,7 @@ void UDreamWindSubsystem::GatherSources()
 		{
 			if (Component->CullDistance > 0.0f && bHasViewOrigin)
 			{
-				if (FVector::DistSquared(Desc.Position, VolumeCenter) > FMath::Square(Component->CullDistance + Desc.Radius))
+				if (FVector::DistSquared(Desc.Position, VolumeCenter) > FMath::Square(Component->CullDistance + Desc.GetBoundingRadius()))
 				{
 					continue;
 				}
@@ -356,9 +356,16 @@ void UDreamWindSubsystem::GatherSources()
 		}
 	}
 
-	// strongest first, then cap what the GPU sees
+	// shelters first (they are structure, and a calm one has strength 0), then strongest first,
+	// then cap what the GPU sees
 	FrameData.Sources.Sort([](const DreamWind::Hlsl::FDreamWindSourceData& A, const DreamWind::Hlsl::FDreamWindSourceData& B)
 	{
+		const bool bShelterA = int32(A.Misc.x) == DW_SOURCE_SHELTER;
+		const bool bShelterB = int32(B.Misc.x) == DW_SOURCE_SHELTER;
+		if (bShelterA != bShelterB)
+		{
+			return bShelterA;
+		}
 		return FMath::Abs(A.DirectionStrength.w) > FMath::Abs(B.DirectionStrength.w);
 	});
 	const int32 MaxSources = FMath::Max(1, Settings ? Settings->MaxGpuSources : 64);
@@ -373,9 +380,18 @@ DreamWind::Hlsl::FDreamWindSourceData UDreamWindSubsystem::PackSource(const FDre
 	using namespace DreamWind::Hlsl;
 	const FVector Dir = DreamWind::SafeDirection(Desc.Direction);
 	FDreamWindSourceData S;
-	S.PositionRadius    = float4(float(Desc.Position.X), float(Desc.Position.Y), float(Desc.Position.Z), FMath::Max(Desc.Radius, 1.0f));
+	S.PositionRadius    = float4(float(Desc.Position.X), float(Desc.Position.Y), float(Desc.Position.Z), FMath::Max(Desc.GetBoundingRadius(), 1.0f));
 	S.DirectionStrength = float4(float(Dir.X), float(Dir.Y), float(Dir.Z), Desc.Strength * StrengthScale);
 	S.Misc              = float4(float(static_cast<int32>(Desc.Type)), FMath::Max(Desc.InjectRate, 0.0f), FMath::Clamp(Desc.InnerRadiusFraction, 0.0f, 1.0f), 0.0f);
+	S.BoxExtent         = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	S.BoxRotation       = float4(0.0f, 0.0f, 0.0f, 1.0f);
+	if (Desc.Type == EDreamWindSourceType::Shelter)
+	{
+		const FVector Ext = Desc.BoxExtent.GetAbs().ComponentMax(FVector(1.0));
+		const FQuat Q = Desc.BoxRotation.Quaternion().GetNormalized();
+		S.BoxExtent   = float4(float(Ext.X), float(Ext.Y), float(Ext.Z), 0.0f);
+		S.BoxRotation = float4(float(Q.X), float(Q.Y), float(Q.Z), float(Q.W));
+	}
 	return S;
 }
 
@@ -912,6 +928,18 @@ void UDreamWindSubsystem::DrawDebug()
 	{
 		const FVector Centre(S.PositionRadius.x, S.PositionRadius.y, S.PositionRadius.z);
 		const int32 Type = int32(S.Misc.x);
+		if (Type == DW_SOURCE_SHELTER)
+		{
+			const FColor Colour = S.DirectionStrength.w > 0.0f ? FColor(120, 255, 120) : FColor(90, 200, 90);
+			const FQuat Q(S.BoxRotation.x, S.BoxRotation.y, S.BoxRotation.z, S.BoxRotation.w);
+			DrawDebugBox(World, Centre, FVector(S.BoxExtent.x, S.BoxExtent.y, S.BoxExtent.z), Q, Colour, false, -1.0f, 0, 1.5f);
+			if (S.DirectionStrength.w > 0.0f)
+			{
+				const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
+				DrawDebugDirectionalArrow(World, Centre, Centre + Axis * FMath::Min(S.PositionRadius.w, 300.0f), 40.0f, Colour, false, -1.0f, 0, 3.0f);
+			}
+			continue;
+		}
 		const FColor Colour = Type == DW_SOURCE_RADIAL ? FColor::Orange : (Type == DW_SOURCE_VORTEX ? FColor::Magenta : FColor::Yellow);
 		DrawDebugSphere(World, Centre, S.PositionRadius.w, 16, Colour, false, -1.0f, 0, 1.0f);
 		if (Type != DW_SOURCE_RADIAL)

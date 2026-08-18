@@ -13,11 +13,16 @@
 class UDreamWindSourceComponent;
 class UInstancedStaticMeshComponent;
 class USphereComponent;
+class UBoxComponent;
 class UArrowComponent;
 class UStaticMesh;
 class UMaterialInterface;
 
-/** A persistent wind source you can place: fan lane, updraft, vortex. The +X axis is the push / swirl axis. */
+/**
+ * A persistent wind source you can place: fan lane, updraft, vortex, or a Shelter box (calm interior /
+ * wind zone). The +X axis is the push / swirl / zone-wind axis; the footprint follows the actor's
+ * rotation and scale.
+ */
 UCLASS(HideCategories = (Input, Rendering, Replication, Collision, HLOD, Physics, Networking, LevelInstance, DataLayers, Cooking))
 class DREAMWIND_API ADreamWindSourceActor : public AActor
 {
@@ -29,9 +34,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DreamWind")
 	TObjectPtr<UDreamWindSourceComponent> Source;
 
-	/** Draws the footprint radius. */
+	/** Draws the footprint radius (sphere types). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DreamWind")
 	TObjectPtr<USphereComponent> RadiusVisual;
+
+	/** Draws the footprint box (Shelter). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DreamWind")
+	TObjectPtr<UBoxComponent> BoxVisual;
 
 #if WITH_EDITORONLY_DATA
 	UPROPERTY()

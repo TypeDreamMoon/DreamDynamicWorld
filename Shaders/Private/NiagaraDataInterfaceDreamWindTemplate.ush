@@ -69,9 +69,11 @@ void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, 
 		for (uint i = 0; i < {ParameterName}_NumSources; ++i)
 		{
 			FDreamWindSourceData Src;
-			Src.PositionRadius    = {ParameterName}_Sources[i * 3 + 0];
-			Src.DirectionStrength = {ParameterName}_Sources[i * 3 + 1];
-			Src.Misc              = {ParameterName}_Sources[i * 3 + 2];
+			Src.PositionRadius    = {ParameterName}_Sources[i * DW_SOURCE_FLOAT4S + 0];
+			Src.DirectionStrength = {ParameterName}_Sources[i * DW_SOURCE_FLOAT4S + 1];
+			Src.Misc              = {ParameterName}_Sources[i * DW_SOURCE_FLOAT4S + 2];
+			Src.BoxExtent         = {ParameterName}_Sources[i * DW_SOURCE_FLOAT4S + 3];
+			Src.BoxRotation       = {ParameterName}_Sources[i * DW_SOURCE_FLOAT4S + 4];
 			V = DW_ApplySource(V, Src, WorldPos, SourceFactor);
 		}
 	}

@@ -147,12 +147,14 @@ void FDreamWindVolumeRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 	using namespace DreamWind::Hlsl;
 	const int32 NumSources = Args.Frame.Sources.Num();
 	TArray<FVector4f> SourceData;
-	SourceData.Reserve(FMath::Max(NumSources, 1) * 3);
+	SourceData.Reserve(FMath::Max(NumSources, 1) * DW_SOURCE_FLOAT4S);
 	for (const FDreamWindSourceData& S : Args.Frame.Sources)
 	{
 		SourceData.Add(ToVector4f(S.PositionRadius));
 		SourceData.Add(ToVector4f(S.DirectionStrength));
 		SourceData.Add(ToVector4f(S.Misc));
+		SourceData.Add(ToVector4f(S.BoxExtent));
+		SourceData.Add(ToVector4f(S.BoxRotation));
 	}
 	FRDGBufferRef SourceBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.Sources"), SourceData);
 

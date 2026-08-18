@@ -9,9 +9,10 @@
 
 /**
  * A persistent wind source that follows the component's transform: fans, vents, a character's wake,
- * a spinning attack. Directional sources push along the component's +X axis, vortices swirl around it.
- * The source is blended into the CPU sample and injected into the dynamic volume every frame it is
- * active.
+ * a spinning attack, a sheltered room. Directional sources push along the component's +X axis,
+ * vortices swirl around it, shelters are a box in the component's frame (BoxExtent x the component
+ * scale). The source is blended into the CPU sample and injected into the dynamic volume every frame
+ * it is active.
  */
 UCLASS(ClassGroup = (DreamWind), meta = (BlueprintSpawnableComponent), HideCategories = (Mobility, LOD, Collision, Physics, Rendering))
 class DREAMWIND_API UDreamWindSourceComponent : public USceneComponent
@@ -24,11 +25,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind")
 	EDreamWindSourceType Type = EDreamWindSourceType::Directional;
 
-	/** Footprint radius, cm. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1"))
+	/** Footprint radius, cm (sphere types). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1", EditCondition = "Type != EDreamWindSourceType::Shelter"))
 	float Radius = 400.0f;
 
-	/** Velocity the source wants at full weight, cm/s. Negative pulls (Directional) or reverses the swirl. */
+	/** Half extents of a Shelter box in the component's local frame, cm; scaled by the component scale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
+	FVector BoxExtent = FVector(500.0, 500.0, 300.0);
+
+	/**
+	 * Velocity the source wants at full weight, cm/s. Negative pulls (Directional) or reverses the swirl.
+	 * For a Shelter, 0 = calm interior, > 0 = a wind zone blowing along +X.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind")
 	float Strength = 1200.0f;
 

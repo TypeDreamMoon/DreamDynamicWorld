@@ -37,6 +37,11 @@ void ADreamWindImpulseEmitter::Fire()
 		{
 			Desc.Direction = GetActorForwardVector();
 		}
+		if (Desc.Type == EDreamWindSourceType::Shelter)
+		{
+			Desc.BoxRotation = GetActorRotation();
+			Desc.BoxExtent = Impulse.BoxExtent.GetAbs() * GetActorScale3D().GetAbs();
+		}
 		Wind->AddImpulse(Desc, Duration, FadeOutTime);
 	}
 }

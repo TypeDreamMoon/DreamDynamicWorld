@@ -228,21 +228,29 @@ FDreamWindSample DW_SampleAnalyticCheap(FDreamWindParams P, float3 WorldPos)
 
 // ---------------------------------------------------------------------------------------------
 // Sources / impulses (L3)
-//   Every source is a velocity field with a spherical footprint. Consumers BLEND toward it with the
-//   footprint weight - never add - so a source can never accumulate beyond its own strength and the
-//   result is frame-rate independent.
+//   Every source is a velocity field with a footprint: a sphere for the three "pushing" types, an
+//   oriented box for a shelter. Consumers BLEND toward it with the footprint weight - never add - so
+//   a source can never accumulate beyond its own strength and the result is frame-rate independent.
 // ---------------------------------------------------------------------------------------------
 
 #define DW_SOURCE_DIRECTIONAL 0   // pushes along Direction inside the sphere (fans, wakes, spells)
 #define DW_SOURCE_RADIAL      1   // pushes away from the centre (explosions, landings)
 #define DW_SOURCE_VORTEX      2   // swirls around Direction as an axis (tornado, spin attacks)
+#define DW_SOURCE_SHELTER     3   // oriented box: the wind inside becomes Direction * Strength;
+                                  // Strength 0 = a sheltered interior (house, cave, behind a wall),
+                                  // Strength > 0 = a wind zone (corridor draft, wind tunnel)
 
-/** GPU/CPU shared source record: three float4, 48 bytes, no padding. */
+/** Number of float4 per source record in the flat GPU buffers (see DW_LoadSource in the consumers). */
+#define DW_SOURCE_FLOAT4S 5
+
+/** GPU/CPU shared source record: five float4, 80 bytes, no padding. */
 struct FDreamWindSourceData
 {
-	float4 PositionRadius;     // xyz centre, w radius (cm)
-	float4 DirectionStrength;  // xyz unit direction / axis, w strength (cm/s)
-	float4 Misc;               // x type (DW_SOURCE_*), y inject rate (1/s, volume only), z inner-radius fraction, w unused
+	float4 PositionRadius;     // xyz centre, w radius (cm) - for a box the bounding-sphere radius
+	float4 DirectionStrength;  // xyz unit direction / axis / zone wind direction, w strength (cm/s)
+	float4 Misc;               // x type (DW_SOURCE_*), y inject rate (1/s, volume only), z inner fraction, w unused
+	float4 BoxExtent;          // xyz half extents of a shelter box (cm), w unused - spheres leave it 0
+	float4 BoxRotation;        // xyzw unit quaternion, box local -> world - spheres leave it (0,0,0,1)
 };
 
 struct FDreamWindSourceEval
@@ -251,19 +259,39 @@ struct FDreamWindSourceEval
 	float  Weight;     // 0..1 footprint weight
 };
 
+/** Rotate v by the INVERSE of unit quaternion q (world -> box local). */
+float3 DW_RotateInverse(float4 q, float3 v)
+{
+	// v' = v + 2 * cross(qv, cross(qv, v) + qw * v) with qv negated for the conjugate
+	float3 qv = float3(-q.x, -q.y, -q.z);
+	float3 t = cross(qv, cross(qv, v) + v * q.w);
+	return v + t * 2.0f;
+}
+
 FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
 {
 	float3 c = float3(S.PositionRadius.x, S.PositionRadius.y, S.PositionRadius.z);
 	float  R = max(S.PositionRadius.w, 0.001f);
 	float3 d = WorldPos - c;
 	float dist = length(d);
+	int type = int(S.Misc.x);
+
+	// footprint distance, 0 at the centre and 1 at the edge: |d| / R for spheres, the largest
+	// normalised axis distance (Chebyshev) inside the oriented box for shelters
+	float footprint = dist / R;
+	if (type == DW_SOURCE_SHELTER)
+	{
+		float3 local = DW_RotateInverse(S.BoxRotation, d);
+		float3 ext = max(float3(S.BoxExtent.x, S.BoxExtent.y, S.BoxExtent.z), float3(0.001f, 0.001f, 0.001f));
+		float3 a = abs(local) / ext;
+		footprint = max(a.x, max(a.y, a.z));
+	}
 
 	float inner = saturate(S.Misc.z);
-	float t = saturate((dist / R - inner) / max(1.0f - inner, 0.001f));
+	float t = saturate((footprint - inner) / max(1.0f - inner, 0.001f));
 	float w = 1.0f - t;
 	w = w * w * (3.0f - 2.0f * w);
 
-	int type = int(S.Misc.x);
 	float3 dir = float3(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
 	float strength = S.DirectionStrength.w;
 

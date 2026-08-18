@@ -39,7 +39,8 @@ void UDreamWindSourceComponent::OnUnregister()
 
 bool UDreamWindSourceComponent::BuildSourceDesc(FDreamWindSourceDesc& OutDesc, float DeltaTime)
 {
-	if (!IsActive() || Radius <= 0.0f)
+	const bool bShelter = Type == EDreamWindSourceType::Shelter;
+	if (!IsActive() || (!bShelter && Radius <= 0.0f))
 	{
 		return false;
 	}
@@ -47,6 +48,23 @@ bool UDreamWindSourceComponent::BuildSourceDesc(FDreamWindSourceDesc& OutDesc, f
 	const FTransform& Xf = GetComponentTransform();
 	const FVector Location = Xf.GetLocation();
 	const FVector Forward = Xf.GetUnitAxis(EAxis::X);
+
+	if (bShelter)
+	{
+		// a shelter is structure: no wake logic, and zero strength is the whole point
+		LastLocation = Location;
+		bHasLastLocation = true;
+		OutDesc.Type = Type;
+		OutDesc.Position = Location;
+		OutDesc.BoxExtent = BoxExtent.GetAbs() * Xf.GetScale3D().GetAbs();
+		OutDesc.BoxRotation = Xf.GetRotation().Rotator();
+		OutDesc.Radius = OutDesc.GetBoundingRadius();
+		OutDesc.Direction = Forward;
+		OutDesc.Strength = Strength;
+		OutDesc.InjectRate = InjectRate;
+		OutDesc.InnerRadiusFraction = InnerRadiusFraction;
+		return OutDesc.Radius > 0.0f;
+	}
 
 	float EffectiveStrength = Strength;
 	if (VelocityScale > 0.0f)

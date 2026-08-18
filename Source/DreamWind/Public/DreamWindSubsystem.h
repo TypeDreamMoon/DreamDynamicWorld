@@ -237,6 +237,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
 	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
 
+	/** Packs a source description into the record the shared model (CPU and GPU) evaluates. */
+	static DreamWind::Hlsl::FDreamWindSourceData PackSource(const FDreamWindSourceDesc& Desc, float StrengthScale);
+
 private:
 	struct FActiveImpulse
 	{
@@ -265,8 +268,6 @@ private:
 	void DrawDebug();
 	void ResolveAssets();
 	FVector ChooseVolumeCenter() const;
-
-	static DreamWind::Hlsl::FDreamWindSourceData PackSource(const FDreamWindSourceDesc& Desc, float StrengthScale);
 
 private:
 	FDreamWindGlobalWind CurrentWind;

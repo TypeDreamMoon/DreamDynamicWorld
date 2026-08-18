@@ -199,6 +199,42 @@ bool FDreamWindSharedSourcesTest::RunTest(const FString& Parameters)
 		PrevW = W;
 	}
 	TestTrue(TEXT("Weight is zero at the radius"), DW_EvalSource(Dir, float3(500.0f, 0.0f, 0.0f)).Weight <= 1e-5f);
+
+	// shelter: an oriented box (half extents 400 x 100 x 200, yawed 90 deg so its long side lies along
+	// world Y) that calms the wind inside and leaves the outside alone
+	FDreamWindSourceData Box;
+	Box.PositionRadius = float4(1000.0f, 0.0f, 0.0f, 458.3f);
+	Box.DirectionStrength = float4(1.0f, 0.0f, 0.0f, 0.0f);
+	Box.Misc = float4(float(DW_SOURCE_SHELTER), 30.0f, 0.5f, 0.0f);
+	Box.BoxExtent = float4(400.0f, 100.0f, 200.0f, 0.0f);
+	const float SinHalf = FMath::Sin(FMath::DegreesToRadians(45.0f)), CosHalf = FMath::Cos(FMath::DegreesToRadians(45.0f));
+	Box.BoxRotation = float4(0.0f, 0.0f, SinHalf, CosHalf); // 90 deg about +Z
+	TestTrue(TEXT("Shelter centre is calm"), NearlyEqual(DW_ApplySource(Ambient, Box, float3(1000.0f, 0.0f, 0.0f), 1.0f), float3(0.0f, 0.0f, 0.0f), 1e-3f));
+	TestTrue(TEXT("Shelter: inside the inner half along the long (world Y) side is calm"), NearlyEqual(DW_ApplySource(Ambient, Box, float3(1000.0f, 190.0f, 0.0f), 1.0f), float3(0.0f, 0.0f, 0.0f), 1e-3f));
+	TestTrue(TEXT("Shelter: rotation moved the short side onto world X (150 cm is outside)"), NearlyEqual(DW_ApplySource(Ambient, Box, float3(1150.0f, 0.0f, 0.0f), 1.0f), Ambient, 1e-4f));
+	TestTrue(TEXT("Shelter: 300 cm along world Y is still inside the box (soft part)"), DW_EvalSource(Box, float3(1000.0f, 300.0f, 0.0f)).Weight > 0.4f);
+	TestTrue(TEXT("Shelter: past the long side is untouched"), NearlyEqual(DW_ApplySource(Ambient, Box, float3(1000.0f, 450.0f, 0.0f), 1.0f), Ambient, 1e-4f));
+	TestTrue(TEXT("Shelter: above the roof is untouched"), NearlyEqual(DW_ApplySource(Ambient, Box, float3(1000.0f, 0.0f, 250.0f), 1.0f), Ambient, 1e-4f));
+	// a wind zone: same box, 600 cm/s along +X inside
+	Box.DirectionStrength = float4(1.0f, 0.0f, 0.0f, 600.0f);
+	TestTrue(TEXT("Wind zone sets its own velocity inside"), NearlyEqual(DW_ApplySource(float3(0.0f, 300.0f, 0.0f), Box, float3(1000.0f, 0.0f, 0.0f), 1.0f), float3(600.0f, 0.0f, 0.0f), 1e-3f));
+
+	// the C++ desc packs into the same record the shader reads: bounding radius, extents, quaternion
+	FDreamWindSourceDesc Desc;
+	Desc.Type = EDreamWindSourceType::Shelter;
+	Desc.Position = FVector(1000.0, 0.0, 0.0);
+	Desc.BoxExtent = FVector(400.0, 100.0, 200.0);
+	Desc.BoxRotation = FRotator(0.0, 90.0, 0.0);
+	Desc.Strength = 0.0f;
+	Desc.InnerRadiusFraction = 0.5f;
+	const FDreamWindSourceData Packed = UDreamWindSubsystem::PackSource(Desc, 1.0f);
+	TestEqual(TEXT("Packed type"), int32(Packed.Misc.x), int32(DW_SOURCE_SHELTER));
+	TestTrue(TEXT("Packed bounding radius"), FMath::IsNearlyEqual(Packed.PositionRadius.w, 458.26f, 0.05f));
+	TestTrue(TEXT("Packed extents"), Packed.BoxExtent.x == 400.0f && Packed.BoxExtent.y == 100.0f && Packed.BoxExtent.z == 200.0f);
+	TestTrue(TEXT("Packed rotation matches the hand-built quaternion"), FMath::Abs(FMath::Abs(Packed.BoxRotation.z) - SinHalf) < 1e-4f && FMath::Abs(FMath::Abs(Packed.BoxRotation.w) - CosHalf) < 1e-4f);
+	TestTrue(TEXT("Packed shelter calms its centre"), NearlyEqual(DW_ApplySource(Ambient, Packed, float3(1000.0f, 0.0f, 0.0f), 1.0f), float3(0.0f, 0.0f, 0.0f), 1e-3f));
+	TestTrue(TEXT("Packed shelter: world +X 150 is outside after the yaw"), NearlyEqual(DW_ApplySource(Ambient, Packed, float3(1150.0f, 0.0f, 0.0f), 1.0f), Ambient, 1e-4f));
+	TestTrue(TEXT("Packed shelter: world +Y 190 is inside"), NearlyEqual(DW_ApplySource(Ambient, Packed, float3(1000.0f, 190.0f, 0.0f), 1.0f), float3(0.0f, 0.0f, 0.0f), 1e-3f));
 	return true;
 }
 

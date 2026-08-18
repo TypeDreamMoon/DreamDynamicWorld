@@ -9,7 +9,7 @@ plus a small camera-following volume for the things that must move air locally.
 | **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
 | **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys | 1 bilinear fetch, ~1 MB per 256² map | everyone |
 | **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
-| **L3 sources** | spherical velocity fields: directional / radial / vortex, transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
+| **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
 
@@ -61,6 +61,15 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
 ```
 `UDreamWindSourceComponent` on an actor gives a persistent, moving source (fan, wake, vortex).
 
+**Interiors and wind zones.** The terrain bake looks straight down, so it cannot know that a house is
+hollow. Place a source of type **Shelter** instead: an oriented box (`BoxExtent` in the component's
+frame, rotation and scale from the transform) inside which the wind becomes `Direction * Strength` —
+`Strength 0` is calm air (rooms, caves, the lee of a wall), `Strength > 0` is a wind zone blowing along
++X (corridor draft, wind tunnel). Shelters are seen by every consumer like any other source: the CPU
+sample and the Niagara DI apply them directly, materials get them through the dynamic volume (a
+`InjectRate` of 60 settles in a few frames). Shelters are kept ahead of everything else when the source
+cap is reached. `ADreamWindSourceActor` draws the box.
+
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, `DreamWind.DebugDraw 1` (volume windows, sources, global arrow) or `2`
 (also a field of CPU-sampled arrows around the volume centre).
@@ -78,7 +87,9 @@ DreamWind Content ▸ Maps; make sure the viewport is **Realtime**). It has ever
   up on the tops and steers around them;
 * an `ADreamWindSourceActor` **fan lane** (directional source, arrow shows the push), a **vortex**
   source, and an `ADreamWindImpulseEmitter` that fires a radial burst every 4 s — all live in the
-  editor viewport, no PIE needed.
+  editor viewport, no PIE needed;
+* a roofless **hut** with a `Shelter` source (the grass inside stands still, the debug ground goes
+  dark) and a two-wall **corridor** whose shelter is a 900 cm/s wind zone along it.
 
 Try: select `DreamWindGlobal` and drag *Wind ▸ Direction / Speed / Gust Strength*; type
 `DreamWind.DebugDraw 2` for the CPU arrow field; toggle *Wind Volume* off on a grass instance to see
@@ -159,7 +170,7 @@ DreamWind/
   Shaders/Private/DreamWindVolumeUpdate.usf
   Shaders/Private/NiagaraDataInterfaceDreamWindTemplate.ush
   Source/DreamWind          runtime: subsystem, settings, source component, global actor, volume renderer,
-                            terrain map, demo actors (source actor, grass field, impulse emitter)
+                            terrain map, demo actors (source actor incl. shelter box, grass field, impulse emitter)
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm

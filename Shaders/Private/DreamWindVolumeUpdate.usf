@@ -84,9 +84,11 @@ void MainCS(uint3 DTid : SV_DispatchThreadID)
 	for (uint i = 0; i < NumSources; ++i)
 	{
 		FDreamWindSourceData S;
-		S.PositionRadius    = Sources[i * 3 + 0];
-		S.DirectionStrength = Sources[i * 3 + 1];
-		S.Misc              = Sources[i * 3 + 2];
+		S.PositionRadius    = Sources[i * DW_SOURCE_FLOAT4S + 0];
+		S.DirectionStrength = Sources[i * DW_SOURCE_FLOAT4S + 1];
+		S.Misc              = Sources[i * DW_SOURCE_FLOAT4S + 2];
+		S.BoxExtent         = Sources[i * DW_SOURCE_FLOAT4S + 3];
+		S.BoxRotation       = Sources[i * DW_SOURCE_FLOAT4S + 4];
 		const FDreamWindSourceEval E = DW_EvalSource(S, WorldPos);
 		const float Rate = saturate(S.Misc.y * DeltaTime);
 		const float W = saturate(E.Weight * Rate);

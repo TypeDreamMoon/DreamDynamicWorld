@@ -51,7 +51,7 @@ struct FNDIDreamWindInstanceData_RT
 	FVector4f V3 = FVector4f::Zero();
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
-	TArray<FVector4f> Sources;                   // three float4 per source
+	TArray<FVector4f> Sources;                   // DW_SOURCE_FLOAT4S float4 per source
 	TWeakObjectPtr<UTexture> VolumeTexture;      // read on the render thread only through TextureReferenceRHI
 	TWeakObjectPtr<UTexture> VolumeFarTexture;
 	TWeakObjectPtr<UTexture> TerrainTexture;
@@ -236,12 +236,14 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->V3 = GT->Frame.V3;
 	RT->T0 = GT->Frame.T0;
 	RT->T1 = GT->Frame.T1;
-	RT->Sources.Reserve(GT->Frame.Sources.Num() * 3);
+	RT->Sources.Reserve(GT->Frame.Sources.Num() * DW_SOURCE_FLOAT4S);
 	for (const FDreamWindSourceData& S : GT->Frame.Sources)
 	{
 		RT->Sources.Add(ToVector4f(S.PositionRadius));
 		RT->Sources.Add(ToVector4f(S.DirectionStrength));
 		RT->Sources.Add(ToVector4f(S.Misc));
+		RT->Sources.Add(ToVector4f(S.BoxExtent));
+		RT->Sources.Add(ToVector4f(S.BoxRotation));
 	}
 	RT->VolumeTexture = GT->Frame.VolumeTexture.Get();
 	RT->VolumeFarTexture = GT->Frame.VolumeFarTexture.Get();
@@ -440,7 +442,7 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	SP->V3 = Data->V3;
 	SP->T0 = Data->T0;
 	SP->T1 = Data->T1;
-	SP->NumSources = uint32(Data->Sources.Num() / 3);
+	SP->NumSources = uint32(Data->Sources.Num() / DW_SOURCE_FLOAT4S);
 
 	if (Data->TransientSourcesSRV == nullptr)
 	{

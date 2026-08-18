@@ -4,6 +4,7 @@
 #include "DreamWindSourceComponent.h"
 
 #include "Components/ArrowComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "Engine/StaticMesh.h"
@@ -28,6 +29,14 @@ ADreamWindSourceActor::ADreamWindSourceActor()
 	RadiusVisual->bDrawOnlyIfSelected = false;
 	RadiusVisual->InitSphereRadius(400.0f);
 
+	BoxVisual = CreateDefaultSubobject<UBoxComponent>(TEXT("BoxVisual"));
+	BoxVisual->SetupAttachment(Source);
+	BoxVisual->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BoxVisual->ShapeColor = FColor(120, 255, 120);
+	BoxVisual->bDrawOnlyIfSelected = false;
+	BoxVisual->InitBoxExtent(FVector(500.0, 500.0, 300.0));
+	BoxVisual->SetVisibility(false);
+
 #if WITH_EDITORONLY_DATA
 	Arrow = CreateEditorOnlyDefaultSubobject<UArrowComponent>(TEXT("Arrow"));
 	if (Arrow)
@@ -43,9 +52,21 @@ ADreamWindSourceActor::ADreamWindSourceActor()
 void ADreamWindSourceActor::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
-	if (RadiusVisual && Source)
+	if (!Source)
+	{
+		return;
+	}
+	const bool bShelter = Source->Type == EDreamWindSourceType::Shelter;
+	if (RadiusVisual)
 	{
 		RadiusVisual->SetSphereRadius(FMath::Max(Source->Radius, 10.0f), false);
+		RadiusVisual->SetVisibility(!bShelter);
+	}
+	if (BoxVisual)
+	{
+		// the shape component inherits the actor scale, so give it the unscaled extent
+		BoxVisual->SetBoxExtent(Source->BoxExtent.GetAbs().ComponentMax(FVector(1.0)), false);
+		BoxVisual->SetVisibility(bShelter);
 	}
 }
 
