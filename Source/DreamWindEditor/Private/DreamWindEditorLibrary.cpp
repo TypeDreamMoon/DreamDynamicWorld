@@ -76,7 +76,7 @@ UMaterialParameterCollection* UDreamWindEditorLibrary::EnsureParameterCollection
 		bCreated = true;
 	}
 
-	static const FName Names[] = { DreamWind::Names::MPC_P0, DreamWind::Names::MPC_P1, DreamWind::Names::MPC_P2, DreamWind::Names::MPC_V0, DreamWind::Names::MPC_V1, DreamWind::Names::MPC_V2, DreamWind::Names::MPC_V3, DreamWind::Names::MPC_T0, DreamWind::Names::MPC_T1 };
+	static const FName Names[] = { DreamWind::Names::MPC_P0, DreamWind::Names::MPC_P1, DreamWind::Names::MPC_P2, DreamWind::Names::MPC_V0, DreamWind::Names::MPC_V1, DreamWind::Names::MPC_V2, DreamWind::Names::MPC_V3, DreamWind::Names::MPC_T0, DreamWind::Names::MPC_T1, DreamWind::Names::MPC_T2 };
 	bool bChanged = false;
 	MPC->PreEditChange(nullptr);
 	for (const FName& Name : Names)

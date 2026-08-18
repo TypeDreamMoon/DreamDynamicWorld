@@ -51,6 +51,7 @@ struct FNDIDreamWindInstanceData_RT
 	FVector4f V3 = FVector4f::Zero();
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
+	FVector4f T2 = FVector4f::Zero();
 	TArray<FVector4f> Sources;                   // DW_SOURCE_FLOAT4S float4 per source
 	TWeakObjectPtr<UTexture> VolumeTexture;      // read on the render thread only through TextureReferenceRHI
 	TWeakObjectPtr<UTexture> VolumeFarTexture;
@@ -236,6 +237,7 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->V3 = GT->Frame.V3;
 	RT->T0 = GT->Frame.T0;
 	RT->T1 = GT->Frame.T1;
+	RT->T2 = GT->Frame.T2;
 	RT->Sources.Reserve(GT->Frame.Sources.Num() * DW_SOURCE_FLOAT4S);
 	for (const FDreamWindSourceData& S : GT->Frame.Sources)
 	{
@@ -327,12 +329,7 @@ void UNiagaraDataInterfaceDreamWind::VMSampleWind(FVectorVMExternalFunctionConte
 		FDreamWindSample S = bFull ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos);
 		if (Terrain)
 		{
-			const float2 UV = DW_TerrainUV(Pos, TP);
-			const float Inside = DW_TerrainInside(UV, TP);
-			if (Inside > 0.0f)
-			{
-				S = DW_ApplyTerrain(S, ToHlsl(Terrain->Sample(Pos.x, Pos.y)), TP, Inside);
-			}
+			S = Terrain->ApplyAll(S, TP, Pos);
 		}
 		float3 V = S.Velocity;
 		if (bApplySources)
@@ -423,7 +420,7 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	if (!Data)
 	{
 		SP->P0 = FVector4f(1, 0, 0, 0);
-		SP->P1 = SP->P2 = SP->V0 = SP->V1 = SP->V2 = SP->V3 = SP->T0 = SP->T1 = FVector4f::Zero();
+		SP->P1 = SP->P2 = SP->V0 = SP->V1 = SP->V2 = SP->V3 = SP->T0 = SP->T1 = SP->T2 = FVector4f::Zero();
 		SP->NumSources = 0;
 		static const TArray<FVector4f> Empty;
 		SP->Sources = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.NDISources.Dummy"), Empty));
@@ -442,6 +439,7 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	SP->V3 = Data->V3;
 	SP->T0 = Data->T0;
 	SP->T1 = Data->T1;
+	SP->T2 = Data->T2;
 	SP->NumSources = uint32(Data->Sources.Num() / DW_SOURCE_FLOAT4S);
 
 	if (Data->TransientSourcesSRV == nullptr)

@@ -12,6 +12,7 @@
 #include "DreamWindPreset.h"
 #include "DreamWindSettings.h"
 #include "DreamWindSubsystem.h"
+#include "DreamWindTerrainMap.h"
 #include "DreamWindTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -191,6 +192,20 @@ bool FDreamWindSharedSourcesTest::RunTest(const FString& Parameters)
 	const float3 V = DW_ApplySource(float3(0.0f, 0.0f, 0.0f), Vor, float3(50.0f, 0.0f, 0.0f), 1.0f);
 	TestTrue(TEXT("Vortex around +Z at +X pushes +Y"), V.y > 990.0f && FMath::Abs(V.x) < 1e-3f);
 
+	// a stretched jet: the same fan reaches 4 radii ahead of the centre, still 1 radius behind
+	FDreamWindSourceData Jet = Dir;
+	Jet.DirectionStrength = float4(1.0f, 0.0f, 0.0f, 1000.0f);
+	Jet.Misc.w = 4.0f;
+	// footprint 1500/2000 = 0.75 -> past the inner 0.2 the smoothstep gives 0.23 there
+	TestTrue(TEXT("Jet: 1500 cm ahead is inside (sphere would be outside)"), DW_EvalSource(Jet, float3(1500.0f, 0.0f, 0.0f)).Weight > 0.15f);
+	TestTrue(TEXT("Jet: 2100 cm ahead is outside"), DW_EvalSource(Jet, float3(2100.0f, 0.0f, 0.0f)).Weight <= 1e-5f);
+	TestTrue(TEXT("Jet: 600 cm behind is outside (no stretch backwards)"), DW_EvalSource(Jet, float3(-600.0f, 0.0f, 0.0f)).Weight <= 1e-5f);
+	TestTrue(TEXT("Jet: 600 cm sideways is outside (radius unchanged)"), DW_EvalSource(Jet, float3(0.0f, 600.0f, 0.0f)).Weight <= 1e-5f);
+	TestTrue(TEXT("Jet: the un-stretched sphere is unchanged"), FMath::Abs(DW_EvalSource(Jet, float3(0.0f, 300.0f, 0.0f)).Weight - DW_EvalSource(Dir, float3(0.0f, 300.0f, 0.0f)).Weight) < 1e-5f);
+	FDreamWindSourceData RadJet = Jet;
+	RadJet.Misc.x = float(DW_SOURCE_RADIAL);
+	TestTrue(TEXT("Radial sources ignore Stretch"), DW_EvalSource(RadJet, float3(800.0f, 0.0f, 0.0f)).Weight <= 1e-5f);
+
 	// weight falls off monotonically to zero at the radius
 	float PrevW = 2.0f;
 	for (float d = 0.0f; d <= 500.0f; d += 25.0f)
@@ -288,7 +303,7 @@ bool FDreamWindSharedTerrainTest::RunTest(const FString& Parameters)
 	using namespace DreamWindTests;
 
 	// a 1000 x 1000 map with its corner at (100, 200)
-	const FDreamWindTerrainParams T = DW_UnpackTerrain(float4(100.0f, 200.0f, 0.001f, 0.001f), float4(1.0f, 1.0f, 1.0f, 0.0f));
+	const FDreamWindTerrainParams T = DW_UnpackTerrain(float4(100.0f, 200.0f, 0.001f, 0.001f), float4(1.0f, 1.0f, 1.0f, 0.0f), float4(0.0f, 0.0f, 0.2f, 0.0f));
 	FDreamWindSample S;
 	S.Velocity = float3(400.0f, 0.0f, 20.0f);
 	S.Gust = 1.0f;
@@ -313,6 +328,119 @@ bool FDreamWindSharedTerrainTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("SpeedScale 0 ignores the multiplier"), FMath::Abs(Unscaled.Velocity.x - 400.0f) < 1e-3f);
 	const FDreamWindSample Untouched = DW_ApplyTerrain(S, float4(1.5f, 1.0f, 1.0f, 0.5f), T, 0.0f);
 	TestTrue(TEXT("outside the map nothing changes"), FMath::Abs(Untouched.Velocity.x - 400.0f) < 1e-6f && FMath::Abs(Untouched.Velocity.y) < 1e-6f);
+	return true;
+}
+
+// -------------------------------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindSharedOcclusionTest, "DreamWind.Shared.Occlusion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FDreamWindSharedOcclusionTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+
+	// a 6400 x 6400 cm map at (0,0), 64 texels of 100 cm, ground at z = 0 (HeightBase 0) with a
+	// 300 cm high, one-texel-thick wall along Y at x = 3200..3300
+	UDreamWindTerrainMap* Asset = NewObject<UDreamWindTerrainMap>(GetTransientPackage());
+	Asset->Version = UDreamWindTerrainMap::CurrentVersion;
+	Asset->Bounds = FBox2D(FVector2D(0, 0), FVector2D(6400, 6400));
+	Asset->Width = Asset->Height = 64;
+	Asset->HeightRange = FVector2D(0, 300);
+	Asset->Texels.Init(FVector4f(1, 0, 0, 0), 64 * 64);
+	for (int32 y = 0; y < 64; ++y)
+	{
+		Asset->Texels[y * 64 + 32].W = 300.0f;
+	}
+	FDreamWindTerrainCpuData Map;
+	Map.BuildFromMap(*Asset);
+	TestEqual(TEXT("atlas holds the map and its max chain"), Map.Texels.Num(), 64 * 64 * 2);
+	TestEqual(TEXT("texel size"), Map.TexelSize(), 100.0f);
+	TestTrue(TEXT("level 0 keeps the wall"), Map.HeightAt(3250.0, 1000.0, 0) > 299.0f && Map.HeightAt(3350.0, 1000.0, 0) < 1.0f);
+	TestTrue(TEXT("level 1 max keeps the wall over 2 texels"), Map.HeightAt(3350.0, 1000.0, 1) > 299.0f && Map.HeightAt(3450.0, 1000.0, 1) < 1.0f);
+	TestTrue(TEXT("level 4 max keeps the wall over 16 texels"), Map.HeightAt(4000.0, 1000.0, 4) > 299.0f && Map.HeightAt(4900.0, 1000.0, 4) < 1.0f);
+	TestTrue(TEXT("bilinear level 0 still blends the wall for the modulation fetch"), Map.Sample(3300.0, 1000.0).W > 100.0f && Map.Sample(3300.0, 1000.0).W < 200.0f);
+	FDreamWindTerrainParams T = DW_UnpackTerrain(float4(0.0f, 0.0f, 1.0f / 6400.0f, 1.0f / 6400.0f), float4(1.0f, 1.0f, 1.0f, 100.0f), float4(1.0f, 3000.0f, 0.2f, 0.0f));
+	TestEqual(TEXT("first tap reads level 0"), DW_OcclusionTapLevel(1, T), 0);
+	TestTrue(TEXT("last tap reads a coarser level"), DW_OcclusionTapLevel(DW_OCCLUSION_TAPS, T) >= 2);
+	for (int32 k = 2; k <= DW_OCCLUSION_TAPS; ++k)
+	{
+		const float Gap = DW_OcclusionTapDistance(k, T) - DW_OcclusionTapDistance(k - 1, T);
+		TestTrue(FString::Printf(TEXT("tap %d reads a level whose texel covers the gap to tap %d"), k, k - 1), 100.0f * float(1 << DW_OcclusionTapLevel(k, T)) >= Gap - 1e-3f);
+	}
+	// texel uv: the centre of the containing texel, at every level
+	const float2 X0 = DW_TerrainAtlasTexelUV(float2(3250.0f / 6400.0f, 0.3f), 0, T);
+	TestTrue(TEXT("texel uv level 0 = centre of texel 32"), FMath::Abs(X0.x - 32.5f / 64.0f) < 1e-5f);
+	const float2 X1 = DW_TerrainAtlasTexelUV(float2(3350.0f / 6400.0f, 0.3f), 1, T);
+	TestTrue(TEXT("texel uv level 1 = centre of texel 16 in the level-1 strip"), FMath::Abs(X1.x - 16.5f / 64.0f) < 1e-5f && X1.y > 0.5f && X1.y < 0.75f);
+	// atlas uv: level 0 fills the top half, level 1 starts at v = 0.5, u shrinks by 2
+	const float2 A0 = DW_TerrainAtlasUV(float2(0.5f, 0.5f), 0, T);
+	const float2 A1 = DW_TerrainAtlasUV(float2(0.5f, 0.5f), 1, T);
+	TestTrue(TEXT("atlas uv level 0"), FMath::Abs(A0.x - 0.5f) < 1e-5f && FMath::Abs(A0.y - 0.25f) < 1e-5f);
+	TestTrue(TEXT("atlas uv level 1"), FMath::Abs(A1.x - 0.25f) < 1e-5f && FMath::Abs(A1.y - 0.625f) < 1e-5f);
+
+	const float3 WindX(500.0f, 0.0f, 0.0f);      // blowing toward +X: the wall's lee is x > 3300
+	const float3 WindNegX(-500.0f, 0.0f, 0.0f);
+
+	// helpers
+	TestTrue(TEXT("tap distances grow quadratically to the range"), FMath::Abs(DW_OcclusionTapDistance(DW_OCCLUSION_TAPS, T) - 3000.0f) < 1e-3f && DW_OcclusionTapDistance(1, T) < 30.0f);
+	TestTrue(TEXT("upwind tap position"), FMath::Abs(DW_OcclusionTapXY(float3(1000.0f, 0.0f, 0.0f), float2(-1.0f, 0.0f), DW_OCCLUSION_TAPS, T).x - (-2000.0f)) < 1e-3f);
+	TestTrue(TEXT("accumulate: right behind an obstacle 100 above = full shadow"), DW_OcclusionAccumulate(0.0f, 100.0f, 0.0f, 0.0f, T) > 0.999f);
+	TestTrue(TEXT("accumulate: at half the reach = half shadow"), FMath::Abs(DW_OcclusionAccumulate(0.0f, 100.0f, 0.0f, 250.0f, T) - 0.5f) < 1e-3f);
+	TestTrue(TEXT("accumulate: beyond the reach = nothing"), DW_OcclusionAccumulate(0.0f, 100.0f, 0.0f, 600.0f, T) <= 1e-5f);
+	TestTrue(TEXT("accumulate: obstacle below the sample = nothing"), DW_OcclusionAccumulate(0.0f, -10.0f, 0.0f, 10.0f, T) <= 1e-5f);
+	TestTrue(TEXT("accumulate keeps the max"), DW_OcclusionAccumulate(0.7f, 100.0f, 0.0f, 400.0f, T) == 0.7f);
+	TestEqual(TEXT("self: inside a solid"), DW_OcclusionSelf(300.0f, 50.0f), 1.0f);
+	TestEqual(TEXT("self: on the ground"), DW_OcclusionSelf(0.0f, 0.0f), 0.0f);
+	TestTrue(TEXT("self: fades in over the first half metre"), DW_OcclusionSelf(30.0f, 0.0f) > 0.4f && DW_OcclusionSelf(30.0f, 0.0f) < 0.7f);
+	TestTrue(TEXT("inactive when off"), !DW_OcclusionActive(DW_UnpackTerrain(float4(0.0f, 0.0f, 1.0f, 1.0f), float4(1.0f, 1.0f, 1.0f, 0.0f), float4(0.0f, 3000.0f, 0.2f, 0.0f)), 500.0f));
+
+	// the CPU loop against the wall (samples 50 cm above the ground; the wall rises 250 above them,
+	// so it shades out to 1250 cm downwind)
+	// (the wall texel spans x = 3200..3300; both "just behind" samples sit 100 cm past its edge)
+	const float ShadowJustBehind = Map.OcclusionShadow(T, float3(3400.0f, 1000.0f, 50.0f), WindX);
+	const float ShadowFar = Map.OcclusionShadow(T, float3(3400.0f + 800.0f, 1000.0f, 50.0f), WindX);
+	const float ShadowBeyond = Map.OcclusionShadow(T, float3(3400.0f + 1600.0f, 1000.0f, 50.0f), WindX);
+	const float ShadowInFront = Map.OcclusionShadow(T, float3(3000.0f, 1000.0f, 50.0f), WindX);
+	const float ShadowOtherSide = Map.OcclusionShadow(T, float3(3100.0f, 1000.0f, 50.0f), WindNegX);
+	const float ShadowAboveWall = Map.OcclusionShadow(T, float3(3400.0f, 1000.0f, 400.0f), WindX);
+	const float ShadowInside = Map.OcclusionShadow(T, float3(3250.0f, 1000.0f, 50.0f), WindX);
+	AddInfo(FString::Printf(TEXT("shadow just behind %.2f, 8 m behind %.2f, 16 m behind %.2f, in front %.2f, other side (wind flipped) %.2f, above %.2f, inside %.2f"),
+		ShadowJustBehind, ShadowFar, ShadowBeyond, ShadowInFront, ShadowOtherSide, ShadowAboveWall, ShadowInside));
+	// (bilinear taps half a texel apart see at least ~3/4 of a one-texel wall)
+	TestTrue(TEXT("strong shadow just behind the wall"), ShadowJustBehind > 0.7f);
+	TestTrue(TEXT("weaker shadow further downwind"), ShadowFar < ShadowJustBehind && ShadowFar > 0.15f);
+	TestTrue(TEXT("no shadow beyond the reach"), ShadowBeyond <= 1e-4f);
+	TestTrue(TEXT("no shadow in front (upwind) of the wall"), ShadowInFront <= 1e-4f);
+	TestTrue(TEXT("flip the wind and the other side is shaded"), ShadowOtherSide > 0.7f);
+	TestTrue(TEXT("both sides read about the same shadow at the same distance"), FMath::Abs(ShadowOtherSide - ShadowJustBehind) < 0.05f);
+	// no gaps: walking downwind from the wall the shadow fades without holes (the bilinear taps ripple
+	// by a few percent as they sweep across the wall's texel; that is the accepted cost of smoothness)
+	float Prev = 2.0f, MaxRise = 0.0f;
+	for (float x = 3400.0f; x <= 5200.0f; x += 25.0f)
+	{
+		const float Sh = Map.OcclusionShadow(T, float3(x, 1000.0f, 50.0f), WindX);
+		if (x < 4400.0f)   // the wall (top 300, sample at 50) reaches 250 / 0.2 = 1250 cm past its centre at 3250
+		{
+			TestTrue(FString::Printf(TEXT("no hole in the shadow at x=%.0f (%.3f)"), x, Sh), Sh > 0.0f);
+		}
+		MaxRise = FMath::Max(MaxRise, Sh - Prev);
+		Prev = Sh;
+	}
+	AddInfo(FString::Printf(TEXT("largest downwind rise (ripple) %.3f"), MaxRise));
+	TestTrue(TEXT("ripple stays small"), MaxRise < 0.12f);
+	TestTrue(TEXT("nothing above the wall top"), ShadowAboveWall <= 1e-4f);
+	TestTrue(TEXT("inside the wall = full"), ShadowInside >= 1.0f);
+
+	// through ApplyAll: the velocity magnitude drops, the direction stays
+	FDreamWindSample S;
+	S.Velocity = WindX;
+	S.Gust = 1.0f;
+	const FDreamWindSample Behind = Map.ApplyAll(S, T, float3(3400.0f, 1000.0f, 50.0f));
+	TestTrue(TEXT("ApplyAll damps the wind behind the wall"), Behind.Velocity.x < 160.0f && Behind.Velocity.x >= 0.0f && FMath::Abs(Behind.Velocity.y) < 1e-3f);
+	T.OcclusionStrength = 0.5f;
+	const FDreamWindSample Half = Map.ApplyAll(S, T, float3(3250.0f, 1000.0f, 50.0f));
+	TestTrue(TEXT("OcclusionStrength scales the damping"), FMath::Abs(Half.Velocity.x - 250.0f) < 1e-2f);
 	return true;
 }
 

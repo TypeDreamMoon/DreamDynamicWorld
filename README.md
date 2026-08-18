@@ -7,9 +7,9 @@ plus a small camera-following volume for the things that must move air locally.
 | Layer | What | Cost | Who reads it |
 | :-- | :-- | :-- | :-- |
 | **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
-| **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys | 1 bilinear fetch, ~1 MB per 256² map | everyone |
+| **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys, and level geometry casts a **wind shadow** (walls, rocks, hill crests; calm inside solids) | 1 bilinear fetch + 25 for the shadow march, ~1 MB per 256² map (2 MB with its max-height chain) | everyone |
 | **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
-| **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
+| **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres (directional and vortex can be **stretched** into a jet along their axis) and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
 
@@ -30,7 +30,12 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
    Its **Bake Terrain Map** button traces the level's collision into a `UDreamWindTerrainMap`
    (`<Level>_WindTerrain` next to the map), assigns and applies it. Bake bounds default to the level's
    static geometry; the bake settings (resolution, blur radius = the size of a "ridge", exposure gain,
-   steer gain, max steer) live on the actor.
+   steer gain, max steer, texel sweeps) live on the actor. Each texel column is swept with a
+   texel-sized box, so walls and posts thinner than a texel still register — pick a resolution that
+   gives ~0.5–1 m texels where you want wind shadows (512 over 200 m = 39 cm). Actors that carry a
+   **`UDreamWindPassThroughComponent`** (or the actor tag `DreamWind.PassThrough`) are left out:
+   fences, foliage, thin props, anything whose collision should not block the wind. Re-bake after
+   changing them.
 4. Remove hand-placed `WindDirectionalSource` actors — DreamWind drives one for you.
 
 ## Using it
@@ -62,6 +67,13 @@ Wind->SetGlobalWindDirectionAndSpeed(FVector(0,1,0), 900.f, 2.f); // blend over 
 ```
 `UDreamWindSourceComponent` on an actor gives a persistent, moving source (fan, wake, vortex).
 
+**How far a fan blows.** Sources *blend* the wind toward their own velocity by a footprint weight —
+they never add — so `Strength` is the speed *inside* the footprint and only `Radius` and `Stretch`
+decide the reach. Turning Strength up makes the edge harder, not farther. For a jet set **Stretch**:
+the sphere becomes an egg that reaches `Radius × Stretch` ahead of the centre along +Direction (and
+one radius behind it); `Stretch 5` on a 7 m radius is a 35 m fan lane. Vortices stretch into columns
+the same way; radial sources ignore it.
+
 **Weather states.** `UDreamWindPreset` is a data asset holding one global wind; the plugin ships
 `DWP_Calm` (150 cm/s), `DWP_Breeze` (600) and `DWP_Storm` (2200). `Wind->ApplyPreset(Preset, 3.f)`
 blends to it, `ApplyPresetKeepDirection` changes strength without turning the wind, and
@@ -75,6 +87,17 @@ frame, rotation and scale from the transform) inside which the wind becomes `Dir
 sample and the Niagara DI apply them directly, materials get them through the dynamic volume (a
 `InjectRate` of 60 settles in a few frames). Shelters are kept ahead of everything else when the source
 cap is reached. `ADreamWindSourceActor` draws the box.
+
+**Walls block the wind.** With a baked terrain map, every sample also marches upwind through the
+baked heights (12 taps over `OcclusionRange`, dense near the sample, each reading the max-height level
+whose texel is at least as wide as the step, at the tap and at the mid-step — so a one-texel wall is
+never stepped over and the shadow stays smooth). Anything that rises above the sample shades it: right
+behind fully, fading to nothing at `rise / OcclusionSlope` downwind (0.2 = five heights). Inside a
+solid the wind is calm. `OcclusionStrength` (0.9: a little air still moves in the lee), `OcclusionRange`
+(30 m) and `OcclusionSlope` are project settings; the shadow follows the *current* wind direction, so
+turning the wind moves every shadow — the CPU sample, materials, Niagara and the volume all march the
+same way. It is 2.5D: overhangs, bridges and roofed rooms need a `Shelter` box for the space
+underneath. Things that must not shade — see the pass-through component above.
 
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, and the debug view:
@@ -104,11 +127,14 @@ DreamWind Content ▸ Maps; make sure the viewport is **Realtime**). It has ever
   `NS_WindArrows` grid on top, and the GPU `NS_Leaves` drifting over the field;
 * four "hills" (cubes) and a baked `Lvl_DreamWindTest_WindTerrain` on `DreamWindGlobal`, so wind speeds
   up on the tops and steers around them;
-* an `ADreamWindSourceActor` **fan lane** (directional source, arrow shows the push), a **vortex**
-  source, and an `ADreamWindImpulseEmitter` that fires a radial burst every 4 s — all live in the
-  editor viewport, no PIE needed;
+* an `ADreamWindSourceActor` **fan lane** (a directional source with `Stretch 5`: a 35 m jet, arrow
+  shows the push), a **vortex** source, and an `ADreamWindImpulseEmitter` that fires a radial burst
+  every 4 s — all live in the editor viewport, no PIE needed;
 * a roofless **hut** with a `Shelter` source (the grass inside stands still, the debug ground goes
-  dark) and a two-wall **corridor** whose shelter is a 900 cm/s wind zone along it.
+  dark) and a two-wall **corridor** whose shelter is a 900 cm/s wind zone along it;
+* a solid **wall** and, beside it, a **fence** tagged `DreamWind.PassThrough`: the wall drags a wind
+  shadow across the grass behind it, the fence does not; the tall "hills" trail long shadows downwind
+  (the terrain map is baked at 512, 39 cm texels).
 
 Try: select `DreamWindGlobal` and drag *Wind ▸ Direction / Speed / Gust Strength*; type
 `DreamWind.DebugDraw 3` for the 3D arrow field (`DreamWind.DebugDraw.Range 3000` to see more of it,
@@ -187,7 +213,8 @@ usable in your own levels; none of the runtime depends on them.
 ## Tests
 
 `Automation RunTests DreamWind.` — `DreamWind.Shared.*` are pure C++ over the shared model
-(determinism, continuity across lattice cells and in time, calm wind, source blending, packing),
+(determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
+shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
 `DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
 subsystem tick with an impulse in whichever editor/game world is up.
 
@@ -202,6 +229,11 @@ subsystem tick with an impulse in whichever editor/game world is up.
 * 2026-08-18 (later): far volume level active (`V3.w = 1`), terrain bake over the showcase map lands in
   the MPC (`T0/T1`), CPU sample on a baked ridge reads 1.4× the flat speed, the debug plane and the CPU
   arrow grid agree on the steered directions; 8/8 `DreamWind.*` tests green.
+* 2026-08-18 (evening): shelters, jets and occlusion. CPU sample inside the hut 0 cm/s, just outside
+  1337; corridor 900 along its axis; hill_1 (12 m cube) lee 119 vs 1250 in the open, inside 110, calm
+  plume visible on the debug ground and in the grass; the solid wall shades the grass behind it, the
+  pass-through fence does not; jet 20 m ahead of the fan reads the fan, 40 m ahead ambient. Generated
+  MF, the DI template and the volume shader all pass fxc/dxc; 9/9 tests green.
 
 ## Layout
 
@@ -211,7 +243,8 @@ DreamWind/
   Shaders/Private/DreamWindVolumeUpdate.usf
   Shaders/Private/NiagaraDataInterfaceDreamWindTemplate.ush
   Source/DreamWind          runtime: subsystem, settings, source component, global actor, volume renderer,
-                            terrain map, demo actors (source actor incl. shelter box, grass field, impulse emitter)
+                            terrain map (+ occlusion), pass-through component, demo actors (source actor incl.
+                            shelter box, grass field, impulse emitter)
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm

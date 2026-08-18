@@ -95,6 +95,14 @@ struct DREAMWIND_API FDreamWindSourceDesc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "1", EditCondition = "Type != EDreamWindSourceType::Shelter"))
 	float Radius = 500.0f;
 
+	/**
+	 * Length of the footprint along +Direction as a multiple of Radius: 1 = a sphere, 4 = a jet that
+	 * reaches four radii ahead of the centre (and one radius behind it). Directional and Vortex only.
+	 * This is what makes a fan blow "far": Strength is the speed inside, Radius x Stretch the reach.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "1", UIMax = "10", EditCondition = "Type == EDreamWindSourceType::Directional || Type == EDreamWindSourceType::Vortex"))
+	float Stretch = 1.0f;
+
 	/** Half extents of a Shelter box, cm (local X/Y/Z before BoxRotation). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
 	FVector BoxExtent = FVector(500.0, 500.0, 300.0);
@@ -119,10 +127,14 @@ struct DREAMWIND_API FDreamWindSourceDesc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "0", ClampMax = "1"))
 	float InnerRadiusFraction = 0.2f;
 
-	/** Radius of the sphere that contains the footprint (Radius, or the box's bounding sphere). */
+	/** Radius of the sphere (about Position) that contains the footprint: the box's bounding sphere, a stretched jet's tip, or Radius. */
 	float GetBoundingRadius() const
 	{
-		return Type == EDreamWindSourceType::Shelter ? static_cast<float>(BoxExtent.GetAbs().Size()) : Radius;
+		if (Type == EDreamWindSourceType::Shelter)
+		{
+			return static_cast<float>(BoxExtent.GetAbs().Size());
+		}
+		return (Type == EDreamWindSourceType::Radial) ? Radius : Radius * FMath::Max(Stretch, 1.0f);
 	}
 };
 

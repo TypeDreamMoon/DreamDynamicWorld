@@ -44,13 +44,22 @@ struct DREAMWIND_API FDreamWindTerrainBakeSettings
 	/** Trace channel; landscape and static geometry are WorldStatic by default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bake")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_WorldStatic;
+
+	/**
+	 * Sweep a texel-sized box down each column instead of a line through its centre, so walls and
+	 * posts thinner than a texel still register (they are what the wind occlusion needs). Slower.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bake")
+	bool bSweepTexels = true;
 };
 
 /**
  * A baked, level-sized 2D map that modulates the analytic wind by the terrain: ridges blow harder,
- * hollows are sheltered, and the wind steers toward valleys. Texel = (speed multiplier, steer.x,
- * steer.y, normalised height). Kept as plain floats so the CPU sample reads exactly what the GPU does.
- * Bake it from an ADreamWindGlobal actor (Bake Terrain Map) or UDreamWindEditorLibrary::BakeTerrainMap.
+ * hollows are sheltered, the wind steers toward valleys, and level geometry casts a wind shadow.
+ * Texel = (speed multiplier, steer.x, steer.y, height in cm above HeightRange.X). Kept as plain floats so the CPU
+ * sample reads exactly what the GPU does. Bake it from an ADreamWindGlobal actor (Bake Terrain Map)
+ * or UDreamWindEditorLibrary::BakeTerrainMap. Actors carrying a UDreamWindPassThroughComponent (or
+ * the tag DreamWind.PassThrough) are left out of the bake.
  */
 UCLASS(BlueprintType)
 class DREAMWIND_API UDreamWindTerrainMap : public UDataAsset
@@ -58,6 +67,11 @@ class DREAMWIND_API UDreamWindTerrainMap : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	/** Texel layout version: 0 = height normalised to HeightRange, 1 = height in cm above HeightRange.X. Old assets are upgraded on load. */
+	static constexpr int32 CurrentVersion = 1;
+	UPROPERTY()
+	int32 Version = 0;
+
 	/** World-space XY covered by the map. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Terrain")
 	FBox2D Bounds = FBox2D(ForceInit);
@@ -75,9 +89,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Terrain")
 	FDreamWindTerrainBakeSettings BakeSettings;
 
-	/** Row-major, Width*Height texels: (speed multiplier, steer.x, steer.y, height 0..1). */
+	/** Row-major, Width*Height texels: (speed multiplier, steer.x, steer.y, height in cm above HeightRange.X). */
 	UPROPERTY()
 	TArray<FVector4f> Texels;
+
+	//~ UObject
+	virtual void PostLoad() override;
 
 	bool IsValidMap() const { return Width > 0 && Height > 0 && Texels.Num() == Width * Height && Bounds.bIsValid; }
 

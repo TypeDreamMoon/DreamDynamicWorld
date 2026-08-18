@@ -29,6 +29,7 @@ class FDreamWindVolumeUpdateCS : public FGlobalShader
 		SHADER_PARAMETER(FVector4f, P2)
 		SHADER_PARAMETER(FVector4f, T0)
 		SHADER_PARAMETER(FVector4f, T1)
+		SHADER_PARAMETER(FVector4f, T2)
 		SHADER_PARAMETER(FVector3f, PrevCenter)
 		SHADER_PARAMETER(float, PrevValid)
 		SHADER_PARAMETER(FVector3f, NewCenter)
@@ -166,6 +167,7 @@ void FDreamWindVolumeRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 	Params->P2 = Args.Frame.P2;
 	Params->T0 = Args.Frame.T0;
 	Params->T1 = Args.Frame.T1;
+	Params->T2 = Args.Frame.T2;
 	Params->PrevCenter = Args.PrevCenter;
 	Params->PrevValid = bHistoryValid ? 1.0f : 0.0f;
 	Params->NewCenter = Args.NewCenter;

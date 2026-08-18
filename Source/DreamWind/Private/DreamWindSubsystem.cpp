@@ -114,15 +114,59 @@ namespace DreamWind
 
 // -------------------------------------------------------------------------------------------------
 
+void FDreamWindTerrainCpuData::BuildFromMap(const UDreamWindTerrainMap& Map)
+{
+	Bounds = Map.Bounds;
+	Width = Map.Width;
+	Height = Map.Height;
+	HeightBase = float(Map.HeightRange.X);
+	Texels.Reset();
+	if (!Map.IsValidMap())
+	{
+		Width = Height = 0;
+		return;
+	}
+	// level 0 = the map, then the max chain below it: level L is (W >> L) x (H >> L) starting at row
+	// 2H - 2H / 2^L (see DW_TerrainAtlasUV); .x = 1, .yz = 0 there so a stray fetch is harmless
+	Texels.Init(FVector4f(1, 0, 0, 0), Width * Height * 2);
+	FMemory::Memcpy(Texels.GetData(), Map.Texels.GetData(), Map.Texels.Num() * sizeof(FVector4f));
+	int32 PrevRow = 0, PrevW = Width, PrevH = Height;
+	for (int32 L = 1; L <= DW_TERRAIN_MAX_LEVEL; ++L)
+	{
+		const int32 LW = FMath::Max(Width >> L, 1);
+		const int32 LH = FMath::Max(Height >> L, 1);
+		const int32 Row = 2 * Height - ((2 * Height) >> L);
+		for (int32 y = 0; y < LH; ++y)
+		{
+			for (int32 x = 0; x < LW; ++x)
+			{
+				float M = -FLT_MAX;
+				for (int32 dy = 0; dy < 2; ++dy)
+				{
+					for (int32 dx = 0; dx < 2; ++dx)
+					{
+						const int32 sx = FMath::Min(2 * x + dx, PrevW - 1);
+						const int32 sy = FMath::Min(2 * y + dy, PrevH - 1);
+						M = FMath::Max(M, Texels[(PrevRow + sy) * Width + sx].W);
+					}
+				}
+				Texels[(Row + y) * Width + x] = FVector4f(1, 0, 0, M);
+			}
+		}
+		PrevRow = Row; PrevW = LW; PrevH = LH;
+	}
+}
+
 FVector4f FDreamWindTerrainCpuData::Sample(double WorldX, double WorldY) const
 {
-	if (Width <= 0 || Height <= 0 || Texels.Num() != Width * Height || !Bounds.bIsValid)
+	if (Width <= 0 || Height <= 0 || Texels.Num() != Width * Height * 2 || !Bounds.bIsValid)
 	{
 		return FVector4f(1, 0, 0, 0);
 	}
 	const FVector2D Size = Bounds.GetSize();
 	const double U = (WorldX - Bounds.Min.X) / FMath::Max(Size.X, 1.0);
 	const double V = (WorldY - Bounds.Min.Y) / FMath::Max(Size.Y, 1.0);
+	// texel centres at (i + 0.5) / N, matching a GPU bilinear fetch of level 0
 	const double FX = FMath::Clamp(U * Width - 0.5, 0.0, double(Width - 1));
 	const double FY = FMath::Clamp(V * Height - 0.5, 0.0, double(Height - 1));
 	const int32 X0 = FMath::FloorToInt32(FX);
@@ -136,6 +180,99 @@ FVector4f FDreamWindTerrainCpuData::Sample(double WorldX, double WorldY) const
 	const FVector4f C = Texels[Y1 * Width + X0];
 	const FVector4f D = Texels[Y1 * Width + X1];
 	return FMath::Lerp(FMath::Lerp(A, B, TX), FMath::Lerp(C, D, TX), TY);
+}
+
+float FDreamWindTerrainCpuData::HeightBilinear(double WorldX, double WorldY, int32 Level) const
+{
+	if (Width <= 0 || Height <= 0 || Texels.Num() != Width * Height * 2 || !Bounds.bIsValid)
+	{
+		return 0.0f;
+	}
+	Level = FMath::Clamp(Level, 0, DW_TERRAIN_MAX_LEVEL);
+	const int32 LW = FMath::Max(Width >> Level, 1);
+	const int32 LH = FMath::Max(Height >> Level, 1);
+	const int32 Row = Level == 0 ? 0 : 2 * Height - ((2 * Height) >> Level);
+	const FVector2D Size = Bounds.GetSize();
+	const double U = (WorldX - Bounds.Min.X) / FMath::Max(Size.X, 1.0);
+	const double V = (WorldY - Bounds.Min.Y) / FMath::Max(Size.Y, 1.0);
+	// texel centres at (i + 0.5) / N, matching a GPU bilinear fetch of the same level (DW_TerrainAtlasUV)
+	const double FX = FMath::Clamp(U * LW - 0.5, 0.0, double(LW - 1));
+	const double FY = FMath::Clamp(V * LH - 0.5, 0.0, double(LH - 1));
+	const int32 X0 = FMath::FloorToInt32(FX);
+	const int32 Y0 = FMath::FloorToInt32(FY);
+	const int32 X1 = FMath::Min(X0 + 1, LW - 1);
+	const int32 Y1 = FMath::Min(Y0 + 1, LH - 1);
+	const float TX = float(FX - X0);
+	const float TY = float(FY - Y0);
+	const float A = Texels[(Row + Y0) * Width + X0].W;
+	const float B = Texels[(Row + Y0) * Width + X1].W;
+	const float C = Texels[(Row + Y1) * Width + X0].W;
+	const float D = Texels[(Row + Y1) * Width + X1].W;
+	return FMath::Lerp(FMath::Lerp(A, B, TX), FMath::Lerp(C, D, TX), TY);
+}
+
+float FDreamWindTerrainCpuData::HeightAt(double WorldX, double WorldY, int32 Level) const
+{
+	if (Width <= 0 || Height <= 0 || Texels.Num() != Width * Height * 2 || !Bounds.bIsValid)
+	{
+		return 0.0f;
+	}
+	Level = FMath::Clamp(Level, 0, DW_TERRAIN_MAX_LEVEL);
+	const int32 LW = FMath::Max(Width >> Level, 1);
+	const int32 LH = FMath::Max(Height >> Level, 1);
+	const int32 Row = Level == 0 ? 0 : 2 * Height - ((2 * Height) >> Level);
+	const FVector2D Size = Bounds.GetSize();
+	const double U = FMath::Clamp((WorldX - Bounds.Min.X) / FMath::Max(Size.X, 1.0), 0.0, 1.0);
+	const double V = FMath::Clamp((WorldY - Bounds.Min.Y) / FMath::Max(Size.Y, 1.0), 0.0, 1.0);
+	// the texel that contains the point, matching DW_TerrainAtlasTexelUV
+	const int32 X = FMath::Clamp(FMath::FloorToInt32(U * LW), 0, LW - 1);
+	const int32 Y = FMath::Clamp(FMath::FloorToInt32(V * LH), 0, LH - 1);
+	return Texels[(Row + Y) * Width + X].W;
+}
+
+float FDreamWindTerrainCpuData::OcclusionShadow(const DreamWind::Hlsl::FDreamWindTerrainParams& T, const DreamWind::Hlsl::float3& Pos, const DreamWind::Hlsl::float3& Velocity) const
+{
+	using namespace DreamWind::Hlsl;
+	const float Speed2 = Velocity.x * Velocity.x + Velocity.y * Velocity.y;
+	if (!DW_OcclusionActive(T, FMath::Sqrt(Speed2)))
+	{
+		return 0.0f;
+	}
+	float Shadow = DW_OcclusionSelf(HeightBilinear(Pos.x, Pos.y, 0) + T.HeightBase, Pos.z);
+	if (Shadow >= 1.0f)
+	{
+		return Shadow;
+	}
+	const float InvSpeed = 1.0f / FMath::Sqrt(Speed2);
+	const float2 UpDir(-Velocity.x * InvSpeed, -Velocity.y * InvSpeed);
+	for (int32 k = 1; k <= DW_OCCLUSION_TAPS; ++k)
+	{
+		const int32 Level = DW_OcclusionTapLevel(k, T);
+		const float TapDist = DW_OcclusionTapDistance(k, T);
+		const float2 XY = DW_OcclusionXYAt(Pos, UpDir, TapDist);
+		if (!IsInside(XY.x, XY.y))
+		{
+			break;   // the map ends here; beyond it there is nothing baked to shade us
+		}
+		const float MidDist = DW_OcclusionMidDistance(k, T);
+		const float2 MidXY = DW_OcclusionXYAt(Pos, UpDir, MidDist);
+		Shadow = DW_OcclusionAccumulate(Shadow, HeightBilinear(MidXY.x, MidXY.y, Level) + T.HeightBase, Pos.z, MidDist, T);
+		Shadow = DW_OcclusionAccumulate(Shadow, HeightBilinear(XY.x, XY.y, Level) + T.HeightBase, Pos.z, TapDist, T);
+	}
+	return Shadow;
+}
+
+DreamWind::Hlsl::FDreamWindSample FDreamWindTerrainCpuData::ApplyAll(DreamWind::Hlsl::FDreamWindSample S, const DreamWind::Hlsl::FDreamWindTerrainParams& T, const DreamWind::Hlsl::float3& Pos) const
+{
+	using namespace DreamWind::Hlsl;
+	const float2 UV = DW_TerrainUV(Pos, T);
+	const float Inside = DW_TerrainInside(UV, T);
+	if (Inside <= 0.0f)
+	{
+		return S;
+	}
+	S = DW_ApplyTerrain(S, ToHlsl(Sample(Pos.x, Pos.y)), T, Inside);
+	return DW_ApplyOcclusion(S, OcclusionShadow(T, Pos, S.Velocity), T);
 }
 
 UDreamWindSubsystem::UDreamWindSubsystem()
@@ -405,9 +542,11 @@ DreamWind::Hlsl::FDreamWindSourceData UDreamWindSubsystem::PackSource(const FDre
 	using namespace DreamWind::Hlsl;
 	const FVector Dir = DreamWind::SafeDirection(Desc.Direction);
 	FDreamWindSourceData S;
-	S.PositionRadius    = float4(float(Desc.Position.X), float(Desc.Position.Y), float(Desc.Position.Z), FMath::Max(Desc.GetBoundingRadius(), 1.0f));
+	// PositionRadius.w stays the footprint radius R the shader scales by; the bounding sphere of a
+	// stretched jet is what the culling uses (GetBoundingRadius), not this
+	S.PositionRadius    = float4(float(Desc.Position.X), float(Desc.Position.Y), float(Desc.Position.Z), FMath::Max(Desc.Type == EDreamWindSourceType::Shelter ? Desc.GetBoundingRadius() : Desc.Radius, 1.0f));
 	S.DirectionStrength = float4(float(Dir.X), float(Dir.Y), float(Dir.Z), Desc.Strength * StrengthScale);
-	S.Misc              = float4(float(static_cast<int32>(Desc.Type)), FMath::Max(Desc.InjectRate, 0.0f), FMath::Clamp(Desc.InnerRadiusFraction, 0.0f, 1.0f), 0.0f);
+	S.Misc              = float4(float(static_cast<int32>(Desc.Type)), FMath::Max(Desc.InjectRate, 0.0f), FMath::Clamp(Desc.InnerRadiusFraction, 0.0f, 1.0f), FMath::Max(Desc.Stretch, 1.0f));
 	S.BoxExtent         = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	S.BoxRotation       = float4(0.0f, 0.0f, 0.0f, 1.0f);
 	if (Desc.Type == EDreamWindSourceType::Shelter)
@@ -453,12 +592,14 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 	{
 		const FVector2D Size = TerrainCpu->Bounds.GetSize();
 		FrameData.T0 = FVector4f(float(TerrainCpu->Bounds.Min.X), float(TerrainCpu->Bounds.Min.Y), 1.0f / float(FMath::Max(Size.X, 1.0)), 1.0f / float(FMath::Max(Size.Y, 1.0)));
-		FrameData.T1 = FVector4f(1.0f, Settings->TerrainSteerScale, Settings->TerrainSpeedScale, 0.0f);
+		FrameData.T1 = FVector4f(1.0f, Settings->TerrainSteerScale, Settings->TerrainSpeedScale, TerrainCpu->TexelSize());
+		FrameData.T2 = FVector4f(Settings->OcclusionStrength, Settings->OcclusionRange, Settings->OcclusionSlope, TerrainCpu->HeightBase);
 	}
 	else
 	{
 		FrameData.T0 = FVector4f::Zero();
 		FrameData.T1 = FVector4f::Zero();
+		FrameData.T2 = FVector4f::Zero();
 	}
 	FrameData.TerrainCpu = bTerrain ? TerrainCpu : nullptr;
 	FrameData.TerrainTexture = nullptr;
@@ -668,6 +809,7 @@ void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V3, ToLinearColor(ToHlsl(FrameData.V3)));
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
 	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
+	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
 }
 
 void UDreamWindSubsystem::EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer)
@@ -802,7 +944,7 @@ void UDreamWindSubsystem::UpdateTerrainTexture()
 	{
 		bTerrainTextureDirty = false;
 		const int32 W = TerrainCpu->Width;
-		const int32 H = TerrainCpu->Height;
+		const int32 H = TerrainCpu->Height * 2;   // the atlas: the map plus its max-height chain
 		if (TerrainTexture->SizeX != W || TerrainTexture->SizeY != H || TerrainTexture->GetFormat() != PF_FloatRGBA)
 		{
 			TerrainTexture->InitCustomFormat(W, H, PF_FloatRGBA, true);
@@ -865,10 +1007,7 @@ void UDreamWindSubsystem::SetTerrainMap(UDreamWindTerrainMap* Map)
 	if (Map && Map->IsValidMap())
 	{
 		TSharedRef<FDreamWindTerrainCpuData, ESPMode::ThreadSafe> Cpu = MakeShared<FDreamWindTerrainCpuData, ESPMode::ThreadSafe>();
-		Cpu->Bounds = Map->Bounds;
-		Cpu->Width = Map->Width;
-		Cpu->Height = Map->Height;
-		Cpu->Texels = Map->Texels;
+		Cpu->BuildFromMap(*Map);
 		TerrainCpu = Cpu;
 	}
 	else
@@ -885,15 +1024,7 @@ DreamWind::Hlsl::FDreamWindSample UDreamWindSubsystem::ApplyTerrain(DreamWind::H
 	{
 		return S;
 	}
-	const FDreamWindTerrainParams T = FrameData.GetTerrainParams();
-	const float2 UV = DW_TerrainUV(Pos, T);
-	const float Inside = DW_TerrainInside(UV, T);
-	if (Inside <= 0.0f)
-	{
-		return S;
-	}
-	const FVector4f Texel = FrameData.TerrainCpu->Sample(Pos.x, Pos.y);
-	return DW_ApplyTerrain(S, ToHlsl(Texel), T, Inside);
+	return FrameData.TerrainCpu->ApplyAll(S, FrameData.GetTerrainParams(), Pos);
 }
 
 void UDreamWindSubsystem::DrawDebug()
@@ -951,11 +1082,23 @@ void UDreamWindSubsystem::DrawDebug()
 			continue;
 		}
 		const FColor Colour = Type == DW_SOURCE_RADIAL ? FColor::Orange : (Type == DW_SOURCE_VORTEX ? FColor::Magenta : FColor::Yellow);
-		DrawDebugSphere(World, Centre, S.PositionRadius.w, 16, Colour, false, -1.0f, 0, 1.0f);
+		const float R = S.PositionRadius.w;
+		const float Stretch = FMath::Max(S.Misc.w, 1.0f);
+		const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
+		if (Type != DW_SOURCE_RADIAL && Stretch > 1.0f)
+		{
+			// the egg: R behind the centre, R * Stretch ahead of it - drawn as the capsule that contains it
+			const float HalfHeight = R * (Stretch + 1.0f) * 0.5f;
+			const FVector CapsuleCentre = Centre + Axis * (R * (Stretch - 1.0f) * 0.5f);
+			DrawDebugCapsule(World, CapsuleCentre, HalfHeight, R, FRotationMatrix::MakeFromZ(Axis).ToQuat(), Colour, false, -1.0f, 0, 1.0f);
+		}
+		else
+		{
+			DrawDebugSphere(World, Centre, R, 16, Colour, false, -1.0f, 0, 1.0f);
+		}
 		if (Type != DW_SOURCE_RADIAL)
 		{
-			const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
-			DrawDebugDirectionalArrow(World, Centre, Centre + Axis * FMath::Min(S.PositionRadius.w, 300.0f), 40.0f, Colour, false, -1.0f, 0, 3.0f);
+			DrawDebugDirectionalArrow(World, Centre, Centre + Axis * FMath::Min(R * Stretch, 300.0f), 40.0f, Colour, false, -1.0f, 0, 3.0f);
 		}
 	}
 

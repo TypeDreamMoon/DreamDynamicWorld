@@ -14,6 +14,7 @@ float4  {ParameterName}_V2;
 float4  {ParameterName}_V3;
 float4  {ParameterName}_T0;
 float4  {ParameterName}_T1;
+float4  {ParameterName}_T2;
 float3  {ParameterName}_SystemLWCTile;
 uint    {ParameterName}_NumSources;
 StructuredBuffer<float4> {ParameterName}_Sources;
@@ -31,12 +32,36 @@ void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, 
 	const FDreamWindParams P = DW_UnpackParams({ParameterName}_P0, {ParameterName}_P1, {ParameterName}_P2);
 	FDreamWindSample S = {AnalyticFunction}(P, WorldPos);
 	{
-		const FDreamWindTerrainParams TP = DW_UnpackTerrain({ParameterName}_T0, {ParameterName}_T1);
+		const FDreamWindTerrainParams TP = DW_UnpackTerrain({ParameterName}_T0, {ParameterName}_T1, {ParameterName}_T2);
 		const float2 TUV = DW_TerrainUV(WorldPos, TP);
 		const float Inside = DW_TerrainInside(TUV, TP);
 		if (Inside > 0.0f)
 		{
-			S = DW_ApplyTerrain(S, {ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, TUV, 0), TP, Inside);
+			S = DW_ApplyTerrain(S, {ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP, Inside);
+			// occlusion: the sample's own texel, then upwind taps through the baked heights
+			if (DW_OcclusionActive(TP, length(float2(S.Velocity.x, S.Velocity.y))))
+			{
+				float Shadow = DW_OcclusionSelf(DW_TerrainHeight({ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP), WorldPos.z);
+				const float2 UpDir = -normalize(float2(S.Velocity.x, S.Velocity.y));
+				[unroll]
+				for (int k = 1; k <= DW_OCCLUSION_TAPS; ++k)
+				{
+					const int Level = DW_OcclusionTapLevel(k, TP);
+					const float TapDist = DW_OcclusionTapDistance(k, TP);
+					const float2 TapXY = DW_OcclusionXYAt(WorldPos, UpDir, TapDist);
+					const float2 TapUV = DW_TerrainUV(float3(TapXY.x, TapXY.y, WorldPos.z), TP);
+					if (DW_TerrainInside(TapUV, TP) <= 0.0f)
+					{
+						break;
+					}
+					const float MidDist = DW_OcclusionMidDistance(k, TP);
+					const float2 MidXY = DW_OcclusionXYAt(WorldPos, UpDir, MidDist);
+					const float2 MidUV = DW_TerrainUV(float3(MidXY.x, MidXY.y, WorldPos.z), TP);
+					Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight({ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, DW_TerrainAtlasUV(MidUV, Level, TP), 0), TP), WorldPos.z, MidDist, TP);
+					Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight({ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, DW_TerrainAtlasUV(TapUV, Level, TP), 0), TP), WorldPos.z, TapDist, TP);
+				}
+				S = DW_ApplyOcclusion(S, Shadow, TP);
+			}
 		}
 	}
 	float3 V = S.Velocity;

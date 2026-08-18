@@ -7,6 +7,7 @@
 #include "DreamWindEditorLibrary.h"
 #include "DreamWindGlobalActor.h"
 #include "DreamWindModule.h"
+#include "DreamWindPassThroughComponent.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindTerrainMap.h"
 
@@ -102,7 +103,8 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 		return false;
 	}
 
-	const int32 W = FMath::Clamp(Settings.Resolution, 16, 1024);
+	// a multiple of 16 so the max-height chain (five levels) divides evenly
+	const int32 W = FMath::Clamp((Settings.Resolution + 8) / 16 * 16, 16, 1024);
 	const int32 H = W;
 	const FVector2D Min(Box.Min.X, Box.Min.Y);
 	const FVector2D Size(Box.GetSize().X, Box.GetSize().Y);
@@ -119,6 +121,17 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 	float MinH = TNumericLimits<float>::Max();
 	float MaxH = TNumericLimits<float>::Lowest();
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(DreamWindTerrainBake), true);
+	// actors marked pass-through are transparent to the wind: not ground, not an obstacle
+	int32 NumIgnored = 0;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (UDreamWindPassThroughComponent::IsPassThrough(*It))
+		{
+			Params.AddIgnoredActor(*It);
+			++NumIgnored;
+		}
+	}
+	const FCollisionShape TexelBox = FCollisionShape::MakeBox(FVector(Cell.X * 0.5, Cell.Y * 0.5, 1.0));
 	int32 Hits = 0;
 	for (int32 y = 0; y < H; ++y)
 	{
@@ -132,9 +145,13 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 			const FVector Start(Min.X + (x + 0.5) * Cell.X, Min.Y + (y + 0.5) * Cell.Y, TopZ);
 			const FVector End(Start.X, Start.Y, BottomZ);
 			FHitResult Hit;
-			if (World->LineTraceSingleByChannel(Hit, Start, End, Settings.TraceChannel, Params))
+			const bool bHit = Settings.bSweepTexels
+				? World->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, Settings.TraceChannel, TexelBox, Params)
+				: World->LineTraceSingleByChannel(Hit, Start, End, Settings.TraceChannel, Params);
+			if (bHit)
 			{
-				const float h = float(Hit.ImpactPoint.Z);
+				// a sweep stops with the box touching the surface: its centre is 1 cm above the top
+				const float h = float(Settings.bSweepTexels ? Hit.Location.Z - 1.0 : Hit.ImpactPoint.Z);
 				Height[y * W + x] = h;
 				MinH = FMath::Min(MinH, h);
 				MaxH = FMath::Max(MaxH, h);
@@ -168,7 +185,6 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 
 	Target->Texels.SetNumUninitialized(W * H);
 	const float ExposureScale = FMath::Max(Settings.ExposureScale, 1.0f);
-	const float Range = FMath::Max(MaxH - MinH, 1.0f);
 	for (int32 y = 0; y < H; ++y)
 	{
 		for (int32 x = 0; x < W; ++x)
@@ -188,10 +204,11 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 				Steer *= Settings.MaxSteer / SteerLen;
 			}
 
-			Target->Texels[y * W + x] = FVector4f(Mult, Steer.X, Steer.Y, (h - MinH) / Range);
+			Target->Texels[y * W + x] = FVector4f(Mult, Steer.X, Steer.Y, h - MinH);   // cm above the lowest ground
 		}
 	}
 
+	Target->Version = UDreamWindTerrainMap::CurrentVersion;
 	Target->Bounds = FBox2D(Min, Min + Size);
 	Target->Width = W;
 	Target->Height = H;
@@ -199,8 +216,8 @@ bool UDreamWindEditorLibrary::BakeTerrainMap(UWorld* World, const FBox& Bounds, 
 	Target->BakeSettings = Settings;
 	Target->MarkPackageDirty();
 
-	UE_LOG(LogDreamWind, Display, TEXT("BakeTerrainMap: %dx%d over (%.0f,%.0f)-(%.0f,%.0f), heights %.0f..%.0f, %d/%d hits, blur %d texels."),
-		W, H, Min.X, Min.Y, Min.X + Size.X, Min.Y + Size.Y, MinH, MaxH, Hits, W * H, R);
+	UE_LOG(LogDreamWind, Display, TEXT("BakeTerrainMap: %dx%d over (%.0f,%.0f)-(%.0f,%.0f), heights %.0f..%.0f, %d/%d hits, blur %d texels, %s, %d pass-through actor(s) ignored."),
+		W, H, Min.X, Min.Y, Min.X + Size.X, Min.Y + Size.Y, MinH, MaxH, Hits, W * H, R, Settings.bSweepTexels ? TEXT("texel sweeps") : TEXT("line traces"), NumIgnored);
 	return true;
 }
 

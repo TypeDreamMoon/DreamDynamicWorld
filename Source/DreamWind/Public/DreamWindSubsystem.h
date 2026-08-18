@@ -19,20 +19,47 @@ class UDreamWindPreset;
 class FDreamWindVolumeRenderer;
 class FDreamWindViewExtension;
 
-/** Thread-safe CPU copy of a terrain map, shared by the subsystem and Niagara CPU sims. */
+/**
+ * Thread-safe CPU copy of a terrain map, shared by the subsystem and Niagara CPU sims. Holds the same
+ * ATLAS the GPU samples: the map (level 0, rows 0..Height-1) followed by DW_TERRAIN_MAX_LEVEL
+ * max-filtered height levels (see DreamWindShared.h, DW_TerrainAtlasUV); Width x 2*Height texels.
+ */
 struct DREAMWIND_API FDreamWindTerrainCpuData
 {
 	FBox2D Bounds = FBox2D(ForceInit);
 	int32 Width = 0;
 	int32 Height = 0;
+	/** World Z that texel height 0 stands for (UDreamWindTerrainMap::HeightRange.X). */
+	float HeightBase = 0.0f;
+	/** The atlas, row-major, Width x (2 * Height). */
 	TArray<FVector4f> Texels;
 
-	/** Bilinear fetch, clamped to the border: (speed multiplier, steer.x, steer.y, height). */
+	/** Builds the atlas (level 0 = Map, levels 1..DW_TERRAIN_MAX_LEVEL = max heights) from a base map. */
+	void BuildFromMap(const class UDreamWindTerrainMap& Map);
+
+	/** World size of one base texel, cm. */
+	float TexelSize() const { return Width > 0 && Bounds.bIsValid ? float(Bounds.GetSize().X / Width) : 1.0f; }
+
+	/** Bilinear fetch of level 0, clamped to the border: (speed multiplier, steer.x, steer.y, height in cm above HeightBase). */
 	FVector4f Sample(double WorldX, double WorldY) const;
+	/** Nearest fetch of the height (cm above HeightBase) at atlas level Level (0 = the map, 1.. = max heights). */
+	float HeightAt(double WorldX, double WorldY, int32 Level) const;
+	/** Bilinear fetch of the height (cm above HeightBase) at atlas level Level - what the occlusion march reads. */
+	float HeightBilinear(double WorldX, double WorldY, int32 Level) const;
 	bool IsInside(double WorldX, double WorldY) const
 	{
 		return Bounds.bIsValid && WorldX >= Bounds.Min.X && WorldX <= Bounds.Max.X && WorldY >= Bounds.Min.Y && WorldY <= Bounds.Max.Y;
 	}
+
+	/**
+	 * Wind shadow (0..1) of the level geometry at Pos for a wind blowing along Velocity: the sample's
+	 * own texel (inside a solid) plus DW_OCCLUSION_TAPS upwind taps through the baked heights. The
+	 * same loop the GPU consumers run, see DreamWindShared.h.
+	 */
+	float OcclusionShadow(const DreamWind::Hlsl::FDreamWindTerrainParams& T, const DreamWind::Hlsl::float3& Pos, const DreamWind::Hlsl::float3& Velocity) const;
+
+	/** Terrain modulation followed by occlusion, i.e. everything L1 does to an analytic sample. */
+	DreamWind::Hlsl::FDreamWindSample ApplyAll(DreamWind::Hlsl::FDreamWindSample S, const DreamWind::Hlsl::FDreamWindTerrainParams& T, const DreamWind::Hlsl::float3& Pos) const;
 };
 
 /**
@@ -50,9 +77,10 @@ struct DREAMWIND_API FDreamWindFrameData
 	FVector4f V1 = FVector4f::Zero();
 	FVector4f V2 = FVector4f::Zero();
 	FVector4f V3 = FVector4f::Zero();
-	/** DW_UnpackTerrain(T0, T1) */
+	/** DW_UnpackTerrain(T0, T1, T2) */
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
+	FVector4f T2 = FVector4f::Zero();
 	/** Live sources this frame, strongest first, already envelope-scaled. */
 	TArray<DreamWind::Hlsl::FDreamWindSourceData> Sources;
 	/** Volume render targets (null when a level is disabled or its asset is missing). */
@@ -82,7 +110,7 @@ struct DREAMWIND_API FDreamWindFrameData
 	DreamWind::Hlsl::FDreamWindTerrainParams GetTerrainParams() const
 	{
 		using namespace DreamWind::Hlsl;
-		return DW_UnpackTerrain(ToHlsl(T0), ToHlsl(T1));
+		return DW_UnpackTerrain(ToHlsl(T0), ToHlsl(T1), ToHlsl(T2));
 	}
 };
 

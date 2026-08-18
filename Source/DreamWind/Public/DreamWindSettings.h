@@ -149,6 +149,23 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (ClampMin = "0", ClampMax = "1"))
 	float TerrainSpeedScale = 1.0f;
 
+	/**
+	 * Level geometry blocks the wind: every sample marches upwind through the baked heights and is
+	 * damped by whatever rises above it (a wall, a rock, a hill crest), and is calm inside solids.
+	 * 0 = off, 1 = a full wind shadow. Needs a baked terrain map; put a UDreamWindPassThroughComponent
+	 * (or the actor tag DreamWind.PassThrough) on things that should not block, then re-bake.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Occlusion", meta = (ClampMin = "0", ClampMax = "1"))
+	float OcclusionStrength = 0.9f;
+
+	/** How far upwind (cm) a sample looks for geometry that shades it. 12 taps, denser near the sample. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Occlusion", meta = (ClampMin = "0", UIMax = "10000"))
+	float OcclusionRange = 3000.0f;
+
+	/** Rise / run of the wind-shadow wedge: an obstacle H above the sample shades it out to H / slope downwind (0.2 = five heights). */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Occlusion", meta = (ClampMin = "0.02", ClampMax = "2"))
+	float OcclusionSlope = 0.2f;
+
 	/** 2D render target materials read the active terrain map through; the subsystem uploads the map into it. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindTerrain.RT_DreamWindTerrain"));

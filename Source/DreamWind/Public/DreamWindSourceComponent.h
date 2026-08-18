@@ -29,6 +29,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1", EditCondition = "Type != EDreamWindSourceType::Shelter"))
 	float Radius = 400.0f;
 
+	/**
+	 * Length of the footprint along +X as a multiple of Radius: 1 = sphere, 4 = a jet four radii long.
+	 * Directional and Vortex only. Radius x Stretch is how far a fan reaches; Strength is how hard.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1", UIMax = "10", EditCondition = "Type == EDreamWindSourceType::Directional || Type == EDreamWindSourceType::Vortex"))
+	float Stretch = 1.0f;
+
 	/** Half extents of a Shelter box in the component's local frame, cm; scaled by the component scale. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
 	FVector BoxExtent = FVector(500.0, 500.0, 300.0);

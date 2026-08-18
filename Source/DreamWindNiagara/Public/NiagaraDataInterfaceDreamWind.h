@@ -35,6 +35,7 @@ class DREAMWINDNIAGARA_API UNiagaraDataInterfaceDreamWind : public UNiagaraDataI
 		SHADER_PARAMETER(FVector4f, V3)
 		SHADER_PARAMETER(FVector4f, T0)
 		SHADER_PARAMETER(FVector4f, T1)
+		SHADER_PARAMETER(FVector4f, T2)
 		SHADER_PARAMETER(FVector3f, SystemLWCTile)
 		SHADER_PARAMETER(uint32, NumSources)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Sources)

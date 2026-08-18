@@ -22,6 +22,7 @@ namespace DreamWind
 		inline const FName MPC_V3(TEXT("DreamWind_V3"));
 		inline const FName MPC_T0(TEXT("DreamWind_T0"));
 		inline const FName MPC_T1(TEXT("DreamWind_T1"));
+		inline const FName MPC_T2(TEXT("DreamWind_T2"));
 
 		/** Virtual shader directory mapped to <Plugin>/Shaders. */
 		inline const TCHAR* ShaderVirtualDirectory = TEXT("/Plugin/DreamWind");

@@ -15,7 +15,7 @@
 //   * NO out/inout parameters - return structs instead
 //   * NO HLSL attributes ([loop], [unroll], [branch]) and no static locals
 //   * every literal carries an f suffix, and hex constants a u suffix
-//   * only the intrinsics provided by DreamWindHlslShim.h: abs floor frac sqrt rsqrt sin cos exp
+//   * only the intrinsics provided by DreamWindHlslShim.h: abs floor frac sqrt rsqrt sin cos exp exp2
 //     min max clamp saturate lerp smoothstep step dot cross length normalize
 //   * comments are // or /* */ only
 //
@@ -248,7 +248,9 @@ struct FDreamWindSourceData
 {
 	float4 PositionRadius;     // xyz centre, w radius (cm) - for a box the bounding-sphere radius
 	float4 DirectionStrength;  // xyz unit direction / axis / zone wind direction, w strength (cm/s)
-	float4 Misc;               // x type (DW_SOURCE_*), y inject rate (1/s, volume only), z inner fraction, w unused
+	float4 Misc;               // x type (DW_SOURCE_*), y inject rate (1/s, volume only), z inner fraction,
+	                           // w stretch: forward axial radius / Radius (>= 1; 1 = sphere, 4 = a jet four
+	                           //   radii long along +Direction; radial sources ignore it)
 	float4 BoxExtent;          // xyz half extents of a shelter box (cm), w unused - spheres leave it 0
 	float4 BoxRotation;        // xyzw unit quaternion, box local -> world - spheres leave it (0,0,0,1)
 };
@@ -276,8 +278,13 @@ FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
 	float dist = length(d);
 	int type = int(S.Misc.x);
 
-	// footprint distance, 0 at the centre and 1 at the edge: |d| / R for spheres, the largest
-	// normalised axis distance (Chebyshev) inside the oriented box for shelters
+	float3 dir = float3(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
+	float stretch = max(S.Misc.w, 1.0f);
+
+	// footprint distance, 0 at the centre and 1 at the edge: |d| / R for spheres; for a stretched
+	// directional / vortex source an egg whose axial radius is R * stretch ahead of the centre (along
+	// +Direction) and R behind it; the largest normalised axis distance (Chebyshev) inside the
+	// oriented box for shelters
 	float footprint = dist / R;
 	if (type == DW_SOURCE_SHELTER)
 	{
@@ -286,13 +293,21 @@ FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
 		float3 a = abs(local) / ext;
 		footprint = max(a.x, max(a.y, a.z));
 	}
+	else if (stretch > 1.0f && type != DW_SOURCE_RADIAL)
+	{
+		float axial = dot(d, dir);
+		float3 radialVec = d - dir * axial;
+		float radial = length(radialVec) / R;
+		float axialR = axial >= 0.0f ? R * stretch : R;
+		float axialN = axial / axialR;
+		footprint = sqrt(radial * radial + axialN * axialN);
+	}
 
 	float inner = saturate(S.Misc.z);
 	float t = saturate((footprint - inner) / max(1.0f - inner, 0.001f));
 	float w = 1.0f - t;
 	w = w * w * (3.0f - 2.0f * w);
 
-	float3 dir = float3(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
 	float strength = S.DirectionStrength.w;
 
 	float3 v = dir * strength;
@@ -349,24 +364,77 @@ float DW_VolumeMask(float3 WorldPos, FDreamWindVolumeParams V)
 
 struct FDreamWindTerrainParams
 {
-	float2 Min;         // world XY of texel (0,0)
-	float2 InvSize;     // 1 / world size of the map per axis
-	float  Enabled;     // 0 or 1
-	float  SteerScale;  // multiplies the baked steering offset
-	float  SpeedScale;  // 0 = ignore the baked multiplier, 1 = apply it fully
-	float  Unused;
+	float2 Min;               // world XY of texel (0,0)
+	float2 InvSize;           // 1 / world size of the map per axis
+	float  Enabled;           // 0 or 1
+	float  SteerScale;        // multiplies the baked steering offset
+	float  SpeedScale;        // 0 = ignore the baked multiplier, 1 = apply it fully
+	float  TexelSize;         // world size (cm) of one base-level texel
+	float  OcclusionStrength; // 0 = geometry does not block the wind, 1 = full wind shadow behind it
+	float  OcclusionRange;    // cm, how far upwind a sample looks for something that shades it
+	float  OcclusionSlope;    // rise / run of the wind-shadow wedge: an obstacle H above the sample
+	                          //   shades it out to H / slope downwind (0.2 = five heights)
+	float  HeightBase;        // world Z (cm) that texel height 0 stands for (the map's lowest ground);
+	                          //   heights are stored relative to it so a 16-bit texture keeps cm precision
 };
 
-FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1)
+FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1, float4 T2)
 {
 	FDreamWindTerrainParams T;
-	T.Min        = float2(T0.x, T0.y);
-	T.InvSize    = float2(T0.z, T0.w);
-	T.Enabled    = T1.x;
-	T.SteerScale = T1.y;
-	T.SpeedScale = T1.z;
-	T.Unused     = T1.w;
+	T.Min               = float2(T0.x, T0.y);
+	T.InvSize           = float2(T0.z, T0.w);
+	T.Enabled           = T1.x;
+	T.SteerScale        = T1.y;
+	T.SpeedScale        = T1.z;
+	T.TexelSize         = T1.w;
+	T.OcclusionStrength = T2.x;
+	T.OcclusionRange    = T2.y;
+	T.OcclusionSlope    = T2.z;
+	T.HeightBase        = T2.w;
 	return T;
+}
+
+/** World Z (cm) of the ground / obstacle top stored in a terrain texel. */
+float DW_TerrainHeight(float4 Texel, FDreamWindTerrainParams T)
+{
+	return Texel.w + T.HeightBase;
+}
+
+// The terrain texture is an ATLAS: the baked map (level 0) in the top half, and below it a chain of
+// MAX-filtered copies of its height (levels 1..DW_TERRAIN_MAX_LEVEL, each half the size of the one
+// before, .x = 1 / .yz = 0). Level L lives at v = 1 - 2^-L .. 1 - 2^-(L+1), u = 0 .. 2^-L. The
+// occlusion march samples coarser levels further away so a thin wall is never stepped over.
+#define DW_TERRAIN_MAX_LEVEL 4
+
+/**
+ * Texture UV of a logical map UV (0..1) at level Level of the atlas, clamped inside that level, for
+ * a BILINEAR fetch (the terrain modulation reads level 0 this way so multiplier and steering stay smooth).
+ */
+float2 DW_TerrainAtlasUV(float2 UV, int Level, FDreamWindTerrainParams T)
+{
+	float scale = exp2(-float(Level));
+	// texels of every level are 1 / W wide and 1 / (2 H) tall in atlas space
+	float halfTexelU = 0.5f * T.InvSize.x * T.TexelSize;
+	float halfTexelV = 0.25f * T.InvSize.y * T.TexelSize;
+	float u = clamp(UV.x * scale, halfTexelU, scale - halfTexelU);
+	float v = (1.0f - scale) + clamp(UV.y * scale * 0.5f, halfTexelV, scale * 0.5f - halfTexelV);
+	return float2(u, v);
+}
+
+/**
+ * Texture UV of the CENTRE of the level-Level texel that contains a logical map UV: a bilinear fetch
+ * there returns that one texel, i.e. a nearest fetch (debug / tests; the march itself is bilinear).
+ */
+float2 DW_TerrainAtlasTexelUV(float2 UV, int Level, FDreamWindTerrainParams T)
+{
+	float scale = exp2(-float(Level));
+	float texelU = T.InvSize.x * T.TexelSize;          // 1 / W
+	float texelV = 0.5f * T.InvSize.y * T.TexelSize;   // 1 / (2 H)
+	float widthL = scale / texelU;                     // texels of this level per axis (W >> Level)
+	float heightL = scale / (2.0f * texelV);
+	float ix = clamp(floor(saturate(UV.x) * widthL), 0.0f, widthL - 1.0f);
+	float iy = clamp(floor(saturate(UV.y) * heightL), 0.0f, heightL - 1.0f);
+	return float2((ix + 0.5f) * texelU, (1.0f - scale) + (iy + 0.5f) * texelV);
 }
 
 /** UV of a world position in the terrain map; outside [0,1] means outside the map. */
@@ -382,7 +450,10 @@ float DW_TerrainInside(float2 UV, FDreamWindTerrainParams T)
 	return inside * T.Enabled;
 }
 
-/** Applies a fetched terrain texel to an analytic sample. Texel = (speed mult, steer.x, steer.y, height). */
+/**
+ * Applies a fetched terrain texel to an analytic sample. Texel = (speed mult, steer.x, steer.y,
+ * ground/obstacle height in cm above HeightBase - see DW_TerrainHeight).
+ */
 FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTerrainParams T, float Inside)
 {
 	if (Inside <= 0.0f)
@@ -403,6 +474,103 @@ FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTer
 		}
 	}
 	S.Velocity = float3(v2.x * speedMul, v2.y * speedMul, S.Velocity.z * speedMul);
+	return S;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Occlusion (still L1): the wind shadow of level geometry, read from the same terrain map.
+//   A sample marches upwind through the baked heights; anything that rises above it casts a wedge
+//   of shadow downwind (H above the sample shades out to H / OcclusionSlope). The taps are spaced
+//   quadratically (dense near the sample, far-reaching at the end) and each tap reads the max-height
+//   level whose texel is at least as wide as the step, at the tap AND at the midpoint of the step -
+//   two bilinear fetches half a texel apart, so a one-texel wall always shows at least 3/4 of its
+//   height and the shadow stays smooth. Every consumer runs the same loop with its own texture
+//   fetch: tap positions, accumulation and the final damping live here so the CPU, the materials,
+//   Niagara and the volume agree.
+// ---------------------------------------------------------------------------------------------
+
+#define DW_OCCLUSION_TAPS 12
+
+/** True when occlusion is worth evaluating for this sample. */
+bool DW_OcclusionActive(FDreamWindTerrainParams T, float Speed)
+{
+	return T.Enabled > 0.0f && T.OcclusionStrength > 0.0f && T.OcclusionRange > 0.0f && Speed > 0.001f;
+}
+
+/** Upwind distance of tap k (1..DW_OCCLUSION_TAPS), cm. */
+float DW_OcclusionTapDistance(int k, FDreamWindTerrainParams T)
+{
+	float f = float(k) / float(DW_OCCLUSION_TAPS);
+	return T.OcclusionRange * f * f;
+}
+
+/** World XY at Dist cm upwind of a sample at WorldPos; UpDir2 is the unit horizontal direction pointing UPWIND. */
+float2 DW_OcclusionXYAt(float3 WorldPos, float2 UpDir2, float Dist)
+{
+	return float2(WorldPos.x, WorldPos.y) + UpDir2 * Dist;
+}
+
+/** World XY of tap k. */
+float2 DW_OcclusionTapXY(float3 WorldPos, float2 UpDir2, int k, FDreamWindTerrainParams T)
+{
+	return DW_OcclusionXYAt(WorldPos, UpDir2, DW_OcclusionTapDistance(k, T));
+}
+
+/** Upwind distance of the midpoint between tap k-1 and tap k, cm. */
+float DW_OcclusionMidDistance(int k, FDreamWindTerrainParams T)
+{
+	return 0.5f * (DW_OcclusionTapDistance(k - 1, T) + DW_OcclusionTapDistance(k, T));
+}
+
+/**
+ * Atlas level to read for tap k: the coarsest-needed max level whose texel is AT LEAST as wide as
+ * the gap to the previous tap, so consecutive taps read the same or adjacent texels and no column
+ * in between is skipped.
+ */
+int DW_OcclusionTapLevel(int k, FDreamWindTerrainParams T)
+{
+	float gap = DW_OcclusionTapDistance(k, T) - DW_OcclusionTapDistance(k - 1, T);
+	float ratio = gap / max(T.TexelSize, 1.0f);
+	int level = 0;
+	// ceil(log2(ratio)) without log2 (the shim has none): 2, 4, 8, 16 texels
+	if (ratio > 1.0f) { level = 1; }
+	if (ratio > 2.0f) { level = 2; }
+	if (ratio > 4.0f) { level = 3; }
+	if (ratio > 8.0f) { level = 4; }
+	return min(level, DW_TERRAIN_MAX_LEVEL);
+}
+
+/**
+ * Folds one tap into the running shadow (0..1): an obstacle Rise cm above the sample at Dist cm
+ * upwind shades it by 1 - Dist * slope / Rise, i.e. fully right behind, nothing beyond Rise / slope.
+ */
+float DW_OcclusionAccumulate(float Shadow, float TapHeight, float SampleZ, float Dist, FDreamWindTerrainParams T)
+{
+	float rise = TapHeight - SampleZ;
+	if (rise <= 0.0f)
+	{
+		return Shadow;
+	}
+	float reach = rise / max(T.OcclusionSlope, 0.01f);
+	float s = saturate(1.0f - Dist / max(reach, 1.0f));
+	return max(Shadow, s);
+}
+
+/**
+ * Shadow of the sample's own column: inside solid geometry (the ground / an obstacle top is above the
+ * sample) = full, fading in over the first 45 cm so the edge of a solid is not a hard step. The 5 cm
+ * tolerance keeps a blade sitting exactly on the baked ground from being "buried".
+ */
+float DW_OcclusionSelf(float TexelHeight, float SampleZ)
+{
+	return saturate((TexelHeight - SampleZ - 5.0f) / 45.0f);
+}
+
+/** Damps the wind by the accumulated shadow. Only the magnitude changes; the direction stays. */
+FDreamWindSample DW_ApplyOcclusion(FDreamWindSample S, float Shadow, FDreamWindTerrainParams T)
+{
+	float k = 1.0f - saturate(Shadow) * saturate(T.OcclusionStrength);
+	S.Velocity = S.Velocity * k;
 	return S;
 }
 

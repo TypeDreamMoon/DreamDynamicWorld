@@ -4,6 +4,21 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamWindTerrainMap)
 
+void UDreamWindTerrainMap::PostLoad()
+{
+	Super::PostLoad();
+	if (Version < 1)
+	{
+		// v0 stored the height as (h - MinH) / Range; v1 stores h - MinH in cm (the occlusion needs cm)
+		const float Range = FMath::Max(float(HeightRange.Y - HeightRange.X), 1.0f);
+		for (FVector4f& T : Texels)
+		{
+			T.W = T.W * Range;
+		}
+		Version = 1;
+	}
+}
+
 FVector4f UDreamWindTerrainMap::Sample(const FVector2D& WorldXY) const
 {
 	if (!IsValidMap())

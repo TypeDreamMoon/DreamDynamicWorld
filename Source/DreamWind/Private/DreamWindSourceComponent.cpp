@@ -88,6 +88,7 @@ bool UDreamWindSourceComponent::BuildSourceDesc(FDreamWindSourceDesc& OutDesc, f
 	OutDesc.Type = Type;
 	OutDesc.Position = Location;
 	OutDesc.Radius = Radius;
+	OutDesc.Stretch = Stretch;
 	OutDesc.Direction = Forward;
 	OutDesc.Strength = EffectiveStrength;
 	OutDesc.InjectRate = InjectRate;
