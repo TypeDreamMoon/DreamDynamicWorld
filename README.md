@@ -127,6 +127,26 @@ usable in your own levels; none of the runtime depends on them.
 * The wind is cheap; **World Position Offset is not** — it invalidates Virtual Shadow Map pages every
   frame. Set *World Position Offset Disable Distance* on foliage types / meshes, and note the ray-tracing
   flag is separate (`bEvaluateWorldPositionOffsetInRayTracing`).
+* **Shadow strategy for wind foliage that casts shadows** (the engine's own knobs, all per component;
+  `ADreamWindGrassField` exposes them under *Field ▸ Shadows*):
+  * *World Position Offset Disable Distance* — beyond it WPO is not evaluated at all: far blades stop
+    moving and stop invalidating VSM pages. Pick the distance at which the sway is no longer visible
+    (a few thousand cm for grass, more for trees).
+  * *Shadow Cache Invalidation Behavior* — `Auto` re-renders the pages under every moving blade each
+    frame (correct, costs shadow-depth time); `Rigid` keeps the cached pages (shadows stop swaying,
+    nothing is re-rendered — fine for grass whose shadow is a haze anyway); `Static` also ignores
+    transform changes.
+  * Ray-traced shadows: `bEvaluateWorldPositionOffsetInRayTracing` is off by default, so RT shadows
+    show the un-bent silhouette and no BLAS is refitted; turn it on only for hero foliage.
+  * Lumen: keep instanced blades out of the surface cache (see below).
+* **Material cost, measured** (`MaterialEditingLibrary.get_statistics`, SM6, editor): a plain
+  `BasicShapeMaterial` is VS 148 / PS 192 instructions. `M_DreamWindGrass` with the default switches
+  (*Wind Volume* on, *Wind High Quality* off) is VS **427** / PS 247 — the whole material, i.e. cheap
+  analytic sample + terrain fetch + tip mask + bend + flutter. Switch deltas: *Wind Volume* off → VS 381
+  (−46: the two volume fetches and their masks); *Wind High Quality* on → VS 563 (+136: 2 gust + 2 curl
+  octaves and vertical turbulence). `M_DreamWindDebug` (cheap sample + volume + terrain in the pixel
+  shader, ~10 instructions of its own) is PS 318, so the wind function itself is ≈ 110–130 ALU with the
+  volume, ≈ 70–80 without. Vertex ALU of that order is not what limits foliage; shadows and Lumen are.
 * Prefer the cheap sample (3 noise evaluations, no texture) in vertex-heavy materials; reserve the
   full sample + volume for particles, cloth-like effects and hero foliage.
 * Volume: 64×64×32 at 100 cm voxels covers 64 m × 64 m × 32 m for 1 MB and one pass; the far level

@@ -7,6 +7,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "SceneTypes.h"
 #include "DreamWindTypes.h"
 #include "DreamWindDemoActors.generated.h"
 
@@ -99,8 +100,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind|Field")
 	int32 Seed = 7;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind|Field")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind|Field|Shadows")
 	bool bCastShadow = false;
+
+	/**
+	 * Beyond this distance from the camera the material's World Position Offset is not evaluated at all
+	 * (cm, 0 = never): far blades stop moving, and with Virtual Shadow Maps they stop invalidating their
+	 * shadow pages every frame. The single most effective knob for wind foliage that casts shadows.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind|Field|Shadows", meta = (ClampMin = "0", UIMax = "20000"))
+	int32 WorldPositionOffsetDisableDistance = 0;
+
+	/**
+	 * How Virtual Shadow Maps treat the moving blades. Auto re-renders the shadow pages under every
+	 * blade each frame while WPO is active (correct, costs shadow depth time); Rigid keeps the cached
+	 * pages (the shadow stops swaying but nothing is re-rendered); Static also ignores transform changes.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind|Field|Shadows")
+	EShadowCacheInvalidationBehavior ShadowInvalidation = EShadowCacheInvalidationBehavior::Auto;
 
 	/** Scatter the blades again. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "DreamWind|Field")

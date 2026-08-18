@@ -124,6 +124,12 @@ void ADreamWindGrassField::Rebuild()
 		Grass->SetMaterial(0, Material);
 	}
 	Grass->SetCastShadow(bCastShadow);
+	Grass->SetWorldPositionOffsetDisableDistance(FMath::Max(WorldPositionOffsetDisableDistance, 0));
+	if (Grass->ShadowCacheInvalidationBehavior != ShadowInvalidation)
+	{
+		Grass->ShadowCacheInvalidationBehavior = ShadowInvalidation;
+		Grass->MarkRenderStateDirty();
+	}
 	if (!Mesh || Count <= 0)
 	{
 		return;
