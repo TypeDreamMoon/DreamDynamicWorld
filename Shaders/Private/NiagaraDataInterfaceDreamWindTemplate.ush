@@ -3,7 +3,7 @@
 // Niagara GPU side of UNiagaraDataInterfaceDreamWind. Appended once per data interface symbol, so
 // every global carries the _{ParameterName} suffix; the shared header has an include guard.
 
-#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
 
 float4  {ParameterName}_P0;
 float4  {ParameterName}_P1;

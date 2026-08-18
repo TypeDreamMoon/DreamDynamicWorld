@@ -3,10 +3,10 @@
 // Spawns leaves in a box around the system, lets DreamWindForce pull them along the wind (analytic
 // gusts and turbulence, sources, and the dynamic volume near the camera), adds a little gravity and a
 // tumble. Drop it in a level, set the global wind, fire an impulse: the leaves answer.
-System(Name="Effects/NS_DreamWindLeaves", Root="Plugin.DreamWind")
+System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
-        ModulePaths = ["/DreamWind/Modules"];
+        ModulePaths = ["/DreamDynamicWorld/Wind/Modules"];
         WarmupTime  = 0.0;
         FixedBounds = box(-8000, -8000, -4000, 8000, 8000, 4000);
     }

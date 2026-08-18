@@ -60,7 +60,7 @@ class FDreamWindVolumeUpdateCS : public FGlobalShader
 	}
 };
 
-IMPLEMENT_GLOBAL_SHADER(FDreamWindVolumeUpdateCS, "/Plugin/DreamWind/Private/DreamWindVolumeUpdate.usf", "MainCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamWindVolumeUpdateCS, "/Plugin/DreamDynamicWorld/Private/DreamWindVolumeUpdate.usf", "MainCS", SF_Compute);
 
 // -------------------------------------------------------------------------------------------------
 

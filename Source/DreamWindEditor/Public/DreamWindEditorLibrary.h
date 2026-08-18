@@ -46,7 +46,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static UTextureRenderTarget2D* EnsureTerrainTexture(bool bSaveAsset = true);
 
-	/** The shipped wind presets (/DreamWind/Presets/DWP_Calm, DWP_Breeze, DWP_Storm); existing ones are left alone. */
+	/** The shipped wind presets (/DreamDynamicWorld/Wind/Presets/DWP_Calm, DWP_Breeze, DWP_Storm); existing ones are left alone. */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static bool EnsurePresets(bool bSaveAssets = true);
 

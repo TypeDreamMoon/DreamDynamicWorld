@@ -551,7 +551,7 @@ bool FDreamWindSubsystemTickTest::RunTest(const FString& Parameters)
 	}
 
 	// presets: the shipped storm preset blends in (0 s = snap) and keeps the current direction on request
-	if (const UDreamWindPreset* Storm = LoadObject<UDreamWindPreset>(nullptr, TEXT("/DreamWind/Presets/DWP_Storm.DWP_Storm")))
+	if (const UDreamWindPreset* Storm = LoadObject<UDreamWindPreset>(nullptr, TEXT("/DreamDynamicWorld/Wind/Presets/DWP_Storm.DWP_Storm")))
 	{
 		Wind->SetGlobalWindDirectionAndSpeed(FVector(0, 1, 0), 500.0f, 0.0f);
 		Wind->ApplyPresetKeepDirection(Storm, 0.0f);

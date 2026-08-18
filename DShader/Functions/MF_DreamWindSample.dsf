@@ -2,7 +2,7 @@
 //
 // MF_DreamWindSample(WorldPosition) -> Velocity (cm/s), Gust, Speed, Direction
 //
-// The maths is NOT written here: the HLSL helper hoists /Plugin/DreamWind/Shared/DreamWindShared.h,
+// The maths is NOT written here: the HLSL helper hoists /Plugin/DreamDynamicWorld/Shared/DreamWindShared.h,
 // the single source the subsystem (C++), the Niagara data interface and the volume compute share.
 // The global wind arrives through MPC_DreamWind (written by UDreamWindSubsystem every frame); the
 // dynamic volume (impulses, wakes, residual gusts) through RT_DreamWindVolume, both created by
@@ -26,7 +26,7 @@ Function float4 DreamWind_Sample(
 	in float HighQuality,
 	in float UseVolume)
 {
-	#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
+	#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
 	FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
 	FDreamWindSample S = (FDreamWindSample)0;
 	if (HighQuality > 0.5f)
@@ -93,7 +93,7 @@ Function float4 DreamWind_Sample(
 	return float4(V, S.Gust);
 }
 
-ShaderFunction(Name="MaterialFunctions/MF_DreamWindSample", Root="Plugin.DreamWind")
+ShaderFunction(Name="Wind/MaterialFunctions/MF_DreamWindSample", Root="Plugin.DreamDynamicWorld")
 {
 	Settings = {
 		Description       = "DreamWind: wind velocity (cm/s), gust factor, speed and direction at a world position. Static switches: 'Wind Volume' (impulses/wakes, default on), 'Wind High Quality' (detail octaves, default off).";
@@ -102,19 +102,19 @@ ShaderFunction(Name="MaterialFunctions/MF_DreamWindSample", Root="Plugin.DreamWi
 	}
 
 	Properties = {
-		const VolumeTexture WindVolume    = Path(Plugin.DreamWind, "RT_DreamWindVolume");
-		const VolumeTexture WindVolumeFar = Path(Plugin.DreamWind, "RT_DreamWindVolumeFar");
-		const Texture2D     WindTerrain   = Path(Plugin.DreamWind, "RT_DreamWindTerrain");
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P0") P0;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P1") P1;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_P2") P2;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V0") V0;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V1") V1;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V2") V2;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_V3") V3;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_T0") T0;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_T1") T1;
-		UE.CollectionParam(Collection = Path(Plugin.DreamWind, "MPC_DreamWind"), Parameter = "DreamWind_T2") T2;
+		const VolumeTexture WindVolume    = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolume");
+		const VolumeTexture WindVolumeFar = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolumeFar");
+		const Texture2D     WindTerrain   = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrain");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_P0") P0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_P1") P1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_P2") P2;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_V0") V0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_V1") V1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_V2") V2;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_V3") V3;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_T0") T0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_T1") T1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "Wind/MPC_DreamWind"), Parameter = "DreamWind_T2") T2;
 	}
 
 	Inputs = {

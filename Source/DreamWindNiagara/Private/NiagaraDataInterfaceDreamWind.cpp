@@ -25,7 +25,7 @@
 const FName UNiagaraDataInterfaceDreamWind::SampleWindName(TEXT("SampleWind"));
 const FName UNiagaraDataInterfaceDreamWind::GetGlobalWindName(TEXT("GetGlobalWind"));
 
-static const TCHAR* GDreamWindDITemplateShaderFile = TEXT("/Plugin/DreamWind/Private/NiagaraDataInterfaceDreamWindTemplate.ush");
+static const TCHAR* GDreamWindDITemplateShaderFile = TEXT("/Plugin/DreamDynamicWorld/Private/NiagaraDataInterfaceDreamWindTemplate.ush");
 
 // -------------------------------------------------------------------------------------------------
 // Instance data
@@ -372,7 +372,7 @@ bool UNiagaraDataInterfaceDreamWind::AppendCompileHash(FNiagaraCompileHashVisito
 		return false;
 	}
 	InVisitor->UpdateShaderFile(GDreamWindDITemplateShaderFile);
-	InVisitor->UpdateShaderFile(TEXT("/Plugin/DreamWind/Shared/DreamWindShared.h"));
+	InVisitor->UpdateShaderFile(TEXT("/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"));
 	InVisitor->UpdateShaderParameters<FShaderParameters>();
 	InVisitor->UpdatePOD(TEXT("Quality"), static_cast<int32>(Quality));
 	InVisitor->UpdatePOD(TEXT("SampleVolume"), bSampleVolume ? 1 : 0);

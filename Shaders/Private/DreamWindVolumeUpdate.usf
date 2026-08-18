@@ -3,7 +3,7 @@
 // One step of the dynamic wind volume (L2). See FDreamWindVolumeRenderer.
 
 #include "/Engine/Private/Common.ush"
-#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
 
 float4 P0;
 float4 P1;

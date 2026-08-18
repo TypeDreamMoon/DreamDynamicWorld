@@ -2,7 +2,7 @@
 //
 // DreamWindShared.h - the analytic wind model, compiled BOTH as HLSL and as C++.
 //
-//   HLSL:  #include "/Plugin/DreamWind/Shared/DreamWindShared.h"      (materials, Niagara DI, compute)
+//   HLSL:  #include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"      (materials, Niagara DI, compute)
 //   C++:   #include "DreamWindHlslShim.h"  ->  DreamWind::Hlsl::DW_*   (subsystem, Niagara CPU VM, tests)
 //
 // The point of the single source is that a cloth mesh (CPU), a groom (GPU Niagara), a grass blade

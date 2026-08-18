@@ -10,7 +10,7 @@
 VirtualFunction(Name="MF_DreamWindSample")
 {
 	Options = {
-		Asset = Path(Plugins.DreamWind, "MaterialFunctions/MF_DreamWindSample");
+		Asset = Path(Plugins.DreamDynamicWorld, "Wind/MaterialFunctions/MF_DreamWindSample");
 		Description = "DreamWind wind sample: Velocity (cm/s), Gust, Speed, Direction at a world position.";
 	}
 	Inputs = {
@@ -24,7 +24,7 @@ VirtualFunction(Name="MF_DreamWindSample")
 	}
 }
 
-Shader(Name="Materials/M_DreamWindDebug", Root="Plugin.DreamWind")
+Shader(Name="Wind/Materials/M_DreamWindDebug", Root="Plugin.DreamDynamicWorld")
 {
 	Properties = {
 		float SpeedForFullBrightness = 1200.0 [Group="Debug"; Desc="cm/s that maps to full brightness"];

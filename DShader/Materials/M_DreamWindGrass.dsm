@@ -11,7 +11,7 @@
 VirtualFunction(Name="MF_DreamWindSample")
 {
 	Options = {
-		Asset = Path(Plugins.DreamWind, "MaterialFunctions/MF_DreamWindSample");
+		Asset = Path(Plugins.DreamDynamicWorld, "Wind/MaterialFunctions/MF_DreamWindSample");
 		Description = "DreamWind wind sample: Velocity (cm/s), Gust, Speed, Direction at a world position.";
 	}
 	Inputs = {
@@ -25,7 +25,7 @@ VirtualFunction(Name="MF_DreamWindSample")
 	}
 }
 
-Shader(Name="Materials/M_DreamWindGrass", Root="Plugin.DreamWind")
+Shader(Name="Wind/Materials/M_DreamWindGrass", Root="Plugin.DreamDynamicWorld")
 {
 	Properties = {
 		vec3  TipColor  = vec3(0.36, 0.62, 0.16) [Group="Color"];

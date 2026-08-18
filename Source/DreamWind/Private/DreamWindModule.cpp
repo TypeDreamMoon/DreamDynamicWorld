@@ -11,8 +11,8 @@ FDreamWindEditorHooks::FBakeTerrainMap FDreamWindEditorHooks::BakeTerrainMap;
 
 void FDreamWindModule::StartupModule()
 {
-	// /Plugin/DreamWind/Shared/DreamWindShared.h and /Plugin/DreamWind/Private/*.usf
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("DreamWind"));
+	// /Plugin/DreamDynamicWorld/Shared/DreamWindShared.h and /Plugin/DreamDynamicWorld/Private/*.usf
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(DreamWind::Names::PluginName);
 	if (Plugin.IsValid())
 	{
 		const FString ShaderDir = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Shaders"));
@@ -26,7 +26,7 @@ void FDreamWindModule::StartupModule()
 	}
 	else
 	{
-		UE_LOG(LogDreamWind, Error, TEXT("DreamWind plugin descriptor not found; shader directory mapping skipped."));
+		UE_LOG(LogDreamWind, Error, TEXT("%s plugin descriptor not found; shader directory mapping skipped."), DreamWind::Names::PluginName);
 	}
 }
 

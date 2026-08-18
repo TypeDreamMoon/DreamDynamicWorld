@@ -4,10 +4,10 @@
 // velocity WITHOUT moving (no solver), so a velocity-aligned sprite becomes a little arrow: length =
 // speed, colour = gust factor (blue calm .. white nominal .. red gust). CPU sim, so this is also the
 // quickest way to eyeball the CPU/GPU parity: put a GPU DreamWind system next to it.
-System(Name="Effects/NS_DreamWindDebug", Root="Plugin.DreamWind")
+System(Name="Wind/Effects/NS_DreamWindDebug", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
-        ModulePaths = ["/DreamWind/Modules"];
+        ModulePaths = ["/DreamDynamicWorld/Wind/Modules"];
         WarmupTime  = 0.0;
         FixedBounds = box(-6000, -6000, -1000, 6000, 6000, 1000);
     }

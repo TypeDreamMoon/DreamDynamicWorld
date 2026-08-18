@@ -10,7 +10,7 @@
 /**
  * A named global-wind state (calm, breeze, storm, "the wind of act 3"...). Weather and gameplay code
  * blend between presets with UDreamWindSubsystem::ApplyPreset; ADreamWindGlobal can be pinned to one.
- * The plugin ships DWP_Calm / DWP_Breeze / DWP_Storm under /DreamWind/Presets (Tools > DreamWind:
+ * The plugin ships DWP_Calm / DWP_Breeze / DWP_Storm under /DreamDynamicWorld/Wind/Presets (Tools > DreamWind:
  * Setup Assets recreates them).
  */
 UCLASS(BlueprintType)

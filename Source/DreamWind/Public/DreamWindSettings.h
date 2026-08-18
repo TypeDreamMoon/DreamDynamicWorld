@@ -80,7 +80,7 @@ public:
 	 * MF_DreamWindSample. Created by Tools > DreamWind > Setup Assets when missing.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Materials", meta = (AllowedClasses = "/Script/Engine.MaterialParameterCollection"))
-	FSoftObjectPath ParameterCollection = FSoftObjectPath(TEXT("/DreamWind/MPC_DreamWind.MPC_DreamWind"));
+	FSoftObjectPath ParameterCollection = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/MPC_DreamWind.MPC_DreamWind"));
 
 	// ---- Dynamic volume (L2) ------------------------------------------------------------------
 
@@ -90,7 +90,7 @@ public:
 
 	/** Volume render target the compute pass writes and materials/Niagara sample. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (AllowedClasses = "/Script/Engine.TextureRenderTargetVolume"))
-	FSoftObjectPath VolumeTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindVolume.RT_DreamWindVolume"));
+	FSoftObjectPath VolumeTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindVolume.RT_DreamWindVolume"));
 
 	/** Voxels per axis. Memory = X*Y*Z*8 bytes (RGBA16F). 64x64x32 = 1 MB. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ClampMin = "8", ClampMax = "256"))
@@ -129,7 +129,7 @@ public:
 
 	/** Volume render target of the far level. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (AllowedClasses = "/Script/Engine.TextureRenderTargetVolume", EditCondition = "bVolumeFarLevel"))
-	FSoftObjectPath VolumeFarTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindVolumeFar.RT_DreamWindVolumeFar"));
+	FSoftObjectPath VolumeFarTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindVolumeFar.RT_DreamWindVolumeFar"));
 
 	/** Maximum live sources uploaded to the GPU per frame; the strongest survive. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ClampMin = "1", ClampMax = "256"))
@@ -168,7 +168,7 @@ public:
 
 	/** 2D render target materials read the active terrain map through; the subsystem uploads the map into it. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
-	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamWind/RT_DreamWindTerrain.RT_DreamWindTerrain"));
+	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindTerrain.RT_DreamWindTerrain"));
 
 	/** Terrain map used when the level's ADreamWindGlobal has none. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/DreamWind.DreamWindTerrainMap"))

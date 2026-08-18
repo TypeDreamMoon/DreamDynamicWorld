@@ -1,8 +1,31 @@
-# DreamWind
+# DreamDynamicWorld
 
-A dynamic, world-scale wind field for Unreal Engine 5.8 (MoonEngine), built to be **cheap where it
-counts and consistent everywhere**: one analytic model evaluated identically on the CPU and the GPU,
-plus a small camera-following volume for the things that must move air locally.
+Systems that make a world feel alive, for Unreal Engine 5.8 (MoonEngine). They share one set of
+conventions: **one analytic model evaluated identically on the CPU and the GPU** (a single header
+compiled as both HLSL and C++, so gameplay, cloth, materials and Niagara never disagree and nothing
+reads back from the GPU), plus small camera-following volumes for the things that must be simulated
+locally.
+
+| Subsystem | State | Content | Modules |
+| :-- | :-- | :-- | :-- |
+| **Wind** | shipping | `/DreamDynamicWorld/Wind/**` | `DreamWind`, `DreamWindNiagara`, `DreamWindEditor` |
+| Water | planned | `/DreamDynamicWorld/Water/**` | — |
+| Weather | planned | `/DreamDynamicWorld/Weather/**` | — |
+
+Each subsystem keeps its own modules, content folder, settings section and console prefix; nothing in
+one is required by another. The rest of this document is **Wind**.
+
+> Renamed from `DreamWind` on 2026-08-18. Content moved from `/DreamWind/<X>` to
+> `/DreamDynamicWorld/Wind/<X>`; the plugin's `Config/DefaultEngine.ini` carries the `[CoreRedirects]`
+> entry that keeps old references loading — **copy it into your project's `Config/DefaultEngine.ini`**
+> (package redirects are read before plugin configs are merged, so a plugin-side copy alone does not
+> apply). Module names, class names, `DreamWind.*` console variables and MPC parameter names are
+> unchanged.
+
+## Wind
+
+A dynamic, world-scale wind field, built to be **cheap where it counts and consistent everywhere**:
+the analytic model above, plus a small camera-following volume for local air.
 
 | Layer | What | Cost | Who reads it |
 | :-- | :-- | :-- | :-- |
@@ -22,8 +45,8 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
 
 1. Enable the plugin (it depends on Niagara). Build.
 2. **Tools ▸ DreamWind: Setup Assets** (or `UnrealEditor-Cmd.exe <project> -run=DreamWindSetup`).
-   Creates `/DreamWind/MPC_DreamWind`, the volume / terrain render targets at the paths in
-   *Project Settings ▸ DreamPlugin ▸ Dream Wind*, and the wind presets `/DreamWind/Presets/DWP_Calm |
+   Creates `/DreamDynamicWorld/Wind/MPC_DreamWind`, the volume / terrain render targets at the paths in
+   *Project Settings ▸ DreamPlugin ▸ Dream Wind*, and the wind presets `/DreamDynamicWorld/Wind/Presets/DWP_Calm |
    DWP_Breeze | DWP_Storm`. All are committed with the plugin already.
 3. Optionally drop an **`ADreamWindGlobal`** actor in the level to author the global wind (direction,
    speed, gusts, turbulence). Without it the project default applies.
@@ -118,7 +141,7 @@ tests), `DreamWind.TimeScale`, and the debug view:
 
 ## Test map
 
-Open **`/DreamWind/Maps/Lvl_DreamWindTest`** (Content Browser ▸ Settings ▸ *Show Plugin Content* ▸
+Open **`/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindTest`** (Content Browser ▸ Settings ▸ *Show Plugin Content* ▸
 DreamWind Content ▸ Maps; make sure the viewport is **Realtime**). It has everything wired up:
 
 * a 9 000-blade `ADreamWindGrassField` (engine cone + `M_DreamWindGrass`, bounds-based tip mask), the
@@ -242,14 +265,16 @@ DreamWind/
   Shaders/Shared/DreamWindShared.h        the model (HLSL + C++)
   Shaders/Private/DreamWindVolumeUpdate.usf
   Shaders/Private/NiagaraDataInterfaceDreamWindTemplate.ush
-  Source/DreamWind          runtime: subsystem, settings, source component, global actor, volume renderer,
+  DreamDynamicWorld.uplugin
+  Config/DefaultEngine.ini  CoreRedirects for the old /DreamWind mount point
+  Source/DreamWind          wind runtime: subsystem, settings, source component, global actor, volume renderer,
                             terrain map (+ occlusion), pass-through component, demo actors (source actor incl.
                             shelter box, grass field, impulse emitter)
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs
-  Content/                  generated assets (MPC, RT, materials, Niagara) — regenerable
-  Content/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
-  Content/Maps/             Lvl_DreamWindTest + its baked wind terrain
+  Content/Wind/                  generated assets (MPC, RT, materials, Niagara) — regenerable
+  Content/Wind/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
+  Content/Wind/Maps/             Lvl_DreamWindTest + its baked wind terrain
 ```

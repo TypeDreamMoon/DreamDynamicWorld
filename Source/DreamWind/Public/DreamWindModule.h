@@ -24,8 +24,11 @@ namespace DreamWind
 		inline const FName MPC_T1(TEXT("DreamWind_T1"));
 		inline const FName MPC_T2(TEXT("DreamWind_T2"));
 
+		/** The plugin this module ships in (wind is one of its subsystems). */
+		inline const TCHAR* PluginName = TEXT("DreamDynamicWorld");
+
 		/** Virtual shader directory mapped to <Plugin>/Shaders. */
-		inline const TCHAR* ShaderVirtualDirectory = TEXT("/Plugin/DreamWind");
+		inline const TCHAR* ShaderVirtualDirectory = TEXT("/Plugin/DreamDynamicWorld");
 	}
 }
 

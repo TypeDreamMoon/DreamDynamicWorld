@@ -234,7 +234,7 @@ bool UDreamWindEditorLibrary::EnsurePresets(bool bSaveAssets)
 	bool bAllOk = true;
 	for (const FPresetSpec& Spec : Specs)
 	{
-		const FString PackageName = FString::Printf(TEXT("/DreamWind/Presets/%s"), Spec.Name);
+		const FString PackageName = FString::Printf(TEXT("/DreamDynamicWorld/Wind/Presets/%s"), Spec.Name);
 		if (UDreamWindPreset* Existing = LoadObject<UDreamWindPreset>(nullptr, *(PackageName + TEXT(".") + Spec.Name)))
 		{
 			continue; // designers may have tuned it

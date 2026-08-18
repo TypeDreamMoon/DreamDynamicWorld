@@ -6,7 +6,7 @@
 //
 // Place it in Particle Update BEFORE Solve Forces and Velocity; gravity and other forces still add
 // on top through Physics.Force.
-Module(Name="Modules/DreamWindForce", Root="Plugin.DreamWind")
+Module(Name="Wind/Modules/DreamWindForce", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
         Usage       = ParticleUpdate;

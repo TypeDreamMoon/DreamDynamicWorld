@@ -98,7 +98,7 @@ ADreamWindGrassField::ADreamWindGrassField()
 	{
 		Mesh = ConeFinder.Object;
 	}
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GrassFinder(TEXT("/DreamWind/Materials/M_DreamWindGrass.M_DreamWindGrass"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> GrassFinder(TEXT("/DreamDynamicWorld/Wind/Materials/M_DreamWindGrass.M_DreamWindGrass"));
 	if (GrassFinder.Succeeded())
 	{
 		Material = GrassFinder.Object;

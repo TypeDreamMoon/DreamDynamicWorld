@@ -10,7 +10,7 @@ public class DreamWind : ModuleRules
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		// The analytic wind model lives in Shaders/Shared/DreamWindShared.h, a single source that is
-		// compiled both as HLSL (through the /Plugin/DreamWind virtual directory) and as C++ (through
+		// compiled both as HLSL (through the /Plugin/DreamDynamicWorld virtual directory) and as C++ (through
 		// DreamWindHlslShim.h). Exposing the directory publicly lets DreamWindNiagara reuse it.
 		PublicIncludePaths.Add(Path.Combine(PluginDirectory, "Shaders", "Shared"));
 
