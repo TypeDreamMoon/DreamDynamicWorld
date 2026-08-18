@@ -1,0 +1,85 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// One step of the dynamic wind volume (L2). See FDreamWindVolumeRenderer.
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
+
+float4 P0;
+float4 P1;
+float4 P2;
+float3 PrevCenter;
+float  PrevValid;
+float3 NewCenter;
+float  VoxelSize;
+float3 InvExtent;
+float  DeltaTime;
+int3   Resolution;
+float  DecayFactor;
+uint   NumSources;
+float  AdvectScale;
+
+StructuredBuffer<float4> Sources;
+Texture3D<float4> PrevVolume;
+SamplerState PrevSampler;
+RWTexture3D<float4> OutVolume;
+
+float4 SamplePrev(float3 WorldPos)
+{
+	float3 uvw = (WorldPos - PrevCenter) * InvExtent + 0.5f;
+	// half a voxel inside the border, so the clamp sampler never mixes in the edge texel twice
+	float3 lo = InvExtent * VoxelSize * 0.5f;
+	if (any(uvw < lo) || any(uvw > 1.0f - lo))
+	{
+		return 0;
+	}
+	return PrevVolume.SampleLevel(PrevSampler, uvw, 0);
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void MainCS(uint3 DTid : SV_DispatchThreadID)
+{
+	if (any(DTid >= uint3(Resolution)))
+	{
+		return;
+	}
+
+	const float3 HalfExtent = 0.5f / InvExtent;
+	const float3 WorldPos = NewCenter - HalfExtent + (float3(DTid) + 0.5f) * VoxelSize;
+
+	const FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
+	const FDreamWindSample Analytic = DW_SampleAnalyticCheap(P, WorldPos);
+
+	float4 Residual = 0;
+	if (PrevValid > 0.5f)
+	{
+		float3 SamplePos = WorldPos;
+		if (AdvectScale > 0.0f)
+		{
+			// where did the air that is here now come from? (semi-Lagrangian back-trace)
+			const float3 Here = SamplePrev(WorldPos).xyz;
+			SamplePos = WorldPos - (Analytic.Velocity + Here) * (DeltaTime * AdvectScale);
+		}
+		Residual = SamplePrev(SamplePos) * DecayFactor;
+	}
+
+	float3 Velocity = Residual.xyz;
+	float  Activity = Residual.w;
+
+	// Sources: blend the TOTAL wind toward the source velocity, i.e. the residual toward
+	// (source - analytic), so a full-weight source reads back as exactly its own velocity.
+	for (uint i = 0; i < NumSources; ++i)
+	{
+		FDreamWindSourceData S;
+		S.PositionRadius    = Sources[i * 3 + 0];
+		S.DirectionStrength = Sources[i * 3 + 1];
+		S.Misc              = Sources[i * 3 + 2];
+		const FDreamWindSourceEval E = DW_EvalSource(S, WorldPos);
+		const float Rate = saturate(S.Misc.y * DeltaTime);
+		const float W = saturate(E.Weight * Rate);
+		Velocity = lerp(Velocity, E.Velocity - Analytic.Velocity, W);
+		Activity = max(Activity, E.Weight);
+	}
+
+	OutVolume[DTid] = float4(Velocity, Activity);
+}

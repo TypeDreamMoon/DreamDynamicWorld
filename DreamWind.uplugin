@@ -1,0 +1,40 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "DreamWind",
+	"Description": "Dynamic world wind field: analytic global wind (CPU/GPU single source), camera-following dynamic wind volume, impulses/sources, Niagara data interface, material sampling. Feeds the engine's own wind sources so SpeedTree, cloth, hair and AnimDynamics follow for free.",
+	"Category": "DreamPlugin",
+	"CreatedBy": "DreamMoon",
+	"CreatedByURL": "https://dmstudio.top",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "DreamWind",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "DreamWindNiagara",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DreamWindEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "Niagara",
+			"Enabled": true
+		}
+	]
+}

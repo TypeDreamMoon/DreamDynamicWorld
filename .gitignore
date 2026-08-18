@@ -1,0 +1,20 @@
+# Build products
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# IDE
+.vs/
+*.sln
+*.slnx
+*.suo
+*.VC.db
+*.VC.opendb
+.idea/
+
+# Plans are working notes, not part of the plugin
+Plan/
+
+# Hand-made asset backups taken before a risky edit
+Content/Backup/

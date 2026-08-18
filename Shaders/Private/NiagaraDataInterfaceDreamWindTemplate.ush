@@ -1,0 +1,61 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// Niagara GPU side of UNiagaraDataInterfaceDreamWind. Appended once per data interface symbol, so
+// every global carries the _{ParameterName} suffix; the shared header has an include guard.
+
+#include "/Plugin/DreamWind/Shared/DreamWindShared.h"
+
+float4  {ParameterName}_P0;
+float4  {ParameterName}_P1;
+float4  {ParameterName}_P2;
+float4  {ParameterName}_V0;
+float4  {ParameterName}_V1;
+float3  {ParameterName}_SystemLWCTile;
+uint    {ParameterName}_NumSources;
+StructuredBuffer<float4> {ParameterName}_Sources;
+Texture3D<float4> {ParameterName}_VolumeTexture;
+SamplerState      {ParameterName}_VolumeSampler;
+
+void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, out float Out_Gust)
+{
+	const float3 WorldPos = In_Position + {ParameterName}_SystemLWCTile * UE_LWC_RENDER_TILE_SIZE;
+
+	const FDreamWindParams P = DW_UnpackParams({ParameterName}_P0, {ParameterName}_P1, {ParameterName}_P2);
+	const FDreamWindSample S = {AnalyticFunction}(P, WorldPos);
+	float3 V = S.Velocity;
+
+	float VolumeMask = 0.0f;
+#if {SampleVolume}
+	const FDreamWindVolumeParams VP = DW_UnpackVolume({ParameterName}_V0, {ParameterName}_V1);
+	VolumeMask = DW_VolumeMask(WorldPos, VP);
+	if (VolumeMask > 0.0f)
+	{
+		V += {ParameterName}_VolumeTexture.SampleLevel({ParameterName}_VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz * VolumeMask;
+	}
+#endif
+
+#if {ApplySources}
+	// Inside the volume window the sources already live in the volume; outside it they are applied directly.
+	const float SourceFactor = 1.0f - VolumeMask;
+	if (SourceFactor > 0.0f)
+	{
+		for (uint i = 0; i < {ParameterName}_NumSources; ++i)
+		{
+			FDreamWindSourceData Src;
+			Src.PositionRadius    = {ParameterName}_Sources[i * 3 + 0];
+			Src.DirectionStrength = {ParameterName}_Sources[i * 3 + 1];
+			Src.Misc              = {ParameterName}_Sources[i * 3 + 2];
+			V = DW_ApplySource(V, Src, WorldPos, SourceFactor);
+		}
+	}
+#endif
+
+	Out_Velocity = V;
+	Out_Gust = S.Gust;
+}
+
+void GetGlobalWind_{ParameterName}(out float3 Out_Direction, out float Out_Speed)
+{
+	Out_Direction = {ParameterName}_P0.xyz;
+	Out_Speed = {ParameterName}_P0.w;
+}
