@@ -36,6 +36,7 @@ Shader(Name="Wind/Materials/M_DreamWindGrass", Root="Plugin.DreamDynamicWorld")
 		float FlutterAmount  = 5.0  [Group="Wind"; Desc="cm of side-to-side tip flutter at full gust."];
 		float FlutterSpeed   = 9.0  [Group="Wind"; Desc="flutter frequency, rad/s."];
 		float MaskMode       = 0.0  [Group="Wind"; Desc="tip mask source: 0 = height inside the mesh's own bounds (works on any mesh), 1 = 1-UV.y (card grass), 2 = vertex colour red."];
+		float MaxBend        = 45.0 [Group="Wind"; Desc="largest tip offset in cm, whatever the wind speed; keep it under the blade height."];
 		float MaskPower      = 1.5  [Group="Wind"; Desc="stiffens the blade toward the root."];
 	}
 
@@ -74,8 +75,12 @@ Shader(Name="Wind/Materials/M_DreamWindGrass", Root="Plugin.DreamDynamicWorld")
 		float  Mask = lerp(lerp(HeightMask, 1.0 - UV.y, saturate(MaskMode)), VC.r, saturate(MaskMode - 1.0));
 		Mask = pow(Mask, MaskPower);
 
-		// bend along the wind
-		float3 Bend = Velocity * (WindResponse * Mask);
+		// bend along the wind, HORIZONTAL only (a downdraft must never push a blade through the ground)
+		// and clamped to MaxBend so a gust cannot stretch the blade
+		float  BendK = WindResponse * Mask;
+		float3 Bend = Velocity * float3(BendK, BendK, 0.0);
+		float  BendLen = length(Bend);
+		Bend = Bend * (min(BendLen, MaxBend * Mask) / max(BendLen, 0.001));
 
 		// flutter across the wind, stronger in gusts, gone in calm air
 		float Phase = UE.Time() * FlutterSpeed + (WorldPos.x + WorldPos.y) * 0.02 + UE.PerInstanceRandom() * 6.2831;
