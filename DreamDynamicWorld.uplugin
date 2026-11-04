@@ -41,6 +41,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "DreamWeatherFX",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DreamWindEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"

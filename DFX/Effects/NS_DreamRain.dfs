@@ -1,0 +1,120 @@
+// DreamWeather: rain around the view (GPU).
+//
+// Driven by UDreamWeatherPrecipitationComponent, which follows the view and fills the user parameters every
+// frame: the fall paths it traced (Paths / Normals, see DreamFallPath.dfm), the drops' velocity (down and
+// downwind) and how hard it rains (DropRate / SplashRate). Drops fall along the paths and die where they
+// land; splashes open where landed paths end. Nothing here queries collision.
+System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        ModulePaths = ["/DreamDynamicWorld/Weather/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-8000, -8000, -12000, 8000, 8000, 6000);
+    }
+
+    Properties = {
+        DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Normals;
+        Vector FallVelocity = (0, 0, -900)       [ Group="Motion"; Description="cm/s, down and downwind." ];
+        float  DropRate     = 0.0                [ Group="Amount"; Description="Drops spawned per second." ];
+        float  SplashRate   = 0.0                [ Group="Amount"; Description="Splashes spawned per second." ];
+        float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the drops spawned now that start part way down their path (1 for the frame that fills the air at once)." ];
+        float  DropLength   = 80.0               [ Group="Look"; Description="Streak length, cm." ];
+        float  DropWidth    = 2.5                [ Group="Look"; Description="Streak width, cm (wider than a real drop, so far streaks stay a pixel wide)." ];
+        float  SplashSize   = 22.0               [ Group="Look"; Description="Splash sprite size, cm." ];
+        Color  Tint         = (0.78, 0.85, 0.97, 0.75) [ Group="Look" ];
+    }
+
+    Emitter Drops
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 40000;
+            FixedBounds        = box(-8000, -8000, -12000, 8000, 8000, 6000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.DropRate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode   = DirectSet,
+                Lifetime       = 3.0,
+                ColorMode      = DirectSet,
+                Color          = User.Tint,
+                SpriteSizeMode = NonUniform,
+                SpriteSize     = hlsl { float2(User.DropWidth, User.DropLength) }
+            );
+            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = false, Anywhere = User.Anywhere);
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            SolveForcesAndVelocity();
+        }
+
+        SpriteRenderer Streak
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamRainDrop";
+            Alignment  = VelocityAligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+            Bind Velocity   -> Particles.Velocity;
+        }
+    }
+
+    Emitter Splashes
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 4096;
+            FixedBounds        = box(-8000, -8000, -12000, 8000, 8000, 6000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.SplashRate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode      = Random,
+                LifetimeMin       = 0.18,
+                LifetimeMax       = 0.3,
+                ColorMode         = DirectSet,
+                Color             = User.Tint,
+                SpriteSizeMode    = Uniform,
+                UniformSpriteSize = User.SplashSize
+            );
+            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = true);
+            // Sit the crown on the surface: its sprite is centred, the crown rises from the bottom edge.
+            Position Particles.Position = hlsl { Particles.Position + Particles.DreamSurfaceNormal * (User.SplashSize * 0.45) };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+        }
+
+        SpriteRenderer Crown
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamRainSplash";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+        }
+    }
+}

@@ -1,0 +1,285 @@
+// Copyright DreamMoon. All Rights Reserved.
+
+#include "DreamWeatherFXSubsystem.h"
+#include "DreamWeatherFXSettings.h"
+#include "DreamWeatherSubsystem.h"
+#include "DreamWeatherTypes.h"
+#include "DreamWindSubsystem.h"
+#include "DreamWorldSubsystem.h"
+
+#include "Engine/World.h"
+#include "GameFramework/WorldSettings.h"
+#include "NiagaraComponent.h"
+#include "NiagaraDataInterfaceArrayFunctionLibrary.h"
+#include "NiagaraSystem.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(DreamWeatherFXSubsystem)
+
+DECLARE_CYCLE_STAT(TEXT("DreamWeather Precipitation"), STAT_DreamWeatherPrecipitation, STATGROUP_Game);
+DEFINE_LOG_CATEGORY_STATIC(LogDreamWeatherFX, Log, All);
+
+namespace DreamWeatherFX
+{
+	static const FName Paths(TEXT("User.Paths"));
+	static const FName Normals(TEXT("User.Normals"));
+	static const FName FallVelocity(TEXT("User.FallVelocity"));
+	static const FName DropRate(TEXT("User.DropRate"));
+	static const FName SplashRate(TEXT("User.SplashRate"));
+	static const FName Anywhere(TEXT("User.Anywhere"));
+
+	/** Seconds an effect stays alive after its precipitation stopped (its last drops finish falling). */
+	static constexpr float IdleSecondsBeforeDeactivate = 8.0f;
+}
+
+UDreamWeatherFXSettings::UDreamWeatherFXSettings()
+{
+	Rain.System = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamRain.NS_DreamRain"));
+	Snow.System = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamSnow.NS_DreamSnow"));
+	Snow.DropsPerSecond = 3000.0f;
+	Snow.SplashesPerSecond = 0.0f;
+	Snow.FallSpeed = 130.0f;
+	Snow.WindDrift = 0.8f;
+	Snow.MaxSlant = 2.0f;
+}
+
+UDreamWeatherFXSubsystem* UDreamWeatherFXSubsystem::Get(const UObject* WorldContextObject)
+{
+	const UWorld* World = WorldContextObject ? WorldContextObject->GetWorld() : nullptr;
+	return World ? World->GetSubsystem<UDreamWeatherFXSubsystem>() : nullptr;
+}
+
+bool UDreamWeatherFXSubsystem::ShouldCreateSubsystem(UObject* Outer) const
+{
+	if (!Super::ShouldCreateSubsystem(Outer))
+	{
+		return false;
+	}
+	const UWorld* World = Cast<UWorld>(Outer);
+	return World && (World->WorldType == EWorldType::Game || World->WorldType == EWorldType::PIE || World->WorldType == EWorldType::Editor);
+}
+
+void UDreamWeatherFXSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	Effects.SetNum(2);
+	if (UDreamWeatherSubsystem* Weather = Collection.InitializeDependency<UDreamWeatherSubsystem>())
+	{
+		WeatherSubsystem = Weather;
+		FrameHandle = Weather->OnWeatherFrame.AddUObject(this, &UDreamWeatherFXSubsystem::HandleWeatherFrame);
+		StoppedHandle = Weather->OnWeatherStopped.AddUObject(this, &UDreamWeatherFXSubsystem::StopPrecipitation);
+	}
+}
+
+void UDreamWeatherFXSubsystem::Deinitialize()
+{
+	if (UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get())
+	{
+		Weather->OnWeatherFrame.Remove(FrameHandle);
+		Weather->OnWeatherStopped.Remove(StoppedHandle);
+	}
+	for (TObjectPtr<UNiagaraComponent>& Effect : Effects)
+	{
+		if (Effect)
+		{
+			Effect->DestroyComponent();
+			Effect = nullptr;
+		}
+	}
+	Super::Deinitialize();
+}
+
+UNiagaraComponent* UDreamWeatherFXSubsystem::GetEffect(int32 Layer) const
+{
+	return Effects.IsValidIndex(Layer) ? Effects[Layer].Get() : nullptr;
+}
+
+void UDreamWeatherFXSubsystem::StopPrecipitation()
+{
+	for (int32 i = 0; i < 2; ++i)
+	{
+		States[i].DropRate = 0.0f;
+		States[i].SplashRate = 0.0f;
+		if (UNiagaraComponent* Effect = GetEffect(i))
+		{
+			Effect->SetVariableFloat(DreamWeatherFX::DropRate, 0.0f);
+			Effect->SetVariableFloat(DreamWeatherFX::SplashRate, 0.0f);
+		}
+	}
+}
+
+void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float DeltaTime)
+{
+	SCOPE_CYCLE_COUNTER(STAT_DreamWeatherPrecipitation);
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	UWorld* World = GetWorld();
+	if (!World || !S->bPrecipitation || (!World->IsGameWorld() && !S->bPrecipitationInEditor))
+	{
+		StopPrecipitation();
+		return;
+	}
+	if (Effects.Num() != 2)
+	{
+		Effects.SetNum(2);
+	}
+
+	const FVector ViewLocation = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+	const FVector Forward = Clock.HasViewRotation() ? Clock.GetViewRotation().Vector() : FVector::ForwardVector;
+	FVector Wind = FVector::ZeroVector;
+	if (const UDreamWindSubsystem* WindSubsystem = World->GetSubsystem<UDreamWindSubsystem>())
+	{
+		Wind = WindSubsystem->SampleWindVelocity(ViewLocation);
+		Wind.Z = 0.0;
+	}
+	UpdateLayer(RainLayer, S->Rain, FMath::Clamp(View.Rain, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
+	UpdateLayer(SnowLayer, S->Snow, FMath::Clamp(View.Snow, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
+}
+
+UNiagaraComponent* UDreamWeatherFXSubsystem::EnsureEffect(int32 Index, const FDreamPrecipitationLayer& Layer, const FVector& ViewLocation)
+{
+	if (UNiagaraComponent* Existing = GetEffect(Index))
+	{
+		return Existing;
+	}
+	UNiagaraSystem* System = Cast<UNiagaraSystem>(Layer.System.TryLoad());
+	UWorld* World = GetWorld();
+	if (!System || !World)
+	{
+		return nullptr;
+	}
+	// Owned by the world settings actor, like any effect spawned at a location; never saved with the level.
+	UObject* Outer = World->GetWorldSettings() ? static_cast<UObject*>(World->GetWorldSettings()) : static_cast<UObject*>(World);
+	UNiagaraComponent* Effect = NewObject<UNiagaraComponent>(Outer, NAME_None, RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+	Effect->SetAsset(System);
+	Effect->SetAutoActivate(false);
+	Effect->SetAutoDestroy(false);
+	Effect->SetUsingAbsoluteLocation(true);
+	Effect->SetUsingAbsoluteRotation(true);
+	Effect->SetWorldLocation(ViewLocation);
+	Effect->RegisterComponentWithWorld(World);
+	Effects[Index] = Effect;
+	States[Index].bActivated = false;
+	return Effect;
+}
+
+void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitationLayer& Layer, float Strength, UDreamWeatherSubsystem& Weather,
+	const FVector& ViewLocation, const FVector& Forward, const FVector& Wind, float DeltaTime)
+{
+	using namespace DreamWeatherFX;
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	FLayerState& State = States[Index];
+	UNiagaraComponent* Effect = GetEffect(Index);
+	const bool bFalling = Strength > 0.001f && (Layer.DropsPerSecond > 0.0f || Layer.SplashesPerSecond > 0.0f);
+
+	if (!bFalling)
+	{
+		State.DropRate = 0.0f;
+		State.SplashRate = 0.0f;
+		if (Effect)
+		{
+			Effect->SetVariableFloat(DropRate, 0.0f);
+			Effect->SetVariableFloat(SplashRate, 0.0f);
+			State.Idle += FMath::Max(DeltaTime, 0.0f);
+			if (State.Idle > IdleSecondsBeforeDeactivate && State.bActivated)
+			{
+				Effect->Deactivate();
+				State.bActivated = false;
+			}
+		}
+		return;
+	}
+	State.Idle = 0.0f;
+
+	// Downwind, but never flatter than MaxSlant: a gale would otherwise send snow sideways for hundreds of metres.
+	FVector Drift = Wind * double(Layer.WindDrift);
+	const double MaxSideways = double(Layer.MaxSlant) * double(Layer.FallSpeed);
+	if (Drift.SizeSquared2D() > FMath::Square(MaxSideways))
+	{
+		Drift = Drift.GetSafeNormal2D() * MaxSideways;
+	}
+	State.FallVelocity = FVector(Drift.X, Drift.Y, -double(Layer.FallSpeed));
+	FDreamWeatherFallPaths::FParams Params;
+	Params.Capacity = S->PathCount;
+	Params.RefreshSeconds = S->PathRefreshSeconds;
+	Params.Radius = S->PathRadius;
+	Params.ForwardBias = S->PathForwardBias;
+	Params.StartHeight = S->PathStartHeight;
+	Params.MaxLength = S->PathMaxLength;
+	Params.Channel = S->PathChannel;
+	auto Covered = [&Weather](const FVector& P) { return 1.0f - Weather.GetExposureAt(P); };
+
+	// A view that jumped far (a teleport, a cut) gets a whole new buffer at once; otherwise the buffer turns over
+	// every PathRefreshSeconds and follows a walking view.
+	UWorld* World = GetWorld();
+	if (State.Paths.GetEnds().Num() != Params.Capacity || FVector::DistSquared2D(ViewLocation, State.PathOrigin) > FMath::Square(double(Params.Radius)))
+	{
+		State.Paths.Fill(World, ViewLocation, Forward, State.FallVelocity, Params, Covered);
+		State.PathOrigin = ViewLocation;
+		State.SinceUpload = S->UploadInterval;
+		State.bFillPending = true;
+	}
+	else
+	{
+		State.Paths.Update(World, ViewLocation, Forward, State.FallVelocity, DeltaTime, Params, Covered);
+		State.PathOrigin = FMath::Lerp(State.PathOrigin, ViewLocation, double(FMath::Clamp(DeltaTime / FMath::Max(Params.RefreshSeconds, 0.05f), 0.0f, 1.0f)));
+	}
+
+	const int32 Count = State.Paths.GetEnds().Num();
+	const float Landed = Count > 0 ? float(State.Paths.CountLanded()) / float(Count) : 0.0f;
+	State.DropRate = Layer.DropsPerSecond * Strength;
+	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed;
+
+	Effect = EnsureEffect(Index, Layer, ViewLocation);
+	if (!Effect)
+	{
+		return;
+	}
+	// The effect rides along with the view (its bounds are around it); the particles live in world space.
+	if (!Effect->GetComponentLocation().Equals(ViewLocation, 1.0))
+	{
+		Effect->SetWorldLocation(ViewLocation);
+	}
+	State.SinceUpload += FMath::Max(DeltaTime, 0.0f);
+	if (State.Paths.GetGeneration() != State.UploadedGeneration && State.SinceUpload >= S->UploadInterval)
+	{
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector4(Effect, Paths, State.Paths.GetEnds());
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(Effect, Normals, State.Paths.GetNormals());
+		State.UploadedGeneration = State.Paths.GetGeneration();
+		State.SinceUpload = 0.0f;
+	}
+	// Once: an effect whose system is still compiling reports itself inactive until it can run, and asking
+	// again every frame would restart it every frame.
+	if (!State.bActivated)
+	{
+		State.bActivated = true;
+		State.bFillPending = true;
+		Effect->Activate(true);
+		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s starts: %d paths (%.0f%% landed), %.0f drops/s, %.0f splashes/s, falling (%.0f, %.0f, %.0f) cm/s"),
+			Index == RainLayer ? TEXT("Rain") : TEXT("Snow"), Count, Landed * 100.0f, State.DropRate, State.SplashRate,
+			State.FallVelocity.X, State.FallVelocity.Y, State.FallVelocity.Z);
+	}
+
+	// Fill the air at once when the effect starts or the view jumps: one frame spawns the drops steady rain keeps
+	// in the air, each somewhere along its path. Without it, snow (some twenty seconds to come down) would take
+	// that long to reach the view. After that frame, drops start at the top of their paths.
+	float SpawnRate = State.DropRate;
+	float SpawnAnywhere = 0.0f;
+	if (State.bFillPending && Effect->IsActive() && DeltaTime > 0.0f && Count > 0)
+	{
+		State.bFillPending = false;
+		double FallSeconds = 0.0;
+		for (const FVector4& End : State.Paths.GetEnds())
+		{
+			FallSeconds += End.W;
+		}
+		const float InTheAir = State.DropRate * float(FallSeconds / double(Count));
+		SpawnRate += InTheAir / DeltaTime;
+		SpawnAnywhere = InTheAir / FMath::Max(InTheAir + State.DropRate * DeltaTime, 1.0f);
+		State.FillCount = InTheAir;
+		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s fills the air: %.0f drops (%.1f s average fall)"),
+			Index == RainLayer ? TEXT("Rain") : TEXT("Snow"), InTheAir, float(FallSeconds / double(Count)));
+	}
+	Effect->SetVariableVec3(FallVelocity, State.FallVelocity);
+	Effect->SetVariableFloat(DropRate, SpawnRate);
+	Effect->SetVariableFloat(SplashRate, State.SplashRate);
+	Effect->SetVariableFloat(Anywhere, SpawnAnywhere);
+}
