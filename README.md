@@ -8,12 +8,158 @@ locally.
 
 | Subsystem | State | Content | Modules |
 | :-- | :-- | :-- | :-- |
+| **Core: world clock, sun and moon** | shipping | `/DreamDynamicWorld/MPC_DreamDynamicWorld` | `DreamDynamicWorld`, `DreamWorldEditor` |
+| **Sky** (stylized) | shipping | `/DreamDynamicWorld/Sky/**` | `DreamSky` |
+| **Weather** (state, zones, map; precipitation and surfaces next) | shipping | `/DreamDynamicWorld/Weather/**` | `DreamWeather` |
 | **Wind** | shipping | `/DreamDynamicWorld/Wind/**` | `DreamWind`, `DreamWindNiagara`, `DreamWindEditor` |
 | Water | planned | `/DreamDynamicWorld/Water/**` | — |
-| Weather | planned | `/DreamDynamicWorld/Weather/**` | — |
 
-Each subsystem keeps its own modules, content folder, settings section and console prefix; nothing in
-one is required by another. The rest of this document is **Wind**.
+Each subsystem keeps its own modules, content folder, settings section and console prefix. They share the
+core module: the world clock, and **one Material Parameter Collection** (`MPC_DreamDynamicWorld`) that every
+subsystem writes — a material may reference only two collections, so a material that reads the wind and the
+sky still leaves one for the project.
+
+> The wind's own `MPC_DreamWind` became that shared collection (same parameter names). The plugin's
+> `Config/DefaultEngine.ini` redirects the old path; copy its `[CoreRedirects]` into your project's
+> `Config/DefaultEngine.ini` like the one below.
+
+## Setup
+
+1. Enable the plugin (it depends on Niagara). Build.
+2. `UnrealEditor-Cmd.exe <project> -run=DreamDynamicWorldSetup` creates (or repairs) the shared collection
+   with every subsystem's parameters, the wind's render targets and presets, the default sky style, the
+   weather map and presets (`-TestMap` also writes the sky test level; `-ForceStyle` / `-ForcePresets` write
+   the class defaults over the existing style / presets). The assets are committed with the plugin already.
+3. Drop an **`ADreamSky`** in the level (remove the level's own directional lights, sky light and height
+   fog), and for wind optionally an **`ADreamWindGlobal`**.
+
+## Clock and sky
+
+**World clock** (`UDreamWorldSubsystem`). World time is a double count of seconds in the world's own
+calendar; real time times the time scale moves it (*Day Length Minutes*, default 24 = one real minute per
+game hour). Sun and moon are a pure function of it: *Artistic* mode (sunrise and sunset hours, the sun's
+height at midday, the moon kept opposite the sun if you like — the same every day) or *Realistic* mode
+(latitude, longitude, UTC offset, the date: NOAA sun, low-precision moon with its real phase; about a
+degree). Setting the time, a snapshot or scrubbing puts the whole sky exactly where it would have been.
+
+```cpp
+UDreamWorldSubsystem* Clock = UDreamWorldSubsystem::Get(this);
+Clock->SetTimeOfDay(18.5f);                       // jump (events skipped, OnTimeJumped fires)
+Clock->TransitionToTimeOfDay(6.f, 5.f);           // run forward to 06:00 over 5 real seconds
+FDreamWorldSnapshot Save = Clock->CaptureSnapshot();   // into a save game; ApplySnapshot on load
+Clock->OnSunset.AddDynamic(this, &AMyActor::LightTheLamps);
+```
+
+Events (Blueprint-assignable): `OnHourChanged`, `OnDateChanged`, `OnSunrise`, `OnSunset`, `OnTimeJumped`.
+Other subsystems update inside the clock's tick, in order, through `OnWorldTick`, and spread occasional heavy
+work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
+
+**Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
+atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
+process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, one layer of
+toon clouds. A `UDreamSkyStyle` (default `DS_DreamSkyStylized`) says how everything looks: colour and
+intensity curves keyed by the **sun's elevation** (so one style fits any day length or latitude), cloud
+shapes and bands, and manual exposure from an EV100 curve (no eye-adaptation lag when time jumps).
+
+The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
+threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
+`LightRotationThreshold` degrees (moving a light invalidates cached shadows); the sun is set black, not
+hidden, at night, so it costs nothing and anything that asks "where is the sun" still finds it. After dark the
+moon light takes over; when the moon is down a stand-in opposite the sun keeps a main light (stylized
+default, `bNightLightAlwaysUp`).
+
+The clouds take the colour of the sky around them (`CloudSkyTint`: warm low in a sunset, deep blue overhead)
+and catch the sun's glow beside it; their light falls in broad, clean bands (it is read from a blurred version
+of the cloud field). The sun's halo spreads along the horizon while the sun is low. When the sky light captures
+the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the captured light has no hot spot.
+
+**Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
+full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
+sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`) and can scale the sky light and the
+sun and moon there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
+in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
+
+**For any material or character shader** the collection carries the lighting: `DDW_MainLight` (direction
+toward the main light, illuminance), `DDW_MainLightColor` (rgb, 0 sun / 1 moon), `DDW_AmbientSky /
+Equator / Ground`, `DDW_DayPhase` (day, twilight, night weights and the sun's elevation), plus `DDW_SunDir`,
+`DDW_MoonDir` (phase in w) and `DDW_Time`. In C++/Blueprint: `UDreamSkySubsystem::GetLighting()`.
+
+**Editor.** The level toolbar has a time-of-day slider (scrubbing also sets the level's start hour,
+undoably); the actor's *Time Of Day* does the same. Console: `DreamWorld.Time <hours>`, `DreamWorld.Date
+<yyyy-mm-dd>`, `DreamWorld.Pause`, `DreamWorld.DayLength <minutes>`, `DreamWorld.Transition <hours>
+[seconds]`, and `DreamWorld.ShotTour Hours=0,6,12,18 Prefix=Day Quit` (screenshots each hour into
+`Saved/Screenshots/DreamWorld`, for scripted checks of a day).
+
+**Test level.** `/DreamDynamicWorld/Sky/Maps/Lvl_DreamSkyTest`: grey floor, primitives, the sky, random
+weather, a thunderstorm zone four kilometres away, and a camera looking south-west so the sunset and the storm
+are in frame.
+
+## Weather
+
+Drop an **`ADreamWeather`** in the level to turn the weather on (without one the sky keeps to its style).
+
+**Channels.** The weather is a set of named numbers (`Dream.Weather.Channel.*` gameplay tags): cloud coverage
+and darkness, precipitation and snow ratio, fog, dust, wind, lightning, temperature offset, wetness, snow cover.
+A project adds its own (ash, spores, miasma) in *Project Settings ▸ Dream Weather ▸ Custom Channels*; every
+query, preset, zone and modifier handles them like the built-in ones. Each channel has its own transition time
+and **lead**: clouds and wind start changing before the weather turns, rain and lightning follow, the ground
+lags — a change of weather reads as coming.
+
+**Schedule.** The actor's *Selector* chooses the weather over time — `Fixed`, `Sequence` (a scripted cycle),
+`Random` (weighted, with persistence) or `Seasonal` (weights per season, either hemisphere). Every selector is a
+pure function of the world time and seed: the same moment has the same weather on every machine, after every
+load, in every replay, and `GetForecast` is just the function evaluated ahead. Presets (`UDreamWeatherPreset`)
+hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog`.
+
+**Bending it.** `PushModifier` (a scripted storm, a spell that brings rain: channel values or a preset,
+Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)`.
+**Zones** (`ADreamWeatherZone`, or `UDreamWeatherZoneComponent` on anything) give a region weather of its own: a
+box or circle footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
+registration order). Anything else can bend the weather where it is by implementing `IDreamWeatherInfluence`.
+
+**Queries and events.** `SampleWeather(Position)` — every channel there, rain and snow (precipitation turns to
+snow near freezing, so a mountain top snows in the valley's rain), the temperature (climate, season, hour,
+height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay conditions. Events:
+`OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
+are saved in the world snapshot; the schedule needs nothing saved.
+
+**What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
+wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
+compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
+up in it where each direction meets the cloud layer, so a storm zone's dark clouds show from afar. The zone
+falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the compute pass and for the CPU
+queries: what the sky shows over a valley is what gameplay reads there.
+
+**Shelter.** Every query carries an *Exposure* (0 under a roof .. 1 in the open) and `RainHere / SnowHere`,
+the rain and snow that actually land on the point. Shelters are boxes (`ADreamWeatherShelter`, or
+`UDreamWeatherShelterComponent` inside a house, under a bridge, in a cave mouth) or anything implementing
+`IDreamWeatherShelterProvider`; with a baked wind terrain map (`ADreamWindGlobal`) the level's own roofs count too, and
+rain blown by the wind reaches in under the windward eaves. `IsSheltered(Position)` for gameplay.
+
+**Lightning.** Strikes come out of the Lightning channel — around the view, preferring wherever the lightning is
+strongest, so a far storm flashes on the horizon — at `StrikesPerMinute` real-time strikes at full strength
+(real, so a storm looks the same at any day length), from the world seed (the same frames give the same storm).
+`OnLightningStrike` gives the place, intensity, distance and the thunder's delay (`ThunderSecondsPerKm`, the
+speed of sound by default). A `UDreamLightningRodComponent` (a rod, a sword held high, a tall tree) draws
+strikes landing within its reach and reports `OnStruck`. Each strike flashes for about a second — a few bright
+strokes, then a fading afterglow — in the clouds over it, the ambient light and the sky's flash light (a
+directional light from the strike, shadows optional). The flash is brightened with the exposure
+(`LightningExposureCompensation`), so it still reads at noon.
+
+**Rain and snow** (module `DreamWeatherFX`). Around the view, a buffer of *fall paths* (1024 by default) is
+traced a few hundred a second: each starts high above, falls down and downwind and ends where it hits something
+— ground, roof, canopy — or passes under a shelter (`FDreamWeatherFallPaths`). The effects (`NS_DreamRain`, from
+`DFX/Effects/NS_DreamRain.dfs`) draw thousands of drops by picking paths at random (`DreamFallPath.dfm`): a drop
+falls along its path and dies where it lands, and splashes open where landed paths end. No drop queries
+collision, no rain falls indoors, and the splashes land on what the rain lands on. Amounts, fall speeds, wind
+drift and the paths are in *Project Settings ▸ Dream Weather Effects*; an effect only lives while its
+precipitation falls. The weather hands every frame to listeners through `UDreamWeatherSubsystem::OnWeatherFrame`.
+
+Console: `DreamWeather.Set <preset> [seconds]`, `DreamWeather.Clear`, `DreamWeather.Forecast [hours] [step]`,
+`DreamWeather.Dump`.
+
+The rest of this document is **Wind**.
 
 > Renamed from `DreamWind` on 2026-08-18. Content moved from `/DreamWind/<X>` to
 > `/DreamDynamicWorld/Wind/<X>`; the plugin's `Config/DefaultEngine.ini` carries the `[CoreRedirects]`
@@ -36,18 +182,18 @@ the analytic model above, plus a small camera-following volume for local air.
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
 
-* **Materials** — `MPC_DreamWind` + `MF_DreamWindSample` (DreamShaderLang, `DShader/`)
+* **Materials** — the shared `MPC_DreamDynamicWorld` + `MF_DreamWindSample` (DreamShaderLang, `DShader/`)
 * **Niagara** — `UNiagaraDataInterfaceDreamWind` (`SampleWind`, `GetGlobalWind`) on CPU VM and GPU, and the `DreamWindForce` module (DreamFXLang, `DFX/`)
 * **C++ / Blueprint** — `UDreamWindSubsystem::SampleWind`, no GPU read-back
 * **Everything that reads the engine's `WindDirectionalSource`** — SpeedTree, Chaos Cloth, AnimDynamics, Groom, Niagara *Wind Force* — through one driven engine wind component
 
-## Setup
+## Wind setup
 
 1. Enable the plugin (it depends on Niagara). Build.
-2. **Tools ▸ DreamWind: Setup Assets** (or `UnrealEditor-Cmd.exe <project> -run=DreamWindSetup`).
-   Creates `/DreamDynamicWorld/Wind/MPC_DreamWind`, the volume / terrain render targets at the paths in
-   *Project Settings ▸ DreamPlugin ▸ Dream Wind*, and the wind presets `/DreamDynamicWorld/Wind/Presets/DWP_Calm |
-   DWP_Breeze | DWP_Storm`. All are committed with the plugin already.
+2. **Tools ▸ DreamWind: Setup Assets** (or `UnrealEditor-Cmd.exe <project> -run=DreamWindSetup`, or the
+   plugin-wide `-run=DreamDynamicWorldSetup`). Creates the shared collection, the volume / terrain render
+   targets at the paths in *Project Settings ▸ DreamPlugin ▸ Dream Wind*, and the wind presets
+   `/DreamDynamicWorld/Wind/Presets/DWP_Calm | DWP_Breeze | DWP_Storm`. All are committed with the plugin already.
 3. Optionally drop an **`ADreamWindGlobal`** actor in the level to author the global wind (direction,
    speed, gusts, turbulence). Without it the project default applies.
    Its **Bake Terrain Map** button traces the level's collision into a `UDreamWindTerrainMap`
@@ -183,9 +329,13 @@ usable in your own levels; none of the runtime depends on them.
   from zero. Two levels share one shader: the far level runs the same pass with 4× voxels; consumers
   take the near level inside its window and the far level outside it. Only one world drives the shared
   render targets at a time (game worlds beat the editor world).
-* The MPC carries nine float4 (`DreamWind_P0..P2`, `V0`/`V1` near window, `V2`/`V3` far window,
-  `T0`/`T1` terrain map) in exactly the layout `DW_UnpackParams` / `DW_UnpackVolume` /
-  `DW_UnpackTerrain` expect; the DI and the compute pass use the same packing.
+* The wind's part of the shared collection is ten float4 (`DreamWind_P0..P2`, `V0`/`V1` near window,
+  `V2`/`V3` far window, `T0..T2` terrain map) in exactly the layout `DW_UnpackParams` / `DW_UnpackVolume` /
+  `DW_UnpackTerrain` expect; the DI and the compute pass use the same packing. Parameter ids are derived
+  from the names, so a regenerated collection keeps them.
+* Every function of the shared header carries `DW_FN` — `inline` in C++ — because every C++ file that
+  includes the header compiles the whole model; built one file at a time (a project's adaptive non-unity
+  build, the test host) plain functions would be defined in each.
 * Terrain: the map is a data asset of plain floats (`UDreamWindTerrainMap::Texels`), so the CPU sample
   reads the very numbers the GPU does; the subsystem uploads the active map into `RT_DreamWindTerrain`
   (a fixed 2D render target materials reference) whenever it changes. Height relative to a box-blurred
@@ -235,6 +385,21 @@ usable in your own levels; none of the runtime depends on them.
 
 ## Tests
 
+`Tools/TestHost/Invoke-DreamDynamicWorldTests.ps1` builds the test host and runs everything headlessly
+(see `Tools/TestHost/README.md`). `DreamWorld.*` covers the clock (run, events, jumps, transitions,
+snapshots), the sun and moon (artistic path; Tokyo's solstice noon, the equinox, Sydney; the 2026 lunar and
+solar eclipses for the moon's phase), the scheduler, the parameter ids and the view probe (a closed room, a
+porch, the open; rays spread over the round, easing, teleports). `DreamSky.*` checks that a style's
+day is continuous (the main light never jumps, sun and moon never light at once, exposure eases), drives a
+sky actor in a game world (snap on jumps, easing while the clock runs, the night hand-over) and the indoor and
+flash lighting. `DreamWeather.*`
+covers the selectors (determinism, weights, persistence, seasons and hemispheres), the schedule (every channel
+eases; clouds gather before a change and rain follows it), modifiers (fades, priorities, forced weather), zones
+(falloff, priorities, the fixed order of equal priorities, and the weather map's records run through the shared
+falloff on the CPU agreeing with the point query), events with hysteresis, the wind and the environment the sky
+reads, temperature with height and snow above the freezing line, snapshots of modifiers, shelters, lightning
+(strike counts, determinism, rods, the multi-stroke flash), the fall paths (a roof, the open, a shelter without
+geometry, wind, the forward bias, spreading) and `DreamWeather.FX.*` the rain effects driven by real weather.
 `Automation RunTests DreamWind.` — `DreamWind.Shared.*` are pure C++ over the shared model
 (determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
@@ -261,20 +426,34 @@ subsystem tick with an impulse in whichever editor/game world is up.
 ## Layout
 
 ```
-DreamWind/
-  Shaders/Shared/DreamWindShared.h        the model (HLSL + C++)
+DreamDynamicWorld/
+  Shaders/Shared/DreamWindShared.h        the wind model (HLSL + C++)
   Shaders/Private/DreamWindVolumeUpdate.usf
   Shaders/Private/NiagaraDataInterfaceDreamWindTemplate.ush
+  Shaders/Private/DreamSkyStylized.ush    the stylized sky dome
   DreamDynamicWorld.uplugin
-  Config/DefaultEngine.ini  CoreRedirects for the old /DreamWind mount point
+  Config/DefaultEngine.ini  CoreRedirects for the old /DreamWind mount point and MPC_DreamWind
+  Source/DreamDynamicWorld  core: world clock, sun and moon, shared parameters, scheduler, snapshots, console
+  Source/DreamSky           sky actor, style, lighting director
+  Source/DreamWeather       weather channels, presets, selectors, modifiers, zones, queries, shelters, lightning,
+                            fall paths, weather map pass
+  Source/DreamWeatherFX     rain and snow around the view (Niagara; loads after DreamWeather)
+  Shaders/Shared/DreamWeatherShared.h     zone falloff (HLSL + C++)
+  Shaders/Private/DreamWeatherMap.usf     the weather map compute pass
+  Source/DreamWorldEditor   time-of-day toolbar slider, DreamDynamicWorldSetup commandlet
+  Tools/TestHost/           the test host template, its generator and the test runner
   Source/DreamWind          wind runtime: subsystem, settings, source component, global actor, volume renderer,
                             terrain map (+ occlusion), pass-through component, demo actors (source actor incl.
                             shelter box, grass field, impulse emitter)
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
-  DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm
-  DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs
-  Content/Wind/                  generated assets (MPC, RT, materials, Niagara) — regenerable
+  DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm, Sky/M_DreamSky.dss,
+                            Weather/M_DreamRainDrop.dss, Weather/M_DreamRainSplash.dss
+  DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs,
+                            Modules/DreamFallPath.dfm, Effects/NS_DreamRain.dfs
+  Content/MPC_DreamDynamicWorld  the shared parameter collection
+  Content/Sky/                   M_DreamSky, DS_DreamSkyStylized, Maps/Lvl_DreamSkyTest
+  Content/Wind/                  generated assets (RT, materials, Niagara) — regenerable
   Content/Wind/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
   Content/Wind/Maps/             Lvl_DreamWindTest + its baked wind terrain
 ```

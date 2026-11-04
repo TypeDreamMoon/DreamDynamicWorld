@@ -1,9 +1,9 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.1.0",
+	"VersionName": "0.2.0",
 	"FriendlyName": "Dream Dynamic World",
-	"Description": "Systems that make a world feel alive, sharing one set of conventions: a single analytic model evaluated identically on CPU and GPU, camera-following dynamic volumes, and one subsystem per feature that every consumer (materials, Niagara, gameplay, the engine's own systems) reads. Wind ships today (global wind, terrain modulation and wind shadows, dynamic volume, sources and impulses, Niagara DI, presets); water and weather are next.",
+	"Description": "Systems that make a world feel alive, sharing one set of conventions: a single model evaluated identically on CPU and GPU, camera-following dynamic fields, one shared Material Parameter Collection, and one subsystem per feature that every consumer (materials, Niagara, gameplay, the engine's own systems) reads. Ships a world clock with sun and moon (artistic or real ephemeris), a stylized sky with toon clouds and a lighting director, weather that changes with time and place (presets, zones, shelters, lightning, a weather map the sky reads, indoors detection), rain and snow drawn along traced fall paths, and wind (global wind, terrain modulation and wind shadows, dynamic volume, sources and impulses, Niagara DI, presets). Water is next.",
 	"Category": "DreamPlugin",
 	"CreatedBy": "DreamMoon",
 	"CreatedByURL": "https://dmstudio.top",
