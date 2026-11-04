@@ -26,6 +26,7 @@ public class DreamWorldEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UnrealEd",
+			"Projects",
 			"Slate",
 			"SlateCore",
 			"ToolMenus",
