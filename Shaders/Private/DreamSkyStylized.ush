@@ -1,14 +1,20 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// The stylized sky dome: a gradient sky, the sun with its halo, the moon with its phase, stars, and one layer
-// of toon clouds. Everything comes in as the vectors the sky subsystem writes to the shared parameter
-// collection (see DreamSkyModule.h for the layout); this file only draws.
+// The stylized sky dome: a gradient sky, the sun with its halo, the moon with its phase, stars, a layer of toon
+// clouds overhead and cumulus / cumulonimbus towers standing on the horizon. Everything comes in as the vectors
+// the sky subsystem writes to the shared parameter collection (see DreamSkyModule.h for the layout); this file
+// only draws.
+//
+// Clouds are drawn the way anime backgrounds and stylised games paint them: heaps of round lobes, each lobe lit
+// on its own (a lit top, a shaded underside, a darker seam where two lobes meet), in two or three tones.
 //
 // Directions are world space unit vectors: V from the camera through the pixel, SunDir / MoonDir / LightDir
 // from the ground toward the body.
 
 #ifndef DREAMSKY_STYLIZED_USH
 #define DREAMSKY_STYLIZED_USH
+
+#include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudSprites.ush"
 
 float DSky_Hash12(float2 p)
 {
@@ -24,19 +30,32 @@ float3 DSky_Hash33(float3 p)
 	return frac((p.xxy + p.yxx) * p.zyx);
 }
 
-// A unit gradient for a lattice point, without trigonometry. The hash is integer arithmetic: a float hash
-// loses its low bits at the coordinates the drifting clouds reach (thousands), and neighbouring lattice
-// points then share gradients, which draws long straight edges across the sky.
+// Integer hashes: a float hash loses its low bits at the coordinates the drifting clouds reach (thousands), and
+// neighbouring cells then share values, which draws long straight edges across the sky.
+uint DSky_HashU(int2 C, uint Salt)
+{
+	uint H = uint(C.x) * 1597334677u ^ uint(C.y) * 3812015801u ^ Salt * 2654435769u;
+	H ^= H >> 16;
+	H *= 0x7feb352du;
+	H ^= H >> 15;
+	H *= 0x846ca68bu;
+	H ^= H >> 16;
+	return H;
+}
+
+// Four values in 0..1 for a cell.
+float4 DSky_Hash4(int2 C, uint Salt)
+{
+	uint A = DSky_HashU(C, Salt);
+	uint B = DSky_HashU(C, Salt ^ 0x5bd1e995u);
+	return float4(float(A & 0xffffu), float(A >> 16), float(B & 0xffffu), float(B >> 16)) * (1.0 / 65535.0);
+}
+
+// A unit gradient for a lattice point, without trigonometry.
 float2 DSky_Gradient2(float2 i)
 {
-	uint2 q = uint2(int2(i));
-	uint h = q.x * 1597334677u ^ q.y * 3812015801u;
-	h ^= h >> 16;
-	h *= 0x7feb352du;
-	h ^= h >> 15;
-	h *= 0x846ca68bu;
-	h ^= h >> 16;
-	float2 g = float2(float(h & 0xffffu), float(h >> 16)) * (2.0 / 65535.0) - 1.0;
+	float4 H = DSky_Hash4(int2(i), 0u);
+	float2 g = H.xy * 2.0 - 1.0;
 	return g * rsqrt(max(dot(g, g), 1e-4));
 }
 
@@ -52,8 +71,7 @@ float DSky_ValueNoise(float2 p)
 	return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
 }
 
-// Gradient noise with a quintic fade: smooth to the second derivative, so shading that differentiates it
-// (the cloud light below) shows no lattice edges. Roughly 0..1.
+// Gradient noise with a quintic fade, roughly 0..1.
 float DSky_GradientNoise(float2 p)
 {
 	float2 i = floor(p);
@@ -64,31 +82,6 @@ float DSky_GradientNoise(float2 p)
 	float c = dot(DSky_Gradient2(i + float2(0.0, 1.0)), f - float2(0.0, 1.0));
 	float d = dot(DSky_Gradient2(i + float2(1.0, 1.0)), f - float2(1.0, 1.0));
 	return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y) * 0.7071 + 0.5;
-}
-
-// Octaves of gradient noise, each turned to hide the lattice; roughly 0..1. The first octaves are the same for
-// any count, so a short sum is a blurred version of a long one.
-float DSky_Fbm(float2 p, int Octaves)
-{
-	float Sum = 0.0;
-	float Amp = 0.5;
-	float Norm = 0.0;
-	for (int i = 0; i < Octaves; ++i)
-	{
-		Sum += Amp * DSky_GradientNoise(p);
-		Norm += Amp;
-		p = float2(1.6 * p.x + 1.2 * p.y, -1.2 * p.x + 1.6 * p.y) + 17.13;
-		Amp *= 0.5;
-	}
-	return Sum / Norm;
-}
-
-// The cloud field: a gently warped fbm, so the shapes come out as rounded heaps rather than streaks.
-// Octaves = 5 for the shapes; fewer gives the same field blurred, which is what the shading reads.
-float DSky_CloudDensity(float2 UV, int Octaves)
-{
-	float2 Warp = float2(DSky_GradientNoise(UV * 0.5 + 3.1), DSky_GradientNoise(UV * 0.5 + 9.7)) - 0.5;
-	return DSky_Fbm(UV + Warp * 0.4, Octaves);
 }
 
 float3 DSky_Gradient(float3 V, float3 Zenith, float3 Horizon, float HorizonExp, float3 Ground)
@@ -183,9 +176,10 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 }
 
 // The weather where the dome direction V meets the cloud layer: (coverage, darkness) from the weather map,
-// fading to the view's own values toward the map's edge. MapParams = (camera - map centre xy, 1 / extent,
-// live), CloudLayer.x = layer height above the camera.
-float2 DSky_WeatherAt(float3 V, float4 MapParams, float4 CloudLayer, float GlobalCoverage, float GlobalDarkness, Texture2D Map, SamplerState MapSampler)
+// fading to the view's own values toward the map's edge, and beyond Reach0 on the layer (far weather is drawn
+// by the horizon towers instead). MapParams = (camera - map centre xy, 1 / extent, live), CloudLayer.x = layer
+// height above the camera.
+float2 DSky_WeatherAt(float3 V, float4 MapParams, float4 CloudLayer, float GlobalCoverage, float GlobalDarkness, float Reach0, Texture2D Map, SamplerState MapSampler)
 {
 	if (MapParams.w < 0.5 || V.z <= 0.0)
 	{
@@ -199,6 +193,7 @@ float2 DSky_WeatherAt(float3 V, float4 MapParams, float4 CloudLayer, float Globa
 	Warp += 0.5 * (float2(DSky_GradientNoise(P / 25000.0 + 8.1), DSky_GradientNoise(P / 25000.0 + 3.9)) - 0.5);
 	float2 UV = (P + Warp * 160000.0) * MapParams.z + 0.5;
 	float Inside = saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
+	Inside *= 1.0 - smoothstep(Reach0, Reach0 * 1.5, Reach);
 	// Smooth between texels (a quintic fade instead of bilinear's straight lines), so the map's grid never
 	// shows as facets in the clouds.
 	float2 Size;
@@ -211,11 +206,77 @@ float2 DSky_WeatherAt(float3 V, float4 MapParams, float4 CloudLayer, float Globa
 	return lerp(float2(GlobalCoverage, GlobalDarkness), W.xy, Inside);
 }
 
-// x = light (0 shadow .. 1 lit, banded), y = cover (0..1), z = rim, w = raw density.
-float4 DSky_Clouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1)
+// The weather the map holds Distance cm away along the horizontal direction Dir2: (coverage, darkness), or
+// nothing off the map.
+float2 DSky_MapAt(float2 Dir2, float Distance, float4 MapParams, Texture2D Map, SamplerState MapSampler)
 {
-	float Coverage = Cloud0.x;
-	float Softness = max(Cloud0.y, 0.001);
+	float2 UV = (MapParams.xy + Dir2 * Distance) * MapParams.z + 0.5;
+	if (MapParams.w < 0.5 || UV.x < 0.0 || UV.y < 0.0 || UV.x > 1.0 || UV.y > 1.0)
+	{
+		return float2(0.0, 0.0);
+	}
+	return Map.SampleLevel(MapSampler, UV, 0).xy;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Blobs. A layer cloud is a union of discs blended with an exponential smooth minimum: soft heaps whose outline
+// is a run of round lobes. The same weights blend each disc's outward direction, which is all the shading needs:
+// a cloud is lit like a pillow, its edges facing out and its middle facing the viewer.
+
+struct FDSkyBlob
+{
+	float Weight;   // sum of exp(-distance / K)
+	float2 Out;     // weighted outward directions
+	float Radius;   // weighted radii (how big the lobes around here are)
+};
+
+FDSkyBlob DSky_BlobBegin()
+{
+	FDSkyBlob B;
+	B.Weight = 0.0;
+	B.Out = float2(0.0, 0.0);
+	B.Radius = 0.0;
+	return B;
+}
+
+void DSky_AddBlob(inout FDSkyBlob B, float2 P, float2 Centre, float Radius, float K)
+{
+	if (Radius <= 0.0)
+	{
+		return;
+	}
+	float2 D = P - Centre;
+	float Len = length(D);
+	float W = exp(-clamp((Len - Radius) / K, -30.0, 30.0));
+	B.Weight += W;
+	B.Out += W * D / max(Len, 1.0e-5);
+	B.Radius += W * Radius;
+}
+
+float DSky_BlobDistance(FDSkyBlob B, float K)
+{
+	return -K * log(max(B.Weight, 1.0e-30));
+}
+
+// Three-ish tones with soft steps, the way the clouds are painted.
+float DSky_Band(float Light, float Bands)
+{
+	if (Bands < 1.0)
+	{
+		return Light;
+	}
+	float Q = Light * Bands;
+	return (floor(Q) + smoothstep(0.42, 0.58, frac(Q))) / Bands;
+}
+
+// The cloud layer overhead: heaps of lobes on a plane above the camera (curving down to the horizon).
+// Cloud0 = (coverage, edge softness, scale, bands), Cloud1 = (drift x, drift y, curvature, horizon fade),
+// Cloud2 = (edge lobes, thinning toward the zenith, breathing, -); Hours = hour of the day (lobes swell and
+// settle on it). Returns x = light (0 shade .. 1 lit, banded), y = cover, z = rim, w = depth (0 edge .. 1 core).
+float4 DSky_Clouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud2, float Hours)
+{
+	float Coverage = saturate(Cloud0.x);
+	float Softness = max(Cloud0.y, 0.0);
 	float Scale = max(Cloud0.z, 0.05);
 	float Bands = Cloud0.w;
 	float Curvature = max(Cloud1.z, 0.01);
@@ -224,53 +285,344 @@ float4 DSky_Clouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1)
 	{
 		return float4(1, 0, 0, 0);
 	}
-
 	float2 UV = V.xy / (V.z + Curvature) * (0.6 / Scale) + Cloud1.xy;
-	float Density = DSky_CloudDensity(UV, 5);
-	// Near full cover the gaps close up too (a rainy sky shows no holes of dark sky).
-	float Threshold = lerp(0.72, 0.30, saturate(Coverage)) - 0.18 * smoothstep(0.8, 1.0, Coverage);
-	float Cover = smoothstep(Threshold - Softness, Threshold + Softness, Density);
 
-	// Lit where the cloud thins out toward the light. The comparison is made on the blurred field (three
-	// octaves), so the light falls in broad, clean bands; the fine detail only nudges it. Thick cores a
-	// little darker.
-	float2 ToLight = LightDir.xy;
-	float L2 = length(ToLight);
-	ToLight = L2 > 1e-4 ? ToLight / L2 : float2(0, 0);
-	float Here = DSky_CloudDensity(UV, 3);
-	float Toward = DSky_CloudDensity(UV + ToLight * 0.15, 3);
-	float Light = saturate(0.6 + (Here - Toward) * 4.0 + (Density - Here) * 0.8);
-	// Measured on the density itself, not above the cover threshold: where a weather zone raises the cover, the
-	// threshold climbs at its rim, and a relative measure would draw the rim as a bright outline.
-	Light *= lerp(1.0, 0.8, saturate((Density - 0.55) * 3.0));
-	// A closed overcast is a fairly even grey with soft darker patches and some fine texture, not a sky of
-	// lit heaps.
-	Light = lerp(Light, 0.5 + 0.5 * (Here - 0.5) + 0.6 * (Density - Here), 0.5 * saturate((Coverage - 0.75) / 0.25));
-	if (Bands >= 1.0)
+	// Where clouds gather (a slow field), and how far every lobe grows there: lobes shrink away in the clear
+	// patches and swell into a closed deck under full cover. Painted skies keep the zenith fairly open.
+	float Gather = DSky_GradientNoise(UV * 0.3 + 7.3) * 0.65 + DSky_GradientNoise(UV * 0.75 + 2.1) * 0.35;
+	float Cov = Coverage - Cloud2.y * 0.3 * smoothstep(0.5, 1.0, V.z) * (1.0 - Coverage);
+	float Grow = (Gather - (1.0 - Cov)) * 0.7 + (Cov - 0.5) * 0.2 + 0.35 * smoothstep(0.8, 1.0, Cov);
+	// A lobe grows only so far (lobes are found in the neighbouring cells only, so a bigger one would be cut off
+	// along a cell's edge); growth beyond that swells the whole heap instead.
+	const float GrowCap = 0.18;
+	float Swell = max(Grow - GrowCap, 0.0);
+	Grow = min(Grow, GrowCap);
+
+	// The heaps: one big lobe per cell.
+	const float BigCell = 0.55;
+	const float K = 0.05;
+	FDSkyBlob Big = DSky_BlobBegin();
+	float2 BigBase = floor(UV / BigCell);
+	for (int j = -1; j <= 1; ++j)
 	{
-		float Q = Light * Bands;
-		Light = (floor(Q) + smoothstep(0.42, 0.58, frac(Q))) / Bands;
+		for (int i = -1; i <= 1; ++i)
+		{
+			int2 C = int2(BigBase) + int2(i, j);
+			float4 R = DSky_Hash4(C, 11u);
+			float2 Centre = (float2(C) + 0.15 + 0.7 * R.xy) * BigCell;
+			float Breath = 1.0 + Cloud2.z * sin(6.2831853 * (Hours + R.w));
+			DSky_AddBlob(Big, UV, Centre, BigCell * lerp(0.3, 0.5, R.z) * Breath + Grow, K);
+		}
 	}
+	float DBig = DSky_BlobDistance(Big, K) - Swell;
 
-	float Edge = saturate(1.0 - abs(Density - Threshold) / (Softness * 3.0 + 0.02));
+	// Small lobes, kept to the heaps' rims: the cauliflower edge.
+	const float SmallCell = 0.2;
+	FDSkyBlob Small = DSky_BlobBegin();
+	float2 SmallBase = floor(UV / SmallCell);
+	for (int b = -1; b <= 1; ++b)
+	{
+		for (int a = -1; a <= 1; ++a)
+		{
+			int2 C = int2(SmallBase) + int2(a, b);
+			float4 R = DSky_Hash4(C, 23u);
+			float2 Centre = (float2(C) + 0.1 + 0.8 * R.xy) * SmallCell;
+			DSky_AddBlob(Small, UV, Centre, SmallCell * lerp(0.35, 0.6, R.z) + Grow * 0.35, K * 0.4);
+		}
+	}
+	float DSmall = max(DSky_BlobDistance(Small, K * 0.4), DBig - Cloud2.x * 0.1);
+	float WSmall = exp(-clamp(DSmall / K, -30.0, 30.0));
+	float WBig = exp(-clamp(DBig / K, -30.0, 30.0));
+	float D = -K * log(max(WBig + WSmall, 1.0e-30));
+	float SmallShare = WSmall / max(Small.Weight, 1.0e-30);
+	float2 Out = Big.Out + Small.Out * SmallShare;
+	Out /= max(length(Out), 1.0e-5);
+	// How big the lobes here are: a lobe still growing from nothing fades in rather than showing as a speck (rows
+	// of such specks trace rings around every heap).
+	float LobeSize = (Big.Radius + Small.Radius * SmallShare) / max(Big.Weight + Small.Weight * SmallShare, 1.0e-30) + Swell;
+
+	float Aa = fwidth(D) + Softness * 0.2;
+	float Cover = smoothstep(-Aa, Aa, -D) * smoothstep(0.02, 0.07, LobeSize);
+
+	// Pillow light: near the outline the cloud faces outward (lit on the light's side, shaded on the far side),
+	// in the middle it faces the viewer; cores a little darker. Low down the clouds flatten into the haze.
+	float Depth = saturate(-D / 0.22);
+	float3 N = normalize(float3(Out * (1.0 - Depth) * 1.2, 0.35 + Depth));
+	float3 Lp = normalize(float3(LightDir.xy, 0.45));
+	float Light = saturate(0.55 + 0.65 * dot(N, Lp));
+	Light *= lerp(1.0, 0.85, saturate((-D - 0.15) / 0.3));
+	// A closed overcast is a fairly even grey with soft darker patches, not a sky of lit heaps.
+	Light = lerp(Light, 0.5 + 0.4 * (Gather - 0.5), 0.5 * saturate((Coverage - 0.75) / 0.25));
+	Light = lerp(0.62, Light, smoothstep(0.03, 0.3, V.z));
+	Light = DSky_Band(saturate(Light), Bands);
+
 	// Silver lining: only on edges close to the light (wider, it outlines every cloud in the sky).
-	float Rim = Edge * pow(saturate(dot(V, LightDir)), 16.0);
+	float EdgeBand = saturate(1.0 + D / (0.03 + Softness * 0.2)) * Cover;
+	float Rim = EdgeBand * pow(saturate(dot(V, LightDir)), 16.0);
 	float Fade = smoothstep(0.0, HorizonFade + 1e-3, V.z);
-	return float4(Light, Cover * Fade, Rim, Density);
+	return float4(Light, Cover * Fade, Rim, Depth);
+}
+
+// Where the dome direction V meets the cloud layer, in layer units (the overhead clouds' coordinates; the view
+// is at Cloud1.xy).
+float2 DSky_LayerUV(float3 V, float4 Cloud0, float4 Cloud1)
+{
+	return V.xy / (max(V.z, 0.0) + max(Cloud1.z, 0.01)) * (0.6 / max(Cloud0.z, 0.05)) + Cloud1.xy;
+}
+
+// Painted cumulus scattered over the cloud layer: one candidate per cell, present as the cover allows (in loose
+// clusters), each standing upright with its top toward the view, so it reads as a cloud seen from below and
+// flattens toward the horizon. Fair-weather cumulus mostly, some towering cumulus once the sky fills in. UV and
+// its screen derivatives from DSky_LayerUV; Viewer = the view's own point on the layer (Cloud1.xy).
+// Returns x = light, y = cover, z = rim, w = core.
+float4 DSky_LayerSprites(float3 V, float3 LightDir, float2 UV, float2 DUVx, float2 DUVy, float2 Viewer, float Coverage,
+	float4 Cloud0, float4 Cloud1, float4 Cloud2, Texture2D Sprites, SamplerState SpritesSampler)
+{
+	if (V.z <= 0.0 || Coverage <= 0.0)
+	{
+		return float4(1, 0, 0, 0);
+	}
+	const float Cell = 0.35;
+	// The layer mapping (DSky_LayerUV): a point Reach from the view on the layer is at sin(elevation) S, and the
+	// layer squeezes elevation by dReach/dElevation there; used to keep a sprite's painted proportions.
+	float Kl = 0.6 / max(Cloud0.z, 0.05);
+	float Cl = max(Cloud1.z, 0.01);
+	float Present = lerp(0.15, 0.95, smoothstep(0.08, 0.6, Coverage));
+	float Grow = lerp(0.85, 1.3, Coverage);
+	float2 Base = floor(UV / Cell);
+	float Light = 0.0;
+	float Cover = 0.0;
+	float Rim = 0.0;
+	float Core = 0.0;
+	for (int j = -1; j <= 1; ++j)
+	{
+		for (int i = -1; i <= 1; ++i)
+		{
+			int2 C = int2(Base) + int2(i, j);
+			float4 R = DSky_Hash4(C, 61u);
+			float4 R2 = DSky_Hash4(C, 67u);
+			float2 Centre = (float2(C) + 0.2 + 0.6 * R2.xz) * Cell;
+			float2 Up = Viewer - Centre;
+			float Reach = length(Up);
+			// Loose clusters, and the zenith kept open: painted from below, a side-view cloud overhead turns into
+			// a wedge, and painted skies leave the top clear anyway.
+			float Want = Present + 0.3 * (DSky_ValueNoise(float2(C) * 0.29 + 5.0) - 0.5);
+			Want -= Cloud2.y * 0.4 * (1.0 - smoothstep(0.25, 0.9, Reach)) * (1.0 - Coverage);
+			// Each cell decides on its own, with a short fade (a half-transparent painted cloud reads as a ghost);
+			// a cloud coming or going also grows or shrinks.
+			float ZenithEdge = 0.15 + 0.2 * R.w;
+			float Here = smoothstep(R.x - 0.015, R.x + 0.015, Want) * smoothstep(ZenithEdge - 0.01, ZenithEdge + 0.01, Reach);
+			if (Here <= 0.0)
+			{
+				continue;
+			}
+			int Kind = (Coverage > 0.35 && R.y < 0.22) ? 1 : 0;
+			int Sprite = DSky_SpriteFirst[Kind] + min(int(R2.y * float(DSky_SpriteCountOf[Kind])), DSky_SpriteCountOf[Kind] - 1);
+			float4 Rect = DSky_SpriteRect[Sprite];
+			float Ht = Cell * (Kind == 1 ? lerp(0.45, 0.65, R.z) : lerp(0.17, 0.3, R.z)) * Grow;
+			Ht *= lerp(0.6, 1.0, smoothstep(0.2, 0.8, Reach)) * lerp(0.75, 1.0, Here);   // smaller higher up
+			float Wd = Ht * DSky_SpriteAspect[Sprite];
+			const float MaxWd = 1.9 * Cell;   // a neighbour's neighbour never reaches into this cell
+			if (Wd > MaxWd)
+			{
+				Ht *= MaxWd / Wd;
+				Wd = MaxWd;
+			}
+			// Toward the horizon the layer squeezes height: stretch the sprite back along the layer so it keeps
+			// its painted proportions on screen (as far as the neighbouring cells reach).
+			float R2r = Reach * Reach;
+			float SinEl = (-R2r * Cl + Kl * sqrt(R2r * (1.0 - Cl * Cl) + Kl * Kl)) / (R2r + Kl * Kl);
+			float Squeeze = sqrt(saturate(1.0 - SinEl * SinEl)) * Kl * (1.0 + Cl * SinEl) / ((SinEl + Cl) * (SinEl + Cl)) / max(Reach, 0.05);
+			Ht = min(Ht * max(Squeeze, 1.0), 1.05 * Cell);
+			Up = Reach > 1.0e-3 ? Up / Reach : float2(0.0, 1.0);
+			float2 Right = float2(Up.y, -Up.x);
+			float Flip = R2.w < 0.5 ? -1.0 : 1.0;
+			float2 Q = UV - Centre;
+			float2 Local = float2(dot(Q, Right) / Wd * Flip + 0.5, 1.0 - dot(Q, Up) / Ht);
+			if (any(Local < 0.0) || any(Local > 1.0))
+			{
+				continue;
+			}
+			float2 Size = Rect.zw - Rect.xy;
+			float2 Ddx = float2(dot(DUVx, Right) / Wd * Flip, -dot(DUVx, Up) / Ht) * Size;
+			float2 Ddy = float2(dot(DUVy, Right) / Wd * Flip, -dot(DUVy, Up) / Ht) * Size;
+			float4 S = Sprites.SampleGrad(SpritesSampler, Rect.xy + Local * Size, Ddx, Ddy);
+			float A = S.a * Here;
+			Light = lerp(Light, S.r, A);
+			Rim = lerp(Rim, 1.0 - S.g, A);
+			Core = lerp(Core, S.b, A);
+			Cover = A + Cover * (1.0 - A);
+		}
+	}
+	if (Cover <= 0.0)
+	{
+		return float4(1, 0, 0, 0);
+	}
+	Light /= max(Cover, 1.0e-4);
+	Rim /= max(Cover, 1.0e-4);
+	Core /= max(Cover, 1.0e-4);
+	// The paint is lit from above; with the light behind it a cloud turns darker with a bright edge.
+	float Backlit = saturate((dot(V, LightDir) - 0.3) / 0.7);
+	Light = lerp(Light, Light * 0.55 + 0.05, 0.7 * Backlit);
+	Rim *= Backlit;
+	float Fade = smoothstep(0.0, Cloud1.w + 1e-3, V.z);
+	return float4(saturate(Light), Cover * Fade, Rim, Core);
+}
+
+// Clouds standing on the horizon: painted cut-outs from the sprite atlas (DreamSkyCloudSprites.ush), placed in
+// (azimuth, elevation) like a painted backdrop, one candidate per sixteenth of the horizon. Fair-weather cumulus
+// float low over the horizon, from the cell's hash and the cover at the view; weather towers stand on it, from
+// the weather map along that azimuth: a storm cell kilometres away grows into a cumulonimbus with an anvil, a
+// front of thick cloud into a bank of towering cumulus. A tower's base sits just below the horizon.
+// The sprites hold light (painted with the light from above), rim and core distances and coverage; the sky
+// colours them like the other clouds. DAzElX / Y = screen derivatives of (azimuth, elevation).
+// Cloud2.w = fair-weather clouds (0..1); Cloud3 = (top elevation, radians; haze; map distance, cm; -).
+// Returns x = light, y = cover, z = rim, w = storm (0..1); Core = how deep inside (0 edge .. 1 core).
+float4 DSky_Towers(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud2, float4 Cloud3, float4 MapParams,
+	Texture2D Map, SamplerState MapSampler, Texture2D Sprites, SamplerState SpritesSampler, float2 DAzElX,
+	float2 DAzElY, float Hours, out float Core)
+{
+	Core = 0.0;
+	float TopEl = max(Cloud3.x, 0.05);
+	float El = asin(clamp(V.z, -1.0, 1.0));
+	if (El < -0.05 || El > TopEl * 1.05)
+	{
+		return float4(1, 0, 0, 0);
+	}
+	float Az = atan2(V.y, V.x);
+	const float Cells = 16.0;
+	const float CellW = 6.2831853 / Cells;
+	float Base = floor(Az / CellW);
+	float Coverage = saturate(Cloud0.x);
+	float Fair = Cloud2.w * smoothstep(0.0, 0.25, Coverage);
+
+	float Light = 0.0;
+	float Cover = 0.0;
+	float Rim = 0.0;
+	float Storm = 0.0;
+	float FrontAz = Az;
+	for (int k = -1; k <= 1; ++k)
+	{
+		float Index = Base + float(k);
+		int Wrapped = int(Index - Cells * floor(Index / Cells));
+		float4 R = DSky_Hash4(int2(Wrapped, 7), 31u);
+		float4 R2 = DSky_Hash4(int2(Wrapped, 9), 37u);
+		float AzC = (Index + 0.25 + 0.5 * R.x) * CellW;
+		float2 Dir2 = float2(cos(AzC), sin(AzC));
+		float2 Near = DSky_MapAt(Dir2, Cloud3.z, MapParams, Map, MapSampler);
+		float2 Far = DSky_MapAt(Dir2, Cloud3.z * 2.0, MapParams, Map, MapSampler);
+		float CellStorm = max(saturate(Near.y * 1.4 - 0.2) * Near.x, 0.7 * saturate(Far.y * 1.4 - 0.2) * Far.x);
+		float Bank = max(saturate((Near.x - 0.55) * 2.2), 0.7 * saturate((Far.x - 0.55) * 2.2));
+
+		// What stands here: kind (0 fair cumulus, 1 towering cumulus, 2 cumulonimbus), height, and the height its
+		// base floats at. The biggest claim wins.
+		int Kind = -1;
+		float Ht = 0.0;
+		if (R.y < Fair)
+		{
+			Kind = R.y < Fair * 0.3 ? 1 : 0;
+			Ht = Kind == 1 ? lerp(0.3, 0.5, R.z) : lerp(0.08, 0.17, R.z);
+		}
+		if (Bank * 0.45 > Ht)
+		{
+			Kind = 1;
+			Ht = Bank * 0.45;
+		}
+		if (CellStorm > 0.1 && lerp(0.55, 1.0, CellStorm) > Ht)
+		{
+			Kind = CellStorm > 0.45 ? 2 : 1;
+			Ht = lerp(0.55, 1.0, CellStorm);
+		}
+		if (Kind < 0)
+		{
+			continue;
+		}
+		Ht *= TopEl * (1.0 + 0.04 * sin(6.2831853 * (Hours * 0.5 + R.w)));   // towers grow and settle a little
+
+		int Sprite = DSky_SpriteFirst[Kind] + min(int(R2.y * float(DSky_SpriteCountOf[Kind])), DSky_SpriteCountOf[Kind] - 1);
+		float4 Rect = DSky_SpriteRect[Sprite];
+		float Wd = Ht * DSky_SpriteAspect[Sprite];
+		const float MaxWd = 1.9 * CellW;   // a neighbour's neighbour never reaches into this cell
+		if (Wd > MaxWd)
+		{
+			Ht *= MaxWd / Wd;
+			Wd = MaxWd;
+		}
+		// Towers stand on the horizon (their base just below it); fair-weather cumulus float above it.
+		float Lift = Kind == 0 ? TopEl * lerp(0.02, 0.3, R2.x) : -0.05 * Ht;
+		float Flip = R2.z < 0.5 ? -1.0 : 1.0;
+		float2 Local = float2((Az - AzC) / Wd * Flip + 0.5, 1.0 - (El - Lift) / Ht);
+		if (any(Local < 0.0) || any(Local > 1.0))
+		{
+			continue;
+		}
+		float2 Size = Rect.zw - Rect.xy;
+		float2 Ddx = float2(DAzElX.x / Wd * Flip, -DAzElX.y / Ht) * Size;
+		float2 Ddy = float2(DAzElY.x / Wd * Flip, -DAzElY.y / Ht) * Size;
+		float4 S = Sprites.SampleGrad(SpritesSampler, Rect.xy + Local * Size, Ddx, Ddy);
+		// Painted over what is behind it (later cells in front).
+		float A = S.a;
+		Light = lerp(Light, S.r, A);
+		Rim = lerp(Rim, 1.0 - S.g, A);
+		Core = lerp(Core, S.b, A);
+		Storm = lerp(Storm, CellStorm, A);
+		Cover = A + Cover * (1.0 - A);
+		FrontAz = A > 0.5 ? AzC : FrontAz;
+	}
+	if (Cover <= 0.0)
+	{
+		return float4(1, 0, 0, 0);
+	}
+	Light /= max(Cover, 1.0e-4);
+	Rim /= max(Cover, 1.0e-4);
+	Core /= max(Cover, 1.0e-4);
+	Storm /= max(Cover, 1.0e-4);
+
+	// The paint is lit from above. A cloud with the light behind it is a darker mass with a bright edge.
+	float3 Toward = float3(-cos(FrontAz), -sin(FrontAz), 0.0);
+	float Backlit = saturate(-dot(LightDir, Toward)) * (1.0 - saturate(LightDir.z * 1.5));
+	Light = lerp(Light, Light * 0.55 + 0.05, 0.7 * Backlit);
+	Rim *= Backlit * pow(saturate(dot(V, LightDir) * 0.5 + 0.5), 3.0);
+	return float4(saturate(Light), Cover, Rim, Storm);
+}
+
+// Cloud colour from the light value: the style's lit and shade colours, tinted by the sky around them (warm low
+// in the sunset, deep blue overhead) relative to the sky's average, the lit side catching the sun's glow.
+float3 DSky_CloudColor(float4 C, float3 Tone, float3 Halo, float4 CloudLit, float4 CloudShadow, float4 Extra)
+{
+	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x);
+	float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.5) + Halo * Extra.y * C.x;
+	return lerp(Shadow, Lit, C.x) + CloudLit.rgb * C.z * CloudLit.a;
 }
 
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
+// Cloud2 = (edge lobes, zenith thinning, breathing, fair-weather towers);
+// Cloud3 = (tower top elevation, radians; tower haze; tower map distance, cm; how far the map shapes the layer, cm).
 // Capture is 1 while the dome is drawn into the sky light (reflection capture pass), 0 on screen.
 float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
-	float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 CloudLayer, float4 MapParams, float4 Flash, float4 Extra,
-	float4 Haze, Texture2D WeatherMap, SamplerState WeatherMapSampler, float Seconds, float Capture)
+	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 CloudLayer,
+	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap, SamplerState WeatherMapSampler,
+	Texture2D Sprites, SamplerState SpritesSampler, float Seconds, float Capture)
 {
 	V = normalize(V);
 	float3 Sun = normalize(SunDir.xyz);
 	float3 Moon = normalize(MoonDir.xyz);
 	float3 LightDir = normalize(MainLight.xyz);
+	float Hours = Time.x * 24.0;
+
+	// Screen derivatives of (azimuth, elevation), taken here where every pixel runs, and from V rather than from
+	// the angles themselves (the azimuth jumps by a full turn behind the camera).
+	float3 DVx = ddx(V);
+	float3 DVy = ddy(V);
+	float Flat = max(dot(V.xy, V.xy), 1.0e-6);
+	float Cos = sqrt(max(1.0 - V.z * V.z, 1.0e-6));
+	float2 DAzElX = float2((V.x * DVx.y - V.y * DVx.x) / Flat, DVx.z / Cos);
+	float2 DAzElY = float2((V.x * DVy.y - V.y * DVy.x) / Flat, DVy.z / Cos);
+	float2 LayerUV = DSky_LayerUV(V, Cloud0, Cloud1);
+	float2 DUVx = ddx(LayerUV);
+	float2 DUVy = ddy(LayerUV);
 
 	// While the sun is low the warm horizon belongs to its side; the far side cools toward the sky above it.
 	float2 Vh = V.xy;
@@ -283,13 +635,19 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float3 Sky = Base + Halo;
 	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0));
 
-	// Local weather along this direction: storm clouds over a far valley, clear sky beyond a front.
-	float2 Local = DSky_WeatherAt(V, MapParams, CloudLayer, Cloud0.x, CloudLayer.y, WeatherMap, WeatherMapSampler);
-	float4 LocalCloud0 = float4(Local.x, Cloud0.y, Cloud0.z, Cloud0.w);
-	float4 C = DSky_Clouds(V, LightDir, LocalCloud0, Cloud1);
-	// Storm clouds are darkest in their dense cores, so a storm reads as heavy cloud rather than a grey stain.
-	float StormShade = saturate(1.0 - CloudLayer.z * Local.y * lerp(0.7, 1.3, saturate((C.w - 0.25) * 2.0)));
-	float Clear = 1.0 - C.y * CloudShadow.a;
+	// Clouds on the horizon (far weather, fair-weather cumulus), hidden as a closed overcast settles in.
+	float TowerCore;
+	float4 T = DSky_Towers(V, LightDir, Cloud0, Cloud2, Cloud3, MapParams, WeatherMap, WeatherMapSampler, Sprites,
+		SpritesSampler, DAzElX, DAzElY, Hours, TowerCore);
+	T.y *= 1.0 - smoothstep(0.75, 0.97, Cloud0.x);
+	// The layer overhead, with the local weather along this direction (the map only shapes it out to Cloud3.w).
+	float2 Local = DSky_WeatherAt(V, MapParams, CloudLayer, Cloud0.x, CloudLayer.y, Cloud3.w, WeatherMap, WeatherMapSampler);
+	// Up to a cloudy sky the clouds overhead are painted cumulus; as the sky closes the procedural deck takes over.
+	float4 C = DSky_Clouds(V, LightDir, float4(Local.x, Cloud0.yzw), Cloud1, Cloud2, Hours);
+	C.y *= smoothstep(0.7, 0.76, Local.x);   // a short change-over: a half-faded deck reads as grey ghosts
+	float4 P = DSky_LayerSprites(V, LightDir, LayerUV, DUVx, DUVy, Cloud1.xy, Local.x, Cloud0, Cloud1, Cloud2, Sprites, SpritesSampler);
+	P.y *= 1.0 - smoothstep(0.82, 0.95, Local.x);
+	float Clear = (1.0 - C.y * CloudShadow.a) * (1.0 - P.y * CloudShadow.a) * (1.0 - T.y * CloudShadow.a);
 
 	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb);
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
@@ -300,14 +658,20 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float SunShare = lerp(1.0, Extra.z, Capture);
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare;
 
-	// The clouds take the colour of the sky around them (warm low in the sunset, deep blue overhead), relative
-	// to the sky's average so the style's cloud colours still set the level; near the sun they catch its glow.
 	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
 	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
-	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x);
-	float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.5) + Halo * Extra.y * C.x;
-	float3 CloudColor = (lerp(Shadow, Lit, C.x) + CloudLit.rgb * C.z * CloudLit.a) * StormShade;
-	Sky = lerp(Sky, CloudColor, C.y * CloudShadow.a);
+	// Towers stand kilometres away: paler toward the horizon's colour, storm towers less so (they loom).
+	if (T.y > 0.0)
+	{
+		float3 TowerColor = DSky_CloudColor(T, Tone, Halo, CloudLit, CloudShadow, Extra) * saturate(1.0 - CloudLayer.z * T.w * lerp(0.7, 1.2, TowerCore));
+		TowerColor = lerp(TowerColor, HorizonHere, Cloud3.y * (1.0 - 0.5 * T.w));
+		Sky = lerp(Sky, TowerColor, T.y * CloudShadow.a);
+	}
+	// Storm clouds are darkest in their cores, so a storm reads as heavy cloud rather than a grey stain.
+	float StormShade = saturate(1.0 - CloudLayer.z * Local.y * lerp(0.75, 1.25, C.w));
+	Sky = lerp(Sky, DSky_CloudColor(C, Tone, Halo, CloudLit, CloudShadow, Extra) * StormShade, C.y * CloudShadow.a);
+	float SpriteShade = saturate(1.0 - CloudLayer.z * Local.y * lerp(0.75, 1.25, P.w));
+	Sky = lerp(Sky, DSky_CloudColor(P, Tone, Halo, CloudLit, CloudShadow, Extra) * SpriteShade, P.y * CloudShadow.a);
 
 	// Weather fog and dust hide the sky in the height fog's colour, from the horizon up: the fogged ground then
 	// meets the dome without a seam. Light fog hazes the horizon; thick fog swallows most of the sky.
@@ -324,12 +688,13 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	{
 		float Toward = pow(saturate(dot(V, normalize(Flash.xyz))), 3.0);
 		// Against a night sky a flash tuned for daylight whites out everything: it is held back with the sky's
-		// own brightness (still many times the night sky), and lights dense cloud more than thin, so the clouds
-		// keep their shapes.
+		// own brightness (still many times the night sky), and lights cloud cores more than edges, so the clouds
+		// keep their shapes; a storm tower glows from inside.
 		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
 		float Level = saturate(0.3 + SkyLevel * 3.0);
-		float Body = lerp(0.6, 1.4, saturate((C.w - 0.25) * 2.0));
-		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * C.y) * Body;
+		float Body = lerp(0.6, 1.4, max(max(C.w * C.y, P.w * P.y), TowerCore * T.y));
+		float Cloudy = max(max(C.y, P.y), T.y * (0.5 + T.w));
+		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);
 }

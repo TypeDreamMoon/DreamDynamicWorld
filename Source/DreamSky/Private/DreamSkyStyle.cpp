@@ -100,9 +100,11 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(CloudLitColor, {
 		{ -12.0f, C(0.060f, 0.070f, 0.110f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
 		{ 5.0f, C(1.800f, 1.400f, 1.080f) }, { 15.0f, C(2.000f, 1.950f, 1.880f) }, { 60.0f, C(2.200f, 2.200f, 2.150f) } });
+	// Painted cloud shade is a pale blue-grey (about two thirds of the lit side by day), violet toward sunset:
+	// the complement of the warm light, never a neutral grey.
 	SetKeys(CloudShadowColor, {
-		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.120f, 0.095f, 0.150f) }, { 0.0f, C(0.550f, 0.400f, 0.470f) },
-		{ 5.0f, C(0.700f, 0.640f, 0.770f) }, { 15.0f, C(0.850f, 0.920f, 1.080f) }, { 60.0f, C(0.880f, 0.950f, 1.120f) } });
+		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.130f, 0.100f, 0.170f) }, { 0.0f, C(0.680f, 0.480f, 0.620f) },
+		{ 5.0f, C(0.950f, 0.840f, 1.050f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) }, { 60.0f, C(1.400f, 1.520f, 1.780f) } });
 
 	SetKeys(AmbientScale, { { -12.0f, 1.0f }, { 60.0f, 1.0f } });
 	SetKeys(SkyLightIntensity, { { -12.0f, 1.0f }, { 0.0f, 0.9f }, { 60.0f, 1.0f } });

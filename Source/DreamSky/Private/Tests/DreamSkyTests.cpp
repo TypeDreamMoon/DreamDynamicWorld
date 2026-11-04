@@ -10,6 +10,7 @@
 
 #include "Components/DirectionalLightComponent.h"
 #include "Engine/Level.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
@@ -200,6 +201,22 @@ bool FDreamSkyTestLevelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudSpritesTest, "DreamSky.Assets.CloudSprites", DreamSky::Tests::Flags)
+bool FDreamSkyCloudSpritesTest::RunTest(const FString& Parameters)
+{
+	const UTexture2D* Sprites = LoadObject<UTexture2D>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudSprites.T_DreamCloudSprites"));
+	if (!TestNotNull(TEXT("the horizon cloud sprites exist"), Sprites))
+	{
+		return false;
+	}
+	// The channels are light, rim, core and coverage: data, read as it is stored.
+	TestFalse(TEXT("stored as data, not colour"), Sprites->SRGB);
+	TestTrue(TEXT("compressed with a full alpha channel"), Sprites->CompressionSettings == TC_BC7);
+	TestEqual(TEXT("the packer's atlas size"), int32(Sprites->Source.GetSizeX()), 2048);
+	TestTrue(TEXT("not streamed (the sky always shows it whole)"), Sprites->NeverStream);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyInteriorAndFlashTest, "DreamSky.Style.InteriorAndFlash", DreamSky::Tests::Flags)
 bool FDreamSkyInteriorAndFlashTest::RunTest(const FString& Parameters)
 {
@@ -260,7 +277,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyParametersTest, "DreamSky.Parameters",
 bool FDreamSkyParametersTest::RunTest(const FString& Parameters)
 {
 	using namespace DreamSky::Names;
-	for (const FName& Name : { MPC_Zenith, MPC_Horizon, MPC_SunDisk, MPC_Cloud0, MPC_MainLight, MPC_AmbientSky, MPC_DayPhase, MPC_SkyExtra, MPC_SkyHaze })
+	for (const FName& Name : { MPC_Zenith, MPC_Horizon, MPC_SunDisk, MPC_Cloud0, MPC_MainLight, MPC_AmbientSky, MPC_DayPhase, MPC_SkyExtra, MPC_SkyHaze, MPC_Cloud2, MPC_Cloud3 })
 	{
 		TestTrue(*FString::Printf(TEXT("%s registered"), *Name.ToString()), FDreamWorldParameters::IsRegistered(Name));
 	}

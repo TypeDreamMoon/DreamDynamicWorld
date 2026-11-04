@@ -181,6 +181,9 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const double Yaw = FMath::DegreesToRadians(double(Style.CloudDirection));
 	Clock.SetVectorParameter(MPC_Cloud0, FLinearColor(Look.CloudCoverage, Style.CloudSoftness, Style.CloudScale, float(Style.CloudBands)));
 	Clock.SetVectorParameter(MPC_Cloud1, FLinearColor(float(FMath::Cos(Yaw) * Distance), float(FMath::Sin(Yaw) * Distance), Style.CloudCurvature, Style.CloudHorizonFade));
+	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Style.CloudLobeDetail, Style.CloudZenithThinning, Style.CloudBreathing, Style.CloudTowers));
+	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(FMath::DegreesToRadians(Style.CloudTowerElevation), Style.CloudTowerHaze,
+		Style.CloudTowerDistance, Style.CloudLayerWeatherReach));
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));
 	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, 0.0f));

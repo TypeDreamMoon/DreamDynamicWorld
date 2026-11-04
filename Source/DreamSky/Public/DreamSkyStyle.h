@@ -178,9 +178,54 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float CloudCoverage = 0.45f;
 
-	/** Edge softness of the cloud shapes. Small = hard toon edges. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.001", ClampMax = "0.5"))
+	/** Edge softness of the cloud shapes, beyond a pixel's anti-aliasing. 0 = crisp painted edges. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "0.5"))
 	float CloudSoftness = 0.06f;
+
+	/**
+	 * Clouds are heaps of round lobes, each lit on its own. This adds the small lobes along a heap's rim (the
+	 * cauliflower edge): 0 = smooth heaps .. 1 = busy rims.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float CloudLobeDetail = 0.6f;
+
+	/** Fewer clouds toward the zenith, as painted skies keep it open (none of it under a closed overcast). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float CloudZenithThinning = 0.5f;
+
+	/** How much each lobe swells and settles, once an hour of game time. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "0.3"))
+	float CloudBreathing = 0.08f;
+
+	/**
+	 * Fair-weather cumulus standing on the horizon, drawn like a painted backdrop: 0 none .. 1 in most
+	 * directions. They thin out with little cover and hide under a closed overcast. Weather towers (a storm
+	 * kilometres away, a front of thick cloud) come from the weather map regardless.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float CloudTowers = 0.55f;
+
+	/**
+	 * Elevation the tallest tower (a storm's cumulonimbus) reaches, degrees. Art, not physics: a real one ten
+	 * kilometres high and four away would climb most of the way up the sky.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", ClampMax = "60"))
+	float CloudTowerElevation = 32.0f;
+
+	/** How much the towers fade toward the horizon's colour (they stand kilometres away). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float CloudTowerHaze = 0.3f;
+
+	/** How far along each direction the weather map is read for the towers (and twice that), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "10000", UIMax = "2000000"))
+	float CloudTowerDistance = 400000.0f;
+
+	/**
+	 * How far out on the cloud layer the weather map shapes the clouds overhead, cm. Weather further away shows
+	 * as towers on the horizon instead of a flat patch on the layer.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "10000", UIMax = "2000000"))
+	float CloudLayerWeatherReach = 250000.0f;
 
 	/** Size of the cloud shapes; larger = bigger clouds. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.05", UIMax = "8"))

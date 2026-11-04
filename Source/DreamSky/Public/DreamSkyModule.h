@@ -24,6 +24,8 @@ namespace DreamSky::Names
 	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, -
 	inline const FName MPC_Cloud0(TEXT("DDW_Cloud0"));            // coverage, softness, scale, bands
 	inline const FName MPC_Cloud1(TEXT("DDW_Cloud1"));            // offset x, offset y, curvature, horizon fade
+	inline const FName MPC_Cloud2(TEXT("DDW_Cloud2"));            // lobe detail, zenith thinning, breathing, fair-weather towers
+	inline const FName MPC_Cloud3(TEXT("DDW_Cloud3"));            // tower top elevation (radians), tower haze, tower map distance (cm), layer weather reach (cm)
 	inline const FName MPC_CloudLit(TEXT("DDW_CloudLit"));        // rgb, a = rim strength
 	inline const FName MPC_CloudShadow(TEXT("DDW_CloudShadow"));  // rgb, a = opacity
 	inline const FName MPC_CloudLayer(TEXT("DDW_CloudLayer"));    // layer height (cm), darkness at the view, storm darkening, -

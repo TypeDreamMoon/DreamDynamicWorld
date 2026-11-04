@@ -20,6 +20,8 @@ void FDreamSkyModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Stars, Black);
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud0, FLinearColor(0.45f, 0.08f, 1.0f, 3.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud1, FLinearColor(0.0f, 0.0f, 0.25f, 0.15f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud2, FLinearColor(0.6f, 0.5f, 0.08f, 0.55f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud3, FLinearColor(0.5585f, 0.3f, 400000.0f, 250000.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_CloudLit, FLinearColor(1.0f, 1.0f, 1.0f, 0.5f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_CloudShadow, FLinearColor(0.6f, 0.65f, 0.75f, 1.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_CloudLayer, FLinearColor(150000.0f, 0.0f, 0.6f, 0.0f));
