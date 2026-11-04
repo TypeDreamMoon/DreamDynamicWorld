@@ -16,6 +16,7 @@
     pwsh -NoProfile -File Tools\TestHost\Take-DreamSkyShots.ps1
     pwsh -NoProfile -File Tools\TestHost\Take-DreamSkyShots.ps1 -Hours 5,5.5,6,6.5,7 -Prefix Dawn
     pwsh -NoProfile -File Tools\TestHost\Take-DreamSkyShots.ps1 -Hours 9,17.5 -Prefix Rain -Commands 'DreamWeather.Set WP_Rain 0'
+    pwsh -NoProfile -File Tools\TestHost\Take-DreamSkyShots.ps1 -Hours 12 -Prefix Up -Pitch 40
 #>
 [CmdletBinding()]
 param(
@@ -30,6 +31,9 @@ param(
     # Console commands run before the tour (e.g. 'DreamWeather.Set WP_Rain 0'); none may contain a comma.
     [string[]]$Commands = @(),
     [string]$EngineRoot,
+    # Turn the view before the tour (degrees); the level's camera otherwise.
+    [Nullable[double]]$Pitch,
+    [Nullable[double]]$Yaw,
     # Open the window off screen (it still renders), so it covers nothing while someone else uses the desktop.
     [switch]$OffScreen,
     [switch]$Force
@@ -69,7 +73,10 @@ $Stamp = Get-Date
 $Log = Join-Path $HostRoot "Saved\ClaudeRuns\shots-$($Stamp.ToString('yyyyMMdd-HHmmss')).log"
 New-Item -ItemType Directory -Force -Path (Split-Path $Log) | Out-Null
 $Editor = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
-$Exec = @($Commands) + @("DreamWorld.ShotTour Hours=$HourList Prefix=$Prefix Settle=$Settle Quit")
+$Tour = "DreamWorld.ShotTour Hours=$HourList Prefix=$Prefix Settle=$Settle"
+if ($null -ne $Pitch) { $Tour += " Pitch=$(([double]$Pitch).ToString([System.Globalization.CultureInfo]::InvariantCulture))" }
+if ($null -ne $Yaw) { $Tour += " Yaw=$(([double]$Yaw).ToString([System.Globalization.CultureInfo]::InvariantCulture))" }
+$Exec = @($Commands) + @("$Tour Quit")
 $Arguments = "`"$Project`" $Map -game -windowed -ResX=$ResX -ResY=$ResY -nosound -nosplash -unattended -abslog=`"$Log`" " +
     "-ExecCmds=`"$($Exec -join ',')`""
 if ($OffScreen) { $Arguments += ' -WinX=8000 -WinY=100' }
