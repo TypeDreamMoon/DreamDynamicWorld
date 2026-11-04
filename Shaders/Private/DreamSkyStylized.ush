@@ -1,0 +1,337 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The stylized sky dome: a gradient sky, the sun with its halo, the moon with its phase, stars, and one layer
+// of toon clouds. Everything comes in as the vectors the sky subsystem writes to the shared parameter
+// collection (see DreamSkyModule.h for the layout); this file only draws.
+//
+// Directions are world space unit vectors: V from the camera through the pixel, SunDir / MoonDir / LightDir
+// from the ground toward the body.
+
+#ifndef DREAMSKY_STYLIZED_USH
+#define DREAMSKY_STYLIZED_USH
+
+float DSky_Hash12(float2 p)
+{
+	float3 p3 = frac(float3(p.x, p.y, p.x) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return frac((p3.x + p3.y) * p3.z);
+}
+
+float3 DSky_Hash33(float3 p)
+{
+	p = frac(p * float3(0.1031, 0.1030, 0.0973));
+	p += dot(p, p.yxz + 33.33);
+	return frac((p.xxy + p.yxx) * p.zyx);
+}
+
+// A unit gradient for a lattice point, without trigonometry. The hash is integer arithmetic: a float hash
+// loses its low bits at the coordinates the drifting clouds reach (thousands), and neighbouring lattice
+// points then share gradients, which draws long straight edges across the sky.
+float2 DSky_Gradient2(float2 i)
+{
+	uint2 q = uint2(int2(i));
+	uint h = q.x * 1597334677u ^ q.y * 3812015801u;
+	h ^= h >> 16;
+	h *= 0x7feb352du;
+	h ^= h >> 15;
+	h *= 0x846ca68bu;
+	h ^= h >> 16;
+	float2 g = float2(float(h & 0xffffu), float(h >> 16)) * (2.0 / 65535.0) - 1.0;
+	return g * rsqrt(max(dot(g, g), 1e-4));
+}
+
+float DSky_ValueNoise(float2 p)
+{
+	float2 i = floor(p);
+	float2 f = frac(p);
+	float2 u = f * f * (3.0 - 2.0 * f);
+	float a = DSky_Hash12(i);
+	float b = DSky_Hash12(i + float2(1.0, 0.0));
+	float c = DSky_Hash12(i + float2(0.0, 1.0));
+	float d = DSky_Hash12(i + float2(1.0, 1.0));
+	return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
+// Gradient noise with a quintic fade: smooth to the second derivative, so shading that differentiates it
+// (the cloud light below) shows no lattice edges. Roughly 0..1.
+float DSky_GradientNoise(float2 p)
+{
+	float2 i = floor(p);
+	float2 f = frac(p);
+	float2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	float a = dot(DSky_Gradient2(i), f);
+	float b = dot(DSky_Gradient2(i + float2(1.0, 0.0)), f - float2(1.0, 0.0));
+	float c = dot(DSky_Gradient2(i + float2(0.0, 1.0)), f - float2(0.0, 1.0));
+	float d = dot(DSky_Gradient2(i + float2(1.0, 1.0)), f - float2(1.0, 1.0));
+	return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y) * 0.7071 + 0.5;
+}
+
+// Octaves of gradient noise, each turned to hide the lattice; roughly 0..1. The first octaves are the same for
+// any count, so a short sum is a blurred version of a long one.
+float DSky_Fbm(float2 p, int Octaves)
+{
+	float Sum = 0.0;
+	float Amp = 0.5;
+	float Norm = 0.0;
+	for (int i = 0; i < Octaves; ++i)
+	{
+		Sum += Amp * DSky_GradientNoise(p);
+		Norm += Amp;
+		p = float2(1.6 * p.x + 1.2 * p.y, -1.2 * p.x + 1.6 * p.y) + 17.13;
+		Amp *= 0.5;
+	}
+	return Sum / Norm;
+}
+
+// The cloud field: a gently warped fbm, so the shapes come out as rounded heaps rather than streaks.
+// Octaves = 5 for the shapes; fewer gives the same field blurred, which is what the shading reads.
+float DSky_CloudDensity(float2 UV, int Octaves)
+{
+	float2 Warp = float2(DSky_GradientNoise(UV * 0.5 + 3.1), DSky_GradientNoise(UV * 0.5 + 9.7)) - 0.5;
+	return DSky_Fbm(UV + Warp * 0.4, Octaves);
+}
+
+float3 DSky_Gradient(float3 V, float3 Zenith, float3 Horizon, float HorizonExp, float3 Ground)
+{
+	float Up = pow(saturate(V.z), max(HorizonExp, 0.05));
+	float3 Sky = lerp(Horizon, Zenith, Up);
+	float3 Below = lerp(Horizon, Ground, saturate(-V.z * 6.0));
+	return lerp(Below, Sky, smoothstep(-0.01, 0.01, V.z));
+}
+
+// How close V is to the sun, 0..1, with vertical distance counted up to three times over while the sun is low:
+// the glow spreads along the horizon instead of climbing the sky.
+float DSky_SunCloseness(float3 V, float3 SunDir)
+{
+	float Stretch = 1.0 + 2.0 * (1.0 - saturate(-SunDir.z)) * lerp(1.0, 0.25, saturate(SunDir.z * 1.5));
+	float3 W = normalize(float3(V.xy, (V.z - SunDir.z) * Stretch + SunDir.z));
+	return saturate(dot(W, SunDir));
+}
+
+// The halo around the sun, plus a broad glow along the horizon on the sun's side (sunrise / sunset).
+float3 DSky_SunHalo(float3 V, float3 SunDir, float3 HaloColor, float HaloExp)
+{
+	float Halo = pow(DSky_SunCloseness(V, SunDir), max(HaloExp, 1.0));
+	float2 Vh = V.xy;
+	float2 Sh = SunDir.xy;
+	float Side = (length(Vh) > 1e-4 && length(Sh) > 1e-4) ? dot(normalize(Vh), normalize(Sh)) * 0.5 + 0.5 : 0.5;
+	float NearHorizon = 1.0 - saturate(abs(V.z) * 3.0);
+	return HaloColor * (Halo + 0.35 * pow(Side, 3.0) * NearHorizon);
+}
+
+// A disk of angular radius RadiusDeg, anti-aliased over one pixel.
+float DSky_Disk(float3 V, float3 Dir, float RadiusDeg)
+{
+	float c = dot(V, Dir);
+	float Edge = cos(radians(max(RadiusDeg, 0.01)));
+	float Aa = max(fwidth(c), 1e-6);
+	return smoothstep(Edge - Aa, Edge + Aa, c);
+}
+
+// The moon as a lit sphere: Phase 0 new (dark), 0.5 full; the terminator is a hard toon edge.
+float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float RadiusDeg, float3 Color)
+{
+	float Facing = dot(V, MoonDir);
+	if (Facing <= 0.0)
+	{
+		return 0;
+	}
+	float SinR = sin(radians(max(RadiusDeg, 0.01)));
+	float3 Up = abs(MoonDir.z) < 0.99 ? float3(0, 0, 1) : float3(1, 0, 0);
+	float3 X = normalize(cross(Up, MoonDir));
+	float3 Y = cross(MoonDir, X);
+	float3 D = V - MoonDir * Facing;
+	float2 UV = float2(dot(D, X), dot(D, Y)) / SinR;
+	float R2 = dot(UV, UV);
+	float Aa = max(fwidth(R2), 1e-5);
+	float Inside = 1.0 - smoothstep(1.0 - Aa, 1.0 + Aa, R2);
+	if (Inside <= 0.0)
+	{
+		return 0;
+	}
+	float3 N = float3(UV, sqrt(saturate(1.0 - R2)));
+	float2 Toward = float2(dot(SunDir, X), dot(SunDir, Y));
+	float Len = length(Toward);
+	Toward = Len > 1e-3 ? Toward / Len : float2(1, 0);
+	float A = Phase * 6.2831853;
+	float3 L = float3(Toward * sin(A), -cos(A));
+	float Lit = smoothstep(-0.04, 0.04, dot(N, L));
+	float Mare = DSky_ValueNoise(UV * 3.0 + 11.0) * 0.3 + 0.7;
+	return Color * Inside * lerp(0.05, 1.0, Lit) * Mare;
+}
+
+// Points on a jittered 3D lattice the dome cuts through; Rotation turns them about the vertical (0..1 = a turn).
+float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float Seconds)
+{
+	if (V.z <= 0.0 || Density <= 0.0)
+	{
+		return 0.0;
+	}
+	float A = Rotation * 6.2831853;
+	float3 P = float3(V.x * cos(A) - V.y * sin(A), V.x * sin(A) + V.y * cos(A), V.z);
+	float3 G = P * 70.0;
+	float3 Cell = floor(G);
+	float3 F = frac(G);
+	float3 R = DSky_Hash33(Cell);
+	float Present = step(1.0 - 0.12 * Density, R.x);
+	float Dist = length(F - (0.25 + 0.5 * R.zxy));
+	float Size = lerp(0.03, 0.09, R.y);
+	float Aa = max(fwidth(Dist), 1e-4);
+	float Point = 1.0 - smoothstep(Size - Aa, Size + Aa, Dist);
+	float Flicker = 1.0 - Twinkle * 0.5 * (1.0 + sin(Seconds * (1.5 + 3.0 * R.z) + R.y * 40.0));
+	return Present * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
+}
+
+// The weather where the dome direction V meets the cloud layer: (coverage, darkness) from the weather map,
+// fading to the view's own values toward the map's edge. MapParams = (camera - map centre xy, 1 / extent,
+// live), CloudLayer.x = layer height above the camera.
+float2 DSky_WeatherAt(float3 V, float4 MapParams, float4 CloudLayer, float GlobalCoverage, float GlobalDarkness, Texture2D Map, SamplerState MapSampler)
+{
+	if (MapParams.w < 0.5 || V.z <= 0.0)
+	{
+		return float2(GlobalCoverage, GlobalDarkness);
+	}
+	float Reach = CloudLayer.x / max(V.z, 0.03);
+	float2 P = MapParams.xy + V.xy * Reach;   // on the cloud layer, cm from the map's centre
+	// Ragged edges: the lookup is pushed around by two octaves of noise (features of 800 and 250 m, up to a
+	// kilometre or so of push), so a zone's rim breaks up instead of drawing the zone's outline in the sky.
+	float2 Warp = float2(DSky_GradientNoise(P / 80000.0 + 5.3), DSky_GradientNoise(P / 80000.0 + 1.7)) - 0.5;
+	Warp += 0.5 * (float2(DSky_GradientNoise(P / 25000.0 + 8.1), DSky_GradientNoise(P / 25000.0 + 3.9)) - 0.5);
+	float2 UV = (P + Warp * 160000.0) * MapParams.z + 0.5;
+	float Inside = saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
+	// Smooth between texels (a quintic fade instead of bilinear's straight lines), so the map's grid never
+	// shows as facets in the clouds.
+	float2 Size;
+	Map.GetDimensions(Size.x, Size.y);
+	float2 T = saturate(UV) * Size + 0.5;
+	float2 I = floor(T);
+	float2 F = frac(T);
+	F = F * F * F * (F * (F * 6.0 - 15.0) + 10.0);
+	float4 W = Map.SampleLevel(MapSampler, (I + F - 0.5) / Size, 0);
+	return lerp(float2(GlobalCoverage, GlobalDarkness), W.xy, Inside);
+}
+
+// x = light (0 shadow .. 1 lit, banded), y = cover (0..1), z = rim, w = raw density.
+float4 DSky_Clouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1)
+{
+	float Coverage = Cloud0.x;
+	float Softness = max(Cloud0.y, 0.001);
+	float Scale = max(Cloud0.z, 0.05);
+	float Bands = Cloud0.w;
+	float Curvature = max(Cloud1.z, 0.01);
+	float HorizonFade = Cloud1.w;
+	if (V.z <= 0.0 || Coverage <= 0.0)
+	{
+		return float4(1, 0, 0, 0);
+	}
+
+	float2 UV = V.xy / (V.z + Curvature) * (0.6 / Scale) + Cloud1.xy;
+	float Density = DSky_CloudDensity(UV, 5);
+	// Near full cover the gaps close up too (a rainy sky shows no holes of dark sky).
+	float Threshold = lerp(0.72, 0.30, saturate(Coverage)) - 0.18 * smoothstep(0.8, 1.0, Coverage);
+	float Cover = smoothstep(Threshold - Softness, Threshold + Softness, Density);
+
+	// Lit where the cloud thins out toward the light. The comparison is made on the blurred field (three
+	// octaves), so the light falls in broad, clean bands; the fine detail only nudges it. Thick cores a
+	// little darker.
+	float2 ToLight = LightDir.xy;
+	float L2 = length(ToLight);
+	ToLight = L2 > 1e-4 ? ToLight / L2 : float2(0, 0);
+	float Here = DSky_CloudDensity(UV, 3);
+	float Toward = DSky_CloudDensity(UV + ToLight * 0.15, 3);
+	float Light = saturate(0.6 + (Here - Toward) * 4.0 + (Density - Here) * 0.8);
+	// Measured on the density itself, not above the cover threshold: where a weather zone raises the cover, the
+	// threshold climbs at its rim, and a relative measure would draw the rim as a bright outline.
+	Light *= lerp(1.0, 0.8, saturate((Density - 0.55) * 3.0));
+	// A closed overcast is a fairly even grey with soft darker patches and some fine texture, not a sky of
+	// lit heaps.
+	Light = lerp(Light, 0.5 + 0.5 * (Here - 0.5) + 0.6 * (Density - Here), 0.5 * saturate((Coverage - 0.75) / 0.25));
+	if (Bands >= 1.0)
+	{
+		float Q = Light * Bands;
+		Light = (floor(Q) + smoothstep(0.42, 0.58, frac(Q))) / Bands;
+	}
+
+	float Edge = saturate(1.0 - abs(Density - Threshold) / (Softness * 3.0 + 0.02));
+	// Silver lining: only on edges close to the light (wider, it outlines every cloud in the sky).
+	float Rim = Edge * pow(saturate(dot(V, LightDir)), 16.0);
+	float Fade = smoothstep(0.0, HorizonFade + 1e-3, V.z);
+	return float4(Light, Cover * Fade, Rim, Density);
+}
+
+// Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
+// Haze = (height fog colour, how much of the dome weather fog hides).
+// Capture is 1 while the dome is drawn into the sky light (reflection capture pass), 0 on screen.
+float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
+	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
+	float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 CloudLayer, float4 MapParams, float4 Flash, float4 Extra,
+	float4 Haze, Texture2D WeatherMap, SamplerState WeatherMapSampler, float Seconds, float Capture)
+{
+	V = normalize(V);
+	float3 Sun = normalize(SunDir.xyz);
+	float3 Moon = normalize(MoonDir.xyz);
+	float3 LightDir = normalize(MainLight.xyz);
+
+	// While the sun is low the warm horizon belongs to its side; the far side cools toward the sky above it.
+	float2 Vh = V.xy;
+	float2 Sh = Sun.xy;
+	float SunSide = (length(Vh) > 1e-4 && length(Sh) > 1e-4) ? dot(normalize(Vh), normalize(Sh)) * 0.5 + 0.5 : 0.5;
+	float LowSun = 1.0 - saturate(abs(Sun.z) * 4.0);
+	float3 HorizonHere = lerp(Horizon.rgb, 0.5 * (Horizon.rgb + Zenith.rgb), 0.75 * LowSun * (1.0 - SunSide) * (1.0 - SunSide));
+	float3 Base = DSky_Gradient(V, Zenith.rgb, HorizonHere, Horizon.a, Ground.rgb);
+	float3 Halo = DSky_SunHalo(V, Sun, SunHalo.rgb, SunHalo.a);
+	float3 Sky = Base + Halo;
+	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0));
+
+	// Local weather along this direction: storm clouds over a far valley, clear sky beyond a front.
+	float2 Local = DSky_WeatherAt(V, MapParams, CloudLayer, Cloud0.x, CloudLayer.y, WeatherMap, WeatherMapSampler);
+	float4 LocalCloud0 = float4(Local.x, Cloud0.y, Cloud0.z, Cloud0.w);
+	float4 C = DSky_Clouds(V, LightDir, LocalCloud0, Cloud1);
+	// Storm clouds are darkest in their dense cores, so a storm reads as heavy cloud rather than a grey stain.
+	float StormShade = saturate(1.0 - CloudLayer.z * Local.y * lerp(0.7, 1.3, saturate((C.w - 0.25) * 2.0)));
+	float Clear = 1.0 - C.y * CloudShadow.a;
+
+	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb);
+	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
+	// The sky light sees no stars, and only a share of the sun disk (a full disk makes a hot spot in the
+	// captured light that every rough surface would reflect).
+	Sky += Stars.x * DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds) * (1.0 - MoonCover) * Clear * (1.0 - Capture);
+	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
+	float SunShare = lerp(1.0, Extra.z, Capture);
+	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare;
+
+	// The clouds take the colour of the sky around them (warm low in the sunset, deep blue overhead), relative
+	// to the sky's average so the style's cloud colours still set the level; near the sun they catch its glow.
+	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
+	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
+	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x);
+	float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.5) + Halo * Extra.y * C.x;
+	float3 CloudColor = (lerp(Shadow, Lit, C.x) + CloudLit.rgb * C.z * CloudLit.a) * StormShade;
+	Sky = lerp(Sky, CloudColor, C.y * CloudShadow.a);
+
+	// Weather fog and dust hide the sky in the height fog's colour, from the horizon up: the fogged ground then
+	// meets the dome without a seam. Light fog hazes the horizon; thick fog swallows most of the sky.
+	if (Haze.a > 0.0)
+	{
+		float Amount = Haze.a * lerp(exp(-saturate(V.z) * 8.0), 1.0, Haze.a * Haze.a);
+		Sky = lerp(Sky, Haze.rgb, saturate(Amount));
+	}
+
+	// Lightning: the clouds over the strike light up, the rest of the sky a little. Not in the sky light: the
+	// capture is sliced over several frames, and the flash already reaches the ambient light directly.
+	float FlashNow = Flash.w * Extra.w * (1.0 - Capture);
+	if (FlashNow > 0.0)
+	{
+		float Toward = pow(saturate(dot(V, normalize(Flash.xyz))), 3.0);
+		// Against a night sky a flash tuned for daylight whites out everything: it is held back with the sky's
+		// own brightness (still many times the night sky), and lights dense cloud more than thin, so the clouds
+		// keep their shapes.
+		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
+		float Level = saturate(0.3 + SkyLevel * 3.0);
+		float Body = lerp(0.6, 1.4, saturate((C.w - 0.25) * 2.0));
+		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * C.y) * Body;
+	}
+	return max(Sky, 0.0);
+}
+
+#endif // DREAMSKY_STYLIZED_USH
