@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "Host project that DreamDynamicWorld is developed and tested in: it builds the plugin on a stock installed engine, with DreamShader beside it to generate the plugin's materials, and runs the automation tests away from any working project. Generated from Plugins/DreamDynamicWorld/Tools/TestHost/Template by New-DreamDynamicWorldTestHost.ps1; see Tools/TestHost/README.md.",
+	"Modules": [
+		{
+			"Name": "DreamDynamicWorldTestHost",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "DreamDynamicWorld",
+			"Enabled": true
+		},
+		{
+			"Name": "DreamShader",
+			"Enabled": true
+		}
+	]
+}
