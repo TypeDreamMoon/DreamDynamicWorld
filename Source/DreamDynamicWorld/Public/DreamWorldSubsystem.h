@@ -1,0 +1,284 @@
+// Copyright DreamMoon. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Subsystems/WorldSubsystem.h"
+#include "DreamWorldTypes.h"
+#include "DreamWorldScheduler.h"
+#include "DreamWorldViewProbe.h"
+#include "DreamWorldSubsystem.generated.h"
+
+class UMaterialParameterCollection;
+class UMaterialParameterCollectionInstance;
+class FDreamWorldViewExtension;
+class UDreamWorldSubsystem;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDreamWorldHourEvent, int32, Hour);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDreamWorldDateEvent, FDateTime, Date);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FDreamWorldEvent);
+
+/** Fired every frame after the clock moved and the sun and moon were placed; consumers update in this order. */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDreamWorldTick, UDreamWorldSubsystem& /*World*/, float /*RealDeltaSeconds*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDreamWorldCaptureSnapshot, FDreamWorldSnapshot& /*Snapshot*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDreamWorldApplySnapshot, const FDreamWorldSnapshot& /*Snapshot*/);
+
+/**
+ * The clock of a world and the sun and moon it moves.
+ *
+ * World time is a double count of seconds in the world's own calendar (see DreamWorldCelestial.h), advanced
+ * by real time times the time scale. Everything else follows from it as a pure function, so setting the time
+ * (or applying a snapshot) puts the whole sky exactly where it would have been.
+ *
+ * Each frame: the clock moves, the sun and moon are placed, the clock's events fire, the shared Material
+ * Parameter Collection gets DDW_Time / DDW_SunDir / DDW_MoonDir, OnWorldTick runs the other subsystems
+ * (the sky first), and the scheduler spends what is left of its budget.
+ */
+UCLASS()
+class DREAMDYNAMICWORLD_API UDreamWorldSubsystem : public UTickableWorldSubsystem
+{
+	GENERATED_BODY()
+
+public:
+	/** The world clock of the world the object lives in, or null. */
+	UFUNCTION(BlueprintPure, Category = "Dream World", meta = (WorldContext = "WorldContextObject", DisplayName = "Get Dream World"))
+	static UDreamWorldSubsystem* Get(const UObject* WorldContextObject);
+
+	//~ USubsystem
+	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
+
+	//~ FTickableGameObject
+	virtual void Tick(float DeltaTime) override;
+	virtual bool IsTickable() const override;
+	virtual bool IsTickableInEditor() const override;
+	virtual TStatId GetStatId() const override;
+
+	// ---- Clock --------------------------------------------------------------------------------
+
+	/** Use a clock configuration (from the level's sky actor). bResetTime also moves the clock to its start time. */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void ApplyClockConfig(const FDreamWorldClockConfig& Config, bool bResetTime = true);
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	const FDreamWorldClockConfig& GetClockConfig() const { return Clock; }
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	FDateTime GetDateTime() const;
+
+	/** Hours since midnight, 0..24. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	float GetTimeOfDay() const;
+
+	/** Move to an hour of the current day (snaps; no events for the hours skipped). */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetTimeOfDay(float Hours);
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetDateTime(FDateTime DateTime);
+
+	/**
+	 * Run the clock to Hours over Duration real seconds. bForward runs into the next day when Hours is earlier
+	 * than now; otherwise the clock takes the shorter way, backwards if need be.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void TransitionToTimeOfDay(float Hours, float Duration = 3.0f, bool bForward = true);
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	bool IsTransitioning() const { return bTransitionActive; }
+
+	/** Real minutes per in-game day. */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetDayLengthMinutes(float Minutes);
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	float GetDayLengthMinutes() const { return Clock.DayLengthMinutes; }
+
+	/** In-game seconds per real second. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	float GetTimeScale() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetPaused(bool bInPaused) { bPaused = bInPaused; }
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	bool IsPaused() const { return bPaused; }
+
+	/** Whether the clock runs in this world right now (game worlds: bAnimate; editor worlds: bAnimateInEditor; never while paused). */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	bool IsClockRunning() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetAnimateInEditor(bool bAnimate) { Clock.bAnimateInEditor = bAnimate; }
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	int32 GetSeed() const { return Clock.Seed; }
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetSeed(int32 NewSeed) { Clock.Seed = NewSeed; }
+
+	double GetWorldSeconds() const { return WorldSeconds; }
+	void SetWorldSeconds(double Seconds);
+
+	/** Increases every time the clock jumps (set, snapshot, editor scrub) rather than runs; consumers snap instead of easing. */
+	uint32 GetTimeJumpSerial() const { return TimeJumpSerial; }
+
+	// ---- Sun and moon -------------------------------------------------------------------------
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Celestial")
+	void SetCelestialSettings(const FDreamCelestialSettings& Settings);
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Celestial")
+	const FDreamCelestialSettings& GetCelestialSettings() const { return Clock.Celestial; }
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Celestial")
+	const FDreamCelestialState& GetCelestial() const { return Celestial; }
+
+	/** Day / twilight / night weights from the sun's elevation, with the default thresholds. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Celestial")
+	FDreamDayPhase GetDayPhase() const;
+
+	/** The sun is above the horizon. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Celestial")
+	bool IsDaytime() const { return Celestial.SunElevation > 0.0f; }
+
+	// ---- Events -------------------------------------------------------------------------------
+
+	/** The hour changed while the clock ran (not on jumps). */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldHourEvent OnHourChanged;
+
+	/** The date changed while the clock ran. */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldDateEvent OnDateChanged;
+
+	/** The sun rose above the horizon while the clock ran. */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldEvent OnSunrise;
+
+	/** The sun went below the horizon while the clock ran. */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldEvent OnSunset;
+
+	/** The clock jumped (set, scrubbed, snapshot applied). Hour/date/sun events are not fired for what was skipped. */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldEvent OnTimeJumped;
+
+	/** Native per-frame hook that runs first, after the clock moved: what others depend on (the weather) updates here. */
+	FOnDreamWorldTick OnWorldPreTick;
+
+	/** Native per-frame hook for the other subsystems, after the clock, the sun and moon and the pre-tick are up to date. */
+	FOnDreamWorldTick OnWorldTick;
+
+	// ---- Environment ----------------------------------------------------------------------------
+
+	/** The weather where the world is looked at from (see FDreamWorldEnvironment). Set by the weather in its pre-tick. */
+	void SetEnvironment(const FDreamWorldEnvironment& InEnvironment) { Environment = InEnvironment; }
+
+	UFUNCTION(BlueprintPure, Category = "Dream World|Environment")
+	const FDreamWorldEnvironment& GetEnvironment() const { return Environment; }
+
+	// ---- Snapshots ----------------------------------------------------------------------------
+
+	/** Everything needed to restore the clock (plus what other subsystems add through OnCaptureSnapshot). */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Snapshot")
+	FDreamWorldSnapshot CaptureSnapshot() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Snapshot")
+	void ApplySnapshot(const FDreamWorldSnapshot& Snapshot);
+
+	FOnDreamWorldCaptureSnapshot OnCaptureSnapshot;
+	FOnDreamWorldApplySnapshot OnApplySnapshot;
+
+	// ---- Shared material parameters -------------------------------------------------------------
+
+	/** Writes a vector of the shared collection (skipped when unchanged). Names come from FDreamWorldParameters. */
+	void SetVectorParameter(FName Name, const FLinearColor& Value);
+
+	/** The shared collection, or null before the Setup step created it. */
+	UMaterialParameterCollection* GetParameterCollection() const { return ParameterCollection; }
+
+	// ---- Scheduler and view -------------------------------------------------------------------
+
+	FDreamWorldScheduler& GetScheduler() { return Scheduler; }
+
+	/** Where the world was last looked at from: the player camera in game worlds, the editor viewport otherwise. */
+	FVector GetViewLocation() const { return ViewLocation; }
+	bool HasViewLocation() const { return bHasViewLocation; }
+
+	/** Which way the view looks (when a view reported it). */
+	FRotator GetViewRotation() const { return ViewRotation; }
+	bool HasViewRotation() const { return bHasViewRotation; }
+
+	/** Called by the view extension with every view of this world (game thread). */
+	void ReportView(const FVector& Location, const FRotator& Rotation, bool bIsGameView);
+
+	/** The same without a direction (tests, scripted views). */
+	void ReportViewLocation(const FVector& Location, bool bIsGameView);
+
+	// ---- View occlusion -------------------------------------------------------------------------
+
+	/** How enclosed the view is (indoors / roof overhead / closed sides), from the view probe. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|View")
+	const FDreamViewOcclusion& GetViewOcclusion() const { return ViewOcclusion; }
+
+	/** Probe the whole round of rays now, without easing (after moving the view by script). */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|View")
+	void RefreshViewOcclusion();
+
+	const FDreamViewProbe& GetViewProbe() const { return ViewProbe; }
+
+	/** Game-thread cost of the last tick, including every OnWorldTick listener, in milliseconds. */
+	double GetLastTickMs() const { return LastTickMs; }
+	/** Exponential average of the same (about the last 100 frames). */
+	double GetAverageTickMs() const { return AverageTickMs; }
+
+private:
+	void UpdateCelestial();
+	void UpdateViewProbe(float DeltaTime, bool bSnap);
+	void FireClockEvents(double PrevSeconds, bool bJumped);
+	void WriteClockParameters();
+	void ResolveParameterCollection();
+	void NoteJump();
+
+	FDreamWorldClockConfig Clock;
+	double WorldSeconds = 0.0;
+	bool bPaused = false;
+
+	bool bTransitionActive = false;
+	double TransitionFrom = 0.0;
+	double TransitionTo = 0.0;
+	float TransitionDuration = 0.0f;
+	float TransitionElapsed = 0.0f;
+
+	FDreamCelestialState Celestial;
+	FDreamWorldEnvironment Environment;
+	double LastEventSeconds = 0.0;
+	float LastSunElevation = 0.0f;
+	bool bEventsPrimed = false;
+	bool bJumpPending = false;
+	uint32 TimeJumpSerial = 0;
+
+	FDreamWorldScheduler Scheduler;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialParameterCollection> ParameterCollection;
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialParameterCollectionInstance> ParameterCollectionInstance;
+	TMap<FName, FLinearColor> WrittenParameters;
+	double LastCollectionResolve = -1000.0;
+
+	TSharedPtr<FDreamWorldViewExtension, ESPMode::ThreadSafe> ViewExtension;
+	FVector ViewLocation = FVector::ZeroVector;
+	FRotator ViewRotation = FRotator::ZeroRotator;
+	bool bHasViewLocation = false;
+	bool bHasViewRotation = false;
+	bool bHasGameViewLocation = false;
+
+	FDreamViewProbe ViewProbe;
+	FDreamViewOcclusion ViewOcclusion;
+
+	double LastTickMs = 0.0;
+	double AverageTickMs = 0.0;
+};
