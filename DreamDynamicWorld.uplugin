@@ -26,6 +26,11 @@
 			"LoadingPhase": "PostConfigInit"
 		},
 		{
+			"Name": "DreamWeather",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
 			"Name": "DreamWindNiagara",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"

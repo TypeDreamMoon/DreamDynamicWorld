@@ -1,0 +1,35 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// Draws the weather map: for every texel of a square around the camera, the global weather (cloud
+// coverage, darkness, precipitation) pulled toward each zone by its weight, in priority order. The zones'
+// falloff is DreamWeatherShared.h, the same code SampleWeather runs on the CPU.
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWeatherShared.h"
+
+float4 GlobalWeather;  // coverage, darkness, precipitation, -
+float2 MapCenter;      // world cm
+float MapExtent;       // world cm the map spans
+uint NumZones;
+int2 Resolution;
+
+StructuredBuffer<float4> Zones;
+RWTexture2D<float4> OutMap;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= (uint)Resolution.x || DispatchThreadId.y >= (uint)Resolution.y)
+	{
+		return;
+	}
+	float2 UV = (float2(DispatchThreadId.xy) + 0.5f) / float2(Resolution);
+	float2 P = MapCenter + (UV - 0.5f) * MapExtent;
+
+	float3 V = GlobalWeather.xyz;
+	for (uint i = 0; i < NumZones; ++i)
+	{
+		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2]);
+	}
+	OutMap[DispatchThreadId.xy] = float4(V, 1.0f);
+}
