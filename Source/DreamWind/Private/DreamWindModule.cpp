@@ -1,9 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWindModule.h"
-#include "Interfaces/IPluginManager.h"
-#include "Misc/Paths.h"
-#include "ShaderCore.h"
+#include "DreamWorldParameters.h"
 
 DEFINE_LOG_CATEGORY(LogDreamWind);
 
@@ -11,27 +9,23 @@ FDreamWindEditorHooks::FBakeTerrainMap FDreamWindEditorHooks::BakeTerrainMap;
 
 void FDreamWindModule::StartupModule()
 {
-	// /Plugin/DreamDynamicWorld/Shared/DreamWindShared.h and /Plugin/DreamDynamicWorld/Private/*.usf
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(DreamWind::Names::PluginName);
-	if (Plugin.IsValid())
+	// The shader directory (/Plugin/DreamDynamicWorld, with Shared/ for DreamWindShared.h) is mapped by the
+	// DreamDynamicWorld core module, which loads first.
+
+	// The wind's vectors in the plugin's shared Material Parameter Collection, in DW_UnpackParams /
+	// DW_UnpackVolume / DW_UnpackTerrain order.
+	using namespace DreamWind::Names;
+	const FName Owner(TEXT("DreamWind"));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_P0, FLinearColor(1.0f, 0.0f, 0.0f, 0.0f));
+	for (const FName& Name : { MPC_P1, MPC_P2, MPC_V0, MPC_V1, MPC_V2, MPC_V3, MPC_T0, MPC_T1, MPC_T2 })
 	{
-		const FString ShaderDir = FPaths::Combine(Plugin->GetBaseDir(), TEXT("Shaders"));
-		if (!AllShaderSourceDirectoryMappings().Contains(DreamWind::Names::ShaderVirtualDirectory))
-		{
-			AddShaderSourceDirectoryMapping(DreamWind::Names::ShaderVirtualDirectory, ShaderDir);
-			// Shaders/Shared holds .h files compiled by both C++ and HLSL; the shader system only
-			// accepts that extension inside a registered shared directory (Niagara does the same).
-			AddShaderSourceSharedVirtualDirectory(FString(DreamWind::Names::ShaderVirtualDirectory) + TEXT("/Shared/"));
-		}
-	}
-	else
-	{
-		UE_LOG(LogDreamWind, Error, TEXT("%s plugin descriptor not found; shader directory mapping skipped."), DreamWind::Names::PluginName);
+		FDreamWorldParameters::RegisterVector(Owner, Name, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	}
 }
 
 void FDreamWindModule::ShutdownModule()
 {
+	FDreamWorldParameters::UnregisterOwner(TEXT("DreamWind"));
 }
 
 IMPLEMENT_MODULE(FDreamWindModule, DreamWind)

@@ -10,8 +10,6 @@
 
 class UDreamWindSourceComponent;
 class UWindDirectionalSourceComponent;
-class UMaterialParameterCollection;
-class UMaterialParameterCollectionInstance;
 class UTextureRenderTargetVolume;
 class UTextureRenderTarget2D;
 class UDreamWindTerrainMap;
@@ -339,12 +337,6 @@ private:
 	float LastEngineMinGust = -1.0f;
 	float LastEngineMaxGust = -1.0f;
 	float LastEngineStrength = -1.0f;
-
-	// materials
-	UPROPERTY(Transient)
-	TObjectPtr<UMaterialParameterCollection> ParameterCollection;
-	UPROPERTY(Transient)
-	TObjectPtr<UMaterialParameterCollectionInstance> ParameterCollectionInstance;
 
 	// volume
 	UPROPERTY(Transient)

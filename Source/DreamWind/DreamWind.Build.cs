@@ -22,11 +22,11 @@ public class DreamWind : ModuleRules
 			"DeveloperSettings",
 			"RenderCore",
 			"RHI",
+			"DreamDynamicWorld",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"Projects",
 			"Renderer",
 		});
 	}

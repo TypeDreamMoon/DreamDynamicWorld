@@ -4,6 +4,7 @@
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
 #include "DreamWindPreset.h"
+#include "DreamWorldParameters.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -57,52 +58,9 @@ namespace DreamWind::EditorSetup
 
 UMaterialParameterCollection* UDreamWindEditorLibrary::EnsureParameterCollection(bool bSaveAsset)
 {
-	using namespace DreamWind::EditorSetup;
-	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
-
-	FString PackageName, AssetName;
-	if (!SplitAssetPath(Settings->ParameterCollection, PackageName, AssetName))
-	{
-		return nullptr;
-	}
-
-	UMaterialParameterCollection* MPC = Cast<UMaterialParameterCollection>(Settings->ParameterCollection.TryLoad());
-	bool bCreated = false;
-	if (!MPC)
-	{
-		UPackage* Package = CreatePackage(*PackageName);
-		Package->FullyLoad();
-		MPC = NewObject<UMaterialParameterCollection>(Package, *AssetName, RF_Public | RF_Standalone);
-		bCreated = true;
-	}
-
-	static const FName Names[] = { DreamWind::Names::MPC_P0, DreamWind::Names::MPC_P1, DreamWind::Names::MPC_P2, DreamWind::Names::MPC_V0, DreamWind::Names::MPC_V1, DreamWind::Names::MPC_V2, DreamWind::Names::MPC_V3, DreamWind::Names::MPC_T0, DreamWind::Names::MPC_T1, DreamWind::Names::MPC_T2 };
-	bool bChanged = false;
-	MPC->PreEditChange(nullptr);
-	for (const FName& Name : Names)
-	{
-		const bool bExists = MPC->VectorParameters.ContainsByPredicate([&Name](const FCollectionVectorParameter& P) { return P.ParameterName == Name; });
-		if (!bExists)
-		{
-			FCollectionVectorParameter& P = MPC->VectorParameters.AddDefaulted_GetRef();
-			P.ParameterName = Name;
-			P.Id = FGuid::NewGuid();
-			P.DefaultValue = (Name == DreamWind::Names::MPC_P0) ? FLinearColor(1, 0, 0, 0) : FLinearColor(0, 0, 0, 0);
-			bChanged = true;
-		}
-	}
-	MPC->PostEditChange();
-
-	if (bCreated)
-	{
-		FAssetRegistryModule::AssetCreated(MPC);
-	}
-	if ((bCreated || bChanged) && bSaveAsset)
-	{
-		SavePackageFor(MPC);
-	}
-	UE_LOG(LogDreamWind, Display, TEXT("Parameter collection %s: %s"), *MPC->GetPathName(), bCreated ? TEXT("created") : (bChanged ? TEXT("parameters added") : TEXT("up to date")));
-	return MPC;
+	// The wind writes into the plugin's shared collection; the core module creates it from every
+	// registered parameter (the wind's included).
+	return FDreamWorldParameters::EnsureParameterCollection(bSaveAsset);
 }
 
 UTextureRenderTargetVolume* UDreamWindEditorLibrary::EnsureVolumeTexture(bool bSaveAsset)

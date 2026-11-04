@@ -12,7 +12,7 @@ namespace DreamWind
 	/** Names shared by the subsystem (writer) and the asset setup / materials (readers). */
 	namespace Names
 	{
-		/** Vector parameters of the Material Parameter Collection, in DW_UnpackParams / DW_UnpackVolume order. */
+		/** Vector parameters of the plugin's shared Material Parameter Collection, in DW_UnpackParams / DW_UnpackVolume order. */
 		inline const FName MPC_P0(TEXT("DreamWind_P0"));
 		inline const FName MPC_P1(TEXT("DreamWind_P1"));
 		inline const FName MPC_P2(TEXT("DreamWind_P2"));

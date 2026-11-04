@@ -25,8 +25,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
-#include "Materials/MaterialParameterCollection.h"
-#include "Materials/MaterialParameterCollectionInstance.h"
+#include "DreamWorldSubsystem.h"
 #include "Misc/App.h"
 #include "SceneInterface.h"
 #include "SceneViewExtension.h"
@@ -662,16 +661,6 @@ void UDreamWindSubsystem::ResolveAssets()
 	const double Now = FPlatformTime::Seconds();
 	const bool bRetryDue = (Now - LastAssetResolveTime) > 5.0;
 
-	if (!ParameterCollection && bRetryDue && Settings->ParameterCollection.IsValid())
-	{
-		ParameterCollection = Cast<UMaterialParameterCollection>(Settings->ParameterCollection.TryLoad());
-		ParameterCollectionInstance = nullptr;
-		if (!ParameterCollection && !bAssetsResolved)
-		{
-			UE_LOG(LogDreamWind, Warning, TEXT("Material Parameter Collection '%s' not found. Materials will not receive wind until Tools > DreamWind > Setup Assets has run."), *Settings->ParameterCollection.ToString());
-		}
-	}
-
 	if (!VolumeTexture && bRetryDue && DreamWind::IsVolumeEnabledBySettings(Settings) && Settings->VolumeTexture.IsValid())
 	{
 		VolumeTexture = Cast<UTextureRenderTargetVolume>(Settings->VolumeTexture.TryLoad());
@@ -786,30 +775,23 @@ void UDreamWindSubsystem::UpdateEngineWindSource()
 
 void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 {
-	if (!ParameterCollection)
-	{
-		return;
-	}
-	UWorld* World = GetWorld();
-	if (!ParameterCollectionInstance || ParameterCollectionInstance->GetCollection() != ParameterCollection)
-	{
-		ParameterCollectionInstance = World->GetParameterCollectionInstance(ParameterCollection);
-	}
-	if (!ParameterCollectionInstance)
+	// The plugin's shared collection, written through the world clock (one instance, unchanged values skipped).
+	UDreamWorldSubsystem* Shared = UDreamWorldSubsystem::Get(this);
+	if (!Shared)
 	{
 		return;
 	}
 	using namespace DreamWind::Hlsl;
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_P0, ToLinearColor(ToHlsl(FrameData.P0)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_P1, ToLinearColor(ToHlsl(FrameData.P1)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_P2, ToLinearColor(ToHlsl(FrameData.P2)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V0, ToLinearColor(ToHlsl(FrameData.V0)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V1, ToLinearColor(ToHlsl(FrameData.V1)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V2, ToLinearColor(ToHlsl(FrameData.V2)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_V3, ToLinearColor(ToHlsl(FrameData.V3)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
-	ParameterCollectionInstance->SetVectorParameterValue(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_P0, ToLinearColor(ToHlsl(FrameData.P0)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_P1, ToLinearColor(ToHlsl(FrameData.P1)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_P2, ToLinearColor(ToHlsl(FrameData.P2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_V0, ToLinearColor(ToHlsl(FrameData.V0)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_V1, ToLinearColor(ToHlsl(FrameData.V1)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_V2, ToLinearColor(ToHlsl(FrameData.V2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_V3, ToLinearColor(ToHlsl(FrameData.V3)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
 }
 
 void UDreamWindSubsystem::EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer)

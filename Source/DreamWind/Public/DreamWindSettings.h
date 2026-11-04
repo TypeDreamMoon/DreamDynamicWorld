@@ -7,7 +7,6 @@
 #include "DreamWindTypes.h"
 #include "DreamWindSettings.generated.h"
 
-class UMaterialParameterCollection;
 class UTextureRenderTargetVolume;
 class UTextureRenderTarget2D;
 class UDreamWindTerrainMap;
@@ -73,14 +72,8 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Engine Bridge", meta = (ClampMin = "0"))
 	float EngineWindStrength = 1.0f;
 
-	// ---- Materials ----------------------------------------------------------------------------
-
-	/**
-	 * Material Parameter Collection the subsystem writes every frame. Materials sample it through
-	 * MF_DreamWindSample. Created by Tools > DreamWind > Setup Assets when missing.
-	 */
-	UPROPERTY(Config, EditAnywhere, Category = "Materials", meta = (AllowedClasses = "/Script/Engine.MaterialParameterCollection"))
-	FSoftObjectPath ParameterCollection = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/MPC_DreamWind.MPC_DreamWind"));
+	// The wind's material parameters live in the plugin's shared collection (Project Settings > Dream Dynamic
+	// World > Parameter Collection); materials sample them through MF_DreamWindSample.
 
 	// ---- Dynamic volume (L2) ------------------------------------------------------------------
 

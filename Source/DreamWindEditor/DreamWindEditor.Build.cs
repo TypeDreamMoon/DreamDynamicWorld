@@ -14,6 +14,7 @@ public class DreamWindEditor : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"DreamWind",
+			"DreamDynamicWorld",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

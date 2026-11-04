@@ -25,13 +25,13 @@ class DREAMWINDEDITOR_API UDreamWindEditorLibrary : public UBlueprintFunctionLib
 
 public:
 	/**
-	 * Create (or repair) MPC_DreamWind and RT_DreamWindVolume. Existing assets keep their other
-	 * parameters; the wind parameters are added when missing. Returns false on any failure.
+	 * Create (or repair) the plugin's shared parameter collection, the wind render targets and the wind
+	 * presets. Existing assets keep their other parameters; missing ones are added. Returns false on any failure.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static bool EnsureAssets(bool bSaveAssets = true);
 
-	/** The collection at the configured path, created when missing. */
+	/** The plugin's shared collection (Project Settings > Dream Dynamic World), created when missing. */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static UMaterialParameterCollection* EnsureParameterCollection(bool bSaveAsset = true);
 
