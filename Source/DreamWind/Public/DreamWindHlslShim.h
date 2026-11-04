@@ -139,6 +139,7 @@ namespace Hlsl
 	inline float3 normalize(float3 v) { const float l = length(v); return l > 0.f ? v * (1.0f / l) : v; }
 
 	// ---- the shared model ---------------------------------------------------------------------
+	#define DW_FN inline
 	#include "DreamWindShared.h"
 
 	// ---- conversions to and from engine math ------------------------------------------------

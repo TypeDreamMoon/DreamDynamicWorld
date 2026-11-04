@@ -24,6 +24,12 @@
 #ifndef DREAMWIND_SHARED_H
 #define DREAMWIND_SHARED_H
 
+// DW_FN prefixes every function below: empty in HLSL, `inline` in C++ (DreamWindHlslShim.h defines it),
+// so the C++ translation units that all include this header never define the same function twice.
+#ifndef DW_FN
+#define DW_FN
+#endif
+
 // ---------------------------------------------------------------------------------------------
 // Parameters
 // ---------------------------------------------------------------------------------------------
@@ -52,7 +58,7 @@ struct FDreamWindVolumeParams
 	float  Enabled;    // 0 or 1
 };
 
-FDreamWindParams DW_UnpackParams(float4 P0, float4 P1, float4 P2)
+DW_FN FDreamWindParams DW_UnpackParams(float4 P0, float4 P1, float4 P2)
 {
 	FDreamWindParams P;
 	P.BaseDirection        = float3(P0.x, P0.y, P0.z);
@@ -68,7 +74,7 @@ FDreamWindParams DW_UnpackParams(float4 P0, float4 P1, float4 P2)
 	return P;
 }
 
-FDreamWindVolumeParams DW_UnpackVolume(float4 V0, float4 V1)
+DW_FN FDreamWindVolumeParams DW_UnpackVolume(float4 V0, float4 V1)
 {
 	FDreamWindVolumeParams V;
 	V.Center    = float3(V0.x, V0.y, V0.z);
@@ -84,7 +90,7 @@ FDreamWindVolumeParams DW_UnpackVolume(float4 V0, float4 V1)
 //   float math and continuous, so an FMA-contraction difference at a cell edge cannot show.
 // ---------------------------------------------------------------------------------------------
 
-uint DW_HashUInt(uint x)
+DW_FN uint DW_HashUInt(uint x)
 {
 	// lowbias32 (Chris Wellons)
 	x = x ^ (x >> 16u);
@@ -96,7 +102,7 @@ uint DW_HashUInt(uint x)
 }
 
 /** Hash of a 2D lattice cell to [0,1). */
-float DW_LatticeHash2(int cx, int cy, uint seed)
+DW_FN float DW_LatticeHash2(int cx, int cy, uint seed)
 {
 	uint h = DW_HashUInt(uint(cx) * 0x9E3779B1u + seed);
 	h = DW_HashUInt(h ^ (uint(cy) * 0x85EBCA77u));
@@ -107,7 +113,7 @@ float DW_LatticeHash2(int cx, int cy, uint seed)
  * 2D value noise with quintic interpolation. Returns (value, d/dx, d/dy) with value in [-1,1] and
  * the derivatives taken with respect to the (already scaled) input coordinates.
  */
-float3 DW_NoiseD2(float2 p, uint seed)
+DW_FN float3 DW_NoiseD2(float2 p, uint seed)
 {
 	float2 i = floor(p);
 	float2 f = p - i;
@@ -136,7 +142,7 @@ float3 DW_NoiseD2(float2 p, uint seed)
 }
 
 /** Divergence-free 2D flow: the curl of the scalar noise, (dN/dy, -dN/dx). */
-float2 DW_Curl2(float2 p, uint seed)
+DW_FN float2 DW_Curl2(float2 p, uint seed)
 {
 	float3 n = DW_NoiseD2(p, seed);
 	return float2(n.z, -n.y);
@@ -153,7 +159,7 @@ struct FDreamWindSample
 };
 
 /** Unit horizontal direction of the wind, falling back to +X when the wind is vertical. */
-float2 DW_HorizontalDir(float3 dir)
+DW_FN float2 DW_HorizontalDir(float3 dir)
 {
 	float2 along = float2(dir.x, dir.y);
 	float l = length(along);
@@ -164,7 +170,7 @@ float2 DW_HorizontalDir(float3 dir)
  * Full-quality analytic wind: base wind x travelling gust fronts (2 octaves + temporal flicker)
  * + two octaves of curl turbulence + a little vertical turbulence. About 6 noise evaluations.
  */
-FDreamWindSample DW_SampleAnalytic(FDreamWindParams P, float3 WorldPos)
+DW_FN FDreamWindSample DW_SampleAnalytic(FDreamWindParams P, float3 WorldPos)
 {
 	float3 dir    = P.BaseDirection;
 	float2 along  = DW_HorizontalDir(dir);
@@ -200,7 +206,7 @@ FDreamWindSample DW_SampleAnalytic(FDreamWindParams P, float3 WorldPos)
 }
 
 /** Cheap analytic wind for vertex-heavy consumers: 1 gust octave + temporal flicker + 1 curl octave. */
-FDreamWindSample DW_SampleAnalyticCheap(FDreamWindParams P, float3 WorldPos)
+DW_FN FDreamWindSample DW_SampleAnalyticCheap(FDreamWindParams P, float3 WorldPos)
 {
 	float3 dir    = P.BaseDirection;
 	float2 along  = DW_HorizontalDir(dir);
@@ -262,7 +268,7 @@ struct FDreamWindSourceEval
 };
 
 /** Rotate v by the INVERSE of unit quaternion q (world -> box local). */
-float3 DW_RotateInverse(float4 q, float3 v)
+DW_FN float3 DW_RotateInverse(float4 q, float3 v)
 {
 	// v' = v + 2 * cross(qv, cross(qv, v) + qw * v) with qv negated for the conjugate
 	float3 qv = float3(-q.x, -q.y, -q.z);
@@ -270,7 +276,7 @@ float3 DW_RotateInverse(float4 q, float3 v)
 	return v + t * 2.0f;
 }
 
-FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
+DW_FN FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
 {
 	float3 c = float3(S.PositionRadius.x, S.PositionRadius.y, S.PositionRadius.z);
 	float  R = max(S.PositionRadius.w, 0.001f);
@@ -329,7 +335,7 @@ FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos)
 }
 
 /** Blend a velocity toward a source's velocity by the footprint weight (times an optional rate factor). */
-float3 DW_ApplySource(float3 Velocity, FDreamWindSourceData S, float3 WorldPos, float RateFactor)
+DW_FN float3 DW_ApplySource(float3 Velocity, FDreamWindSourceData S, float3 WorldPos, float RateFactor)
 {
 	FDreamWindSourceEval E = DW_EvalSource(S, WorldPos);
 	return lerp(Velocity, E.Velocity, saturate(E.Weight * RateFactor));
@@ -341,13 +347,13 @@ float3 DW_ApplySource(float3 Velocity, FDreamWindSourceData S, float3 WorldPos, 
 // sample with a plain CLAMP sampler; the border mask hides the edge.
 // ---------------------------------------------------------------------------------------------
 
-float3 DW_VolumeUVW(float3 WorldPos, FDreamWindVolumeParams V)
+DW_FN float3 DW_VolumeUVW(float3 WorldPos, FDreamWindVolumeParams V)
 {
 	return (WorldPos - V.Center) * V.InvExtent + float3(0.5f, 0.5f, 0.5f);
 }
 
 /** 1 inside the window, fading to 0 over the outer FadeFrac of the half extent; 0 when disabled. */
-float DW_VolumeMask(float3 WorldPos, FDreamWindVolumeParams V)
+DW_FN float DW_VolumeMask(float3 WorldPos, FDreamWindVolumeParams V)
 {
 	float3 d = abs(WorldPos - V.Center) * V.InvExtent * 2.0f;   // 0 at centre, 1 at the border
 	float edge = max(d.x, max(d.y, d.z));
@@ -378,7 +384,7 @@ struct FDreamWindTerrainParams
 	                          //   heights are stored relative to it so a 16-bit texture keeps cm precision
 };
 
-FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1, float4 T2)
+DW_FN FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1, float4 T2)
 {
 	FDreamWindTerrainParams T;
 	T.Min               = float2(T0.x, T0.y);
@@ -395,7 +401,7 @@ FDreamWindTerrainParams DW_UnpackTerrain(float4 T0, float4 T1, float4 T2)
 }
 
 /** World Z (cm) of the ground / obstacle top stored in a terrain texel. */
-float DW_TerrainHeight(float4 Texel, FDreamWindTerrainParams T)
+DW_FN float DW_TerrainHeight(float4 Texel, FDreamWindTerrainParams T)
 {
 	return Texel.w + T.HeightBase;
 }
@@ -410,7 +416,7 @@ float DW_TerrainHeight(float4 Texel, FDreamWindTerrainParams T)
  * Texture UV of a logical map UV (0..1) at level Level of the atlas, clamped inside that level, for
  * a BILINEAR fetch (the terrain modulation reads level 0 this way so multiplier and steering stay smooth).
  */
-float2 DW_TerrainAtlasUV(float2 UV, int Level, FDreamWindTerrainParams T)
+DW_FN float2 DW_TerrainAtlasUV(float2 UV, int Level, FDreamWindTerrainParams T)
 {
 	float scale = exp2(-float(Level));
 	// texels of every level are 1 / W wide and 1 / (2 H) tall in atlas space
@@ -425,7 +431,7 @@ float2 DW_TerrainAtlasUV(float2 UV, int Level, FDreamWindTerrainParams T)
  * Texture UV of the CENTRE of the level-Level texel that contains a logical map UV: a bilinear fetch
  * there returns that one texel, i.e. a nearest fetch (debug / tests; the march itself is bilinear).
  */
-float2 DW_TerrainAtlasTexelUV(float2 UV, int Level, FDreamWindTerrainParams T)
+DW_FN float2 DW_TerrainAtlasTexelUV(float2 UV, int Level, FDreamWindTerrainParams T)
 {
 	float scale = exp2(-float(Level));
 	float texelU = T.InvSize.x * T.TexelSize;          // 1 / W
@@ -438,13 +444,13 @@ float2 DW_TerrainAtlasTexelUV(float2 UV, int Level, FDreamWindTerrainParams T)
 }
 
 /** UV of a world position in the terrain map; outside [0,1] means outside the map. */
-float2 DW_TerrainUV(float3 WorldPos, FDreamWindTerrainParams T)
+DW_FN float2 DW_TerrainUV(float3 WorldPos, FDreamWindTerrainParams T)
 {
 	return (float2(WorldPos.x, WorldPos.y) - T.Min) * T.InvSize;
 }
 
 /** 1 when the UV lies inside the map (and the map is enabled), 0 otherwise. */
-float DW_TerrainInside(float2 UV, FDreamWindTerrainParams T)
+DW_FN float DW_TerrainInside(float2 UV, FDreamWindTerrainParams T)
 {
 	float inside = (UV.x >= 0.0f && UV.x <= 1.0f && UV.y >= 0.0f && UV.y <= 1.0f) ? 1.0f : 0.0f;
 	return inside * T.Enabled;
@@ -454,7 +460,7 @@ float DW_TerrainInside(float2 UV, FDreamWindTerrainParams T)
  * Applies a fetched terrain texel to an analytic sample. Texel = (speed mult, steer.x, steer.y,
  * ground/obstacle height in cm above HeightBase - see DW_TerrainHeight).
  */
-FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTerrainParams T, float Inside)
+DW_FN FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTerrainParams T, float Inside)
 {
 	if (Inside <= 0.0f)
 	{
@@ -492,32 +498,32 @@ FDreamWindSample DW_ApplyTerrain(FDreamWindSample S, float4 Texel, FDreamWindTer
 #define DW_OCCLUSION_TAPS 12
 
 /** True when occlusion is worth evaluating for this sample. */
-bool DW_OcclusionActive(FDreamWindTerrainParams T, float Speed)
+DW_FN bool DW_OcclusionActive(FDreamWindTerrainParams T, float Speed)
 {
 	return T.Enabled > 0.0f && T.OcclusionStrength > 0.0f && T.OcclusionRange > 0.0f && Speed > 0.001f;
 }
 
 /** Upwind distance of tap k (1..DW_OCCLUSION_TAPS), cm. */
-float DW_OcclusionTapDistance(int k, FDreamWindTerrainParams T)
+DW_FN float DW_OcclusionTapDistance(int k, FDreamWindTerrainParams T)
 {
 	float f = float(k) / float(DW_OCCLUSION_TAPS);
 	return T.OcclusionRange * f * f;
 }
 
 /** World XY at Dist cm upwind of a sample at WorldPos; UpDir2 is the unit horizontal direction pointing UPWIND. */
-float2 DW_OcclusionXYAt(float3 WorldPos, float2 UpDir2, float Dist)
+DW_FN float2 DW_OcclusionXYAt(float3 WorldPos, float2 UpDir2, float Dist)
 {
 	return float2(WorldPos.x, WorldPos.y) + UpDir2 * Dist;
 }
 
 /** World XY of tap k. */
-float2 DW_OcclusionTapXY(float3 WorldPos, float2 UpDir2, int k, FDreamWindTerrainParams T)
+DW_FN float2 DW_OcclusionTapXY(float3 WorldPos, float2 UpDir2, int k, FDreamWindTerrainParams T)
 {
 	return DW_OcclusionXYAt(WorldPos, UpDir2, DW_OcclusionTapDistance(k, T));
 }
 
 /** Upwind distance of the midpoint between tap k-1 and tap k, cm. */
-float DW_OcclusionMidDistance(int k, FDreamWindTerrainParams T)
+DW_FN float DW_OcclusionMidDistance(int k, FDreamWindTerrainParams T)
 {
 	return 0.5f * (DW_OcclusionTapDistance(k - 1, T) + DW_OcclusionTapDistance(k, T));
 }
@@ -527,7 +533,7 @@ float DW_OcclusionMidDistance(int k, FDreamWindTerrainParams T)
  * the gap to the previous tap, so consecutive taps read the same or adjacent texels and no column
  * in between is skipped.
  */
-int DW_OcclusionTapLevel(int k, FDreamWindTerrainParams T)
+DW_FN int DW_OcclusionTapLevel(int k, FDreamWindTerrainParams T)
 {
 	float gap = DW_OcclusionTapDistance(k, T) - DW_OcclusionTapDistance(k - 1, T);
 	float ratio = gap / max(T.TexelSize, 1.0f);
@@ -544,7 +550,7 @@ int DW_OcclusionTapLevel(int k, FDreamWindTerrainParams T)
  * Folds one tap into the running shadow (0..1): an obstacle Rise cm above the sample at Dist cm
  * upwind shades it by 1 - Dist * slope / Rise, i.e. fully right behind, nothing beyond Rise / slope.
  */
-float DW_OcclusionAccumulate(float Shadow, float TapHeight, float SampleZ, float Dist, FDreamWindTerrainParams T)
+DW_FN float DW_OcclusionAccumulate(float Shadow, float TapHeight, float SampleZ, float Dist, FDreamWindTerrainParams T)
 {
 	float rise = TapHeight - SampleZ;
 	if (rise <= 0.0f)
@@ -561,13 +567,13 @@ float DW_OcclusionAccumulate(float Shadow, float TapHeight, float SampleZ, float
  * sample) = full, fading in over the first 45 cm so the edge of a solid is not a hard step. The 5 cm
  * tolerance keeps a blade sitting exactly on the baked ground from being "buried".
  */
-float DW_OcclusionSelf(float TexelHeight, float SampleZ)
+DW_FN float DW_OcclusionSelf(float TexelHeight, float SampleZ)
 {
 	return saturate((TexelHeight - SampleZ - 5.0f) / 45.0f);
 }
 
 /** Damps the wind by the accumulated shadow. Only the magnitude changes; the direction stays. */
-FDreamWindSample DW_ApplyOcclusion(FDreamWindSample S, float Shadow, FDreamWindTerrainParams T)
+DW_FN FDreamWindSample DW_ApplyOcclusion(FDreamWindSample S, float Shadow, FDreamWindTerrainParams T)
 {
 	float k = 1.0f - saturate(Shadow) * saturate(T.OcclusionStrength);
 	S.Velocity = S.Velocity * k;
