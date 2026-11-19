@@ -96,13 +96,13 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	bool bOverride_Glow = false;
 	/** Realistic material: how much the clouds' tops glow with the style's shade colour (the sky light falling on them). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_Glow", ClampMin = "0", UIMax = "4"))
-	float Glow = 0.55f;
+	float Glow = 0.75f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_BaseGlow = false;
 	/** Realistic material: how much of that glow reaches a cloud's base: lower = darker, flatter bases. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_BaseGlow", ClampMin = "0", ClampMax = "1"))
-	float BaseGlow = 0.2f;
+	float BaseGlow = 0.1f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_PaintGain = false;

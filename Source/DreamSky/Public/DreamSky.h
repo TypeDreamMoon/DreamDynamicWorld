@@ -103,7 +103,7 @@ public:
 	 * 0 = lit by the whole sky like their tops .. 1 = none. Higher = darker, flatter bases.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
-	float VolumetricBaseSkyOcclusion = 0.7f;
+	float VolumetricBaseSkyOcclusion = 0.85f;
 
 	/**
 	 * How far each sample of the volumetric clouds looks toward the sun for its shadow, km (the engine's march, for a

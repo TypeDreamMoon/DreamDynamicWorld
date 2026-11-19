@@ -30,10 +30,10 @@ uniform float CloudExtinction = 0.08;
 uniform float CloudAlbedo = 0.98;
 
 /// @group Cloud   @sort 30   @slider 0 4   @desc How much of the style's shade colour the clouds glow with at their tops (the sky light falling on them)
-uniform float CloudGlow = 0.55;
+uniform float CloudGlow = 0.75;
 
 /// @group Cloud   @sort 40   @slider 0 1   @desc How much of that glow reaches a cloud's base (the sky above it is hidden by the cloud): lower = darker, flatter bases
-uniform float BaseGlow = 0.2;
+uniform float BaseGlow = 0.1;
 
 /// @group Cloud   @sort 50   @slider 0 1   @desc How mottled an overcast deck is from below (darker where it is thicker)
 uniform float DeckMottle = 0.45;
@@ -45,7 +45,7 @@ uniform float ScatterBackward = -0.3;
 /// @group Scattering   @sort 30   @slider 0 1   @desc Blend between the forward and the backward lobe
 uniform float ScatterBlend = 0.5;
 /// @group Scattering   @sort 40   @slider 0 1   @desc Multiple scattering: how much light keeps scattering inside
-uniform float MultiScatter = 0.75;
+uniform float MultiScatter = 0.85;
 /// @group Scattering   @sort 50   @slider 0 1   @desc How much the cloud occludes its own multiple scattering: higher = the light spreads less deep, the bases darker
 uniform float MultiScatterOcclusion = 0.5;
 /// @group Scattering   @sort 60   @slider 0 1   @desc How directional multiple scattering stays
@@ -142,7 +142,7 @@ export void M_DreamVolumetricCloud(inout material m)
 	UE.VolumetricAdvancedMaterialOutput(PhaseG = ScatterForward, PhaseG2 = ScatterBackward, PhaseBlend = ScatterBlend,
 		MultiScatteringContribution = MultiScatter, MultiScatteringOcclusion = MultiScatterOcclusion,
 		MultiScatteringEccentricity = MultiScatterEccentricity, ConservativeDensity = float3(Conservative, Conservative, Conservative),
-		MultiScatteringApproximationOctaveCount = 2, bClampMultiScatteringContribution = false, bGroundContribution = true,
+		MultiScatteringApproximationOctaveCount = 2, bClampMultiScatteringContribution = false, bGroundContribution = false,
 		bGrayScaleMaterial = true);
 
 	m.BaseColor = SampleAlbedo;
