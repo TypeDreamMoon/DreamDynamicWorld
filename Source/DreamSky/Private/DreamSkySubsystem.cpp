@@ -133,7 +133,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	const FDreamCelestialState& Celestial = Clock.GetCelestial();
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->CloudsShadowTheSun());
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).

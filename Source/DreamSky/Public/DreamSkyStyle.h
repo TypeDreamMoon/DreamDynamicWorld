@@ -30,8 +30,12 @@ public:
 	/** Lights, ambient, fog and exposure at a moment (before any smoothing). */
 	FDreamSkyLighting EvaluateLighting(const FDreamCelestialState& Celestial) const;
 
-	/** What the weather does to both (when Environment.bActive): clouds, a dimmer and greyer sky, more fog. */
-	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look) const;
+	/**
+	 * What the weather does to both (when Environment.bActive): clouds, a dimmer and greyer sky, more fog.
+	 * bCloudsShadowTheSun: the clouds cast their own shadow from the sun (ADreamSky::CloudsShadowTheSun), so an overcast
+	 * sky does not dim the sun as well (OvercastLightDimming still dims the moon).
+	 */
+	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
 
 	/** What being indoors does to the lighting (FDreamViewOcclusion from the view probe). */
 	void ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamSkyLighting& Lighting) const;

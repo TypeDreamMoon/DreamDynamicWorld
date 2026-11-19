@@ -312,6 +312,11 @@ EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
 	return Clouds;
 }
 
+bool ADreamSky::CloudsShadowTheSun() const
+{
+	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric && SunLight && SunLight->bCastCloudShadows && SunLight->CloudShadowStrength > 0.0f;
+}
+
 float ADreamSky::GetEffectiveDomeRadius() const
 {
 	// The engine's clouds stop at whatever the depth buffer holds, and the dome is in it.
