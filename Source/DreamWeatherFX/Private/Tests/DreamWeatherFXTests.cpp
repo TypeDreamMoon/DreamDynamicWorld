@@ -110,6 +110,63 @@ bool FDreamWeatherFXPrecipitationTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherFXLightningBoltTest, "DreamWeather.FX.LightningBolt", DreamWeatherFX::Tests::Flags)
+bool FDreamWeatherFXLightningBoltTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeatherFX::Tests;
+	using namespace DreamWeather::Tags;
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	if (!Cast<UNiagaraSystem>(S->LightningBolt.TryLoad()))
+	{
+		AddWarning(TEXT("No bolt effect: NS_DreamLightningBolt is not built in this project (see DreamWeather.FX.Assets)."));
+		return true;
+	}
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	if (!TestNotNull(TEXT("world"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT { World->DestroyWorld(false); };
+	UDreamWorldSubsystem* Clock = World->GetSubsystem<UDreamWorldSubsystem>();
+	UDreamWeatherFXSubsystem* FX = UDreamWeatherFXSubsystem::Get(World);
+	UDreamWeatherSubsystem* Weather = World->GetSubsystem<UDreamWeatherSubsystem>();
+	if (!TestNotNull(TEXT("clock"), Clock) || !TestNotNull(TEXT("weather effects"), FX) || !TestNotNull(TEXT("weather"), Weather))
+	{
+		return false;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = MakePreset(TEXT("Overcast"), { { Channel_CloudCoverage, 1.0f } });
+	FActorSpawnParameters Spawn;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeather* Actor = World->SpawnActor<ADreamWeather>(Spawn);
+	Fixed->Rename(nullptr, Actor);
+	Actor->Selector = Fixed;
+	Clock->ReportView(FVector(0, 0, 170), FRotator::ZeroRotator, true);
+	Clock->Tick(0.016f);
+
+	// A strike two kilometres out: a bolt comes down onto it (no ground here, so it ends at the strike).
+	Weather->StrikeLightning(FVector(200000, 0, 170), 1.0f);
+	Clock->Tick(0.016f);
+	TArray<UNiagaraComponent*> Bolts = FX->GetBolts();
+	if (!TestEqual(TEXT("one bolt"), Bolts.Num(), 1))
+	{
+		return false;
+	}
+	TestTrue(TEXT("the bolt effect is the configured one"), Bolts[0]->GetAsset() == Cast<UNiagaraSystem>(S->LightningBolt.TryLoad()));
+	TestTrue(TEXT("standing on the strike"), Bolts[0]->GetComponentLocation().Equals(FVector(200000, 0, 170), 1.0));
+
+	// A strike beyond reach draws none; the bolt goes once its flash is long over.
+	Weather->StrikeLightning(FVector(S->BoltMaxDistance + 100000.0f, 0, 170), 1.0f);
+	Clock->Tick(0.016f);
+	TestEqual(TEXT("no bolt for a strike beyond reach"), FX->GetBolts().Num(), 1);
+	for (int32 i = 0; i < 10; ++i)
+	{
+		Clock->Tick(0.5f);
+	}
+	TestEqual(TEXT("bolts are let go"), FX->GetBolts().Num(), 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherFXAssetsTest, "DreamWeather.FX.Assets", DreamWeatherFX::Tests::Flags)
 bool FDreamWeatherFXAssetsTest::RunTest(const FString& Parameters)
 {
@@ -123,6 +180,9 @@ bool FDreamWeatherFXAssetsTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("the snow effect is built (DFX/Effects/NS_DreamSnow.dfs)"), Cast<UNiagaraSystem>(S->Snow.System.TryLoad()));
 	TestNotNull(TEXT("the flake material is built (DShader/Weather/M_DreamSnowFlake.dss)"),
 		LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Weather/M_DreamSnowFlake.M_DreamSnowFlake")));
+	TestNotNull(TEXT("the lightning bolt is built (DFX/Effects/NS_DreamLightningBolt.dfs)"), Cast<UNiagaraSystem>(S->LightningBolt.TryLoad()));
+	TestNotNull(TEXT("the bolt material is built (DShader/Weather/M_DreamLightningBolt.dss)"),
+		LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Weather/M_DreamLightningBolt.M_DreamLightningBolt")));
 	return true;
 }
 

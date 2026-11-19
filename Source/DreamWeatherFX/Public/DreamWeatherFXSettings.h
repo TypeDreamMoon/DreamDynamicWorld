@@ -108,4 +108,23 @@ public:
 	/** Seconds between hand-overs of the paths to the effects. */
 	UPROPERTY(Config, EditAnywhere, Category = "Fall Paths", meta = (ClampMin = "0", UIMax = "1"))
 	float UploadInterval = 0.1f;
+
+	/** Draw a bolt where lightning strikes (the flash on the sky is drawn either way). */
+	UPROPERTY(Config, EditAnywhere, Category = "Lightning")
+	bool bLightningBolts = true;
+
+	/**
+	 * The bolt. It is given User.Start (the cloud base above the strike), User.End (the strike point on the ground),
+	 * User.Seed (its shape) and, every frame, User.Glow (the flash's strokes, 0..1): see NS_DreamLightningBolt.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Lightning", meta = (AllowedClasses = "/Script/Niagara.NiagaraSystem"))
+	FSoftObjectPath LightningBolt;
+
+	/** Height above the ground where a bolt leaves the cloud, cm. */
+	UPROPERTY(Config, EditAnywhere, Category = "Lightning", meta = (ClampMin = "1000", UIMax = "500000"))
+	float BoltHeight = 120000.0f;
+
+	/** Strikes further from the view than this draw no bolt, cm. */
+	UPROPERTY(Config, EditAnywhere, Category = "Lightning", meta = (ClampMin = "0", UIMax = "5000000"))
+	float BoltMaxDistance = 1500000.0f;
 };

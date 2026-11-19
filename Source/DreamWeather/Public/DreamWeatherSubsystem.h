@@ -183,6 +183,9 @@ public:
 	/** The flash now, 0..1: a few bright strokes, then a fading afterglow. */
 	float GetLightningFlash() const { return Flash; }
 
+	/** The flash now as a share of its own peak (its strokes and afterglow, whatever the strike's strength), 0..1. */
+	float GetLightningFlashShape() const { return FlashPeak > 1.0e-4f ? FMath::Clamp(Flash / FlashPeak, 0.0f, 1.0f) : 0.0f; }
+
 	/**
 	 * Strike lightning here now (a scripted strike: a spell, a story beat), whatever the weather. It flashes,
 	 * is drawn by a lightning rod in reach and fires OnLightningStrike like any other. Intensity 0..1.

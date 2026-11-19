@@ -1,0 +1,37 @@
+// M_DreamLightningBolt.dss -- one segment of a lightning bolt: a velocity-aligned Niagara sprite.
+//
+// Painted the way stylised skies draw lightning: a hard white core line with a soft coloured glow around it,
+// added on top of the sky. The particle colour tints the glow; its alpha is the flash's brightness now
+// (DreamWeatherFX drives it), so the bolt flickers with the sky's strokes.
+#pragma material(ShadingModel = Unlit, BlendMode = Additive, TwoSided = true, bUsedWithNiagaraSprites = true)
+
+/// @group Look @desc Brightness of the core line
+uniform float CoreBrightness = 30.0;
+
+/// @group Look @desc Brightness of the glow around it
+uniform float GlowBrightness = 6.0;
+
+/// @group Look @desc Width of the core line across the sprite, 0..1
+uniform float CoreWidth = 0.28;
+
+/// @custom
+float2 BoltProfile(float2 UV, float Core)
+{
+    // Across the sprite: a crisp core line and a soft glow falling off to the edges; the ends overlap the
+    // neighbouring segments, so they are left whole.
+    float Across = abs(UV.x * 2.0 - 1.0);
+    float Aa = max(fwidth(Across), 1.0e-4);
+    float Line = 1.0 - smoothstep(Core - Aa, Core + Aa, Across);
+    float Glow = pow(saturate(1.0 - Across), 2.5);
+    return float2(Line, Glow);
+}
+
+export void M_DreamLightningBolt(inout material m)
+{
+    float2 UV = UE.TexCoord(Index = 0);
+    float4 Particle = UE.VertexColor();
+    float2 P = BoltProfile(UV, CoreWidth);
+    float3 Core = float3(1.0, 1.0, 1.0) * P.x * CoreBrightness;
+    float3 Glow = Particle.rgb * P.y * GlowBrightness;
+    m.EmissiveColor = (Core + Glow) * Particle.a;
+}

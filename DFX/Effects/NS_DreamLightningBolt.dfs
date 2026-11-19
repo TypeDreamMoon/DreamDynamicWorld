@@ -1,0 +1,71 @@
+// DreamWeather: one lightning bolt (GPU).
+//
+// Spawned by UDreamWeatherFXSubsystem where lightning strikes: Start is the cloud base above the strike, End
+// the strike point, Seed picks the bolt's shape. One burst draws the whole bolt (DreamLightningBolt.dfm: a
+// jagged main channel and a few branches, one segment per particle); the subsystem drives Glow every frame
+// from the flash, so the bolt flickers with the sky's strokes and dies with its afterglow.
+System(Name="Weather/Effects/NS_DreamLightningBolt", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        ModulePaths = ["/DreamDynamicWorld/Weather/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-60000, -60000, -2000, 60000, 60000, 200000);
+    }
+
+    Properties = {
+        Vector Start = (0, 0, 120000)            [ Group="Bolt"; Description="Where it leaves the cloud, world cm." ];
+        Vector End   = (0, 0, 0)                 [ Group="Bolt"; Description="Where it strikes, world cm." ];
+        float  Seed  = 0.0                       [ Group="Bolt"; Description="Picks the bolt's shape." ];
+        float  Glow  = 1.0                       [ Group="Look"; Description="Brightness now, 0..1 (the flash's strokes)." ];
+        float  Width = 60.0                      [ Group="Look"; Description="Main channel width, cm (the subsystem widens it with distance, so it stays a few pixels wide)." ];
+        float  Life  = 2.0                       [ Group="Look"; Description="Seconds the segments live (the subsystem fades Glow out before)." ];
+        Color  Tint  = (0.85, 0.9, 1.0, 1.0)     [ Group="Look" ];
+    }
+
+    Emitter Bolt
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 64;
+            FixedBounds        = box(-60000, -60000, -2000, 60000, 60000, 200000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Once, LoopDuration = 0.05);
+            SpawnBurst_Instantaneous(SpawnCount = 48);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode   = DirectSet,
+                Lifetime       = User.Life,
+                ColorMode      = DirectSet,
+                Color          = User.Tint,
+                SpriteSizeMode = NonUniform,
+                SpriteSize     = hlsl { float2(User.Width, 100.0) }
+            );
+            DreamLightningBolt(Start = User.Start, End = User.End, Seed = User.Seed, MainSegments = 24.0, Branches = 3.0, BranchSegments = 8.0, Width = User.Width);
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            // Nothing moves a segment; its velocity only aims the sprite along the segment.
+            Color Particles.Color = hlsl { float4(User.Tint.rgb, User.Tint.a * User.Glow) };
+        }
+
+        SpriteRenderer Segment
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamLightningBolt";
+            Alignment  = VelocityAligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+            Bind Velocity   -> Particles.Velocity;
+        }
+    }
+}

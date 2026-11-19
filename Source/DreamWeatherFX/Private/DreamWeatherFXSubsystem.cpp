@@ -7,6 +7,8 @@
 #include "DreamWindSubsystem.h"
 #include "DreamWorldSubsystem.h"
 
+#include "CollisionQueryParams.h"
+#include "Engine/HitResult.h"
 #include "Engine/World.h"
 #include "GameFramework/WorldSettings.h"
 #include "NiagaraComponent.h"
@@ -40,6 +42,7 @@ UDreamWeatherFXSettings::UDreamWeatherFXSettings()
 	Snow.FallSpeed = 130.0f;
 	Snow.WindDrift = 0.8f;
 	Snow.MaxSlant = 2.0f;
+	LightningBolt = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamLightningBolt.NS_DreamLightningBolt"));
 }
 
 UDreamWeatherFXSubsystem* UDreamWeatherFXSubsystem::Get(const UObject* WorldContextObject)
@@ -67,6 +70,7 @@ void UDreamWeatherFXSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		WeatherSubsystem = Weather;
 		FrameHandle = Weather->OnWeatherFrame.AddUObject(this, &UDreamWeatherFXSubsystem::HandleWeatherFrame);
 		StoppedHandle = Weather->OnWeatherStopped.AddUObject(this, &UDreamWeatherFXSubsystem::StopPrecipitation);
+		Weather->OnLightningStrike.AddUniqueDynamic(this, &UDreamWeatherFXSubsystem::HandleLightningStrike);
 	}
 }
 
@@ -76,7 +80,16 @@ void UDreamWeatherFXSubsystem::Deinitialize()
 	{
 		Weather->OnWeatherFrame.Remove(FrameHandle);
 		Weather->OnWeatherStopped.Remove(StoppedHandle);
+		Weather->OnLightningStrike.RemoveDynamic(this, &UDreamWeatherFXSubsystem::HandleLightningStrike);
 	}
+	for (FBolt& Bolt : Bolts)
+	{
+		if (UNiagaraComponent* Effect = Bolt.Effect.Get())
+		{
+			Effect->DestroyComponent();
+		}
+	}
+	Bolts.Reset();
 	for (TObjectPtr<UNiagaraComponent>& Effect : Effects)
 	{
 		if (Effect)
@@ -86,6 +99,94 @@ void UDreamWeatherFXSubsystem::Deinitialize()
 		}
 	}
 	Super::Deinitialize();
+}
+
+TArray<UNiagaraComponent*> UDreamWeatherFXSubsystem::GetBolts() const
+{
+	TArray<UNiagaraComponent*> Alive;
+	for (const FBolt& Bolt : Bolts)
+	{
+		if (UNiagaraComponent* Effect = Bolt.Effect.Get())
+		{
+			Alive.Add(Effect);
+		}
+	}
+	return Alive;
+}
+
+void UDreamWeatherFXSubsystem::HandleLightningStrike(const FDreamLightningStrike& Strike)
+{
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	UWorld* World = GetWorld();
+	if (!World || !S->bLightningBolts || Strike.Distance > S->BoltMaxDistance || (!World->IsGameWorld() && !S->bPrecipitationInEditor))
+	{
+		return;
+	}
+	UNiagaraSystem* System = Cast<UNiagaraSystem>(S->LightningBolt.TryLoad());
+	if (!System)
+	{
+		return;
+	}
+
+	// The strike is placed at the view's height: find the ground under it (or keep it where it is).
+	FVector End = Strike.Location;
+	FHitResult Hit;
+	const FCollisionQueryParams Query(SCENE_QUERY_STAT(DreamLightningBolt), false);
+	if (World->LineTraceSingleByChannel(Hit, End + FVector(0.0, 0.0, S->BoltHeight), End - FVector(0.0, 0.0, S->BoltHeight), ECC_Visibility, Query))
+	{
+		End = Hit.ImpactPoint;
+	}
+	// A bolt leaves the cloud a little off to one side of where it lands; its shape comes from the same hash.
+	const uint32 Shape = HashCombine(GetTypeHash(++BoltsDrawn), GetTypeHash(Strike.Location));
+	const double LeanAngle = double(Shape & 0xffffu) / 65535.0 * UE_DOUBLE_TWO_PI;
+	const double Lean = double(S->BoltHeight) * 0.2 * double((Shape >> 16) & 0xffu) / 255.0;
+	const FVector Start = End + FVector(FMath::Cos(LeanAngle) * Lean, FMath::Sin(LeanAngle) * Lean, S->BoltHeight);
+
+	// Owned like the precipitation effects (not through the spawn helpers, which refuse to spawn where nothing
+	// renders); the subsystem lets it go once its flash is over.
+	UObject* Outer = World->GetWorldSettings() ? static_cast<UObject*>(World->GetWorldSettings()) : static_cast<UObject*>(World);
+	UNiagaraComponent* Effect = NewObject<UNiagaraComponent>(Outer, NAME_None, RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+	Effect->SetAsset(System);
+	Effect->SetAutoActivate(false);
+	Effect->SetAutoDestroy(false);   // UpdateBolts lets it go (a system that cannot run would otherwise vanish at once)
+	Effect->SetUsingAbsoluteLocation(true);
+	Effect->SetUsingAbsoluteRotation(true);
+	Effect->SetWorldLocation(End);
+	Effect->RegisterComponentWithWorld(World);
+	Effect->SetVariableVec3(TEXT("User.Start"), Start);
+	Effect->SetVariableVec3(TEXT("User.End"), End);
+	Effect->SetVariableFloat(TEXT("User.Seed"), float(Shape % 997u));
+	Effect->SetVariableFloat(TEXT("User.Glow"), 1.0f);
+	// A few pixels wide however far away (about 5 milliradians), never thinner than a real channel's glow.
+	Effect->SetVariableFloat(TEXT("User.Width"), FMath::Clamp(Strike.Distance * 0.005f, 60.0f, 5000.0f));
+	Effect->Activate(true);
+	FBolt& Bolt = Bolts.AddDefaulted_GetRef();
+	Bolt.Effect = Effect;
+}
+
+void UDreamWeatherFXSubsystem::UpdateBolts(const UDreamWeatherSubsystem& Weather, float DeltaTime)
+{
+	// A bolt outlives its flash by a moment at most; one that is still around after that is let go.
+	constexpr float MaxAge = 4.0f;
+	const float Shape = Weather.GetLightningFlashShape();
+	for (int32 i = Bolts.Num() - 1; i >= 0; --i)
+	{
+		FBolt& Bolt = Bolts[i];
+		UNiagaraComponent* Effect = Bolt.Effect.Get();
+		Bolt.Age += FMath::Max(DeltaTime, 0.0f);
+		if (!Effect || Bolt.Age > MaxAge)
+		{
+			if (Effect)
+			{
+				Effect->DestroyComponent();
+			}
+			Bolts.RemoveAt(i);
+			continue;
+		}
+		// The newest bolt is the one flashing; an older one dies away fast.
+		Bolt.Glow = i == Bolts.Num() - 1 ? Shape : Bolt.Glow * FMath::Exp(-12.0f * FMath::Max(DeltaTime, 0.0f));
+		Effect->SetVariableFloat(TEXT("User.Glow"), Bolt.Glow);
+	}
 }
 
 UNiagaraComponent* UDreamWeatherFXSubsystem::GetEffect(int32 Layer) const
@@ -110,6 +211,7 @@ void UDreamWeatherFXSubsystem::StopPrecipitation()
 void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_DreamWeatherPrecipitation);
+	UpdateBolts(Weather, DeltaTime);
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
 	UWorld* World = GetWorld();
 	if (!World || !S->bPrecipitation || (!World->IsGameWorld() && !S->bPrecipitationInEditor))

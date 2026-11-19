@@ -10,15 +10,17 @@
 class UNiagaraComponent;
 class UDreamWorldSubsystem;
 class UDreamWeatherSubsystem;
+struct FDreamLightningStrike;
 struct FDreamPrecipitationLayer;
 struct FDreamWeatherSample;
 
 /**
- * Rain and snow around the view. Each frame the weather runs (UDreamWeatherSubsystem::OnWeatherFrame), this
- * keeps a buffer of fall paths for each kind of precipitation that is falling — traced against the level,
- * stopped by the weather's shelters, slanted by the wind (FDreamWeatherFallPaths) — and hands them to its
- * effect, which draws the drops along them. Nothing falls indoors, splashes land on what the rain lands on,
- * and an effect only lives while its precipitation falls. What it draws is in UDreamWeatherFXSettings.
+ * Rain, snow and lightning bolts around the view. Each frame the weather runs (UDreamWeatherSubsystem::
+ * OnWeatherFrame), this keeps a buffer of fall paths for each kind of precipitation that is falling — traced
+ * against the level, stopped by the weather's shelters, slanted by the wind (FDreamWeatherFallPaths) — and hands
+ * them to its effect, which draws the drops along them. Nothing falls indoors, splashes land on what the rain
+ * lands on, and an effect only lives while its precipitation falls. Where lightning strikes within reach, a bolt
+ * comes down from the cloud base and flickers with the flash. What it draws is in UDreamWeatherFXSettings.
  */
 UCLASS()
 class DREAMWEATHERFX_API UDreamWeatherFXSubsystem : public UWorldSubsystem
@@ -56,7 +58,26 @@ public:
 	/** Stop spawning; what is falling finishes. */
 	void StopPrecipitation();
 
+	/** The bolts alive now, newest last. */
+	TArray<UNiagaraComponent*> GetBolts() const;
+
 private:
+	/** A lightning strike: draw its bolt if it is within reach. */
+	UFUNCTION()
+	void HandleLightningStrike(const FDreamLightningStrike& Strike);
+
+	/** The newest bolt follows the flash; older ones fade out. */
+	void UpdateBolts(const UDreamWeatherSubsystem& Weather, float DeltaTime);
+
+	struct FBolt
+	{
+		TWeakObjectPtr<UNiagaraComponent> Effect;
+		float Glow = 1.0f;
+		float Age = 0.0f;
+	};
+	TArray<FBolt> Bolts;
+	int32 BoltsDrawn = 0;
+
 	struct FLayerState
 	{
 		FDreamWeatherFallPaths Paths;
