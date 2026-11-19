@@ -19,8 +19,9 @@
 //     cracked open while the cover is short of full; toward rain and storms a deep deck with a low, ragged base;
 //   - under storm darkness, storm cells raise cumulonimbus out of the deck (DCS_Cumulonimbus): a billowed column up to
 //     the tropopause, an anvil spread downwind there with mammatus under it, the overshooting top over the core;
-//   - billows (the noise's Worley octaves) erode it -- erosion only, it never adds cloud -- small clouds most, a deck's
-//     base lumpy, its inside hardly; a finer octave near the view frays the edges.
+//   - billows (the noise's Worley octaves, warped and gathered into clumps by its Perlin-Worley channel) erode it --
+//     erosion only, it never adds cloud -- small clouds most, a deck's base lumpy, its inside hardly; a finer octave
+//     near the view frays the edges.
 // The volumetric material turns the density into extinction; the toon march draws the surface where the solid shape
 // crosses a low threshold.
 
@@ -271,9 +272,14 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	// smooth Perlin-Worley for larger irregularity; gathered toward the middle with a long upper tail, as UDS's cells
 	// are (median about 0.5, a tenth above 0.65), so only the strongest cells survive a high threshold. It shifts a
 	// little with height (towers lean and change as they climb). Through the phase each cell rises out of nothing and
-	// falls apart again: from its base up, as the noise is read further along the phase low down than high up.
-	float4 F = Noise.SampleLevel(NoiseSampler, float3(P / (2400000.0 * Scale), 0.61 + Phase - 0.25 * H), 0);
-	float Form = 0.65 * F.g + 0.35 * F.r;
+	// falls apart again: from its base up, as the noise is read further along the phase low down than high up. Higher
+	// up it is read further upwind, so the clouds lean downwind as they climb (some 400 m at a small cumulus' top).
+	float2 Wind = dot(Cloud1.xy, Cloud1.xy) > 1.0e-6 ? normalize(Cloud1.xy) : float2(0.866, 0.5);
+	float2 PF = P - Wind * (H * 200000.0 * Scale);
+	float4 F = Noise.SampleLevel(NoiseSampler, float3(PF / (2400000.0 * Scale), 0.61 + Phase - 0.25 * H), 0);
+	// (With a little of the finest channel, some 750 m cells: a small cumulus, cut near the top of one Worley cell, is
+	// otherwise a round cap; this makes it a cluster of unequal swellings.)
+	float Form = 0.55 * F.g + 0.3 * F.r + 0.15 * F.a;
 	// The base is level, lifted here and there by the smooth channel (a little more under an overcast; a storm's base
 	// hangs low and even).
 	float Storminess = smoothstep(0.35, 0.7, S.Dark);
@@ -285,7 +291,9 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	float Grow = lerp(lerp(0.3, 1.0, smoothstep(0.5, 1.0, saturate(Cloud2.x))), 1.0, Closing);
 	float Hs = H / Grow;
 	float Hf = saturate(Hs - Lift * (1.0 - Hs));
-	float3 Profile = DCS_Profile(X, Hf);
+	// (A cumulus is no dome: its top swells unevenly, a turret here climbing a quarter higher, a shoulder there lower,
+	// as the formation's finer channel says, over a flat base.)
+	float3 Profile = DCS_Profile(X, saturate(Hf / lerp(0.75, 1.25, F.b)));
 	Profile.z *= lerp(1.3, 1.0, Grow);
 	float Threshold = pow(1.0 - Spread / 6.5, 3.0) - 0.25;
 	float BaseU = (Form - Threshold) / (1.0 - Threshold) - (1.0 - Profile.x);
@@ -491,12 +499,21 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	// ones alone leave round lumps like grapes, so a quarter of the next octave goes with them. The rim is pared back
 	// a little as well, whatever the billows there.) A deck is all one body: all the octaves throughout, or its
 	// underside swells in large smooth bubbles.
-	float3 Q = float3(P, Z) / (500000.0 * Scale);
+	// The billows are no balls (Worley alone gave round lumps of one size, each lit through near the sun and each
+	// shading a ring on its neighbours -- grapes): the field they are read from is warped a little (some 300 m, by the
+	// formation's smooth and finer channel, so each billow is dented its own way; much more drew them out into streaks
+	// along the Worley channel's creases), and the smooth Perlin-Worley channel gathers them into clumps of every size
+	// here and parts them there, crowded cauliflower rather than beads. They carve the shape's outer part; deep in a
+	// large body they only dent it, so its middle shows no rings.
+	float3 Warp = float3(F.r - 0.5, F.b - 0.5, 0.5 * (F.r + F.b) - 0.5) * (30000.0 * Scale);
+	float3 Q = (float3(P, Z) + Warp) / (500000.0 * Scale);
 	float4 E = Noise.SampleLevel(NoiseSampler, Q, 0);
 	float Deep = max(smoothstep(0.1, 0.4, Base), S.Deck);
-	float Billow = lerp(0.75 * E.g + 0.25 * E.b, dot(E.gba, float3(0.5, 0.33, 0.17)), Deep);
+	float Worley = lerp(0.75 * E.g + 0.25 * E.b, dot(E.gba, float3(0.5, 0.33, 0.17)), Deep);
+	float Billow = saturate(Worley + 0.4 * (E.r - 0.5));
 	float Rim = 1.0 - smoothstep(0.0, 0.2, Base);
-	float Shape = Base - (pow(saturate(1.0 - Billow), 1.5) + 0.08 * Rim) * Cloud2.y * Profile.z;
+	float Depth = lerp(1.0, 0.4, smoothstep(0.35, 0.8, Base));
+	float Shape = Base - (pow(saturate(1.0 - Billow), 1.5) + 0.08 * Rim) * Cloud2.y * Profile.z * Depth;
 	// Near the view a finer octave frays the edges (it fades out with distance, as UDS's high frequency does), within
 	// the body, not off its thinnest rim.
 	if (Detail > 0.0 && Shape > 0.0)
