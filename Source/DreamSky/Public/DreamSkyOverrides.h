@@ -88,15 +88,21 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_Extinction = false;
-	/** Extinction of a solid cloud, per metre (either material): higher = harder edges, the inside unseen. */
+	/** Extinction of a solid cloud, per metre (either material; realistic 0.08, painted 0.3): higher = harder edges, the inside unseen. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_Extinction", ClampMin = "0.005", UIMax = "1"))
 	float Extinction = 0.08f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_Glow = false;
-	/** Realistic material: how much the clouds glow with the style's shade colour (keeps undersides from going grey). */
+	/** Realistic material: how much the clouds' tops glow with the style's shade colour (the sky light falling on them). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_Glow", ClampMin = "0", UIMax = "4"))
-	float Glow = 1.7f;
+	float Glow = 0.55f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	bool bOverride_BaseGlow = false;
+	/** Realistic material: how much of that glow reaches a cloud's base: lower = darker, flatter bases. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_BaseGlow", ClampMin = "0", ClampMax = "1"))
+	float BaseGlow = 0.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_PaintGain = false;
@@ -105,10 +111,16 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	float PaintGain = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	bool bOverride_EdgeSoftness = false;
+	/** Painted material: how wide the soft outer skin of a cloud is: wider = softer, cleaner outlines. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_EdgeSoftness", ClampMin = "0.02", UIMax = "0.3"))
+	float EdgeSoftness = 0.12f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_HalfToneAt = false;
 	/** Painted material: where the half tone starts (light reaching the cloud, 0..1). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_HalfToneAt", ClampMin = "0", ClampMax = "1"))
-	float HalfToneAt = 0.3f;
+	float HalfToneAt = 0.32f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_LitToneAt = false;
@@ -120,7 +132,7 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	bool bOverride_ToneSoftness = false;
 	/** Painted material: how soft the edges between the tones are. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_ToneSoftness", ClampMin = "0.005", UIMax = "0.2"))
-	float ToneSoftness = 0.05f;
+	float ToneSoftness = 0.06f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_SilverLining = false;
