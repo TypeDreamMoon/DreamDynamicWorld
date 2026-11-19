@@ -34,6 +34,8 @@ param(
     # Turn the view before the tour (degrees); the level's camera otherwise.
     [Nullable[double]]$Pitch,
     [Nullable[double]]$Yaw,
+    # Raise the view before the tour (cm): to look at the clouds from among or above them.
+    [Nullable[double]]$Rise,
     # Open the window off screen (it still renders), so it covers nothing while someone else uses the desktop.
     [switch]$OffScreen,
     [switch]$Force
@@ -76,6 +78,7 @@ $Editor = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
 $Tour = "DreamWorld.ShotTour Hours=$HourList Prefix=$Prefix Settle=$Settle"
 if ($null -ne $Pitch) { $Tour += " Pitch=$(([double]$Pitch).ToString([System.Globalization.CultureInfo]::InvariantCulture))" }
 if ($null -ne $Yaw) { $Tour += " Yaw=$(([double]$Yaw).ToString([System.Globalization.CultureInfo]::InvariantCulture))" }
+if ($null -ne $Rise) { $Tour += " Rise=$(([double]$Rise).ToString([System.Globalization.CultureInfo]::InvariantCulture))" }
 $Exec = @($Commands) + @("$Tour Quit")
 $Arguments = "`"$Project`" $Map -game -windowed -ResX=$ResX -ResY=$ResY -nosound -nosplash -unattended -abslog=`"$Log`" " +
     "-ExecCmds=`"$($Exec -join ',')`""

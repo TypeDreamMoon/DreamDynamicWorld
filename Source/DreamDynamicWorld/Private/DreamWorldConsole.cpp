@@ -9,6 +9,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/Paths.h"
@@ -103,6 +104,8 @@ namespace DreamWorld::Console
 		bool bQuit = false;
 		TOptional<float> Pitch;
 		TOptional<float> Yaw;
+		/** Raise the view this far before the first shot, cm (to look at the clouds from among or above them). */
+		TOptional<float> Rise;
 
 		virtual void Tick(float DeltaTime) override
 		{
@@ -113,6 +116,7 @@ namespace DreamWorld::Console
 				Finish(nullptr);
 				return;
 			}
+			Raise(*W);
 			Aim(*W);
 			if (FramesLeft > 0)
 			{
@@ -157,6 +161,27 @@ namespace DreamWorld::Console
 		virtual TStatId GetStatId() const override { RETURN_QUICK_DECLARE_CYCLE_STAT(FDreamWorldShotTour, STATGROUP_Tickables); }
 
 	private:
+		/** Raises the view (a camera actor, or the player's pawn) by Rise, once. */
+		void Raise(UWorld& W)
+		{
+			if (!Rise.IsSet() || bRaised)
+			{
+				return;
+			}
+			APlayerController* PC = W.GetFirstPlayerController();
+			AActor* Target = PC ? PC->GetViewTarget() : nullptr;
+			if (Target && !Target->IsA<ACameraActor>() && PC->GetPawn())
+			{
+				Target = PC->GetPawn();
+			}
+			if (Target)
+			{
+				Target->AddActorWorldOffset(FVector(0.0, 0.0, Rise.GetValue()));
+				bRaised = true;
+			}
+		}
+		bool bRaised = false;
+
 		/** Turns the view (a camera actor, or the player's control rotation) to Pitch / Yaw, when given. */
 		void Aim(UWorld& W) const
 		{
@@ -206,7 +231,7 @@ namespace DreamWorld::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs ShotTourCommand(
 		TEXT("DreamWorld.ShotTour"),
-		TEXT("DreamWorld.ShotTour [Hours=0/3/6/...] [Prefix=Day] [Settle=30] [Pitch=deg] [Yaw=deg] [Quit]: stop the clock and screenshot each hour into Saved/Screenshots/<platform>/DreamWorld (hours separated by / or ,; use / inside -ExecCmds, which splits at commas). Pitch / Yaw turn the view first."),
+		TEXT("DreamWorld.ShotTour [Hours=0/3/6/...] [Prefix=Day] [Settle=30] [Pitch=deg] [Yaw=deg] [Rise=cm] [Quit]: stop the clock and screenshot each hour into Saved/Screenshots/<platform>/DreamWorld (hours separated by / or ,; use / inside -ExecCmds, which splits at commas). Pitch / Yaw turn the view first, Rise raises it."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			TUniquePtr<FShotTour> Tour = MakeUnique<FShotTour>();
@@ -249,6 +274,10 @@ namespace DreamWorld::Console
 				else if (Key.Equals(TEXT("Yaw"), ESearchCase::IgnoreCase))
 				{
 					Tour->Yaw = FCString::Atof(*Value);
+				}
+				else if (Key.Equals(TEXT("Rise"), ESearchCase::IgnoreCase))
+				{
+					Tour->Rise = FCString::Atof(*Value);
 				}
 			}
 			if (Tour->Hours.Num() == 0)
