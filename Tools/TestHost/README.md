@@ -67,3 +67,28 @@ UnrealEditor-Cmd.exe <host>\DreamDynamicWorldTestHost.uproject -run=DreamDynamic
 ```
 
 and the plugin's materials from DreamShader's commandlet (`-run=DreamShader compile`).
+
+## Looking at the sky
+
+All of these open a game window on the sky test level (`-OffScreen` puts it off the desktop; it still renders) and
+refuse to start while a game runs unless `-Force`. Images land in `<host>/Saved/Screenshots/<platform>/DreamWorld/`,
+logs in `<host>/Saved/ClaudeRuns/`.
+
+| Script | |
+| --- | --- |
+| `Take-DreamSkyShots.ps1` | one shot per hour (`DreamWorld.ShotTour`), and a contact sheet |
+| `Invoke-DreamSkyScript.ps1` | runs a `DreamWorld.Script` file (`-Script`) or lines (`-Lines`); `-FixedFps 30` steps the game clock 1/30 s a frame however slow the frames are |
+| `Measure-DreamSkyGpu.ps1` | GPU time of the dome, the sky capture, the volumetric clouds and their shadow, per mode x weather x view (`ProfileGPU`, median of `-Samples`); a table and a csv |
+| `Measure-DreamSkyStability.ps1` | flies the view at `-Speeds` (m/s) while saving every frame, then counts the frames where the sky jumps (`measure_frame_change.py`) |
+
+`DreamWorld.Script <file>` runs one line at a time: a console command, or `wait <frames>`, `settle [frames]` (until
+no shader compiles, then that many frames), `time <hours>`, `aim <pitch> [yaw]`, `move <x> <y> [z]`, `rise <dz>`,
+`home`, `fly <m/s> [heading] [climb m/s]`, `shot <name>`, `frames <name> <count>`, `mark <label>`, `quit`.
+
+```powershell
+pwsh -NoProfile -File Tools\TestHost\Measure-DreamSkyGpu.ps1 -OffScreen
+pwsh -NoProfile -File Tools\TestHost\Measure-DreamSkyGpu.ps1 -Modes Painted -Weathers WP_Cloudy,WP_Storm -Views Up=35 -OffScreen
+pwsh -NoProfile -File Tools\TestHost\Measure-DreamSkyStability.ps1 -Modes Toon -Speeds 0,150,600 -OffScreen
+```
+
+The GPU numbers are only as quiet as the GPU: another editor or game on it shows up in them.
