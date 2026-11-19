@@ -45,6 +45,12 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	float Speed = 0.4f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_FormationSpeed = false;
+	/** How fast the clouds grow and fall apart: 1 = a cloud builds and dissolves over some 20 game minutes, 0 = the shapes hold. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_FormationSpeed", ClampMin = "0", UIMax = "4"))
+	float FormationSpeed = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_Direction = false;
 	/** Drift direction, degrees of yaw (until the wind drives it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_Direction", UIMin = "0", UIMax = "360"))

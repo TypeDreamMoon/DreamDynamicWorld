@@ -13,6 +13,7 @@ void FDreamSkyCloudOverrides::ApplyTo(UDreamSkyStyle& Style) const
 	if (bOverride_Scale) { Style.CloudScale = Scale; }
 	if (bOverride_BaseAltitude) { Style.CloudLayerHeight = BaseAltitude; }
 	if (bOverride_Speed) { Style.CloudSpeed = Speed; }
+	if (bOverride_FormationSpeed) { Style.CloudFormationSpeed = FormationSpeed; }
 	if (bOverride_Direction) { Style.CloudDirection = Direction; }
 	if (bOverride_Diurnal) { Style.CloudDiurnal = Diurnal; }
 	if (bOverride_Erosion) { Style.CloudErosion = Erosion; }
@@ -24,7 +25,7 @@ void FDreamSkyCloudOverrides::ApplyTo(UDreamSkyStyle& Style) const
 
 bool FDreamSkyCloudOverrides::TouchesStyle() const
 {
-	return bOverride_Coverage || bOverride_Scale || bOverride_BaseAltitude || bOverride_Speed || bOverride_Direction || bOverride_Diurnal
+	return bOverride_Coverage || bOverride_Scale || bOverride_BaseAltitude || bOverride_Speed || bOverride_FormationSpeed || bOverride_Direction || bOverride_Diurnal
 		|| bOverride_Erosion || bOverride_Detail || bOverride_HighCover || bOverride_StormDarkening || bOverride_Visibility;
 }
 
