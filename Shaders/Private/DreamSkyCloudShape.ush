@@ -296,8 +296,11 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	{
 		float4 C = Noise.SampleLevel(NoiseSampler, float3(P / (1200000.0 * Scale), 0.29 + Phase), 0);
 		float Cell = saturate((0.65 * C.g + 0.35 * C.r - 0.2) / 0.6);
-		float Thick = smoothstep(0.15, 0.6, S.Dark);
-		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.8, 0.97, X), DeckW, Thick, H);
+		// (A rain deck is deep only while it is closed: as it opens -- a storm clearing -- it first sinks back to a
+		// stratocumulus' thickness, then cracks along its cells' borders and its cells shrink one by one, the way it
+		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
+		float Thick = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
+		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
 		float CumulusU = BaseU - DeckW;
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
