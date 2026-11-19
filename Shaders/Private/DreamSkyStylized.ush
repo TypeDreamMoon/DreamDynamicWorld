@@ -590,15 +590,18 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Cast = smoothstep(0.35, 0.65, 1.0 - exp(-Depth / 15000.0));
 
 	// Painted light, three tones the way anime clouds are coloured: near white where the sun falls, a pale
-	// blue-lavender half tone (the sky mixed into white) along the terminator, the shade blue; each billow reads by
-	// its own normal. The tones part around where a billow turns from the light, not partway up its lit side: tops
-	// under any sun well up are lit through, and a slight wobble of the normal cannot flip them.
+	// blue-lavender half tone (the sky mixed into white), the shade blue; each billow reads by its own normal. A
+	// cumulus seen from the ground is painted white over its crown and dark under its base, its sides parting between
+	// them: the tone goes by how a billow faces the sun, how much it faces up (the sky lights the tops, the cloud's own
+	// shade its underside) and how high in the cloud it sits, and the tones part around where that crosses zero.
 	float NdL = dot(N, Ld);
-	float Light = saturate((NdL + 0.35) / 0.6) * (1.0 - Cast);
+	float Key = 0.7 * NdL + 0.45 * N.z + 0.5 * (Here.Height - 0.35);
+	float Light = saturate((Key + 0.3) / 0.6) * (1.0 - Cast);
 	float Thin = exp(-Here.Column / 120000.0);
 	float Ambient = 0.94 + 0.04 * N.z + 0.12 * Thin + 0.05 * Here.Height;
-	// The bottom row of lobes sits in the cloud's own shade and sees little of the sky: a little darker.
-	float Under = 1.0 - 0.18 * pow(1.0 - Here.Height, 3.0);
+	// The underside sits in the cloud's own shade and sees little of the sky: darker low in the cloud, the more so where
+	// it faces down (a cumulus seen from the ground is dark under its base, not the sky's grey).
+	float Under = 1.0 - 0.3 * DSky_Square(1.0 - Here.Height) * (0.5 + 0.5 * saturate(-N.z));
 
 	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x) * Ambient * Under;
 	float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
@@ -637,9 +640,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	Color += CloudLit.rgb * CloudLit.a * Rim * pow(saturate(dot(V, LightDir)), 4.0) * 2.0;
 	// Storm clouds are dark below; their lit tops much less so.
 	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(0.55, 1.0, 1.0 - Light) * lerp(1.0, 0.3, Here.Height));
-	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops.
+	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops. Painted,
+	// the near ones keep their tones (a base a few kilometres overhead stays dark, not the sky's grey) and the haze closes
+	// in with distance: the veil eases in.
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
-	Color = lerp(Color, SkyBehind, Veil);
+	Color = lerp(Color, SkyBehind, pow(Veil, 1.6));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
