@@ -261,19 +261,28 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	// hangs low and even).
 	float Storminess = smoothstep(0.35, 0.7, S.Dark);
 	float Lift = lerp(0.1, 0.25, saturate(Coverage - 1.5)) * (1.0 - 0.6 * Storminess) * F.r * F.r;
-	float Hf = saturate(H - Lift * (1.0 - H));
+	// The hour shapes fair-weather cumulus (Cloud2.x, the day's growth): flat humilis a few hundred metres tall in the
+	// morning and the night, building through the late morning into the tall cumulus of the mid-afternoon, sinking and
+	// fraying again toward evening. They are pressed down to a third of their height at the least; a closing cover is
+	// not touched.
+	float Grow = lerp(lerp(0.3, 1.0, smoothstep(0.5, 1.0, saturate(Cloud2.x))), 1.0, Closing);
+	float Hs = H / Grow;
+	float Hf = saturate(Hs - Lift * (1.0 - Hs));
 	float3 Profile = DCS_Profile(X, Hf);
+	Profile.z *= lerp(1.3, 1.0, Grow);
 	float Threshold = pow(1.0 - Spread / 6.5, 3.0) - 0.25;
 	float BaseU = (Form - Threshold) / (1.0 - Threshold) - (1.0 - Profile.x);
 	float Base = saturate(BaseU);
 	float Signed = BaseU;
 	float Top = DCS_ProfileTop(X);
 	S.Height = saturate(Hf / Top);
-	S.Column = Top * DCS_LAYER_TOP;
+	S.Column = Top * Grow * DCS_LAYER_TOP;
 
 	// A closing cover turns into a deck (DCS_Deck) out of its own cells, some 1.5 km across, that grow and dissolve
-	// with the phase as the cumulus do: the cumulus give way to it as it closes. Its height and thickness are its
-	// own, so the drawing sees thick cells and thin gaps.
+	// with the phase as the cumulus do. Its height and thickness are its own, so the drawing sees thick cells and thin
+	// gaps. On the way the two trade places by their thresholds, not their strength: the cumulus shrink away whole
+	// and the deck's thickest cells appear first and spread, each solid inside as ever (weakening both instead left
+	// thin shapes the billows ate into crumbs).
 	float DeckW = smoothstep(0.55, 0.85, X);
 	float DeckBand = 0.0;
 	float DeckThin = 0.0;
