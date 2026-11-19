@@ -290,6 +290,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (XAxisName = "Sun elevation", YAxisName = "EV100"))
 	FRuntimeFloatCurve ExposureEV100;
 
+	/**
+	 * Manual mode with clouds that shadow the sun (the volumetric clouds): how far, EV, the eye may brighten by what it
+	 * sees under a closed cover (less as the cover opens; never darker than the curve). Whether the view stands in a
+	 * cloud's shadow is something no curve can know. 0 = keep the curve.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0", UIMax = "4"))
+	float CloudShadowExposureLift = 2.0f;
+
 	/** Auto mode: how far, EV, the eye may adapt either side of the curve. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0", UIMax = "8"))
 	float ExposureAutoRange = 2.0f;
