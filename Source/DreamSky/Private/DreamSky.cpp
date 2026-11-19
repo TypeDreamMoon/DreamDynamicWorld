@@ -411,6 +411,20 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
 			SkyLight->MarkRenderStateDirty();
 		}
+		// The sun's light scattered in the clouds, and the moon's while it lights anything: a second atmosphere light
+		// the clouds scatter costs a second march toward it at every lit sample, so a dark moon is left out of them.
+		const FLinearColor SunScatter(VolumetricSunScattering, VolumetricSunScattering, VolumetricSunScattering);
+		if (SunLight && SunLight->CloudScatteredLuminanceScale != SunScatter)
+		{
+			SunLight->CloudScatteredLuminanceScale = SunScatter;
+			SunLight->MarkRenderStateDirty();
+		}
+		const FLinearColor MoonScatter = MoonLight && MoonLight->Intensity > 1.0e-4f ? SunScatter : FLinearColor::Black;
+		if (MoonLight && MoonLight->CloudScatteredLuminanceScale != MoonScatter)
+		{
+			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
+			MoonLight->MarkRenderStateDirty();
+		}
 		HoldCloudHistoryThroughFlash();
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
@@ -573,7 +587,7 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{

@@ -122,6 +122,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "2"))
 	float VolumetricShadowResolution = 0.75f;
 
+	/**
+	 * How strongly the sun's and the moon's light scatters in the volumetric clouds, relative to the engine's. Its
+	 * multiple scattering is an approximation that loses light: at 1 sunlit cloud faces come out light grey where a
+	 * real cumulus is near white. (The moon is left out of the clouds' tracing while it is dark: a second light costs a
+	 * second march toward it at every lit sample.)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "5"))
+	float VolumetricSunScattering = 2.5f;
+
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyCloudOverrides CloudOverrides;
