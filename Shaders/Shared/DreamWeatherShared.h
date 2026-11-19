@@ -66,4 +66,18 @@ DWX_FN float3 DWX_ApplyZone(float3 V, float2 P, float4 Z0, float4 Z1, float4 Z2)
 	return float3(DWX_ApplyChannel(V.x, Z2.x, w), DWX_ApplyChannel(V.y, Z2.y, w), DWX_ApplyChannel(V.z, Z2.z, w));
 }
 
+// How much of a channel the clouds let through: nothing below Lo, all of it from Hi (Hi <= Lo: no limit). Rain needs
+// a closed cloud cover and lightning a dark one, whatever the channels say on their own: a change of weather that
+// blends every channel at once would otherwise rain from a sky already breaking up, or flash from a clearing one.
+DWX_FN float DWX_CloudAllows(float Cloud, float Lo, float Hi)
+{
+	return Hi > Lo ? smoothstep(Lo, Hi, Cloud) : 1.0f;
+}
+
+// The map's three channels with the precipitation held to what the cover there allows (Gate = cover lo, hi).
+DWX_FN float3 DWX_GatePrecipitation(float3 V, float2 Gate)
+{
+	return float3(V.x, V.y, V.z * DWX_CloudAllows(V.x, Gate.x, Gate.y));
+}
+
 #endif // DREAMWEATHER_SHARED_H

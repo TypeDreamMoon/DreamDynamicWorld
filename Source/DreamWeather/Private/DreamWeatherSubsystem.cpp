@@ -281,6 +281,30 @@ void UDreamWeatherSubsystem::AdvanceModifiers(float DeltaTime)
 		const float Rate = M.FadeSeconds > 0.0f ? FMath::Max(M.Desc.Weight, 0.001f) / M.FadeSeconds : 1.0e9f;
 		M.Current = FMath::FInterpConstantTo(M.Current, M.Target, FMath::Max(DeltaTime, 0.0f), Rate);
 	}
+	// A forced weather being replaced goes once its replacement is fully in; if the replacement is taken away
+	// first, it fades out with it.
+	for (FModifier& M : Modifiers)
+	{
+		if (M.SupersededBy == 0)
+		{
+			continue;
+		}
+		const FModifier* By = Modifiers.FindByPredicate([&M](const FModifier& Other) { return Other.Id == M.SupersededBy; });
+		if (!By || By->bRemoving)
+		{
+			M.SupersededBy = 0;
+			M.bRemoving = true;
+			M.Target = 0.0f;
+			M.FadeSeconds = By ? By->FadeSeconds : 0.0f;
+		}
+		else if (By->Current >= By->Target - 1.0e-4f)
+		{
+			M.SupersededBy = 0;
+			M.bRemoving = true;
+			M.Target = 0.0f;
+			M.Current = 0.0f;
+		}
+	}
 	Modifiers.RemoveAll([](const FModifier& M) { return M.bRemoving && M.Current <= 0.0f; });
 }
 
@@ -420,6 +444,7 @@ FDreamWeatherSample UDreamWeatherSubsystem::SampleWeather(FVector Position) cons
 		Values = FDreamWeatherChannels::Defaults();
 	}
 	ApplyInfluences(Position, Values);
+	FDreamWeatherChannels::ApplyCloudGates(Values);
 	return MakeSample(Position, Values);
 }
 
@@ -432,6 +457,7 @@ float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channe
 	}
 	FDreamWeatherValues Values = GlobalValues;
 	ApplyInfluences(Position, Values);
+	FDreamWeatherChannels::ApplyCloudGates(Values);
 	return Values.Get(Index);
 }
 
@@ -519,7 +545,14 @@ void UDreamWeatherSubsystem::SetModifierWeight(FDreamWeatherModifierHandle Handl
 
 FDreamWeatherModifierHandle UDreamWeatherSubsystem::ForceWeather(UDreamWeatherPreset* Preset, float TransitionSeconds)
 {
-	ClearForcedWeather(TransitionSeconds);
+	// Fading the old forcing out while the new one fades in would let the schedule show through halfway (a scheduled
+	// storm raining while forced clear turns to forced overcast): the old one holds until the new one is in.
+	const int32 Previous = ForcedModifierId;
+	const bool bHandOver = Previous != 0 && TransitionSeconds > 0.0f;
+	if (!bHandOver)
+	{
+		ClearForcedWeather(TransitionSeconds);
+	}
 	FDreamWeatherModifierDesc Desc;
 	Desc.Source = TEXT("ForceWeather");
 	Desc.Preset = Preset;
@@ -527,6 +560,16 @@ FDreamWeatherModifierHandle UDreamWeatherSubsystem::ForceWeather(UDreamWeatherPr
 	Desc.Priority = DreamWeather::Subsystem::ForcedPriority;
 	Desc.BlendInSeconds = TransitionSeconds;
 	const FDreamWeatherModifierHandle Handle = PushModifier(Desc);
+	if (bHandOver)
+	{
+		for (FModifier& M : Modifiers)
+		{
+			if (M.Id == Previous && !M.bRemoving)
+			{
+				M.SupersededBy = Handle.Id;
+			}
+		}
+	}
 	ForcedModifierId = Handle.Id;
 	return Handle;
 }
@@ -867,6 +910,7 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 		Args.Center = FVector2f(MapCenter);
 		Args.Extent = float(Extent);
 		Args.Global = Global;
+		Args.PrecipitationGate = FVector2f(S->PrecipitationCloudCover);
 		Args.Zones = MapZones;
 		if (Args.Target)
 		{
@@ -940,6 +984,7 @@ void UDreamWeatherSubsystem::CaptureSnapshot(FDreamWorldSnapshot& Snapshot) cons
 		State.Target = M.Target;
 		State.FadeSeconds = M.FadeSeconds;
 		State.bRemoving = M.bRemoving;
+		State.SupersededBy = M.SupersededBy;
 	}
 	FString Json;
 	if (FJsonObjectConverter::UStructToJsonObjectString(Data, Json))
@@ -967,7 +1012,8 @@ void UDreamWeatherSubsystem::ApplySnapshot(const FDreamWorldSnapshot& Snapshot)
 		M.Target = State.Target;
 		M.FadeSeconds = State.FadeSeconds;
 		M.bRemoving = State.bRemoving;
-		if (M.Desc.Priority == DreamWeather::Subsystem::ForcedPriority && M.Desc.Source == TEXT("ForceWeather") && !M.bRemoving)
+		M.SupersededBy = State.SupersededBy;
+		if (M.Desc.Priority == DreamWeather::Subsystem::ForcedPriority && M.Desc.Source == TEXT("ForceWeather") && !M.bRemoving && M.SupersededBy == 0)
 		{
 			ForcedModifierId = M.Id;
 		}

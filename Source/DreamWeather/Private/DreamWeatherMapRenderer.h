@@ -23,6 +23,8 @@ public:
 		float Extent = 4000000.0f;
 		/** Coverage, darkness, precipitation, unused. */
 		FVector4f Global = FVector4f::Zero();
+		/** The cloud coverage below which nothing falls, and from which all of it does (DWX_GatePrecipitation). */
+		FVector2f PrecipitationGate = FVector2f::ZeroVector;
 		/** DWX_ZONE_FLOAT4S per zone, lowest priority first. */
 		TArray<FVector4f> Zones;
 	};

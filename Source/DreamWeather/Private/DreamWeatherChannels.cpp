@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWeatherChannels.h"
+#include "DreamWeatherHlslShim.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherSettings.h"
 
@@ -110,6 +111,22 @@ FDreamWeatherValues FDreamWeatherChannels::Defaults()
 void FDreamWeatherChannels::Invalidate()
 {
 	DreamWeather::Registry::Cache().Reset();
+}
+
+void FDreamWeatherChannels::ApplyCloudGates(FDreamWeatherValues& InOut)
+{
+	const UDreamWeatherSettings* S = UDreamWeatherSettings::Get();
+	if (!S || InOut.Values.Num() < NumBuiltIn)
+	{
+		return;
+	}
+	using namespace DreamWind::Hlsl;
+	const float Cover = InOut.Values[CloudCoverage];
+	const float Dark = InOut.Values[CloudDarkness];
+	// The same gate the weather map applies on the GPU (DreamWeatherShared.h).
+	InOut.Values[Precipitation] *= DWX_CloudAllows(Cover, float(S->PrecipitationCloudCover.X), float(S->PrecipitationCloudCover.Y));
+	InOut.Values[Lightning] *= DWX_CloudAllows(Dark, float(S->LightningCloudDarkness.X), float(S->LightningCloudDarkness.Y))
+		* DWX_CloudAllows(Cover, float(S->LightningCloudCover.X), float(S->LightningCloudCover.Y));
 }
 
 float FDreamWeatherChannels::Combine(EDreamWeatherBlend Blend, float Current, float Value, float W)

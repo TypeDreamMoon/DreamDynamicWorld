@@ -17,6 +17,7 @@ class FDreamWeatherMapCS : public FGlobalShader
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(FVector4f, GlobalWeather)
+		SHADER_PARAMETER(FVector2f, PrecipitationGate)
 		SHADER_PARAMETER(FVector2f, MapCenter)
 		SHADER_PARAMETER(float, MapExtent)
 		SHADER_PARAMETER(uint32, NumZones)
@@ -84,6 +85,7 @@ void FDreamWeatherMapRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 
 	FDreamWeatherMapCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamWeatherMapCS::FParameters>();
 	Params->GlobalWeather = Args.Global;
+	Params->PrecipitationGate = Args.PrecipitationGate;
 	Params->MapCenter = Args.Center;
 	Params->MapExtent = Args.Extent;
 	Params->NumZones = NumZones;

@@ -141,6 +141,10 @@ struct DREAMWEATHER_API FDreamWeatherModifierState
 	/** Fading out to be dropped. */
 	UPROPERTY()
 	bool bRemoving = false;
+
+	/** A forced weather being replaced: held until this modifier (its replacement) is fully in, then dropped. */
+	UPROPERTY()
+	int32 SupersededBy = 0;
 };
 
 /** The weather's part of a world snapshot. */

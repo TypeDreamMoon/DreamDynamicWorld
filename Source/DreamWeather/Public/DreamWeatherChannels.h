@@ -47,4 +47,10 @@ public:
 
 	/** Combines a value into a channel with weight W, the way modifiers and zones do. */
 	static float Combine(EDreamWeatherBlend Blend, float Current, float Value, float W);
+
+	/**
+	 * Holds precipitation and lightning to what the clouds allow (Dream Weather settings > Clouds): no rain from a
+	 * cover that is not closed, no lightning without a dark one. Applied to every value at a point, after the zones.
+	 */
+	static void ApplyCloudGates(FDreamWeatherValues& InOut);
 };
