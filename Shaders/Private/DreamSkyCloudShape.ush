@@ -420,7 +420,7 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		float Take = saturate((Tower - Base) * 4.0) * (1.0 - DeckBand);
 		Base = max(Base, Tower * (1.0 - DeckBand));
 		Signed = max(Signed, TowerU > 0.0 ? Tower * (1.0 - DeckBand) : TowerU);
-		Profile = lerp(Profile, float3(1.0, 0.5, lerp(0.9, lerp(0.15, 0.4, BestUnder), BestAnvil)), Take);
+		Profile = lerp(Profile, float3(1.0, lerp(0.5, 0.2, BestEdge), lerp(0.9, lerp(lerp(0.15, 0.4, BestUnder), 0.8, BestEdge), BestAnvil)), Take);
 		S.Height = lerp(S.Height, BestHeight, Take);
 		S.Column = lerp(S.Column, DCS_STORM_TOP, Take);
 		S.Deck *= 1.0 - Take;
