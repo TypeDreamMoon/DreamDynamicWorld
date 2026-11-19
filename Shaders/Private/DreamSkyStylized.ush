@@ -545,7 +545,7 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 	for (int i = 0; i < 6; ++i)
 	{
 		float D = Probes[i];
-		float3 W = DCS_MapAt(Dir * D, ViewWeather, MapParams, Map, MapSampler);
+		float3 W = DCS_MapAt(Camera.xy + Dir * D, ViewWeather, MapParams, Map, MapSampler);
 		float Here = saturate(W.z) * smoothstep(0.6, 0.9, W.x);
 		if (Distance <= 0.0 && Here > 0.15)
 		{

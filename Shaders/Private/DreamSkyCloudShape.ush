@@ -31,8 +31,8 @@
 // the engine's cloud layer is that thick (ADreamSky::VolumetricLayerThickness).
 #define DCS_STORM_TOP 1000000.0
 
-// The weather the map holds at a point (cm from the view, horizontally): (cover, darkness, precipitation), or the
-// view's own values off the map.
+// The weather the map holds at a point (its world position, cm, horizontally): (cover, darkness, precipitation), or the
+// view's own values off the map. MapParams = (minus the drawn map's centre x, y; 1 / its extent; 1 when it is live).
 float3 DCS_MapAt(float2 Point, float3 Fallback, float4 MapParams, Texture2D Map, SamplerState MapSampler)
 {
 	float2 UV = (MapParams.xy + Point) * MapParams.z + 0.5;
@@ -149,7 +149,7 @@ struct FDCloudShape
 	float Deck;           // 1: an overcast deck
 };
 
-// Rel = the point from the view (cm; the weather map and the detail near the view use it), World = the point in the
+// Rel = the point from the view (cm; the detail near the view uses it), World = the point in the
 // world (cm), Z = its altitude above the layer's base (cm).
 // Cloud0 = (cover at the view, -, scale, -), Cloud1.xy = how far the wind has carried the clouds (in units of 2.2 km
 // times the scale), Cloud2 = (how far the hour has let fair-weather cumulus grow 0..1, how deep the billows erode, how
@@ -168,7 +168,7 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// the level drew.
 	float2 Wander = (Noise.SampleLevel(NoiseSampler, float3(P / (1600000.0 * Scale), 0.13 + Z / 1500000.0), 0).rb - 0.5) * 500000.0;
 	float3 ViewWeather = DCS_ViewWeather(Cloud0, CloudLayer);
-	float3 Here = DCS_MapAt(Rel.xy + Wander, ViewWeather, MapParams, Map, MapSampler);
+	float3 Here = DCS_MapAt(World.xy + Wander, ViewWeather, MapParams, Map, MapSampler);
 	S.Dark = saturate(Here.y * 1.3 - 0.2);
 	if (Z <= 0.0 || Z >= DCS_STORM_TOP)
 	{
@@ -208,13 +208,14 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// Storms: cells 16 km apart, each where the weather is storm-dark at its centre raising a cumulonimbus out of the
 	// deck (most do; their size varies). Looked for only near a storm: here, or upwind as far as an anvil reaches.
 	float2 Downwind = dot(Cloud1.xy, Cloud1.xy) > 1.0e-6 ? normalize(Cloud1.xy) : float2(0.866, 0.5);
-	float Upwind = DCS_MapAt(Rel.xy + Wander - Downwind * 900000.0, ViewWeather, MapParams, Map, MapSampler).y;
+	float Upwind = DCS_MapAt(World.xy + Wander - Downwind * 900000.0, ViewWeather, MapParams, Map, MapSampler).y;
 	if (max(S.Dark, saturate(Upwind * 1.3 - 0.2)) > 0.3)
 	{
 		// (A cumulonimbus, its anvil included, reaches at most a cell from where it stands: only the 3 x 3 nearest cells
 		// are looked at.)
 		const float StormCell = 1800000.0 * Scale;
-		float2 ViewInField = P - Rel.xy;
+		// (The field drifted this far: a place in it, less this, is where it stands in the world now.)
+		float2 Drift = P - World.xy;
 		int2 Home = int2(floor(P / StormCell));
 		float Best = -1.0;
 		float BestAnvil = 0.0;
@@ -239,7 +240,7 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 				for (int t = 0; t < 5; ++t)
 				{
 					float2 Tap = Centre + float2(t == 1 ? 1.0 : (t == 2 ? -1.0 : 0.0), t == 3 ? 1.0 : (t == 4 ? -1.0 : 0.0)) * 500000.0 * Scale;
-					float Dt = DCS_MapAt(Tap - ViewInField, ViewWeather, MapParams, Map, MapSampler).y;
+					float Dt = DCS_MapAt(Tap - Drift, ViewWeather, MapParams, Map, MapSampler).y;
 					if (Dt > Darkness + 0.05)
 					{
 						Darkness = Dt;

@@ -13,7 +13,7 @@ namespace DreamWeather::Names
 {
 	inline const FName MPC_Weather0(TEXT("DDW_Weather0"));     // cloud coverage, cloud darkness, precipitation, snow ratio (at the view)
 	inline const FName MPC_Weather1(TEXT("DDW_Weather1"));     // fog, dust, wind, lightning (at the view)
-	inline const FName MPC_WeatherMap(TEXT("DDW_WeatherMap")); // camera minus map centre x, y (cm), 1 / extent (1/cm), 1 when the map is live
+	inline const FName MPC_WeatherMap(TEXT("DDW_WeatherMap")); // minus the drawn map's centre x, y (cm: add a world position), 1 / extent (1/cm), 1 when the map is live
 	inline const FName MPC_Flash(TEXT("DDW_Flash"));           // toward the lightning flash xyz, flash 0..1
 }
 

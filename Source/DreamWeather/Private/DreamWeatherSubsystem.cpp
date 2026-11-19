@@ -877,8 +877,12 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 			LastMapZones = MapZones;
 		}
 	}
-	// The camera relative to the map centre, so materials never handle large world coordinates.
-	Clock.SetVectorParameter(DreamWeather::Names::MPC_WeatherMap, FLinearColor(float(ViewLocation.X - MapCenter.X), float(ViewLocation.Y - MapCenter.Y), float(1.0 / Extent), 1.0f));
+	// The centre the map holds (the last one drawn, not where the view is now: between redraws the view moves on, and a
+	// material reading the map around the live camera would find the weather shifted until the next redraw, the clouds
+	// jumping each time it lands). As minus the centre: materials add it to a world position.
+	const bool bDrawn = LastMapCenter.X < 1.0e29;
+	Clock.SetVectorParameter(DreamWeather::Names::MPC_WeatherMap, bDrawn
+		? FLinearColor(float(-LastMapCenter.X), float(-LastMapCenter.Y), float(1.0 / Extent), 1.0f) : FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 }
 
 void UDreamWeatherSubsystem::FireEvents(const FDreamWeatherSample& View)
