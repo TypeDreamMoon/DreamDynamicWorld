@@ -293,14 +293,28 @@ float DSky_ShadowAlong(int Index)
 	return 30000.0 * float((Index + 1) * (Index + 1));
 }
 
-// The march finds the clouds' surface along V (refined between the two steps that straddle it); the surface is
+float DSky_Square(float X)
+{
+	return X * X;
+}
+
+// The march's pace, in steps of its schedule (a step there is a Schedule-th of the way in X, T growing with X squared:
+// samples crowd near the view and spread far off, over the storm band most): half steps where cloud may be, whole
+// ones through air the shape's bound says is empty. (Not coarser above the cumulus layer: the bound of a cumulonimbus's
+// anvil is the anvil itself, a plate a kilometre or two thick, and longer steps there cut its far rim off.)
+float DSky_MarchPace(bool bFine)
+{
+	return bFine ? 0.45 : 0.9;
+}
+
+// The march finds the clouds' surface along V (refined between the two samples that straddle it); the surface is
 // then lit once, the way painted cumulus are: by its own normal (each billow on its own), shaded where a whole cloud
-// stands between it and the light, then the style's few tones. Returns the clouds' colour (over their own transparency)
-// and their cover; Core = how deep the cloud is (for the lightning). Dither = 0..1 per pixel and frame. SkyBehind =
-// the sky's colour along V: the air between the view and a cloud veils it in that colour.
+// stands between it and the light, then the style's few tones. Returns the clouds' colour (over their own
+// transparency) and their cover; Core = how deep the cloud is (for the lightning). SkyBehind = the sky's colour along V:
+// the air between the view and a cloud veils it in that colour.
 float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLayer,
 	float4 MapParams, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float3 Tone,
-	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float Dither, out float Core)
+	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, out float Core)
 {
 	Core = 0.0;
 	if (Cloud0.x <= 0.0)
@@ -318,7 +332,10 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 
 	const float MaxDist = 9000000.0;
 	const float DetailEnd = 6000000.0;
-	const int Steps = 72;
+	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 21 more), and
+	// how long its schedule is: half as long, so that where cloud may be it can take its fine steps all the way.
+	const int Steps = 80;
+	const float Schedule = 36.0;
 	// The layer along the ray, over the planet's curve, from its base to the top of the tallest towers: entered from
 	// below, from inside, or from above (looking down on the clouds).
 	float T0;
@@ -331,11 +348,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 
 	// Every density lookup goes through one call in one loop, a small state machine: the field is heavy, and each
 	// place it is called from is a whole copy the shader compiler must build (nine of them took it past minutes).
-	//   0 march    the steps along the ray (crowded near, spread far, dithered per pixel and frame)
-	//   1 refine   halving the gap between the last step outside the cloud and the first inside
-	//   2 closest  a ray that only grazed a cloud: a golden-section search for its closest approach (the steps
-	//              may have stepped over an edge or a thin lobe, which made edges crawl with the dither); if it
-	//              reaches the surface, that is a hit like any other (refined in 1)
+	//   0 march    samples along the ray, the same ones every frame (a sample that moved from frame to frame made far
+	//              small clouds flicker and edges crawl): coarse through air the shape's bound says no cloud can be in,
+	//              fine where one may be (backing up to the last clear sample first), never more than the samples left
+	//              can spread over the rest of the ray
+	//   1 refine   halving the gap between the last sample outside the cloud and the first inside
+	//   2 closest  a ray that only grazed a cloud: a golden-section search for its closest approach; if it reaches the
+	//              surface, that is a hit like any other (refined in 1)
 	//   3 here     the surface itself
 	//   4 normal   four taps on a tetrahedron around it (wider apart far away)
 	//   5 shadow   four samples toward the light, further apart as they go
@@ -343,9 +362,14 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	const float3 Ld = normalize(LightDir + float3(0.0, 0.0, 0.08));
 	int Phase = 0;
 	int Index = 0;
+	float Next = T0;
 	float PrevT = T0;
-	float HitT = -1.0;
-	float BestDensity = 0.0;
+	float U = 0.0;        // where the march is along its schedule (0 .. Schedule)
+	float PrevU = 0.0;
+	bool bFine = false;
+	int Quiet = 0;
+	bool bHit = false;
+	float BestSolid = 0.0;
 	float BestT = T0;
 	float BestStep = 0.0;
 	float Lo = 0.0;
@@ -362,18 +386,15 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Depth = 0.0;
 	float Travelled = 0.0;
 	[loop]
-	for (int It = 0; It < Steps + 30 && Phase < 6; ++It)
+	for (int It = 0; It < Steps + 24 && Phase < 6; ++It)
 	{
 		// Where to look.
 		float T = 0.0;
-		float StepLength = 0.0;
 		float3 P;
 		float Detail = SurfaceDetail;
 		if (Phase == 0)
 		{
-			float X = (float(Index) + Dither) / float(Steps);
-			T = T0 + (T1 - T0) * X * X;
-			StepLength = (T1 - T0) * (2.0 * X + 1.0 / float(Steps)) / float(Steps);
+			T = Next;
 		}
 		else if (Phase == 1)
 		{
@@ -410,31 +431,56 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		bool bSurfaceFound = false;
 		if (Phase == 0)
 		{
-			if (S.Density > BestDensity)
-			{
-				BestDensity = S.Density;
-				BestT = T;
-				BestStep = StepLength;
-			}
-			if (S.Density >= 0.5)
+			if (S.Solid >= F.Iso)
 			{
 				Lo = PrevT;
 				Hi = T;
 				Phase = 1;
 				Index = 0;
 			}
-			else if (++Index >= Steps)
+			else
 			{
-				Phase = BestDensity > 0.25 ? 2 : 6;
-				Lo = max(BestT - BestStep, T0);
-				Hi = BestT + BestStep;
-				Index = 0;
+				bool bMaybe = S.Form > 0.5 * F.Iso;
+				// Cloud may begin anywhere since the last clear sample: back to it, and on in fine steps.
+				bool bBack = bMaybe && !bFine && T > PrevT;
+				if (bMaybe)
+				{
+					bFine = true;
+					Quiet = 0;
+				}
+				else if (bFine && ++Quiet >= 2)
+				{
+					bFine = false;
+				}
+				// (Never slower than the samples left can cover the rest of the schedule at.)
+				float From = bBack ? PrevU : U;
+				float Pace = max(DSky_MarchPace(bFine), (Schedule - From) / float(max(Steps - 1 - Index, 1)));
+				float NextU = From + Pace;
+				Next = T0 + (T1 - T0) * DSky_Square(NextU / Schedule);
+				if (!bBack)
+				{
+					if (S.Solid > BestSolid)
+					{
+						BestSolid = S.Solid;
+						BestT = T;
+						BestStep = max(Next - T, T - PrevT);
+					}
+					PrevT = T;
+					PrevU = U;
+				}
+				U = NextU;
+				if (++Index >= Steps || U > Schedule)
+				{
+					Phase = BestSolid > 0.4 * F.Iso ? 2 : 6;
+					Lo = max(BestT - BestStep, T0);
+					Hi = min(BestT + BestStep, T1);
+					Index = 0;
+				}
 			}
-			PrevT = T;
 		}
 		else if (Phase == 1)
 		{
-			if (S.Density >= 0.5)
+			if (S.Solid >= F.Iso)
 			{
 				Hi = T;
 			}
@@ -442,25 +488,25 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			{
 				Lo = T;
 			}
-			if (++Index >= 4)
+			if (++Index >= 5)
 			{
-				HitT = Hi;
+				bHit = true;
 				SurfaceT = Hi;
 				bSurfaceFound = true;
 			}
 		}
 		else if (Phase == 2)
 		{
-			if (S.Density > BestDensity)
+			if (S.Solid > BestSolid)
 			{
-				BestDensity = S.Density;
+				BestSolid = S.Solid;
 				BestT = T;
 			}
 			if ((Index & 1) == 0)
 			{
-				FirstProbe = S.Density;
+				FirstProbe = S.Solid;
 			}
-			else if (FirstProbe > S.Density)
+			else if (FirstProbe > S.Solid)
 			{
 				Hi = Lo + (Hi - Lo) * 0.618;
 			}
@@ -468,16 +514,16 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			{
 				Lo = Lo + (Hi - Lo) * 0.382;
 			}
-			if (++Index >= 10)
+			if (++Index >= 8)
 			{
 				Index = 0;
-				if (BestDensity >= 0.5)
+				if (BestSolid >= F.Iso)
 				{
 					Lo = max(BestT - BestStep, T0);
 					Hi = BestT;
 					Phase = 1;
 				}
-				else if (BestDensity > 0.45)
+				else if (BestSolid > 0.85 * F.Iso)
 				{
 					SurfaceT = BestT;
 					bSurfaceFound = true;
@@ -529,7 +575,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			Index = 0;
 		}
 	}
-	float Cover = HitT > 0.0 ? 1.0 : smoothstep(0.45, 0.5, BestDensity);
+	float Cover = bHit ? 1.0 : smoothstep(0.85 * F.Iso, F.Iso, BestSolid);
 	if (Cover <= 0.0 || SurfaceT <= 0.0)
 	{
 		return float4(0, 0, 0, 0);
@@ -695,12 +741,9 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float3 Sky = Base + Halo;
 	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0));
 
-	// The volumetric clouds, marched from a dithered start (different per pixel and frame; the temporal filter
-	// averages the steps out).
+	// The volumetric clouds.
 	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
 	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
-	float2 Pixel = ScreenUV / max(fwidth(ScreenUV), 1.0e-6);
-	float Dither = frac(52.9829189 * frac(dot(Pixel, float2(0.06711056, 0.00583715))) + frac(Seconds * 60.0) * 0.6180339);
 	// CloudLayer.w = 1: the engine's volumetric cloud layer draws the clouds over the dome; the dome leaves its own out.
 	float CloudCore = 0.0;
 	float4 VC = float4(0, 0, 0, 0);
@@ -710,7 +753,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float3 HazeHalo = Halo;
 		float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
 		VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Dither, CloudCore);
+			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, CloudCore);
 		VC *= CloudShadow.a;
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
