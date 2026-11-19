@@ -413,13 +413,19 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		}
 		// The sun's light scattered in the clouds, and the moon's while it lights anything: a second atmosphere light
 		// the clouds scatter costs a second march toward it at every lit sample, so a dark moon is left out of them.
-		const FLinearColor SunScatter(VolumetricSunScattering, VolumetricSunScattering, VolumetricSunScattering);
+		// (The earth's shadow: with the sun below the horizon the clouds, a few kilometres up, see it until it is some
+		// two degrees down. Stepped, so the light is not re-made every frame through the dusk.)
+		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const float SunUp = WorldClock ? FMath::SmoothStep(-2.5f, 0.5f, WorldClock->GetCelestial().SunElevation) : 1.0f;
+		const float SunScale = VolumetricSunScattering * FMath::RoundToFloat(SunUp * 20.0f) / 20.0f;
+		const FLinearColor SunScatter(SunScale, SunScale, SunScale);
+		const FLinearColor MoonScale(VolumetricSunScattering, VolumetricSunScattering, VolumetricSunScattering);
 		if (SunLight && SunLight->CloudScatteredLuminanceScale != SunScatter)
 		{
 			SunLight->CloudScatteredLuminanceScale = SunScatter;
 			SunLight->MarkRenderStateDirty();
 		}
-		const FLinearColor MoonScatter = MoonLight && MoonLight->Intensity > 1.0e-4f ? SunScatter : FLinearColor::Black;
+		const FLinearColor MoonScatter = MoonLight && MoonLight->Intensity > 1.0e-4f ? MoonScale : FLinearColor::Black;
 		if (MoonLight && MoonLight->CloudScatteredLuminanceScale != MoonScatter)
 		{
 			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
