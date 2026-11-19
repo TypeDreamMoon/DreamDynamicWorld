@@ -138,6 +138,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "5"))
 	float VolumetricSunScattering = 2.5f;
 
+	/**
+	 * Trace the volumetric clouds at half resolution every frame (r.VolumetricRenderTarget.Mode 1) instead of the
+	 * engine's default, a quarter of the pixels each frame rebuilt from the frames before. Dense clouds then show no
+	 * standing grain and painted outlines stay crisp, but the clouds cost up to twice as much (0.2 to 1.7 ms more at
+	 * 1080p, the most in storms). A project or console setting of the variable is left alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	bool bVolumetricHalfResTracing = false;
+
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyCloudOverrides CloudOverrides;

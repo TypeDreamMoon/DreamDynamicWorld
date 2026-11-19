@@ -50,7 +50,7 @@ uniform float BillowShade = 0.3;
 uniform float4 LitTint = float4(1.0, 0.975, 0.93, 1.0);
 
 /// @group Palette   @sort 20   @desc Multiplies the style's shade colour: blue-lavender, which it keeps where the weather greys the style's colours
-uniform float4 ShadeTint = float4(0.8, 0.78, 1.06, 1.0);
+uniform float4 ShadeTint = float4(0.86, 0.84, 1.02, 1.0);
 
 /// @custom
 /// @name Dream Cloud Painted
@@ -69,8 +69,11 @@ void DreamCloud_Painted(float3 Rel, float3 World, float Z, float4 Cloud0, float4
 	// that only grazes a cloud's edge sees it partly (an anti-aliased outline, not a dithered one). An overcast deck
 	// goes by its density, which thins toward the cracks between its cells, over a wider skin: the cracks open
 	// gradually instead of cut out like paper.
+	// (The skin is a width in the shape's measure, some 150 m on a cumulus: a crisp line far off, a blur up close. It
+	// narrows to a quarter of that near the view.)
 	float Fill = lerp(S.Solid, S.Density, S.Deck);
-	float Skin01 = saturate((Fill - 0.02) / max(EdgeSoft * lerp(1.0, 3.0, S.Deck), 0.01));
+	float Near = lerp(0.25, 1.0, saturate(length(Rel) / 1500000.0));
+	float Skin01 = saturate((Fill - 0.02) / max(EdgeSoft * Near * lerp(1.0, 3.0, S.Deck), 0.005));
 	float E = Skin01 * Skin01 * Skin01 * Sigma;
 	OutExtinction = E.xxx;
 	OutAlbedo = (0.95 * EngineShare).xxx;
@@ -118,7 +121,7 @@ void DreamCloud_Painted(float3 Rel, float3 World, float Z, float4 Cloud0, float4
 		float3 Tone = clamp(Base / Mean, 0.25, 4.0);
 		// (The shade takes the hue of the sky above, which lights it, not of the pale band behind a low cloud.)
 		float3 Above = Zenith.rgb / max(dot(Zenith.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0e-4);
-		float3 Shadow = CloudShadow.rgb * ShadeMul.rgb * lerp(1.0, Above, 0.35 * Extra.x) * lerp(0.84, 1.0, S.Height);
+		float3 Shadow = CloudShadow.rgb * ShadeMul.rgb * lerp(1.0, Above, 0.25 * Extra.x) * lerp(0.84, 1.0, S.Height);
 		float3 Lit = CloudLit.rgb * LitMul.rgb * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
 		// A low sun lights the clouds in its own colour, warmest on the side toward it (the style's colours are greyed by
 		// cloudy weather; the sun's are not). MainColor.w = 1: the main light is the moon.

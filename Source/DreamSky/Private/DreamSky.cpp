@@ -438,6 +438,18 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
 			MoonLight->MarkRenderStateDirty();
 		}
+		// (The engine's default traces a quarter of the pixels each frame and rebuilds the rest from earlier frames: a
+		// dense cloud keeps a standing grain from where each ray first lands in it, which the history never averages.)
+		static IConsoleVariable* RenderTargetMode = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.Mode"));
+		if (RenderTargetMode)
+		{
+			const EConsoleVariableFlags SetBy = EConsoleVariableFlags(RenderTargetMode->GetFlags() & ECVF_SetByMask);
+			const int32 WantedMode = bVolumetricHalfResTracing ? 1 : 0;
+			if ((SetBy <= ECVF_SetByScalability || SetBy == ECVF_SetByCode) && RenderTargetMode->GetInt() != WantedMode)
+			{
+				RenderTargetMode->Set(WantedMode, ECVF_SetByCode);
+			}
+		}
 		HoldCloudHistoryThroughFlash();
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
@@ -601,7 +613,7 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, bVolumetricHalfResTracing))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{
