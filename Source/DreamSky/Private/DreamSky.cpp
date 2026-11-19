@@ -334,8 +334,11 @@ void ADreamSky::ApplyDome()
 	}
 	if (HeightFog)
 	{
-		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient.
-		HeightFog->SetFogCutoffDistance(GetEffectiveDomeRadius() * 0.8f);
+		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient. The
+		// engine's volumetric clouds take the fog wherever they are, though: then the dome takes it too, or far
+		// clouds fogged over an unfogged sky would stand as a bright band along the horizon.
+		const bool bVolumetric = GetEffectiveClouds() == EDreamSkyClouds::Volumetric;
+		HeightFog->SetFogCutoffDistance(bVolumetric ? 0.0f : GetEffectiveDomeRadius() * 0.8f);
 	}
 }
 
