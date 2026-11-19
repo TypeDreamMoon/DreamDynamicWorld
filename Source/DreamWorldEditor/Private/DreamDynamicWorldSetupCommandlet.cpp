@@ -359,8 +359,8 @@ namespace DreamWorld::Setup
 			AddMesh(*World, Sphere, FVector(-700.0f - i * 250.0f, 400.0f + i * 120.0f, 50.0f), FVector(1.0f))->SetActorLabel(*FString::Printf(TEXT("Ball%d"), i));
 		}
 
-		// Weather that changes every few hours, and a thunderstorm parked four kilometres south-west, in front of
-		// the camera: its dark clouds show in the sky from the clear test area through the weather map.
+		// Weather that changes every few hours, and a thunderstorm parked 35 kilometres south-west, in front of the
+		// camera: its towers stand on the horizon of the clear test area, drawn through the weather map.
 		ADreamWeather* Weather = World->SpawnActor<ADreamWeather>(FVector(0.0f, 0.0f, 200.0f), FRotator::ZeroRotator);
 		Weather->SetActorLabel(TEXT("DreamWeather"));
 		if (UDreamWeatherSelector_Random* Random = Cast<UDreamWeatherSelector_Random>(Weather->Selector))
@@ -377,11 +377,11 @@ namespace DreamWorld::Setup
 				}
 			}
 		}
-		ADreamWeatherZone* Storm = World->SpawnActor<ADreamWeatherZone>(FVector(-300000.0f, -250000.0f, 0.0f), FRotator::ZeroRotator);
+		ADreamWeatherZone* Storm = World->SpawnActor<ADreamWeatherZone>(FVector(-2680000.0f, -2250000.0f, 0.0f), FRotator::ZeroRotator);
 		Storm->SetActorLabel(TEXT("StormZone"));
 		Storm->Zone->Shape = EDreamWeatherZoneShape::Circle;
-		Storm->Zone->Extent = FVector2D(120000.0, 120000.0);
-		Storm->Zone->BlendDistance = 60000.0f;
+		Storm->Zone->Extent = FVector2D(400000.0, 400000.0);
+		Storm->Zone->BlendDistance = 150000.0f;
 		Storm->Zone->Priority = 10;
 		if (UDreamWeatherPreset* const* StormPreset = Presets.Find(TEXT("WP_Storm")))
 		{

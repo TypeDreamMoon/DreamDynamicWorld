@@ -149,9 +149,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Weather Map", meta = (ClampMin = "16", ClampMax = "1024"))
 	int32 WeatherMapResolution = 512;
 
-	/** World size the map covers, cm (centred on the camera). */
+	/**
+	 * World size the map covers, cm (centred on the camera). The sky reads it as far as half of it: a storm zone
+	 * shows as towers on the horizon (30-60 km out) only if the map reaches it.
+	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Weather Map", meta = (ClampMin = "10000"))
-	float WeatherMapExtent = 4000000.0f;
+	float WeatherMapExtent = 12000000.0f;
 
 	/** Real seconds between redraws while something changes. */
 	UPROPERTY(Config, EditAnywhere, Category = "Weather Map", meta = (ClampMin = "0"))
