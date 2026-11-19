@@ -142,7 +142,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
 	void SetModifierWeight(FDreamWeatherModifierHandle Handle, float Weight, float Seconds = 2.0f);
 
-	/** Make the weather a preset, everywhere the zones allow, until ClearForcedWeather. Replaces an earlier forcing. */
+	/**
+	 * Make the weather a preset, everywhere the zones allow, until ClearForcedWeather. Replaces an earlier forcing:
+	 * the new weather blends in over the old one, which holds until then (the schedule never shows through between).
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
 	FDreamWeatherModifierHandle ForceWeather(UDreamWeatherPreset* Preset, float TransitionSeconds = 10.0f);
 
@@ -225,6 +228,8 @@ private:
 		float Target = 0.0f;
 		float FadeSeconds = 0.0f;
 		bool bRemoving = false;
+		/** See FDreamWeatherModifierState::SupersededBy. */
+		int32 SupersededBy = 0;
 	};
 
 	void PreTick(UDreamWorldSubsystem& Clock, float DeltaTime);

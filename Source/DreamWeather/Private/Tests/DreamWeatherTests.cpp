@@ -282,6 +282,51 @@ bool FDreamWeatherModifierTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherForceHandOverTest, "DreamWeather.ForceHandOver", DreamWeather::Tests::Flags)
+bool FDreamWeatherForceHandOverTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	// The schedule rains; forced weather replaces forced weather. Between the two the schedule must not show through.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetPaused(true);
+	W.Weather->ForceWeather(Clear(), 0.0f);
+	W.Clock->Tick(0.1f);
+	TestNearlyEqual(TEXT("forced clear is dry"), W.Weather->GetGlobalValues().Get(C::Precipitation), 0.0f, 1e-5f);
+
+	UDreamWeatherPreset* Overcast = MakePreset(TEXT("Overcast"), { { Channel_CloudCoverage, 0.9f } });
+	W.Weather->ForceWeather(Overcast, 10.0f);
+	float Wettest = 0.0f;
+	float Cover = 0.0f;
+	for (int32 Step = 0; Step < 24; ++Step)
+	{
+		W.Clock->Tick(0.5f);
+		Wettest = FMath::Max(Wettest, W.Weather->GetGlobalValues().Get(C::Precipitation));
+		Cover = W.Weather->GetGlobalValues().Get(C::CloudCoverage);
+	}
+	TestNearlyEqual(TEXT("no rain from the schedule while one forced weather hands over to the next"), Wettest, 0.0f, 1e-5f);
+	TestNearlyEqual(TEXT("the new weather is in"), Cover, 0.9f, 1e-4f);
+	TestEqual(TEXT("the replaced one is gone once the new one is in"), W.Weather->GetNumModifiers(), 1);
+
+	// Taken away while a hand-over is still under way: both go, back to the schedule.
+	W.Weather->ForceWeather(Clear(), 10.0f);
+	W.Clock->Tick(1.0f);
+	W.Weather->ClearForcedWeather(2.0f);
+	for (int32 Step = 0; Step < 10; ++Step)
+	{
+		W.Clock->Tick(0.5f);
+	}
+	TestEqual(TEXT("cleared mid hand-over: no modifier left"), W.Weather->GetNumModifiers(), 0);
+	TestNearlyEqual(TEXT("cleared mid hand-over: the schedule's rain again"), W.Weather->GetGlobalValues().Get(C::Precipitation), 0.8f, 1e-4f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherCloudGatesTest, "DreamWeather.CloudGates", DreamWeather::Tests::Flags)
 bool FDreamWeatherCloudGatesTest::RunTest(const FString& Parameters)
 {
