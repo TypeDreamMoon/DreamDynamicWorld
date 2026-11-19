@@ -59,10 +59,11 @@ work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
-`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, a layer of toon
-clouds overhead and clouds standing on the horizon. A `UDreamSkyStyle` (default `DS_DreamSkyStylized`) says how everything looks: colour and
-intensity curves keyed by the **sun's elevation** (so one style fits any day length or latitude), cloud
-shapes and bands, and manual exposure from an EV100 curve (no eye-adaptation lag when time jumps).
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars and, unless the
+engine's volumetric clouds draw them, the clouds. A `UDreamSkyStyle` (default `DS_DreamSkyStylized`) says how
+everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day length or
+latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time jumps) or
+with eye adaptation held around it.
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
@@ -71,26 +72,40 @@ hidden, at night, so it costs nothing and anything that asks "where is the sun" 
 moon light takes over; when the moon is down a stand-in opposite the sun keeps a main light (stylized
 default, `bNightLightAlwaysUp`).
 
-The clouds are one shape drawn either of two ways (`ADreamSky.Clouds`, or the console variable
-`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints each lobe in a few tones, the way anime
-backgrounds do; **Volumetric**, the engine's volumetric cloud layer renders them with physical light
-(`M_DreamVolumetricCloud`; `VolumetricLayerThickness`, `VolumetricTracingDistance`, `VolumetricSampleCountScale`).
-The shape (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates)
-places clouds one by one, as cumulus fields stand: a few large and many small, in groups with open sky between,
-level bases, small ones wider than tall and large ones heaped high, each a heap of round lobes at its own scale.
-The weather map's cover and darkness decide where they stand and how dark they draw. A fair sky keeps the zenith
-open (`CloudZenithThinning`) and its cumulus follow the hour (`CloudDiurnal`): few and flat in the morning, the most
-and tallest in the mid-afternoon. Far off, beyond 15 km, a few clouds heap into towering cumulus (`CloudTowers`) and
-a storm's cells into cumulonimbus with anvils, rain hanging under them in grey curtains. A closing cover becomes a
-deck instead of heaps: stratocumulus, soft cells darker where thick, with cracks of sky while the cover is short of
-full; storm darkness turns it into a thick, dark, even layer. The air between veils far clouds in
-the sky's own colour behind them, thicker low down (`CloudVisibility`, `CloudHazeHeight`): a tower's base sinks
-into the horizon while its top stays clear. Above it all lie thin cirrus streaks along the wind
-(`CloudHighCover`, `CloudHighAltitude`). All clouds take the colour of the sky around them (`CloudSkyTint`: warm
-low in a sunset, deep blue overhead) and catch the sun's glow beside it; a cloud with the sun behind it turns
-darker with a bright edge. The sun's
-halo spreads along the horizon while the sun is low. When the sky light captures
-the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the captured light has no hot spot.
+The clouds are one density field drawn either of two ways (`ADreamSky.Clouds`, or the console variable
+`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints their surface in the style's few tones;
+**Volumetric**, the engine's volumetric cloud layer renders them (`VolumetricLayerThickness`,
+`VolumetricTracingDistance`, `VolumetricSampleCountScale`) with one of two materials over the same clouds —
+`M_DreamVolumetricCloud`, realistic (soft, lit by scattering), or `M_DreamVolumetricCloud_Painted`, an anime
+background's (hard-edged, opaque, in the style's lit, half and shade tones with a silver lining near the sun), set as
+`VolumetricCloudMaterial` or from the console (`DreamSky.CloudMaterial <object path>`).
+
+The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
+built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
+fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-frequency formation of Worley cells,
+cut at a threshold that falls as the cover rises, says where cloud may stand — whole clouds of every size, crowded in
+places and sparse in others — and the type's vertical profile tapers it with height: small cumulus keep to the
+lowest few hundred metres above the base (`CloudLayerHeight`, 0.6 km), towering cumulus climb the 4 km layer
+narrowing, an overcast fills it, its base lifted here and there. Billows erode it (`CloudErosion`; erosion only, it
+never adds cloud), most on small clouds, hardly on an overcast's underside, and a finer octave frays the edges near
+the view (`CloudDetail`). Fair-weather cumulus follow the hour (`CloudDiurnal`): fewer in the morning, the most in
+the afternoon. Under storm darkness the strongest cells climb out of the deck into cumulonimbus, up to 10 km, and
+spread into anvils there; rain hangs under a distant storm in grey curtains. The air between veils far clouds in
+the sky's own colour behind them, thicker low down (`CloudVisibility`, `CloudHazeHeight`): a tower's base sinks into
+the horizon while its top stays clear. Above it all lie thin cirrus streaks along the wind (`CloudHighCover`,
+`CloudHighAltitude`). The toon clouds take the colour of the sky around them (`CloudSkyTint`: warm low in a sunset,
+deep blue overhead) and catch the sun's glow beside it. The sun's halo spreads along the horizon while the sun is
+low. When the sky light captures the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the
+captured light has no hot spot.
+
+**Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
+level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, the hour's effect, erosion,
+detail, cirrus, storm darkening, visibility, and the volumetric materials' extinction, glow and painted tones), Sun
+and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, cloud
+shadows, the disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
+Exposure (mode, compensation, the eye's range and speed). Tick a setting to use it; the style stays the preset
+other levels share. The components the sky drives are still in the component tree, though it rewrites most of
+what they hold every frame.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
@@ -110,7 +125,7 @@ undoably); the actor's *Time Of Day* does the same. Console: `DreamWorld.Time <h
 `Saved/Screenshots/DreamWorld`, for scripted checks of a day).
 
 **Test level.** `/DreamDynamicWorld/Sky/Maps/Lvl_DreamSkyTest`: grey floor, primitives, the sky, random
-weather, a thunderstorm zone four kilometres away, and a camera looking south-west so the sunset and the storm
+weather, a thunderstorm zone 35 kilometres away, and a camera looking south-west so the sunset and the storm
 are in frame.
 
 ## Weather
@@ -128,7 +143,7 @@ lags — a change of weather reads as coming.
 `Random` (weighted, with persistence) or `Seasonal` (weights per season, either hemisphere). Every selector is a
 pure function of the world time and seed: the same moment has the same weather on every machine, after every
 load, in every replay, and `GetForecast` is just the function evaluated ahead. Presets (`UDreamWeatherPreset`)
-hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog`.
+hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`.
 
 **Bending it.** `PushModifier` (a scripted storm, a spell that brings rain: channel values or a preset,
 Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)`.
