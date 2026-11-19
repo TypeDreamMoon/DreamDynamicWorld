@@ -348,6 +348,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
 	float DustSkyHaze = 0.7f;
 
+	/** The colour of airborne dust: a dust storm tints the fog, the sky and the sunlight toward it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather")
+	FLinearColor DustColor = FLinearColor(0.78f, 0.6f, 0.4f, 1.0f);
+
+	/** Fog density multiplier in a full dust storm (it grows with the square of the dust). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (ClampMin = "1", UIMax = "200"))
+	float DustFogScale = 40.0f;
+
+	/** How much of the sun a full dust storm hides, 0..1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
+	float DustSunDimming = 0.55f;
+
 	// ---- Indoors (the view probe) --------------------------------------------------------------
 
 	/** Exposure lift (EV) indoors, so a room lit only by its windows is not black (the eye adapts too). */

@@ -12,7 +12,7 @@ class UTexture2D;
 
 /**
  * A kind of weather: channel values (cloud cover, rain, wind...). Channels it leaves out are at their
- * registry default. The plugin ships WP_Clear, WP_Cloudy, WP_Overcast, WP_Rain, WP_Storm, WP_Snow and WP_Fog
+ * registry default. The plugin ships WP_Clear, WP_Cloudy, WP_Overcast, WP_Rain, WP_Storm, WP_Snow, WP_Fog and WP_Dust
  * under /DreamDynamicWorld/Weather/Presets (the Setup step recreates them).
  */
 UCLASS(BlueprintType)

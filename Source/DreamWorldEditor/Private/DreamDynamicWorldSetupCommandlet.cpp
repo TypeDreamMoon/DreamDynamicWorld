@@ -194,7 +194,8 @@ namespace DreamWorld::Setup
 	{
 		using namespace DreamWeather::Tags;
 		const FGameplayTag Coverage = Channel_CloudCoverage, Dark = Channel_CloudDarkness, Precip = Channel_Precipitation, Snow = Channel_SnowRatio,
-			Fog = Channel_Fog, Wind = Channel_Wind, Lightning = Channel_Lightning, Temperature = Channel_Temperature, Wet = Channel_Wetness, SnowCover = Channel_SnowCover;
+			Fog = Channel_Fog, Dust = Channel_Dust, Wind = Channel_Wind, Lightning = Channel_Lightning, Temperature = Channel_Temperature, Wet = Channel_Wetness,
+			SnowCover = Channel_SnowCover;
 		const TArray<FPresetSpec> Specs = {
 			{ TEXT("WP_Clear"), TEXT("Clear"), { { Coverage, 0.15f }, { Wind, 0.2f }, { Temperature, 1.0f } } },
 			{ TEXT("WP_Cloudy"), TEXT("Cloudy"), { { Coverage, 0.55f }, { Dark, 0.05f }, { Wind, 0.35f } } },
@@ -203,6 +204,7 @@ namespace DreamWorld::Setup
 			{ TEXT("WP_Storm"), TEXT("Thunderstorm"), { { Coverage, 1.0f }, { Dark, 0.85f }, { Precip, 0.95f }, { Wind, 0.9f }, { Lightning, 0.8f }, { Fog, 0.2f }, { Temperature, -5.0f }, { Wet, 1.0f } } },
 			{ TEXT("WP_Snow"), TEXT("Snow"), { { Coverage, 0.9f }, { Dark, 0.2f }, { Precip, 0.5f }, { Snow, 1.0f }, { Wind, 0.3f }, { Fog, 0.3f }, { Temperature, -12.0f }, { SnowCover, 1.0f } } },
 			{ TEXT("WP_Fog"), TEXT("Fog"), { { Coverage, 0.6f }, { Dark, 0.1f }, { Fog, 0.9f }, { Wind, 0.05f }, { Temperature, -2.0f }, { Wet, 0.3f } } },
+			{ TEXT("WP_Dust"), TEXT("Dust Storm"), { { Coverage, 0.35f }, { Dust, 0.9f }, { Wind, 0.85f }, { Temperature, 4.0f } } },
 		};
 		TMap<FString, UDreamWeatherPreset*> Out;
 		for (const FPresetSpec& Spec : Specs)

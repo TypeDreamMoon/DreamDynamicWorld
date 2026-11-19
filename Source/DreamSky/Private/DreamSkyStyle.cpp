@@ -225,8 +225,37 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	L.FogColor = FMath::Lerp(L.FogColor, FLinearColor(FogLuma, FogLuma, FogLuma, 1.0f) * 1.1f, FogNeutral * Fog);
 	L.FogColor.A = 1.0f;
 	L.FogDensity *= FMath::Lerp(1.0f, WeatherFogScale, Fog * Fog) * (1.0f + 0.5f * FMath::Clamp(Env.Precipitation, 0.0f, 1.0f));
+
+	// Dust: the air turns a sandy ochre and thickens; the sky and the sunlight take on its colour, the sun dims.
+	const float Dust = FMath::Clamp(Env.Dust, 0.0f, 1.0f);
+	if (Dust > 0.0f)
+	{
+		auto Luma = [](const FLinearColor& C) { return 0.2126f * C.R + 0.7152f * C.G + 0.0722f * C.B; };
+		const FLinearColor Sand = DustColor / FMath::Max(Luma(DustColor), 1.0e-3f);   // the dust's hue at unit brightness
+		auto Tint = [&](const FLinearColor& C, float Amount)
+		{
+			FLinearColor Out = FMath::Lerp(C, Sand * Luma(C), Amount);
+			Out.A = C.A;
+			return Out;
+		};
+		L.FogColor = Tint(L.FogColor, Dust);
+		L.FogDensity *= FMath::Lerp(1.0f, DustFogScale, Dust * Dust);
+		Look.Zenith = Tint(Look.Zenith, 0.5f * Dust);
+		Look.Horizon = Tint(Look.Horizon, 0.8f * Dust);
+		Look.CloudLit = Tint(Look.CloudLit, 0.5f * Dust);
+		Look.CloudShadow = Tint(Look.CloudShadow, 0.5f * Dust);
+		L.SunColor = Tint(L.SunColor, 0.5f * Dust);
+		L.MainLightColor = L.bMainLightIsMoon ? L.MainLightColor : L.SunColor;
+		L.AmbientSky = Tint(L.AmbientSky, 0.6f * Dust);
+		L.AmbientEquator = Tint(L.AmbientEquator, 0.6f * Dust);
+		const float SunLeft = 1.0f - DustSunDimming * Dust;
+		L.SunIlluminance *= SunLeft;
+		L.MainLightIlluminance *= L.bMainLightIsMoon ? 1.0f : SunLeft;
+		Look.SunDisk = Look.SunDisk * SunLeft;
+	}
+
 	// The dome is past the height fog's cutoff: it is hazed in the fog's own colour, so the fogged ground meets it.
-	const float Haze = FMath::Clamp(FogSkyHaze * Fog + DustSkyHaze * FMath::Clamp(Env.Dust, 0.0f, 1.0f), 0.0f, 1.0f);
+	const float Haze = FMath::Clamp(FogSkyHaze * Fog + DustSkyHaze * Dust, 0.0f, 1.0f);
 	Look.Haze = FLinearColor(L.FogColor.R, L.FogColor.G, L.FogColor.B, Haze);
 	// The lift keeps a grey day from going murky; a storm's darkness is meant to show, so it fades out with it.
 	L.ExposureEV100 -= OvercastExposureLift * Overcast * (1.0f - Dark);
