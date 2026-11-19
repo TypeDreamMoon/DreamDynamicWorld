@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamDynamicWorldSetupCommandlet.h"
+#include "DreamCloudNoise.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
@@ -14,6 +15,7 @@
 #include "DreamWorldParameters.h"
 
 #include "Engine/Texture2D.h"
+#include "Engine/VolumeTexture.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Factories/TextureFactory.h"
 
@@ -29,6 +31,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "UObject/MetaData.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #include "UObject/UnrealType.h"
@@ -41,6 +44,9 @@ namespace DreamWorld::Setup
 	static const TCHAR* TestMapPackage = TEXT("/DreamDynamicWorld/Sky/Maps/Lvl_DreamSkyTest");
 	static const TCHAR* CloudSpritesPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamCloudSprites");
 	static const TCHAR* CloudSpritesSource = TEXT("SourceArt/Sky/T_DreamCloudSprites.png");
+	static const TCHAR* CloudNoisePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise");
+	static const TCHAR* CloudNoiseVersionKey = TEXT("DreamCloudNoiseVersion");
+	static constexpr int32 CloudNoiseSize = 128;
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
 	{
@@ -180,6 +186,53 @@ namespace DreamWorld::Setup
 		}
 		UE_LOG(LogDreamWorld, Display, TEXT("Cloud sprites %s: imported from %s (%dx%d)"), CloudSpritesPackage, *Source, Texture->Source.GetSizeX(), Texture->Source.GetSizeY());
 		return Save(Package, Texture, FPackageName::GetAssetPackageExtension());
+	}
+
+	/**
+	 * The volumetric clouds' 3D noise (see DreamCloudNoise.h), generated here: 128^3 voxels, uncompressed (the
+	 * billows' fine detail survives), tiling. Built again when the generator's version changed, or with bForce.
+	 */
+	static bool EnsureCloudNoise(bool bForce)
+	{
+		const FString ObjectPath = FString(CloudNoisePackage) + TEXT(".") + FPackageName::GetShortName(CloudNoisePackage);
+		UVolumeTexture* Texture = FPackageName::DoesPackageExist(CloudNoisePackage) ? LoadObject<UVolumeTexture>(nullptr, *ObjectPath) : nullptr;
+		const FString Version = FString::FromInt(DreamCloudNoise::Version);
+		if (Texture && !bForce && Texture->GetOutermost()->GetMetaData().GetValue(Texture, CloudNoiseVersionKey) == Version)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Cloud noise %s: up to date"), *ObjectPath);
+			return true;
+		}
+		const bool bCreated = Texture == nullptr;
+		if (!Texture)
+		{
+			UPackage* Package = CreatePackage(CloudNoisePackage);
+			Package->FullyLoad();
+			Texture = NewObject<UVolumeTexture>(Package, *FPackageName::GetShortName(CloudNoisePackage), RF_Public | RF_Standalone);
+		}
+
+		const double Start = FPlatformTime::Seconds();
+		TArray<FColor> Voxels;
+		DreamCloudNoise::Build(CloudNoiseSize, Voxels);
+		const int32 Size = CloudNoiseSize;
+		Texture->UpdateSourceFromFunction([&Voxels, Size](int32 X, int32 Y, int32 Z, void* Out)
+		{
+			*static_cast<FColor*>(Out) = Voxels[(Z * Size + Y) * Size + X];
+		}, Size, Size, Size, TSF_BGRA8);
+		Texture->PreEditChange(nullptr);
+		Texture->SRGB = false;
+		Texture->CompressionSettings = TC_VectorDisplacementmap;
+		Texture->LODGroup = TEXTUREGROUP_World;
+		Texture->MipGenSettings = TMGS_FromTextureGroup;
+		Texture->NeverStream = true;
+		Texture->AddressMode = TA_Wrap;
+		Texture->PostEditChange();
+		Texture->GetOutermost()->GetMetaData().SetValue(Texture, CloudNoiseVersionKey, *Version);
+		if (bCreated)
+		{
+			FAssetRegistryModule::AssetCreated(Texture);
+		}
+		UE_LOG(LogDreamWorld, Display, TEXT("Cloud noise %s: built %d^3 in %.1f s"), *ObjectPath, Size, FPlatformTime::Seconds() - Start);
+		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
 	}
 
 	struct FPresetSpec
@@ -372,6 +425,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= Style != nullptr;
 	bOk &= EnsureWeatherMap();
 	bOk &= EnsureCloudSprites(FParse::Param(*Params, TEXT("ForceSprites")));
+	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
 
