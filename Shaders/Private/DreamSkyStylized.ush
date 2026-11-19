@@ -138,8 +138,13 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 	float Present = step(1.0 - 0.12 * Density, R.x);
 	float Dist = length(F - (0.25 + 0.5 * R.zxy));
 	float Size = lerp(0.03, 0.09, R.y);
-	float Aa = max(fwidth(Dist), 1e-4);
-	float Point = 1.0 - smoothstep(Size - Aa, Size + Aa, Dist);
+	// The pixel's footprint in lattice units, from the lattice coordinate itself, which runs on smoothly (the distance
+	// to a cell's star jumps where a pixel's neighbour lies in the next cell: its screen derivative there smeared the
+	// stars along the cells' faces into dashes, arcs and rings). A star is never drawn smaller than some 0.7 pixel
+	// across its radius, dimmed for what it was enlarged, so it does not break up as it falls between pixels.
+	float Pixel = max(0.5 * length(fwidth(G)), 1e-4);
+	float Radius = max(Size, 0.7 * Pixel);
+	float Point = (1.0 - smoothstep(Radius - 0.5 * Pixel, Radius + 0.5 * Pixel, Dist)) * (Size / Radius);
 	float Flicker = 1.0 - Twinkle * 0.5 * (1.0 + sin(Seconds * (1.5 + 3.0 * R.z) + R.y * 40.0));
 	return Present * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
 }
