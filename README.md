@@ -71,18 +71,24 @@ hidden, at night, so it costs nothing and anything that asks "where is the sun" 
 moon light takes over; when the moon is down a stand-in opposite the sun keeps a main light (stylized
 default, `bNightLightAlwaysUp`).
 
-The clouds are drawn the way anime backgrounds and stylised games paint them. Overhead, heaps of round lobes:
-discs blended into soft heaps with small lobes along their rims (`CloudLobeDetail`), lit like pillows — the
-side toward the light bright, the far side in a pale blue-grey shade, in a few clean bands — gathering where a
-slow field says, swelling into a closed deck under full cover, thinning toward the zenith
-(`CloudZenithThinning`) and breathing a little over the hours. On the horizon, painted cut-outs from
-`T_DreamCloudSprites` (`SourceArt/Sky`, packed by `Tools/Art/pack_cloud_sprites.py`: light, rim, core and
-coverage per sprite): fair-weather cumulus floating low (`CloudTowers`), and weather towers read from the
-weather map along each direction (`CloudTowerDistance`) — a storm cell kilometres away stands up as a
-cumulonimbus with an anvil, a front of thick cloud as towering cumulus — up to `CloudTowerElevation`. The
-overhead layer only follows the weather map out to `CloudLayerWeatherReach`; further weather is the towers' job.
-All clouds take the colour of the sky around them (`CloudSkyTint`: warm low in a sunset, deep blue overhead)
-and catch the sun's glow beside it; a cloud with the sun behind it turns darker with a bright edge. The sun's
+The clouds are one shape drawn either of two ways (`ADreamSky.Clouds`, or the console variable
+`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints each lobe in a few tones, the way anime
+backgrounds do; **Volumetric**, the engine's volumetric cloud layer renders them with physical light
+(`M_DreamVolumetricCloud`; `VolumetricLayerThickness`, `VolumetricTracingDistance`, `VolumetricSampleCountScale`).
+The shape (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates)
+places clouds one by one, as cumulus fields stand: a few large and many small, in groups with open sky between,
+level bases, small ones wider than tall and large ones heaped high, each a heap of round lobes at its own scale.
+The weather map's cover and darkness decide where they stand and how dark they draw. A fair sky keeps the zenith
+open (`CloudZenithThinning`) and its cumulus follow the hour (`CloudDiurnal`): few and flat in the morning, the most
+and tallest in the mid-afternoon. Far off, beyond 15 km, a few clouds heap into towering cumulus (`CloudTowers`) and
+a storm's cells into cumulonimbus with anvils, rain hanging under them in grey curtains. A closing cover becomes a
+deck instead of heaps: stratocumulus, soft cells darker where thick, with cracks of sky while the cover is short of
+full; storm darkness turns it into a thick, dark, even layer. The air between veils far clouds in
+the sky's own colour behind them, thicker low down (`CloudVisibility`, `CloudHazeHeight`): a tower's base sinks
+into the horizon while its top stays clear. Above it all lie thin cirrus streaks along the wind
+(`CloudHighCover`, `CloudHighAltitude`). All clouds take the colour of the sky around them (`CloudSkyTint`: warm
+low in a sunset, deep blue overhead) and catch the sun's glow beside it; a cloud with the sun behind it turns
+darker with a bright edge. The sun's
 halo spreads along the horizon while the sun is low. When the sky light captures
 the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the captured light has no hot spot.
 
