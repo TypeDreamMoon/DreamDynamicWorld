@@ -396,10 +396,12 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		// texel a march through the clouds' material.
 		const float MapExtentKm = FMath::Max(VolumetricTracingDistance, 10.0f);
 		if (SunLight && (!FMath::IsNearlyEqual(SunLight->CloudShadowExtent, MapExtentKm, 1.0e-2f)
-			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)))
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowRaySampleCountScale, VolumetricShadowSamples, 1.0e-3f)))
 		{
 			SunLight->CloudShadowExtent = MapExtentKm;
 			SunLight->CloudShadowMapResolutionScale = VolumetricShadowResolution;
+			SunLight->CloudShadowRaySampleCountScale = VolumetricShadowSamples;
 			SunLight->MarkRenderStateDirty();
 		}
 		// (The sky light's occlusion is soft: half the shadow map's resolution is plenty.)
@@ -593,7 +595,8 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{

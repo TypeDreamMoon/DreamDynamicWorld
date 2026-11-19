@@ -123,6 +123,13 @@ public:
 	float VolumetricShadowResolution = 0.75f;
 
 	/**
+	 * Samples each texel of the sun's cloud shadow map marches through the clouds, relative to the engine's 16. The map
+	 * is soft (a texel is some 300 m) and its cost goes with this; storms, whose towers fill the layer, cost the most.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "2"))
+	float VolumetricShadowSamples = 0.5f;
+
+	/**
 	 * How strongly the sun's and the moon's light scatters in the volumetric clouds, relative to the engine's. Its
 	 * multiple scattering is an approximation that loses light: at 1 sunlit cloud faces come out light grey where a
 	 * real cumulus is near white. (The moon is left out of the clouds' tracing while it is dark: a second light costs a
