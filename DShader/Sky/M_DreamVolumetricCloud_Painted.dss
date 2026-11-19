@@ -179,13 +179,13 @@ export void M_DreamVolumetricCloud_Painted(inout material m)
 		Conservative);
 
 	// The engine's own light is a small share here: it reads the sun's shadow from the cloud shadow map instead of
-	// marching toward the sun per sample (that march evaluates this whole material again at every step), and the
-	// medium is grey-scale (one channel traced).
+	// marching toward the sun per sample (that march evaluates this whole material again at every step). (Not a
+	// grey-scale material: the engine would read only the red channel of the painted colour too.)
 	UE.VolumetricAdvancedMaterialOutput(PhaseG = 0.6, PhaseG2 = -0.3, PhaseBlend = 0.5,
 		MultiScatteringContribution = 0.0, MultiScatteringOcclusion = 0.5, MultiScatteringEccentricity = 0.5,
 		ConservativeDensity = float3(Conservative, Conservative, Conservative),
 		MultiScatteringApproximationOctaveCount = 0, bClampMultiScatteringContribution = false, bGroundContribution = false,
-		bGrayScaleMaterial = true, bRayMarchVolumeShadow = false);
+		bRayMarchVolumeShadow = false);
 
 	m.BaseColor = SampleAlbedo;
 	m.SubsurfaceColor = SampleExtinction;

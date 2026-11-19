@@ -140,13 +140,12 @@ export void M_DreamVolumetricCloud(inout material m)
 		SampleExtinction, SampleAlbedo, SampleEmissive, Conservative);
 
 	// Two octaves of multiple scattering carry the sunlight deeper into the sunlit faces (they cost arithmetic, not
-	// material evaluations); the bases of big clouds stay dark. (Grey-scale medium: the engine traces one channel of
-	// extinction and albedo; the light stays coloured.)
+	// material evaluations); the bases of big clouds stay dark. (Not a grey-scale material: the engine would read only
+	// the red channel of the glow too, and the shade's blue would be lost.)
 	UE.VolumetricAdvancedMaterialOutput(PhaseG = ScatterForward, PhaseG2 = ScatterBackward, PhaseBlend = ScatterBlend,
 		MultiScatteringContribution = MultiScatter, MultiScatteringOcclusion = MultiScatterOcclusion,
 		MultiScatteringEccentricity = MultiScatterEccentricity, ConservativeDensity = float3(Conservative, Conservative, Conservative),
-		MultiScatteringApproximationOctaveCount = 2, bClampMultiScatteringContribution = false, bGroundContribution = false,
-		bGrayScaleMaterial = true);
+		MultiScatteringApproximationOctaveCount = 2, bClampMultiScatteringContribution = false, bGroundContribution = false);
 
 	m.BaseColor = SampleAlbedo;
 	m.SubsurfaceColor = SampleExtinction;
