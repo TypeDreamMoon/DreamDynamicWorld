@@ -64,7 +64,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	EDreamSkyClouds Clouds = EDreamSkyClouds::Toon;
 
-	/** Material of the engine's volumetric cloud layer (a Volume domain material), for Clouds = Volumetric. */
+	/**
+	 * Material of the engine's volumetric cloud layer (a Volume domain material), for Clouds = Volumetric. The plugin
+	 * ships two over the same clouds: M_DreamVolumetricCloud (realistic: soft, lit by scattering) and
+	 * M_DreamVolumetricCloud_Painted (an anime background's: hard-edged, in the style's three painted tones). The
+	 * console variable DreamSky.CloudMaterial overrides it.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	TSoftObjectPtr<UMaterialInterface> VolumetricCloudMaterial;
 

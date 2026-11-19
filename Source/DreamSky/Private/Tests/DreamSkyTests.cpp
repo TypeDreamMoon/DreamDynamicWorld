@@ -313,6 +313,22 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the moon is the second atmosphere light (it lights the clouds at night)"),
 		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
 
+	// The painted material over the same clouds, chosen from the console; empty gives the actor's back.
+	IConsoleVariable* MaterialVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.CloudMaterial"));
+	if (TestNotNull(TEXT("DreamSky.CloudMaterial"), MaterialVar))
+	{
+		const TCHAR* PaintedPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted");
+		MaterialVar->Set(PaintedPath, ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
+		const UMaterialInterface* Painted = W.Sky->VolumetricClouds->GetMaterial();
+		TestTrue(TEXT("the console's material is drawn"), Painted && Painted->GetPathName() == PaintedPath);
+		TestTrue(TEXT("it is a Volume domain material"), Painted && Painted->GetMaterial() && Painted->GetMaterial()->MaterialDomain == MD_Volume);
+		MaterialVar->Set(TEXT(""), ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
+		const UMaterialInterface* Back = W.Sky->VolumetricClouds->GetMaterial();
+		TestTrue(TEXT("and empty gives the actor's own back"), Back && Back->GetPathName() == W.Sky->VolumetricCloudMaterial.ToSoftObjectPath().ToString());
+	}
+
 	// The console variable wins over the actor's choice.
 	CVar->Set(0, ECVF_SetByCode);
 	W.Clock->Tick(0.016f);

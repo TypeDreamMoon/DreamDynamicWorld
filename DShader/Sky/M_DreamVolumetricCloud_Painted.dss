@@ -1,0 +1,153 @@
+// M_DreamVolumetricCloud_Painted.dss -- the engine's volumetric cloud layer painted the way anime backgrounds paint
+// cumulus (Makoto Shinkai's skies): the same clouds as M_DreamVolumetricCloud (DreamSkyCloudShape.ush), but hard-edged
+// and opaque, and lit by the material itself instead of by scattering. Set it as ADreamSky's VolumetricCloudMaterial
+// to use it.
+//
+// Each sample looks twice toward the main light through the clouds (a quarter and most of a kilometre on): what it
+// finds there is its shade. That light picks one of the style's three tones -- near white where the sun falls, a
+// pale half tone, the sky-tinted shade -- with soft painted edges between them, the bases a little darker; edges
+// near the sun glow (the silver lining). The cloud glows that colour (the engine adds no multiple scattering and
+// little of its own light), and the air between veils it toward the sky behind it, as on the other clouds.
+#pragma material(Domain = Volume, BlendMode = Additive, bTangentSpaceNormal = false, bCastRayTracedShadows = false)
+
+/// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
+static const Texture2D WeatherMap;
+
+/// The 3D noise the shapes are built from (Setup generates it).
+/// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
+static const VolumeTexture CloudNoise;
+
+/// @group Cloud   @sort 10   @slider 0.05 1   @desc Extinction of a solid cloud, per metre: high, so the outline is hard and the inside unseen
+uniform float CloudExtinction = 0.3;
+
+/// @group Cloud   @sort 20   @slider 0 1   @desc How much of the engine's own lighting shows under the painted tones (a little keeps the volume)
+uniform float EngineLight = 0.08;
+
+/// @group Cloud   @sort 30   @slider 0.5 2   @desc Brightness of the painted tones
+uniform float PaintGain = 1.0;
+
+/// @group Light   @sort 10   @slider 0 1   @desc Where the half tone starts (light seen through the cloud toward the sun)
+uniform float HalfToneAt = 0.3;
+
+/// @group Light   @sort 20   @slider 0 1   @desc Where the lit tone starts
+uniform float LitToneAt = 0.62;
+
+/// @group Light   @sort 30   @slider 0.005 0.2   @desc How soft the edges between the tones are
+uniform float ToneSoftness = 0.05;
+
+/// @group Light   @sort 40   @slider 0 4   @desc Silver lining on the edges near the sun
+uniform float SilverLining = 1.5;
+
+/// @custom
+/// @name Dream Cloud Painted
+void DreamCloud_Painted(float3 Rel, float3 World, float Z, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3,
+	float4 CloudLayer, float4 MapParams, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 Flash, float4 Extra,
+	float4 SunDir, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo, float Sigma, float EngineShare, float Gain,
+	float HalfAt, float LitAt, float Soft, float Silver, Texture2D Map, VolumeTexture Noise,
+	out float3 OutExtinction, out float3 OutAlbedo, out float3 OutEmissive, out float OutConservative)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
+	FDCloudShape S = DCS_Shape(Rel, World, Z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, 1.0, Map, MapSampler,
+		Noise, NoiseSampler);
+	OutConservative = S.Conservative;
+	// Hard and opaque: the cloud is solid a little inside its outline.
+	float E = saturate((S.Solid - 0.03) * 15.0) * Sigma;
+	OutExtinction = E.xxx;
+	OutAlbedo = (0.95 * EngineShare).xxx;
+	OutEmissive = float3(0, 0, 0);
+	// (Only inside a cloud is it lit.)
+	if (E > 0.0)
+	{
+		// The shade: how much cloud lies toward the light, a quarter and most of a kilometre on (no fine fraying there).
+		float3 L = normalize(MainLight.xyz);
+		float3 Step1 = L * 25000.0;
+		float3 Step2 = L * 80000.0;
+		FDCloudShape S1 = DCS_Shape(Rel + Step1, World + Step1, Z + Step1.z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, 0.0,
+			Map, MapSampler, Noise, NoiseSampler);
+		FDCloudShape S2 = DCS_Shape(Rel + Step2, World + Step2, Z + Step2.z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, 0.0,
+			Map, MapSampler, Noise, NoiseSampler);
+		float Occlusion = saturate(S1.Solid * 5.0) * 0.6 + saturate(S2.Solid * 5.0) * 0.4;
+		// The bottom of a cloud sits in its own shade and sees little of the sky: a little darker.
+		float Light = (1.0 - Occlusion) * lerp(0.7, 1.0, saturate(S.Height * 2.0));
+
+		// The style's tones, tinted by the sky behind (as the dome's toon clouds are).
+		float Distance = length(Rel);
+		float3 Ray = Rel / max(Distance, 1.0);
+		float3 Halo;
+		float3 Base = DSky_Backdrop(Ray, normalize(SunDir.xyz), Zenith, Horizon, Ground, SunHalo, Halo);
+		float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
+		float3 Tone = clamp(Base / Mean, 0.25, 4.0);
+		float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x) * lerp(0.82, 1.0, S.Height);
+		float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
+		float3 Half = lerp(Shadow, Lit, 0.55) * float3(0.96, 0.97, 1.03);
+		float3 Color = Shadow;
+		if (Cloud0.w < 1.0)
+		{
+			Color = lerp(Shadow, Lit, Light);
+		}
+		else
+		{
+			Color = lerp(Color, Half, smoothstep(HalfAt - Soft, HalfAt + Soft, Light));
+			Color = lerp(Color, Lit, smoothstep(LitAt - Soft, LitAt + Soft, Light));
+		}
+		// An overcast deck is painted soft: only the gradient from its shade to the half tone.
+		Color = lerp(Color, lerp(Shadow, Half, smoothstep(0.05, 0.6, Light)), S.Deck);
+		// Silver lining: the thin outer skin of a cloud near the sun, on its upper sides.
+		float Skin = 1.0 - saturate((S.Solid - 0.03) * 8.0);
+		Color += CloudLit.rgb * CloudLit.a * Silver * Skin * pow(saturate(dot(Ray, L)), 4.0) * smoothstep(0.1, 0.5, S.Height);
+		// Storm clouds are dark below; their lit tops much less so.
+		Color *= saturate(1.0 - CloudLayer.z * S.Dark * lerp(0.55, 1.0, 1.0 - Light) * lerp(1.0, 0.3, S.Height));
+		// The air between veils the cloud toward the sky behind it; what the engine lights fades with it.
+		float Veil = DCS_AirVeil(Distance, Ray.z, Cloud0.x, Cloud3);
+		OutAlbedo *= 1.0 - Veil;
+		// (An opaque cloud shows Emissive / E: the colour itself.)
+		OutEmissive = lerp(Color * Gain, Base + Halo, Veil) * E;
+		// Lightning lights the clouds toward the strike from inside.
+		float FlashNow = Flash.w * Extra.w;
+		if (FlashNow > 0.0)
+		{
+			float Toward = pow(saturate(dot(Ray, normalize(Flash.xyz))), 3.0);
+			OutEmissive += float3(0.75, 0.8, 1.0) * FlashNow * (0.15 + 0.85 * Toward) * E * 3.0;
+		}
+	}
+}
+
+export void M_DreamVolumetricCloud_Painted(inout material m)
+{
+	float4 Cloud0      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud0");
+	float4 Cloud1      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud1");
+	float4 Cloud2      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud2");
+	float4 Cloud3      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud3");
+	float4 CloudLayer  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudLayer");
+	float4 MapParams   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_WeatherMap");
+	float4 CloudLit    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudLit");
+	float4 CloudShadow = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudShadow");
+	float4 MainLight   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+	float4 Flash       = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Flash");
+	float4 Extra       = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyExtra");
+	float4 SunDir      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SunDir");
+	float4 Zenith      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyZenith");
+	float4 Horizon     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyHorizon");
+	float4 Ground      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyGround");
+	float4 SunHalo     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SunHalo");
+
+	float3 SampleExtinction;
+	float3 SampleAlbedo;
+	float3 SampleEmissive;
+	float Conservative;
+	float3 World = UE.WorldPosition().XYZ;
+	DreamCloud_Painted(World - UE.CameraPositionWS(), World, UE.CloudSampleAttribute().AltitudeInLayer,
+		Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, CloudLit, CloudShadow, MainLight, Flash, Extra, SunDir, Zenith,
+		Horizon, Ground, SunHalo, CloudExtinction, EngineLight, PaintGain, HalfToneAt, LitToneAt, ToneSoftness, SilverLining,
+		WeatherMap, CloudNoise, SampleExtinction, SampleAlbedo, SampleEmissive, Conservative);
+
+	UE.VolumetricAdvancedMaterialOutput(PhaseG = 0.6, PhaseG2 = -0.3, PhaseBlend = 0.5,
+		MultiScatteringContribution = 0.0, MultiScatteringOcclusion = 0.5, MultiScatteringEccentricity = 0.5,
+		ConservativeDensity = float3(Conservative, Conservative, Conservative),
+		MultiScatteringApproximationOctaveCount = 0, bClampMultiScatteringContribution = false, bGroundContribution = false);
+
+	m.BaseColor = SampleAlbedo;
+	m.SubsurfaceColor = SampleExtinction;
+	m.EmissiveColor = SampleEmissive;
+	m.AmbientOcclusion = 1.0;
+}

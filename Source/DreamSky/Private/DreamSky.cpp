@@ -25,6 +25,11 @@ static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
 	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 1 = volumetric (the engine's cloud layer)."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<FString> CVarDreamSkyCloudMaterial(
+	TEXT("DreamSky.CloudMaterial"), FString(),
+	TEXT("The volumetric clouds' material, as an object path (for example /DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted); empty = each Dream Sky's own."),
+	ECVF_Default);
+
 namespace DreamSky::Actor
 {
 	/** The engine's sky sphere: a unit-ish sphere whose normals face inward. */
@@ -172,8 +177,21 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 	const bool bVolumetric = GetEffectiveClouds() == EDreamSkyClouds::Volumetric;
 	if (bVolumetric)
 	{
-		// The component starts with the engine's default cloud material: ours replaces it.
-		UMaterialInterface* Wanted = VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous();
+		// The component starts with the engine's default cloud material: ours replaces it (or the console's).
+		UMaterialInterface* Wanted = nullptr;
+		const FString Override = CVarDreamSkyCloudMaterial.GetValueOnGameThread();
+		static FString MissingOverride;
+		if (!Override.IsEmpty() && Override != MissingOverride)
+		{
+			const TSoftObjectPtr<UMaterialInterface> Chosen{FSoftObjectPath(Override)};
+			Wanted = Chosen.Get() ? Chosen.Get() : Chosen.LoadSynchronous();
+			// (A path that loads nothing is not tried again every frame.)
+			MissingOverride = Wanted ? FString() : Override;
+		}
+		if (!Wanted)
+		{
+			Wanted = VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous();
+		}
 		if (Wanted && VolumetricClouds->GetMaterial() != Wanted)
 		{
 			VolumetricClouds->SetMaterial(Wanted);
