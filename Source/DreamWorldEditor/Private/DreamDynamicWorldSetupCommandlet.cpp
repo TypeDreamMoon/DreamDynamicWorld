@@ -14,10 +14,8 @@
 #include "DreamWindEditorLibrary.h"
 #include "DreamWorldParameters.h"
 
-#include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/TextureRenderTarget2D.h"
-#include "Factories/TextureFactory.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Camera/CameraActor.h"
@@ -26,8 +24,6 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
-#include "HAL/FileManager.h"
-#include "Interfaces/IPluginManager.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
@@ -42,8 +38,6 @@ namespace DreamWorld::Setup
 {
 	static const TCHAR* StylePackage = TEXT("/DreamDynamicWorld/Sky/DS_DreamSkyStylized");
 	static const TCHAR* TestMapPackage = TEXT("/DreamDynamicWorld/Sky/Maps/Lvl_DreamSkyTest");
-	static const TCHAR* CloudSpritesPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamCloudSprites");
-	static const TCHAR* CloudSpritesSource = TEXT("SourceArt/Sky/T_DreamCloudSprites.png");
 	static const TCHAR* CloudNoisePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise");
 	static const TCHAR* CloudNoiseVersionKey = TEXT("DreamCloudNoiseVersion");
 	static constexpr int32 CloudNoiseSize = 128;
@@ -133,59 +127,6 @@ namespace DreamWorld::Setup
 		}
 		UE_LOG(LogDreamWorld, Display, TEXT("Weather map %s: up to date"), *RT->GetPathName());
 		return true;
-	}
-
-	/**
-	 * The horizon clouds' sprite atlas, imported from the plugin's SourceArt/Sky/T_DreamCloudSprites.png (packed by
-	 * Tools/Art/pack_cloud_sprites.py). Its channels are data (light, rim, core, coverage), not colour. Imported
-	 * again when the PNG is newer than the asset, or with bForce.
-	 */
-	static bool EnsureCloudSprites(bool bForce)
-	{
-		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("DreamDynamicWorld"));
-		const FString Source = Plugin.IsValid() ? FPaths::Combine(Plugin->GetBaseDir(), CloudSpritesSource) : FString();
-		if (Source.IsEmpty() || !FPaths::FileExists(Source))
-		{
-			UE_LOG(LogDreamWorld, Error, TEXT("Cloud sprites: %s not found"), CloudSpritesSource);
-			return false;
-		}
-		const bool bExists = FPackageName::DoesPackageExist(CloudSpritesPackage);
-		const FString AssetFile = FPackageName::LongPackageNameToFilename(CloudSpritesPackage, FPackageName::GetAssetPackageExtension());
-		if (bExists && !bForce && IFileManager::Get().GetTimeStamp(*AssetFile) >= IFileManager::Get().GetTimeStamp(*Source))
-		{
-			UE_LOG(LogDreamWorld, Display, TEXT("Cloud sprites %s: up to date"), CloudSpritesPackage);
-			return true;
-		}
-
-		UPackage* Package = CreatePackage(CloudSpritesPackage);
-		Package->FullyLoad();
-		UTextureFactory* Factory = NewObject<UTextureFactory>();
-		Factory->AddToRoot();
-		Factory->SuppressImportOverwriteDialog();
-		bool bCancelled = false;
-		UTexture2D* Texture = Cast<UTexture2D>(Factory->ImportObject(UTexture2D::StaticClass(), Package,
-			FName(FPackageName::GetShortName(CloudSpritesPackage)), RF_Public | RF_Standalone, Source, nullptr, bCancelled));
-		Factory->RemoveFromRoot();
-		if (!Texture)
-		{
-			UE_LOG(LogDreamWorld, Error, TEXT("Cloud sprites: could not import %s"), *Source);
-			return false;
-		}
-		Texture->PreEditChange(nullptr);
-		Texture->SRGB = false;
-		Texture->CompressionSettings = TC_BC7;
-		Texture->LODGroup = TEXTUREGROUP_Skybox;
-		Texture->MipGenSettings = TMGS_FromTextureGroup;
-		Texture->NeverStream = true;
-		Texture->AddressX = TA_Clamp;
-		Texture->AddressY = TA_Clamp;
-		Texture->PostEditChange();
-		if (!bExists)
-		{
-			FAssetRegistryModule::AssetCreated(Texture);
-		}
-		UE_LOG(LogDreamWorld, Display, TEXT("Cloud sprites %s: imported from %s (%dx%d)"), CloudSpritesPackage, *Source, Texture->Source.GetSizeX(), Texture->Source.GetSizeY());
-		return Save(Package, Texture, FPackageName::GetAssetPackageExtension());
 	}
 
 	/**
@@ -424,7 +365,6 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	UDreamSkyStyle* Style = EnsureDefaultStyle(FParse::Param(*Params, TEXT("ForceStyle")));
 	bOk &= Style != nullptr;
 	bOk &= EnsureWeatherMap();
-	bOk &= EnsureCloudSprites(FParse::Param(*Params, TEXT("ForceSprites")));
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
