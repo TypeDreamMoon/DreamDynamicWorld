@@ -332,3 +332,10 @@ float DreamSky::CumulusGrowth(float Hours)
 	}
 	return Keys[0].Y;
 }
+
+float DreamSky::CloudFormation(double WorldSeconds, float Speed)
+{
+	// (In double until it is wrapped: the clock runs for days of game seconds.)
+	const double Phase = WorldSeconds / 3600.0 * CloudFormationPerHour * double(FMath::Max(Speed, 0.0f));
+	return float(Phase - FMath::FloorToDouble(Phase));
+}

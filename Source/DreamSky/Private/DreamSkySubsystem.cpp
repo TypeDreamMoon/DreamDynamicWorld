@@ -183,7 +183,9 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const double Distance = FMath::Fmod(Clock.GetWorldSeconds() / 3600.0 * double(Style.CloudSpeed), 4096.0);
 	const double Yaw = FMath::DegreesToRadians(double(Style.CloudDirection));
 	Clock.SetVectorParameter(MPC_Cloud0, FLinearColor(Look.CloudCoverage, 0.0f, Style.CloudScale, float(Style.CloudBands)));
-	Clock.SetVectorParameter(MPC_Cloud1, FLinearColor(float(FMath::Cos(Yaw) * Distance), float(FMath::Sin(Yaw) * Distance), 0.0f, 0.0f));
+	// z: how far the clouds have grown and dissolved (the formation noise's phase, from the world time as well).
+	Clock.SetVectorParameter(MPC_Cloud1, FLinearColor(float(FMath::Cos(Yaw) * Distance), float(FMath::Sin(Yaw) * Distance),
+		DreamSky::CloudFormation(Clock.GetWorldSeconds(), Style.CloudFormationSpeed), 0.0f));
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Style.CloudHighCover, Style.CloudHighAltitude));
