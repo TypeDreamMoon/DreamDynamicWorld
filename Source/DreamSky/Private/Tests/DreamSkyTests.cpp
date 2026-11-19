@@ -119,6 +119,35 @@ bool FDreamSkyCumulusGrowthTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudFormationTest, "DreamSky.Clouds.FormationFollowsTheClock", DreamSky::Tests::Flags)
+bool FDreamSkyCloudFormationTest::RunTest(const FString& Parameters)
+{
+	using DreamSky::CloudFormation;
+	// Some game days in, where float seconds would have lost the minutes.
+	const double Day = 86400.0;
+	const double Start = 40.0 * Day + 16.0 * 3600.0;
+	TestNearlyEqual(TEXT("the same moment gives the same clouds"), CloudFormation(Start, 1.0f), CloudFormation(Start, 1.0f), 0.0f);
+	TestNearlyEqual(TEXT("speed 0 holds the shapes"), CloudFormation(Start, 0.0f), CloudFormation(Start + 7200.0, 0.0f), 0.0f);
+	// Twenty game minutes take a cloud through about an eighth of the phase.
+	auto Gap = [](float A, float B) { const float D = FMath::Abs(A - B); return FMath::Min(D, 1.0f - D); };
+	TestNearlyEqual(TEXT("an eighth in twenty minutes"), Gap(CloudFormation(Start, 1.0f), CloudFormation(Start + 1200.0, 1.0f)), 0.125f, 1e-3f);
+	TestNearlyEqual(TEXT("twice as far at twice the speed"), Gap(CloudFormation(Start, 2.0f), CloudFormation(Start + 600.0, 2.0f)), 0.125f, 1e-3f);
+	// Smooth: a frame moves it a hair, and where it wraps it wraps to the same place in the noise (0 = 1).
+	bool bInRange = true;
+	bool bSmooth = true;
+	float Last = CloudFormation(Start, 1.0f);
+	for (double T = Start; T < Start + 6.0 * 3600.0; T += 30.0)
+	{
+		const float Now = CloudFormation(T, 1.0f);
+		bInRange &= Now >= 0.0f && Now < 1.0f;
+		bSmooth &= Gap(Now, Last) < 0.005f;
+		Last = Now;
+	}
+	TestTrue(TEXT("0..1"), bInRange);
+	TestTrue(TEXT("no jumps over six hours, the wrap included"), bSmooth);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyApplyTest, "DreamSky.Actor.SnapAndEase", DreamSky::Tests::Flags)
 bool FDreamSkyApplyTest::RunTest(const FString& Parameters)
 {

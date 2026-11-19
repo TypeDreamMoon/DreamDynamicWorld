@@ -232,6 +232,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "4"))
 	float CloudSpeed = 0.4f;
 
+	/**
+	 * How fast the clouds grow and fall apart as they drift: at 1 a cloud builds and dissolves again over some 20
+	 * game minutes (small ones sooner, the large ones later), 2 twice as fast, 0 keeps every shape as it is. Follows
+	 * the world clock, so a given moment always shows the same clouds.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "4"))
+	float CloudFormationSpeed = 1.0f;
+
 	/** Drift direction, degrees of yaw (until the wind drives it). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	float CloudDirection = 30.0f;
@@ -399,4 +407,14 @@ namespace DreamSky
 	 * in the mid-afternoon and fall apart toward evening; a few hang on through the night.
 	 */
 	DREAMSKY_API float CumulusGrowth(float Hours);
+
+	/**
+	 * How far the clouds have changed their shapes by this moment of the world clock (game seconds) at a formation
+	 * speed (UDreamSkyStyle::CloudFormationSpeed), as a phase 0..1 through the noise the shapes are cut from: it rises
+	 * steadily with the clock and wraps where the noise repeats, so the clouds change smoothly and never jump.
+	 */
+	DREAMSKY_API float CloudFormation(double WorldSeconds, float Speed);
+
+	/** How far CloudFormation moves per game hour at a speed of 1 (a cloud grows and dissolves within about an eighth of it). */
+	inline constexpr double CloudFormationPerHour = 0.375;
 }

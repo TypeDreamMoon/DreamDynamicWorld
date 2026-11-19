@@ -9,14 +9,18 @@
 //     cumulus, towering cumulus, stratocumulus, an overcast deck. Fair-weather cumulus follow the hour (fewer in the
 //     morning), and a slow patchiness varies the coverage across the sky;
 //   - a low-frequency formation noise, cut at a threshold that falls as the coverage rises, says where cloud may
-//     stand: whole blobs of every size, crowded in places, sparse in others;
+//     stand: whole blobs of every size, crowded in places, sparse in others. The world clock moves it through its
+//     phase (UDS's formation change), so each cloud grows out of nothing and dissolves again over some 20 game
+//     minutes while the wind carries it;
 //   - the cloud type's vertical profile (DCS_Profile, drawn after UDS's Cloud_Profile) tapers the formation with
-//     height: small cumulus stay in the lowest fifth of the layer, towering cumulus climb it narrowing, an overcast
-//     fills it. The base is level, lifted here and there (more under an overcast);
+//     height: small cumulus stay in the lowest fifth of the layer, towering cumulus climb it narrowing. The base is
+//     level, lifted here and there;
+//   - a closing cover turns into a deck (DCS_Deck): stratocumulus cells, thick in their middles and thin between them,
+//     cracked open while the cover is short of full; toward rain and storms a deep deck with a low, ragged base;
 //   - under storm darkness, storm cells raise cumulonimbus out of the deck (DCS_Cumulonimbus): a billowed column up to
-//     the tropopause, an anvil spread downwind there, the overshooting top over the core;
-//   - billows (the noise's Worley octaves) erode it -- erosion only, it never adds cloud -- small clouds most, an
-//     overcast's underside hardly; a finer octave near the view frays the edges.
+//     the tropopause, an anvil spread downwind there with mammatus under it, the overshooting top over the core;
+//   - billows (the noise's Worley octaves) erode it -- erosion only, it never adds cloud -- small clouds most, a deck's
+//     base lumpy, its inside hardly; a finer octave near the view frays the edges.
 // The volumetric material turns the density into extinction; the toon march draws the surface where the solid shape
 // crosses a low threshold.
 
@@ -108,14 +112,18 @@ float4 DCS_Hash4(int2 C, uint Salt)
 
 // One storm cell's cumulonimbus, at Offset from its centre (cm, horizontally) and Z above the layer's base (cm); Size
 // scales it (about 1), Downwind is the wind's direction (unit), Seed varies it, Ragged (0..1, a slow noise at the point)
-// frays the anvil's rim. Returns how far inside it the point
-// is, in a solid-shape measure (> 0 inside; 0.25 about 700 m in), and, for the point, how much it belongs to the anvil
-// (0 column .. 1 anvil) and its height through the cloud (0..1).
+// frays the anvil's rim and lifts and sags its underside, Pouch (0..1, cells some 2 km across: 1 in a cell's middle)
+// hangs the mammatus from it. Returns how far inside it the point is, in a solid-shape measure (> 0 inside; 0.25 about
+// 700 m in), and, for the point, how much it belongs to the anvil (0 column .. 1 anvil), how near the anvil's underside
+// it is (0..1) and its height through the cloud (0..1).
 //   - The column: some 5 to 8 km wide, rising from the base, hardly narrowing as it climbs, bulging in tiers (the
 //     towers that built it), leaning downwind higher up, and flaring out into the anvil's underside near the top.
 //   - The anvil: a wedge at the tropopause (7.5 to 9.5 km): short and steep upwind over the column, drawn out some 12 km
-//     downwind and thinning that way, its top nearly flat; the overshooting top domes over the core.
-float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, float Seed, float Ragged, out float Anvil, out float Height)
+//     downwind and thinning that way, its top nearly flat; the overshooting top domes over the core. Its underside
+//     sags and lifts by a few hundred metres, and downwind of the column, away from the rim, it hangs in pouches
+//     (mammatus) up to some 700 m deep.
+float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, float Seed, float Ragged, float Pouch,
+	out float Anvil, out float Under, out float Height)
 {
 	const float AnvilTop = 950000.0;
 	float Rc = 330000.0 * Size;
@@ -140,8 +148,14 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 	float Rr = length(float2(Along / (Along > 0.0 ? 1.6 : 0.7), dot(A, Across))) / Ra * lerp(0.8, 1.2, Ragged);
 	float Thick = 170000.0 * saturate(1.0 - Rr * Rr) * lerp(1.0, 0.45, saturate(Along / (1.6 * Ra)));
 	float Top = AnvilTop - 25000.0 * Rr * Rr;
-	float AnvilShape = min(Top - Z, Z - (Top - Thick)) / 280000.0;
+	// (The pouches hang downwind of the column, where the anvil is thick enough to hold them, not under its rim; each
+	// a rounded lobe, deepest in its cell's middle.)
+	float Mammatus = smoothstep(0.05, 0.45, Along / Ra) * (1.0 - smoothstep(0.7, 0.95, Rr)) * saturate(Thick / 80000.0);
+	float Lobe = smoothstep(0.3, 0.85, Pouch);
+	float Bottom = Top - Thick - 70000.0 * Mammatus * Lobe * Lobe - 50000.0 * (Ragged - 0.5) * saturate(Thick / 40000.0);
+	float AnvilShape = min(Top - Z, Z - Bottom) / 280000.0;
 	Anvil = AnvilShape > Column ? 1.0 : 0.0;
+	Under = Anvil * (1.0 - smoothstep(0.0, 60000.0, Z - Bottom));
 	return max(Column, AnvilShape);
 }
 
@@ -151,17 +165,35 @@ struct FDCloudShape
 	float Density;        // 0..1: Solid weighed by the cloud type's density (the volumetric extinction)
 	float Conservative;   // an upper bound of both (0 = surely empty)
 	float Dark;           // storm darkness here
-	float Height;         // 0 base .. 1 top of the cloud type here
-	float Column;         // cm: how tall the cloud type here stands
+	float Height;         // 0 base .. 1 top of the cloud here
+	float Column;         // cm: how tall the cloud here stands (a deck: how thick it is here)
 	float Deck;           // 1: an overcast deck
 };
 
+// The overcast deck at a height H in the layer (0..1): stratocumulus, cells some 1.5 km across, over a kilometre thick
+// in their middles, which hang down as rounded lobes (seen from below a ceiling of cells), some 80 m between them,
+// where the base is lifted some 350 m, and while the cover is short of full (Shut < 1) cracked open along the
+// thinnest of the gaps; as it darkens toward rain and storms (Thick 0..1) it grows into a deck some 2 to 3 km deep
+// whose lumpy base hangs at the layer's bottom. Cell = 0 between the cells .. 1 in a cell's middle. Returns (solid
+// measure, the deck's base and top here, both in the layer).
+float3 DCS_Deck(float Cell, float Shut, float Thick, float H)
+{
+	float Bottom = lerp(0.02 + 0.09 * pow(1.0 - Cell, 1.5), 0.004 + 0.03 * (1.0 - Cell), Thick);
+	float Top = lerp(0.13 + 0.19 * Cell, 0.5 + 0.25 * Cell, Thick);
+	float Inside = min(H - Bottom, Top - H) / 0.05;
+	float Crack = saturate((0.24 * (1.0 - Shut) - Cell) * 8.0);
+	return float3(saturate(Inside) - Crack, Bottom, Top);
+}
+
 // Rel = the point from the view (cm; the detail near the view uses it), World = the point in the
 // world (cm), Z = its altitude above the layer's base (cm).
-// Cloud0 = (cover at the view, -, scale, -), Cloud1.xy = how far the wind has carried the clouds (in units of 2.2 km
-// times the scale), Cloud2 = (how far the hour has let fair-weather cumulus grow 0..1, how deep the billows erode, how
-// much the edges fray near the view, -), CloudLayer.y = darkness at the view. Detail (0..1) = how much of that fraying
-// this sample takes (0 for the cheap samples: normals, shadows).
+// Cloud0 = (cover at the view, -, scale, -), Cloud1 = (how far the wind has carried the clouds, in units of 2.2 km
+// times the scale; how far they have grown and dissolved, the formation's phase 0..1; -), Cloud2 = (how far the hour
+// has let fair-weather cumulus grow 0..1, how deep the billows erode, how much the edges fray near the view, -),
+// CloudLayer.y = darkness at the view. Detail (0..1) = how much of that fraying this sample takes (0 for the cheap
+// samples: normals, shadows).
+// Texture reads per call: 3 noise and 2 map always; 1 noise more where a deck closes, 1 noise and up to 9 x 5 map taps
+// more near a storm (1 x 9 under a storm's middle); 1 noise more inside the shape and 1 more near the view.
 FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 CloudLayer,
 	float4 MapParams, float Detail, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
 {
@@ -170,6 +202,8 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// The field drifts with the wind.
 	float Scale = max(Cloud0.z, 0.05);
 	float2 P = World.xy + Cloud1.xy * 220000.0 * Scale;
+	// (The noise tiles in z as well: the phase wraps where it repeats, and the clouds never jump.)
+	float Phase = Cloud1.z;
 	// The weather is read a couple of kilometres off, wandering, differently with height: a zone's edge (a circle, a box,
 	// blended over a short distance) comes out ragged in the clouds, its side heaped, instead of a wall along the shape
 	// the level drew.
@@ -184,20 +218,26 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float H = Z / DCS_LAYER_TOP;
 
 	// The coverage here, 0..3: the weather's cover (fair-weather cumulus fewer in the morning; a closing cover is not
-	// touched), varied in patches tens of kilometres wide.
+	// touched), varied in patches tens of kilometres wide (which change within an hour or so). It picks the cloud type
+	// (X: how tall they grow, when they close into a deck), the patches making some taller than others.
 	float Cover = saturate(Here.x);
 	float Closing = smoothstep(0.7, 0.95, Cover);
 	Cover *= lerp(lerp(0.6, 1.0, saturate(Cloud2.x)), 1.0, Closing);
-	float Patches = Noise.SampleLevel(NoiseSampler, float3(P / (6000000.0 * Scale), 0.37), 0).r;
-	float Coverage = clamp(3.0 * Cover * Cover + (Patches - 0.5) * 0.5 * (1.0 - Closing), 0.0, 3.0);
+	float Patches = (Noise.SampleLevel(NoiseSampler, float3(P / (6000000.0 * Scale), 0.37 + Phase), 0).r - 0.5) * (1.0 - Closing);
+	float Coverage = clamp(3.0 * Cover * Cover + Patches * 0.5, 0.0, 3.0);
 	float X = Coverage / 3.0;
+	// How many of them stand is the formation's coverage: more than the type's for a thin cover (a clear sky still
+	// holds a few small cumulus -- some 3% of it at a cover of 0.15 --), a little less from a half up (a cover of 0.55
+	// is scattered cumulus over a third of the sky; a closing cover is the deck's), and the patches vary it less
+	// (scattered cumulus fill the sky evenly, not in clumps).
+	float Spread = clamp(2.6 * Cover * Cover + 4.25 * Cover * pow(1.0 - Cover, 4.0) + Patches * 0.3, 0.0, 3.0);
 
 	// The formation: Worley cells some 3 km across with their finer octaves (a cloud and its turrets), mixed with the
 	// smooth Perlin-Worley for larger irregularity; gathered toward the middle with a long upper tail, as UDS's cells
 	// are (median about 0.5, a tenth above 0.65), so only the strongest cells survive a high threshold. It shifts a
-	// little with height (towers lean and change as they climb) and changes slowly as the field drifts.
-	float Morph = 0.002 * (Cloud1.x + Cloud1.y);
-	float4 F = Noise.SampleLevel(NoiseSampler, float3(P / (2400000.0 * Scale), 0.61 + Morph - 0.25 * H), 0);
+	// little with height (towers lean and change as they climb). Through the phase each cell rises out of nothing and
+	// falls apart again: from its base up, as the noise is read further along the phase low down than high up.
+	float4 F = Noise.SampleLevel(NoiseSampler, float3(P / (2400000.0 * Scale), 0.61 + Phase - 0.25 * H), 0);
 	float Form = 0.65 * F.g + 0.35 * F.r;
 	// The base is level, lifted here and there by the smooth channel (a little more under an overcast; a storm's base
 	// hangs low and even).
@@ -205,12 +245,44 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float Lift = lerp(0.1, 0.25, saturate(Coverage - 1.5)) * (1.0 - 0.6 * Storm) * F.r * F.r;
 	float Hf = saturate(H - Lift * (1.0 - H));
 	float3 Profile = DCS_Profile(X, Hf);
-	float Threshold = pow(1.0 - Coverage / 6.5, 3.0) - 0.25;
+	float Threshold = pow(1.0 - Spread / 6.5, 3.0) - 0.25;
 	float Base = saturate(saturate(Form - Threshold) / (1.0 - Threshold) - (1.0 - Profile.x));
 	float Top = DCS_ProfileTop(X);
 	S.Height = saturate(Hf / Top);
 	S.Column = Top * DCS_LAYER_TOP;
-	S.Deck = smoothstep(0.55, 0.85, X);
+
+	// A closing cover turns into a deck (DCS_Deck) out of its own cells, some 1.5 km across, that grow and dissolve
+	// with the phase as the cumulus do: the cumulus give way to it as it closes. Its height and thickness are its
+	// own, so the drawing sees thick cells and thin gaps.
+	float DeckW = smoothstep(0.55, 0.85, X);
+	float DeckSolid = 0.0;
+	float DeckBand = 0.0;
+	float DeckThin = 0.0;
+	if (DeckW > 0.0)
+	{
+		float4 C = Noise.SampleLevel(NoiseSampler, float3(P / (1200000.0 * Scale), 0.29 + Phase), 0);
+		float Cell = saturate((0.65 * C.g + 0.35 * C.r - 0.2) / 0.6);
+		float Thick = smoothstep(0.15, 0.6, S.Dark);
+		float3 D = DCS_Deck(Cell, smoothstep(0.8, 0.97, X), Thick, H);
+		DeckSolid = D.x * DeckW;
+		float Cumulus = Base * (1.0 - DeckW);
+		// (Which of the two the point belongs to: near their surfaces both are thin, so the closing decides as much as
+		// which stands more solid there -- a deck must keep its own thickness, or its gaps would not read.)
+		float W = saturate(0.5 + (DeckSolid - Cumulus) * 4.0 + (DeckW - 0.5) * 2.0);
+		Base = max(Cumulus, DeckSolid);
+		// Thin cells less dense than thick ones; the base lumpy (the billows eat into it), a rain deck's ragged (scud),
+		// the inside hardly.
+		float Rise = saturate((H - D.y) / lerp(0.06, 0.12, Thick));
+		float3 DeckProfile = float3(1.0, lerp(lerp(0.25, 0.5, Cell), 0.5, Thick), lerp(lerp(0.55, 0.95, Thick), lerp(0.2, 0.3, Thick), Rise));
+		Profile = lerp(Profile, DeckProfile, W);
+		S.Height = lerp(S.Height, saturate((H - D.y) / max(D.z - D.y, 1.0e-3)), W);
+		S.Column = lerp(S.Column, (D.z - D.y) * DCS_LAYER_TOP, W);
+		S.Deck = DeckW * W;
+		// (Up to a little above the deck's top it stays the deck, storm towers or not.)
+		DeckBand = DeckW * (1.0 - smoothstep(D.z, D.z + 0.08, H));
+		// (How much lighter a stratocumulus deck's thin gaps are: less dense as well as thinner.)
+		DeckThin = S.Deck * (1.0 - Thick) * (1.0 - Cell) * (1.0 - Cell);
+	}
 
 	// Storms: cells 16 km apart, each where the weather is storm-dark at its centre raising a cumulonimbus out of the
 	// deck (most do; their size varies). Looked for only near a storm: here, or upwind as far as an anvil reaches.
@@ -218,6 +290,9 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float Upwind = DCS_MapAt(World.xy + Wander - Downwind * 900000.0, ViewWeather, MapParams, Map, MapSampler).y;
 	if (max(S.Dark, saturate(Upwind * 1.3 - 0.2)) > 0.3)
 	{
+		// The anvils' mammatus: rounded pouches some 2 km across (with smaller ones among them).
+		float4 M = Noise.SampleLevel(NoiseSampler, float3(P / (1600000.0 * Scale), 0.47 + Phase), 0);
+		float Pouch = 0.7 * M.g + 0.3 * M.b;
 		// (A cumulonimbus, its anvil included, reaches at most a cell from where it stands: only the 3 x 3 nearest cells
 		// are looked at.)
 		const float StormCell = 1800000.0 * Scale;
@@ -226,6 +301,7 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 		int2 Home = int2(floor(P / StormCell));
 		float Best = -1.0;
 		float BestAnvil = 0.0;
+		float BestUnder = 0.0;
 		float BestHeight = 0.0;
 		[loop]
 		for (int j = -1; j <= 1; ++j)
@@ -239,19 +315,22 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 					continue;
 				}
 				// It stands where its cell is darkest, its middle or some 5 km off (a small storm zone still gets its
-				// cumulonimbus).
+				// cumulonimbus). (A middle as dark as it gets cannot be outdone: under a storm's middle one tap does.)
 				float2 Centre = (float2(C) + 0.3 + 0.4 * Hc.xy) * StormCell;
-				float Darkness = -1.0;
+				float Darkness = DCS_MapAt(Centre - Drift, ViewWeather, MapParams, Map, MapSampler).y;
 				float2 At = Centre;
-				[unroll]
-				for (int t = 0; t < 5; ++t)
+				if (Darkness < 0.95)
 				{
-					float2 Tap = Centre + float2(t == 1 ? 1.0 : (t == 2 ? -1.0 : 0.0), t == 3 ? 1.0 : (t == 4 ? -1.0 : 0.0)) * 500000.0 * Scale;
-					float Dt = DCS_MapAt(Tap - Drift, ViewWeather, MapParams, Map, MapSampler).y;
-					if (Dt > Darkness + 0.05)
+					[unroll]
+					for (int t = 1; t < 5; ++t)
 					{
-						Darkness = Dt;
-						At = Tap;
+						float2 Tap = Centre + float2(t == 1 ? 1.0 : (t == 2 ? -1.0 : 0.0), t == 3 ? 1.0 : (t == 4 ? -1.0 : 0.0)) * 500000.0 * Scale;
+						float Dt = DCS_MapAt(Tap - Drift, ViewWeather, MapParams, Map, MapSampler).y;
+						if (Dt > Darkness + 0.05)
+						{
+							Darkness = Dt;
+							At = Tap;
+						}
 					}
 				}
 				Centre = At;
@@ -260,26 +339,28 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 					continue;
 				}
 				float CellAnvil;
+				float CellUnder;
 				float CellHeight;
-				float D = DCS_Cumulonimbus(P - Centre, Z, lerp(0.8, 1.2, Hc.w) * Scale, Downwind, Hc.z, F.r, CellAnvil, CellHeight);
+				float D = DCS_Cumulonimbus(P - Centre, Z, lerp(0.8, 1.2, Hc.w) * Scale, Downwind, Hc.z, F.r, Pouch, CellAnvil, CellUnder, CellHeight);
 				if (D > Best)
 				{
 					Best = D;
 					BestAnvil = CellAnvil;
+					BestUnder = CellUnder;
 					BestHeight = CellHeight;
 				}
 			}
 		}
 		float Tower = saturate(Best * 4.0);
-		if (Tower > Base)
-		{
-			Base = Tower;
-			// Billowed up the column (cauliflower), smooth and thin across the anvil; dense throughout.
-			Profile = float3(1.0, 0.5, lerp(0.9, 0.15, BestAnvil));
-			S.Height = BestHeight;
-			S.Column = DCS_STORM_TOP;
-			S.Deck = 0.0;
-		}
+		// Where a tower stands out of the clouds around it, it is a tower: billowed up the column (cauliflower), smooth
+		// across the anvil's top, lumpier under it; dense throughout. Within the deck it stays the deck (a column's
+		// footprint must not show in the deck's underside from below), and the two blend, never switch.
+		float Take = saturate((Tower - Base) * 4.0) * (1.0 - DeckBand);
+		Base = max(Base, Tower * (1.0 - DeckBand));
+		Profile = lerp(Profile, float3(1.0, 0.5, lerp(0.9, lerp(0.15, 0.4, BestUnder), BestAnvil)), Take);
+		S.Height = lerp(S.Height, BestHeight, Take);
+		S.Column = lerp(S.Column, DCS_STORM_TOP, Take);
+		S.Deck *= 1.0 - Take;
 	}
 	S.Conservative = Base;
 	if (Base <= 0.0)
@@ -304,8 +385,8 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	}
 	S.Solid = saturate(Shape);
 	// The density rises steeply inside the surface (a cumulus is optically thick: its outline is clear, its inside
-	// unseen); small clouds and bases stay somewhat thinner.
-	S.Density = saturate(Shape * 2.5) * (0.4 + 0.6 * saturate(Profile.y / 0.5));
+	// unseen); small clouds, bases and a deck's gaps stay thinner.
+	S.Density = saturate(Shape * 2.5) * (0.4 + 0.6 * saturate(Profile.y / 0.5)) * (1.0 - 0.6 * DeckThin);
 	return S;
 }
 
