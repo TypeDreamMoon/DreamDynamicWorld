@@ -107,6 +107,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Lightning")
 	FVector2D StrikeRange = FVector2D(30000.0, 600000.0);
 
+	/**
+	 * Share of strikes placed in the half of the sky the view faces (0 = all around, 1 = always in front), so a
+	 * storm's lightning is seen rather than only heard. Still only where the weather allows lightning.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Lightning", meta = (ClampMin = "0", ClampMax = "1"))
+	float StrikeViewBias = 0.6f;
+
 	/** Real seconds a flash lasts, first stroke to the end of its afterglow (each flash draws its own from the range). */
 	UPROPERTY(Config, EditAnywhere, Category = "Lightning")
 	FVector2D FlashDuration = FVector2D(0.8, 1.6);

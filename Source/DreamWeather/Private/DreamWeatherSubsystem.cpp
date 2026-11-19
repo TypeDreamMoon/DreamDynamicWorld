@@ -575,6 +575,7 @@ void UDreamWeatherSubsystem::PreTick(UDreamWorldSubsystem& Clock, float DeltaTim
 	ApplyModifiers(GlobalValues);
 
 	ViewLocation = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+	ViewForward = Clock.HasViewRotation() ? Clock.GetViewRotation().Vector() : FVector::ZeroVector;
 	ViewSample = SampleWeather(ViewLocation);
 
 	ProcessLightning(DeltaTime);
@@ -693,12 +694,17 @@ void UDreamWeatherSubsystem::ProcessLightning(float DeltaTime)
 		{
 			continue;
 		}
-		// Somewhere around the view where the lightning is strong (a few tries; the storm wins).
+		// Somewhere around the view where the lightning is strong (a few tries; the storm wins), more often in
+		// the half of the sky the view faces.
+		const FVector2D Facing = FVector2D(ViewForward.X, ViewForward.Y).GetSafeNormal();
+		const bool bInFront = !Facing.IsZero() && UDreamWeatherSelector::Hash01(WorldSeed, B, 70u) < S->StrikeViewBias;
+		const double FacingAngle = FMath::Atan2(Facing.Y, Facing.X);
 		bool bPlaced = false;
 		FVector Location = ViewLocation;
 		for (uint32 Try = 0; Try < 4 && !bPlaced; ++Try)
 		{
-			const double Angle = 2.0 * UE_DOUBLE_PI * UDreamWeatherSelector::Hash01(WorldSeed, B, 20u + Try);
+			const double Turn = UDreamWeatherSelector::Hash01(WorldSeed, B, 20u + Try);
+			const double Angle = bInFront ? FacingAngle + (Turn - 0.5) * UE_DOUBLE_PI : 2.0 * UE_DOUBLE_PI * Turn;
 			const double Reach = FMath::Lerp(S->StrikeRange.X, S->StrikeRange.Y, FMath::Sqrt(double(UDreamWeatherSelector::Hash01(WorldSeed, B, 30u + Try))));
 			const FVector Candidate = ViewLocation + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.0) * Reach;
 			const float Local = GetChannelAt(Candidate, DreamWeather::Tags::Channel_Lightning);

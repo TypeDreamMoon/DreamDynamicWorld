@@ -270,6 +270,8 @@ private:
 	FDreamWeatherValues GlobalValues;
 	FDreamWeatherSample ViewSample;
 	FVector ViewLocation = FVector::ZeroVector;
+	/** Where the view looks (zero before the first view report). */
+	FVector ViewForward = FVector::ZeroVector;
 	bool bWasActive = false;
 
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

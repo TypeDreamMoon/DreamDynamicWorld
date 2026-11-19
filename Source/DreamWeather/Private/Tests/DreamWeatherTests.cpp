@@ -536,6 +536,46 @@ bool FDreamWeatherLightningTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherLightningInFrontTest, "DreamWeather.Lightning.InFront", DreamWeather::Tests::Flags)
+bool FDreamWeatherLightningInFrontTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	UDreamWeatherSettings* Settings = GetMutableDefault<UDreamWeatherSettings>();
+	const float SavedBias = Settings->StrikeViewBias;
+	ON_SCOPE_EXIT { Settings->StrikeViewBias = SavedBias; };
+
+	// Strikes during four minutes of storm, looking along +Y: how many landed in the half of the sky in front.
+	auto Count = [](float Bias, int32& InFront, int32& Behind)
+	{
+		GetMutableDefault<UDreamWeatherSettings>()->StrikeViewBias = Bias;
+		UDreamWeatherSelector_Fixed* Storm = NewObject<UDreamWeatherSelector_Fixed>();
+		Storm->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f } });
+		FWeatherWorld W(Storm);
+		W.Clock->ReportView(FVector(0, 0, 170), FRotator(0, 90, 0), true);
+		InFront = 0;
+		Behind = 0;
+		int32 Seen = 0;
+		for (int32 i = 0; i < 960; ++i)
+		{
+			W.Clock->Tick(0.25f);
+			if (W.Weather->GetStrikeCount() != Seen)
+			{
+				Seen = W.Weather->GetStrikeCount();
+				(W.Weather->GetLastStrike().Location.Y >= 0.0 ? InFront : Behind) += 1;
+			}
+		}
+	};
+	int32 InFront = 0;
+	int32 Behind = 0;
+	Count(1.0f, InFront, Behind);
+	TestTrue(FString::Printf(TEXT("it struck (%d)"), InFront + Behind), InFront + Behind > 5);
+	TestEqual(TEXT("fully biased: every strike lands in front of the view"), Behind, 0);
+	Count(0.0f, InFront, Behind);
+	TestTrue(FString::Printf(TEXT("unbiased: strikes all around (%d in front, %d behind)"), InFront, Behind), Behind > 0 && InFront > 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherFlashEnvelopeTest, "DreamWeather.Lightning.FlashEnvelope", DreamWeather::Tests::Flags)
 bool FDreamWeatherFlashEnvelopeTest::RunTest(const FString& Parameters)
 {
