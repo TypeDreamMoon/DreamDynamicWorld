@@ -736,7 +736,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	return float4(Color * Cover, Cover);
 }
 
-// High cloud: thin cirrus wisps on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
+// High cloud: thin cirrus veils on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
 // faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
 // under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
 // The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
@@ -761,19 +761,18 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	// Where the patches are (large, slow), and a gentle bend of the streaks over tens of kilometres.
 	float Patch = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.71), 0).r;
 	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.23), 0).r - 0.5;
-	// The wisps: the smooth noise drawn out six to one along the wind, some 1.5 km wide, bent gently, swelling and
-	// thinning along their length and broken into pieces (thin and twenty-five times as long, they ran together toward
-	// one point of the horizon like combed hair or scratches); a coarser layer of the same noise feathers their edges.
-	// Soft brushed wisps, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray
-	// tracing hits, which have no screen derivatives, and the finest level far below its texels shimmers.)
-	float2 R = Q;
-	float2 S = float2(R.x / 900000.0, (R.y + Bend * 300000.0) / 150000.0);
-	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 150000.0)).r;
-	float Feather = Noise.SampleLevel(NoiseSampler, float3(R.x / 700000.0 + 0.37, R.y / 250000.0, 0.11), DSky_NoiseLod(T, 250000.0)).r;
-	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 1500000.0, Q.y / 600000.0, 0.87), DSky_NoiseLod(T, 600000.0)).r;
-	float Fibre = smoothstep(0.42, 0.78, Body) * lerp(0.6, 1.0, Feather) * smoothstep(0.3, 0.7, Along);
+	// The veils: the smooth noise drawn out four to one along the wind, some 3.5 km wide, bent gently and broken into
+	// sheets, only the strongest of it (thin streaks twenty-five times as long as they were wide ran together toward one
+	// point of the horizon like combed hair; short ones like brush dashes); fine fibres run along them, faint. Thin
+	// gauze, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray tracing hits,
+	// which have no screen derivatives, and the finest level far below its texels shimmers.)
+	float2 S = float2(Q.x / 1500000.0, (Q.y + Bend * 300000.0) / 350000.0);
+	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 350000.0)).r;
+	float Fibres = Noise.SampleLevel(NoiseSampler, float3(Q.x / 800000.0 + 0.37, Q.y / 60000.0, 0.11), DSky_NoiseLod(T, 60000.0)).r;
+	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 2500000.0, Q.y / 1200000.0, 0.87), DSky_NoiseLod(T, 1200000.0)).r;
+	float Fibre = smoothstep(0.5, 0.82, Body) * lerp(0.7, 1.0, Fibres) * smoothstep(0.35, 0.7, Along);
 	float Mask = saturate((Patch - (1.0 - Amount)) * 2.0);
-	float Alpha = Fibre * Mask * 0.42 * smoothstep(0.02, 0.15, V.z);
+	float Alpha = Fibre * Mask * 0.3 * smoothstep(0.02, 0.15, V.z);
 	// Thin ice: white in the sun and brightest toward it (it scatters forward), letting the sky through; far off,
 	// veiled like any cloud.
 	float3 Color = lerp(SkyBehind, CloudLit.rgb * 0.9 + Halo * 1.5, 0.75);
