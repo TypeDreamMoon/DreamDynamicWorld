@@ -108,7 +108,7 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	bool bOverride_BaseGlow = false;
 	/** Realistic material: how much of that glow reaches a cloud's base: lower = darker, flatter bases. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_BaseGlow", ClampMin = "0", ClampMax = "1"))
-	float BaseGlow = 0.1f;
+	float BaseGlow = 0.15f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_PaintGain = false;
