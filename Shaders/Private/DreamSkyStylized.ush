@@ -719,9 +719,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 // High cloud: thin cirrus wisps on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
 // faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
 // under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
-// High cloud: thin cirrus streaks on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
-// faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
-// under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
+// The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
+// pixel some 0.0015 of the distance): mip 0 that far below its texels shimmers into moire.
+float DSky_NoiseLod(float T, float Scale)
+{
+	return max(log2(T * 0.0015 * 128.0 / Scale), 0.0);
+}
+
 float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, float3 Camera, float3 SkyBehind, float4 CloudLit,
 	float3 Halo, Texture3D Noise, SamplerState NoiseSampler)
 {
@@ -737,19 +741,19 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	// Where the patches are (large, slow), and a gentle bend of the streaks over tens of kilometres.
 	float Patch = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.71), 0).r;
 	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.23), 0).r - 0.5;
-	// The streaks: the smooth noise drawn out twenty-five to one along the wind, each one swelling and thinning along
-	// its length; finer fibres ride on them, a few degrees off so the two never line up like a comb. (Explicit
-	// levels: the sky material is also built for ray tracing hits, which have no screen derivatives; low over the
-	// horizon, where the fibres would shimmer, they fade out.)
-	float2 S = float2(Q.x / 6000000.0, (Q.y + Bend * 400000.0) / 240000.0);
-	float2 Qf = float2(Q.x + 0.14 * Q.y, Q.y - 0.14 * Q.x);
-	float2 Sf = float2(Qf.x / 2500000.0, (Qf.y + Bend * 400000.0) / 70000.0);
-	float Streak = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), 0).r;
-	float Fine = Noise.SampleLevel(NoiseSampler, float3(Sf + 0.37, 0.11), 0).r;
-	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 2000000.0, Q.y / 700000.0, 0.87), 0).r;
-	float Fibre = smoothstep(0.45, 0.9, Streak) * lerp(0.55, 1.0, Fine) * smoothstep(0.25, 0.7, Along);
+	// The wisps: the smooth noise drawn out six to one along the wind, some 1.5 km wide, bent gently, swelling and
+	// thinning along their length and broken into pieces (thin and twenty-five times as long, they ran together toward
+	// one point of the horizon like combed hair or scratches); a coarser layer of the same noise feathers their edges.
+	// Soft brushed wisps, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray
+	// tracing hits, which have no screen derivatives, and the finest level far below its texels shimmers.)
+	float2 R = Q;
+	float2 S = float2(R.x / 900000.0, (R.y + Bend * 300000.0) / 150000.0);
+	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 150000.0)).r;
+	float Feather = Noise.SampleLevel(NoiseSampler, float3(R.x / 700000.0 + 0.37, R.y / 250000.0, 0.11), DSky_NoiseLod(T, 250000.0)).r;
+	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 1500000.0, Q.y / 600000.0, 0.87), DSky_NoiseLod(T, 600000.0)).r;
+	float Fibre = smoothstep(0.42, 0.78, Body) * lerp(0.6, 1.0, Feather) * smoothstep(0.3, 0.7, Along);
 	float Mask = saturate((Patch - (1.0 - Amount)) * 2.0);
-	float Alpha = Fibre * Mask * 0.55 * smoothstep(0.02, 0.15, V.z);
+	float Alpha = Fibre * Mask * 0.42 * smoothstep(0.02, 0.15, V.z);
 	// Thin ice: white in the sun and brightest toward it (it scatters forward), letting the sky through; far off,
 	// veiled like any cloud.
 	float3 Color = lerp(SkyBehind, CloudLit.rgb * 0.9 + Halo * 1.5, 0.75);
@@ -827,6 +831,21 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float3 Base = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
 	float3 Sky = Base + Halo;
 	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0));
+	// The afterglow: once the sun is down the sky over where it set keeps a warm band along the horizon for a while (the
+	// style's halo is gone by 6 degrees under), rose going to violet as the sun sinks, gone by some 12 degrees under.
+	float Dusk = smoothstep(-0.21, -0.03, Sun.z) * (1.0 - smoothstep(-0.03, 0.03, Sun.z));
+	if (Dusk > 0.0 && dot(V.xy, V.xy) > 1.0e-6 && dot(Sun.xy, Sun.xy) > 1.0e-6)
+	{
+		float Side = saturate(dot(normalize(V.xy), normalize(Sun.xy)) * 0.5 + 0.5);
+		float Band = exp(-max(V.z, 0.0) * 7.0) * smoothstep(-0.03, 0.0, V.z);
+		float3 Afterglow = lerp(float3(0.16, 0.06, 0.13), float3(0.55, 0.24, 0.12), smoothstep(-0.15, -0.03, Sun.z));
+		Sky += Afterglow * Dusk * Side * Side * Side * Band;
+	}
+	// Through the holes of an overcast the sky shows its own colour: the style greys the whole sky as the cover closes
+	// (by then it is mostly seen through the cloud), and a hole would show that grey; there it is given its blue back.
+	float Closing = smoothstep(0.7, 0.95, Cloud0.x);
+	float SkyGrey = dot(Sky, float3(0.2126, 0.7152, 0.0722));
+	Sky = max(SkyGrey + (Sky - SkyGrey) * (1.0 + 1.5 * Closing), 0.0);
 
 	// The volumetric clouds.
 	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
@@ -866,6 +885,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	if (Haze.a > 0.0)
 	{
 		float Amount = Haze.a * lerp(exp(-saturate(V.z) * 8.0), 1.0, Haze.a * Haze.a);
+		// (Under a storm the dark base overhead shows through the rain's haze: a storm reads by its low dark cloud.)
+		Amount *= 1.0 - 0.5 * VC.a * smoothstep(0.2, 0.6, CloudLayer.y) * saturate(V.z * 4.0);
 		Sky = lerp(Sky, Haze.rgb, saturate(Amount));
 	}
 
