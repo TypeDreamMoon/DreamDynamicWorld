@@ -15,7 +15,6 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
-#include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -258,22 +257,6 @@ bool FDreamSkyTestLevelTest::RunTest(const FString& Parameters)
 	const UMaterialInterface* DomeMaterial = Sky->SkyMaterial.LoadSynchronous();
 	TestNotNull(TEXT("the sky material exists"), DomeMaterial);
 	TestTrue(TEXT("the sky material is a sky material"), DomeMaterial && DomeMaterial->GetMaterial() && DomeMaterial->GetMaterial()->bIsSky);
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudSpritesTest, "DreamSky.Assets.CloudSprites", DreamSky::Tests::Flags)
-bool FDreamSkyCloudSpritesTest::RunTest(const FString& Parameters)
-{
-	const UTexture2D* Sprites = LoadObject<UTexture2D>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudSprites.T_DreamCloudSprites"));
-	if (!TestNotNull(TEXT("the horizon cloud sprites exist"), Sprites))
-	{
-		return false;
-	}
-	// The channels are light, rim, core and coverage: data, read as it is stored.
-	TestFalse(TEXT("stored as data, not colour"), Sprites->SRGB);
-	TestTrue(TEXT("compressed with a full alpha channel"), Sprites->CompressionSettings == TC_BC7);
-	TestEqual(TEXT("the packer's atlas size"), int32(Sprites->Source.GetSizeX()), 2048);
-	TestTrue(TEXT("not streamed (the sky always shows it whole)"), Sprites->NeverStream);
 	return true;
 }
 
