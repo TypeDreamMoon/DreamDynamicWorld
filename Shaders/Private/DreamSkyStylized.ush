@@ -537,6 +537,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		else if (Phase == 3)
 		{
 			Here = S;
+			// A deck's shape is solid a couple of hundred metres in from its surface: taps further apart all land inside
+			// or all outside it, and its normal comes out straight down whatever its lobes do. Its taps stay close.
+			E = lerp(E, max(8000.0, SurfaceT * 0.0015), S.Deck);
 			Phase = 4;
 			Index = 0;
 		}
@@ -552,7 +555,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 				float3 Nb = dot(GradSolid, GradSolid) > 1.0e-12 ? -normalize(GradSolid) : -V;
 				float3 Nm = dot(GradForm, GradForm) > 1.0e-12 ? -normalize(GradForm) : Nb;
 				N = normalize(Nb * 0.55 + Nm * 0.45 + 1.0e-4 * -V);
-				Phase = 5;
+				// (A deck's underside takes its tones from its thickness and its lobes, and faces away from the light: no
+				// shadow to look for there, the heaviest samples of a storm saved.)
+				Phase = (Here.Deck > 0.95 && N.z < -0.3) ? 6 : 5;
 				Index = 0;
 			}
 		}
@@ -585,18 +590,18 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Cast = smoothstep(0.35, 0.65, 1.0 - exp(-Depth / 15000.0));
 
 	// Painted light, three tones the way anime clouds are coloured: near white where the sun falls, a pale
-	// blue-lavender half tone (the sky mixed into white) along the terminator, the shade blue; each billow reads by
-	// its own normal. The tones part around where a billow turns from the light, not partway up its lit side: tops
-	// under any sun well up are lit through, and a slight wobble of the normal cannot flip them.
+	// blue-lavender half tone (the sky mixed into white), the shade blue; each billow reads by its own normal. A
+	// cumulus seen from the ground is painted white over its crown and dark under its base, its sides parting between
+	// them: the tone goes by how a billow faces the sun, how much it faces up (the sky lights the tops, the cloud's own
+	// shade its underside) and how high in the cloud it sits, and the tones part around where that crosses zero.
 	float NdL = dot(N, Ld);
-	float Light = saturate((NdL + 0.35) / 0.6) * (1.0 - Cast);
-	// A deck's underside reads by how thick it is overhead: where it thins between the cells the light comes through
-	// (toward the half tone), in the cells' thick middles it is the shade; a storm's deck lets little through.
-	float Through = exp(-Here.Column / 60000.0) * (1.0 - 0.8 * Here.Dark);
+	float Key = 0.7 * NdL + 0.45 * N.z + 0.5 * (Here.Height - 0.35);
+	float Light = saturate((Key + 0.3) / 0.6) * (1.0 - Cast);
 	float Thin = exp(-Here.Column / 120000.0);
 	float Ambient = 0.94 + 0.04 * N.z + 0.12 * Thin + 0.05 * Here.Height;
-	// The bottom row of lobes sits in the cloud's own shade and sees little of the sky: a little darker.
-	float Under = 1.0 - 0.18 * pow(1.0 - Here.Height, 3.0);
+	// The underside sits in the cloud's own shade and sees little of the sky: darker low in the cloud, the more so where
+	// it faces down (a cumulus seen from the ground is dark under its base, not the sky's grey).
+	float Under = 1.0 - 0.3 * DSky_Square(1.0 - Here.Height) * (0.5 + 0.5 * saturate(-N.z));
 
 	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x) * Ambient * Under;
 	float3 Lit = CloudLit.rgb * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
@@ -611,11 +616,22 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		Color = lerp(Color, Half, smoothstep(0.24, 0.28, Light));
 		Color = lerp(Color, Lit, smoothstep(0.56, 0.6, Light));
 	}
-	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. Its underside only goes from its
-	// thick shade to the half tone where it thins; its upper side, seen from above, is a sea of cloud in the sun, from
-	// the half tone to the lit white. (The underside's tones on the upper side made grey patches over the tops
-	// wherever the cover came close to a deck.)
-	float3 DeckUnder = lerp(Shadow, Half, smoothstep(0.05, 0.6, max(Light, Through)));
+	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. From below its cells hang as
+	// rounded lobes: dark where the deck is thick over them, light in the thin gaps between them, their flanks lighter
+	// than their bottoms (they see the sky round them) and the side toward the sun lighter still -- from a deep shade
+	// through the shade to the half tone. A deck's underside varies only gently, so each of these is read across the
+	// range a deck spans, not an absolute one: how thick it is here between its thinnest gaps and thickest cells (some
+	// 80 m to 1.2 km; a storm's deck 2 to 3 km throughout, its cells still parting from its gaps, the storm darkening
+	// all of it below), how far a lobe's flank turns from straight down, and how far it turns toward the sun. Its upper
+	// side, seen from above, is a sea of cloud in the sun, from the half tone to the lit white.
+	float Deep = smoothstep(0.15, 0.6, Here.Dark);
+	float Thickest = lerp(120000.0, 300000.0, Deep);
+	float Thinnest = lerp(8000.0, 190000.0, Deep);
+	float Gap = saturate((Thickest - Here.Column) / (Thickest - Thinnest));
+	float Flank = smoothstep(0.05, 0.4, 1.0 + N.z);
+	float Glow = saturate(0.5 * Gap + 0.35 * Flank + 0.35 * saturate((NdL + 0.45) / 0.6));
+	float3 DeckUnder = lerp(Shadow * float3(0.62, 0.64, 0.7), Shadow, smoothstep(0.1, 0.45, Glow));
+	DeckUnder = lerp(DeckUnder, Half, smoothstep(0.5, 0.85, Glow));
 	float3 DeckOver = lerp(Half, Lit, smoothstep(0.2, 0.7, Light));
 	Color = lerp(Color, lerp(DeckUnder, DeckOver, smoothstep(0.3, 0.7, Here.Height)), Here.Deck);
 	// Silver lining: edges turned from the view, with the light behind them; grazed edges glow the most. Only on
@@ -624,9 +640,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	Color += CloudLit.rgb * CloudLit.a * Rim * pow(saturate(dot(V, LightDir)), 4.0) * 2.0;
 	// Storm clouds are dark below; their lit tops much less so.
 	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(0.55, 1.0, 1.0 - Light) * lerp(1.0, 0.3, Here.Height));
-	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops.
+	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops. Painted,
+	// the near ones keep their tones (a base a few kilometres overhead stays dark, not the sky's grey) and the haze closes
+	// in with distance: the veil eases in.
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
-	Color = lerp(Color, SkyBehind, Veil);
+	Color = lerp(Color, SkyBehind, pow(Veil, 1.6));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
