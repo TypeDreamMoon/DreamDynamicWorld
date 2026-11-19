@@ -170,7 +170,7 @@ void UDreamSkyStyle::ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamS
 	L.MainLightIlluminance *= Directional;
 }
 
-void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLighting& L, FDreamSkyLook& Look) const
+void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLighting& L, FDreamSkyLook& Look, bool bCloudsShadowTheSun) const
 {
 	if (!Env.bActive)
 	{
@@ -211,10 +211,13 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	Look.CloudLit = GreyOnly(Look.CloudLit);
 	Look.CloudShadow = GreyOnly(Look.CloudShadow);
 
+	// Clouds that cast their own shadow (the engine's volumetric clouds) already hide the sun where they are, and are
+	// lit by it: dimming it for the cover as well would darken an overcast day twice, the clouds' own tops with it.
 	const float LightScale = 1.0f - OvercastLightDimming * Overcast;
-	L.SunIlluminance *= LightScale;
+	const float SunScale = bCloudsShadowTheSun ? 1.0f : LightScale;
+	L.SunIlluminance *= SunScale;
 	L.MoonIlluminance *= LightScale;
-	L.MainLightIlluminance *= LightScale;
+	L.MainLightIlluminance *= L.bMainLightIsMoon ? LightScale : SunScale;
 	L.AmbientSky = Grey(L.AmbientSky);
 	L.AmbientEquator = Grey(L.AmbientEquator);
 	L.AmbientGround = Grey(L.AmbientGround);

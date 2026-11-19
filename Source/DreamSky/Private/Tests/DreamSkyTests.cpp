@@ -354,6 +354,54 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudShadowSunTest, "DreamSky.Clouds.ShadowsDoNotDimTheSunTwice", DreamSky::Tests::Flags)
+bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
+{
+	// An overcast sky dims the sun for clouds that cast no shadow (the dome's), not for clouds that hide it themselves.
+	const UDreamSkyStyle* Style = UDreamSkySubsystem::GetDefaultStyle();
+	FDreamWorldEnvironment Env;
+	Env.bActive = true;
+	Env.CloudCoverage = 1.0f;
+	auto Overcast = [Style, &Env](bool bCloudsShadowTheSun)
+	{
+		FDreamSkyLighting L;
+		L.SunIlluminance = 10.0f;
+		L.MoonIlluminance = 0.5f;
+		L.MainLightIlluminance = 10.0f;
+		L.bMainLightIsMoon = false;
+		FDreamSkyLook Look;
+		Style->ApplyWeather(Env, L, Look, bCloudsShadowTheSun);
+		return L;
+	};
+	const FDreamSkyLighting Dome = Overcast(false);
+	const FDreamSkyLighting Shadowing = Overcast(true);
+	TestNearlyEqual(TEXT("the dome's overcast dims the sun"), Dome.SunIlluminance, 10.0f * (1.0f - Style->OvercastLightDimming), 1e-4f);
+	TestNearlyEqual(TEXT("shadowing clouds leave the sun as it is"), Shadowing.SunIlluminance, 10.0f, 1e-4f);
+	TestNearlyEqual(TEXT("and the main light with it"), Shadowing.MainLightIlluminance, 10.0f, 1e-4f);
+	TestNearlyEqual(TEXT("the moon casts no cloud shadow: still dimmed"), Shadowing.MoonIlluminance, Dome.MoonIlluminance, 1e-5f);
+	TestNearlyEqual(TEXT("exposure is the same either way"), Shadowing.ExposureEV100, Dome.ExposureEV100, 1e-5f);
+
+	// Which clouds shadow the sun: the volumetric ones, while the sun casts cloud shadows at some strength.
+	DreamSky::Tests::FSkyWorld W;
+	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds"));
+	if (!TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar) || !TestNotNull(TEXT("the sun"), W.Sky->SunLight.Get()))
+	{
+		return false;
+	}
+	const int32 SavedOverride = CVar->GetInt();
+	CVar->Set(-1, ECVF_SetByCode);
+	W.Sky->Clouds = EDreamSkyClouds::Toon;
+	TestFalse(TEXT("toon clouds cast no shadow"), W.Sky->CloudsShadowTheSun());
+	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
+	TestTrue(TEXT("volumetric clouds shadow the sun"), W.Sky->CloudsShadowTheSun());
+	const float SavedStrength = W.Sky->SunLight->CloudShadowStrength;
+	W.Sky->SunLight->CloudShadowStrength = 0.0f;
+	TestFalse(TEXT("unless their shadow is turned off"), W.Sky->CloudsShadowTheSun());
+	W.Sky->SunLight->CloudShadowStrength = SavedStrength;
+	CVar->Set(SavedOverride, ECVF_SetByCode);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyOverridesTest, "DreamSky.Actor.Overrides", DreamSky::Tests::Flags)
 bool FDreamSkyOverridesTest::RunTest(const FString& Parameters)
 {

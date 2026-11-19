@@ -200,6 +200,13 @@ public:
 	EDreamSkyClouds GetEffectiveClouds() const;
 
 	/**
+	 * Whether the clouds hide the sun themselves: the volumetric clouds are in effect and the sun casts cloud shadows
+	 * at some strength. The style then does not dim the sun for an overcast sky (UDreamSkyStyle::ApplyWeather).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	bool CloudsShadowTheSun() const;
+
+	/**
 	 * Shows the clouds in effect: the volumetric layer on (its material, its altitude from the style) or off, and
 	 * the dome far enough out not to hide it. Cheap when nothing changed; the sky subsystem calls it every update.
 	 */
