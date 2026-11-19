@@ -12,17 +12,25 @@
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/VolumetricCloudComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSky)
 
+static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
+	TEXT("DreamSky.Clouds"), -1,
+	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 1 = volumetric (the engine's cloud layer)."),
+	ECVF_Default);
+
 namespace DreamSky::Actor
 {
 	/** The engine's sky sphere: a unit-ish sphere whose normals face inward. */
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
+	static const TCHAR* DefaultCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud");
 
 	static bool Differs(float A, float B, float Relative, float Absolute)
 	{
@@ -74,12 +82,17 @@ ADreamSky::ADreamSky()
 	SunLight->AtmosphereSunLightIndex = 0;
 	SunLight->Intensity = 10.0f;
 	SunLight->CastShadows = true;
+	// The volumetric clouds' shadows on the ground (nothing without them).
+	SunLight->bCastCloudShadows = true;
 
 	MoonLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("MoonLight"));
 	MoonLight->SetupAttachment(SceneRoot);
 	MoonLight->SetMobility(EComponentMobility::Movable);
 	MoonLight->SetUsingAbsoluteRotation(true);
-	MoonLight->bAtmosphereSunLight = false;
+	// The second atmosphere light: the engine's volumetric clouds are lit by the atmosphere lights only, so the
+	// moon lights them at night. Without a sky atmosphere this changes nothing else.
+	MoonLight->bAtmosphereSunLight = true;
+	MoonLight->AtmosphereSunLightIndex = 1;
 	MoonLight->Intensity = 0.0f;
 	MoonLight->CastShadows = true;
 
@@ -103,6 +116,14 @@ ADreamSky::ADreamSky()
 	LightningLight->CastShadows = false;
 	LightningLight->bAffectsWorld = true;
 
+	VolumetricClouds = CreateDefaultSubobject<UVolumetricCloudComponent>(TEXT("VolumetricClouds"));
+	VolumetricClouds->SetupAttachment(SceneRoot);
+	VolumetricClouds->SetMobility(EComponentMobility::Movable);
+	VolumetricClouds->SetVisibility(false);
+	// The sky light reaching a cloud's underside from below is the dome's ground colour: mostly held back, so
+	// undersides keep the sky's blue (and the material's own shade glow) rather than turning brown.
+	VolumetricClouds->SkyLightCloudBottomOcclusion = 0.85f;
+
 	PostProcess = CreateDefaultSubobject<UPostProcessComponent>(TEXT("Exposure"));
 	PostProcess->SetupAttachment(SceneRoot);
 	PostProcess->bUnbound = true;
@@ -110,6 +131,7 @@ ADreamSky::ADreamSky()
 	PostProcess->Priority = -1.0f;
 
 	SkyMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(DreamSky::Actor::DefaultMaterialPath));
+	VolumetricCloudMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(DreamSky::Actor::DefaultCloudMaterialPath));
 }
 
 UDreamSkyStyle* ADreamSky::GetEffectiveStyle() const
@@ -119,6 +141,73 @@ UDreamSkyStyle* ADreamSky::GetEffectiveStyle() const
 		return Style;
 	}
 	return UDreamSkySubsystem::GetDefaultStyle();
+}
+
+EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
+{
+	const int32 Override = CVarDreamSkyClouds.GetValueOnGameThread();
+	if (Override == 0)
+	{
+		return EDreamSkyClouds::Toon;
+	}
+	if (Override == 1)
+	{
+		return EDreamSkyClouds::Volumetric;
+	}
+	return Clouds;
+}
+
+float ADreamSky::GetEffectiveDomeRadius() const
+{
+	// The engine's clouds stop at whatever the depth buffer holds, and the dome is in it.
+	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric ? FMath::Max(DomeRadius, VolumetricTracingDistance * 100000.0f * 1.1f) : DomeRadius;
+}
+
+void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
+{
+	if (!VolumetricClouds)
+	{
+		return;
+	}
+	const bool bVolumetric = GetEffectiveClouds() == EDreamSkyClouds::Volumetric;
+	if (bVolumetric)
+	{
+		// The component starts with the engine's default cloud material: ours replaces it.
+		UMaterialInterface* Wanted = VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous();
+		if (Wanted && VolumetricClouds->GetMaterial() != Wanted)
+		{
+			VolumetricClouds->SetMaterial(Wanted);
+		}
+		const float BottomKm = FMath::Max(0.0f, InStyle.CloudLayerHeight / 100000.0f);
+		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerBottomAltitude, BottomKm, 1.0e-3f))
+		{
+			VolumetricClouds->SetLayerBottomAltitude(BottomKm);
+		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerHeight, VolumetricLayerThickness, 1.0e-3f))
+		{
+			VolumetricClouds->SetLayerHeight(VolumetricLayerThickness);
+		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->TracingMaxDistance, VolumetricTracingDistance, 1.0e-3f))
+		{
+			VolumetricClouds->SetTracingMaxDistance(VolumetricTracingDistance);
+		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->ViewSampleCountScale, VolumetricSampleCountScale, 1.0e-3f))
+		{
+			VolumetricClouds->SetViewSampleCountScale(VolumetricSampleCountScale);
+		}
+	}
+	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
+	{
+		VolumetricClouds->SetVisibility(bVolumetric);
+		ApplyDome();
+	}
+	// The volumetric clouds shade the sky light under them (part of how they read as solid); the toon clouds are
+	// painted and cast none.
+	if (SkyLight && bool(SkyLight->bCloudAmbientOcclusion) != bVolumetric)
+	{
+		SkyLight->bCloudAmbientOcclusion = bVolumetric;
+		SkyLight->MarkRenderStateDirty();
+	}
 }
 
 FDreamWorldClockConfig ADreamSky::MakeClockConfig() const
@@ -204,9 +293,22 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	{
 		PushClockToWorld(true);
 	}
-	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, SkyMaterial) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, DomeRadius))
+	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, SkyMaterial) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, DomeRadius)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance))
 	{
 		ApplyDome();
+	}
+	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial) && VolumetricClouds)
+	{
+		VolumetricClouds->SetMaterial(VolumetricCloudMaterial.LoadSynchronous());
+	}
+	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricLayerThickness)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale))
+	{
+		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
+		{
+			ApplyClouds(*Effective);
+		}
 	}
 }
 #endif
@@ -228,12 +330,12 @@ void ADreamSky::ApplyDome()
 	if (const UStaticMesh* Mesh = SkyDome->GetStaticMesh())
 	{
 		const float MeshRadius = FMath::Max(1.0f, float(Mesh->GetBounds().SphereRadius));
-		SkyDome->SetWorldScale3D(FVector(DomeRadius / MeshRadius));
+		SkyDome->SetWorldScale3D(FVector(GetEffectiveDomeRadius() / MeshRadius));
 	}
 	if (HeightFog)
 	{
 		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient.
-		HeightFog->SetFogCutoffDistance(DomeRadius * 0.8f);
+		HeightFog->SetFogCutoffDistance(GetEffectiveDomeRadius() * 0.8f);
 	}
 }
 
@@ -243,7 +345,7 @@ void ADreamSky::UpdateDome(const FVector& ViewLocation, bool bHasView)
 	{
 		return;
 	}
-	if (FVector::DistSquared(SkyDome->GetComponentLocation(), ViewLocation) > FMath::Square(DomeRadius * 0.02f))
+	if (FVector::DistSquared(SkyDome->GetComponentLocation(), ViewLocation) > FMath::Square(GetEffectiveDomeRadius() * 0.02f))
 	{
 		SkyDome->SetWorldLocation(ViewLocation);
 	}

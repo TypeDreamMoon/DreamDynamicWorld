@@ -14,14 +14,16 @@ class UMaterialInterface;
 class UPostProcessComponent;
 class USkyLightComponent;
 class UStaticMeshComponent;
+class UVolumetricCloudComponent;
 class UDreamSkyStyle;
 
 /**
  * The sky of a level: drop one in (and remove the level's own directional lights, sky light and height fog).
  *
- * It owns the lights the sky drives -- the sun and the moon (two directional lights; the sun is the
- * atmosphere sun, index 0), a sky light that captures the dome, a height fog and an unbound post process
- * for exposure -- and a dome drawn by the DreamShader sky material. It also carries the level's clock:
+ * It owns the lights the sky drives -- the sun and the moon (two directional lights; the atmosphere lights 0 and
+ * 1), a sky light that captures the dome, a height fog and an unbound post process for exposure -- a dome drawn by
+ * the DreamShader sky material, and the engine's volumetric cloud layer for when the clouds are volumetric
+ * rather than the dome's own toon clouds (see Clouds). It also carries the level's clock:
  * the date and hour the level starts at, how long a day lasts, and how the sun and moon move.
  *
  * The lighting itself is decided every frame by UDreamSkySubsystem from the world clock and Style.
@@ -58,6 +60,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lighting")
 	bool bRealTimeSkyCapture = true;
 
+	/** What draws the clouds. The console variable DreamSky.Clouds overrides it (0 toon, 1 volumetric). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	EDreamSkyClouds Clouds = EDreamSkyClouds::Toon;
+
+	/** Material of the engine's volumetric cloud layer (a Volume domain material), for Clouds = Volumetric. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	TSoftObjectPtr<UMaterialInterface> VolumetricCloudMaterial;
+
+	/** How tall the volumetric cloud layer stands above its base (the style's CloudLayerHeight), km: room for storm towers. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "1", UIMax = "15"))
+	float VolumetricLayerThickness = 7.0f;
+
+	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", UIMax = "200"))
+	float VolumetricTracingDistance = 60.0f;
+
+	/**
+	 * Samples along each view ray of the volumetric clouds, relative to the engine's default: more keeps small
+	 * far clouds from being sliced into layers near the horizon, at a cost.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "8"))
+	float VolumetricSampleCountScale = 2.0f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SkyDome;
 
@@ -80,9 +105,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UDirectionalLightComponent> LightningLight;
 
+	/** The engine's volumetric cloud layer: shown only while the volumetric clouds are in effect. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UVolumetricCloudComponent> VolumetricClouds;
+
 	/** The style in effect (Style, or the default). */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	UDreamSkyStyle* GetEffectiveStyle() const;
+
+	/** The clouds in effect: Clouds, or the console variable DreamSky.Clouds when it is set. */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	EDreamSkyClouds GetEffectiveClouds() const;
+
+	/**
+	 * Shows the clouds in effect: the volumetric layer on (its material, its altitude from the style) or off, and
+	 * the dome far enough out not to hide it. Cheap when nothing changed; the sky subsystem calls it every update.
+	 */
+	void ApplyClouds(const UDreamSkyStyle& InStyle);
 
 	/** The clock this level starts with. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
@@ -114,6 +153,8 @@ public:
 
 private:
 	void ApplyDome();
+	/** The dome's radius: DomeRadius, pushed beyond the traced clouds while the volumetric clouds are on. */
+	float GetEffectiveDomeRadius() const;
 	void PushClockToWorld(bool bResetTime);
 	static void ApplyDirectional(UDirectionalLightComponent* Light, const FVector& Direction, const FLinearColor& Color, float Lux, float ThresholdDeg, bool bShadows, bool bSnap);
 };

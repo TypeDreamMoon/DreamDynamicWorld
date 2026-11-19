@@ -16,6 +16,16 @@ enum class EDreamSkyExposureMode : uint8
 	Manual,
 };
 
+/** What draws the clouds. */
+UENUM(BlueprintType)
+enum class EDreamSkyClouds : uint8
+{
+	/** Painted volumes the sky dome ray marches itself: the style's toon tones, crisp edges. */
+	Toon UMETA(DisplayName = "Toon (sky dome)"),
+	/** The engine's volumetric cloud layer with the plugin's cloud material: soft, lit by scattering, casting shadows. */
+	Volumetric UMETA(DisplayName = "Volumetric (engine)"),
+};
+
 /**
  * The sky's lighting: what the lights, the sky light and the fog are set to, and what any material or
  * character shader can read (main light, ambient gradient, day phase). Both sky looks (stylized now, a

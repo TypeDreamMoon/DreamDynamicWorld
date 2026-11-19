@@ -1,7 +1,8 @@
 // M_DreamSky.dss -- the stylized sky dome of ADreamSky.
 //
-// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, a layer of toon clouds made of round
-// lobes overhead, and cumulus / cumulonimbus towers standing on the horizon.
+// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, thin high cloud, and (unless the
+// engine's volumetric clouds draw them) toon clouds: the cloud layer shaped in DreamSkyCloudShape.ush, marched to its
+// surface and painted in a few tones.
 // It has no parameters of its own: everything comes from the plugin's shared parameter collection, which
 // the world clock (sun, moon, time), the weather (cloud cover, the weather map's placement) and the sky
 // subsystem (colours, clouds, lighting) write every frame, so the dome always shows what the lights are doing.
@@ -13,21 +14,22 @@
 /// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
 static const Texture2D WeatherMap;
 
-/// The horizon clouds' painted sprites (light, rim, core, coverage), packed by Tools/Art/pack_cloud_sprites.py.
-/// @default /DreamDynamicWorld/Sky/T_DreamCloudSprites
-static const Texture2D CloudSprites;
+/// The 3D noise the clouds are shaped from (Setup generates it; the engine's volumetric clouds use the same).
+/// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
+static const VolumeTexture CloudNoise;
 
 /// @custom
 /// @name Dream Sky
 float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 CloudLayer, float4 MapParams,
-	float4 Flash, float4 Extra, float4 Haze, Texture2D Map, Texture2D Sprites, float Seconds, float Capture)
+	float4 Flash, float4 Extra, float4 Haze, Texture2D Map, VolumeTexture Noise, float3 Camera, float2 ScreenUV,
+	float Seconds, float Capture)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 	return DSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo, Stars,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, CloudLayer, MapParams, Flash, Extra, Haze,
-		Map, MapSampler, Sprites, SpritesSampler, Seconds, Capture);
+		Map, MapSampler, Noise, NoiseSampler, Camera, ScreenUV, Seconds, Capture);
 }
 
 export void M_DreamSky(inout material m)
@@ -60,5 +62,5 @@ export void M_DreamSky(inout material m)
 	float Capture = UE.ReflectionCapturePassSwitch(Default = 0.0, Reflection = 1.0);
 	m.EmissiveColor = DreamSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo,
 		Stars, Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, CloudLayer, MapParams, Flash, Extra, Haze,
-		WeatherMap, CloudSprites, UE.Time(), Capture);
+		WeatherMap, CloudNoise, UE.CameraPositionWS(), UE.ScreenPosition().ViewportUV, UE.Time(), Capture);
 }

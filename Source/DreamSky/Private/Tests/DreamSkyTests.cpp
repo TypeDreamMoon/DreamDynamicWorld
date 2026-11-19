@@ -9,8 +9,16 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "Engine/Level.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
+#include "Engine/VolumeTexture.h"
+#include "HAL/IConsoleManager.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialParameterCollectionInstance.h"
 #include "Engine/World.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
@@ -86,6 +94,27 @@ bool FDreamSkyStyleContinuityTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("midnight main light is above the horizon"), Midnight.MainLightDirection.Z > 0.2);
 	TestEqual(TEXT("midnight sun is off"), Midnight.SunIlluminance, 0.0f);
 	TestTrue(TEXT("night is darker than day"), Midnight.MainLightIlluminance < Style->EvaluateLighting(DreamWorld::Celestial::Evaluate(Settings, Start + 12 * 3600.0)).MainLightIlluminance);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCumulusGrowthTest, "DreamSky.Style.CumulusFollowTheHour", DreamSky::Tests::Flags)
+bool FDreamSkyCumulusGrowthTest::RunTest(const FString& Parameters)
+{
+	using DreamSky::CumulusGrowth;
+	TestTrue(TEXT("fewer in the morning than in the afternoon"), CumulusGrowth(8.0f) < CumulusGrowth(15.0f));
+	TestNearlyEqual(TEXT("fully grown in the mid-afternoon"), CumulusGrowth(15.0f), 1.0f, 1e-4f);
+	TestTrue(TEXT("falling apart toward evening"), CumulusGrowth(20.0f) < CumulusGrowth(17.0f));
+	TestTrue(TEXT("fewest in the night"), CumulusGrowth(3.0f) <= CumulusGrowth(8.0f) && CumulusGrowth(3.0f) > 0.0f);
+	TestNearlyEqual(TEXT("midnight is the same from either side"), CumulusGrowth(0.0f), CumulusGrowth(24.0f), 1e-4f);
+	TestNearlyEqual(TEXT("hours wrap around the day"), CumulusGrowth(-9.0f), CumulusGrowth(15.0f), 1e-4f);
+	float Last = CumulusGrowth(0.0f);
+	bool bSmooth = true;
+	for (float H = 0.25f; H <= 24.0f; H += 0.25f)
+	{
+		bSmooth &= FMath::Abs(CumulusGrowth(H) - Last) < 0.1f;
+		Last = CumulusGrowth(H);
+	}
+	TestTrue(TEXT("no jumps through the day"), bSmooth);
 	return true;
 }
 
@@ -214,6 +243,84 @@ bool FDreamSkyCloudSpritesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("compressed with a full alpha channel"), Sprites->CompressionSettings == TC_BC7);
 	TestEqual(TEXT("the packer's atlas size"), int32(Sprites->Source.GetSizeX()), 2048);
 	TestTrue(TEXT("not streamed (the sky always shows it whole)"), Sprites->NeverStream);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudNoiseTest, "DreamSky.Assets.CloudNoise", DreamSky::Tests::Flags)
+bool FDreamSkyCloudNoiseTest::RunTest(const FString& Parameters)
+{
+	const UVolumeTexture* Noise = LoadObject<UVolumeTexture>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise.T_DreamCloudNoise"));
+	if (!TestNotNull(TEXT("the volumetric clouds' 3D noise exists"), Noise))
+	{
+		return false;
+	}
+	TestFalse(TEXT("stored as data, not colour"), Noise->SRGB);
+	TestEqual(TEXT("a cube of voxels"), int32(Noise->Source.GetSizeX()), int32(Noise->Source.GetNumSlices()));
+	TestEqual(TEXT("128 voxels across"), int32(Noise->Source.GetSizeX()), 128);
+	TestTrue(TEXT("tiles"), Noise->AddressMode == TA_Wrap);
+	const UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud"));
+	TestNotNull(TEXT("the volumetric cloud material exists"), Material);
+	TestTrue(TEXT("it is a Volume domain material"), Material && Material->GetMaterial() && Material->GetMaterial()->MaterialDomain == MD_Volume);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudBackendTest, "DreamSky.Clouds.Backend", DreamSky::Tests::Flags)
+bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
+{
+	DreamSky::Tests::FSkyWorld W;
+	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds"));
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar)
+		|| !TestNotNull(TEXT("the volumetric cloud component"), W.Sky->VolumetricClouds.Get()))
+	{
+		return false;
+	}
+	const int32 SavedOverride = CVar->GetInt();
+	CVar->Set(-1, ECVF_SetByCode);
+	const UMaterialParameterCollection* Collection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld"));
+	auto DomeLeavesCloudsOut = [&W, Collection]()
+	{
+		FLinearColor Value = FLinearColor::Black;
+		UMaterialParameterCollectionInstance* Instance = Collection ? W.World->GetParameterCollectionInstance(Collection) : nullptr;
+		return Instance && Instance->GetVectorParameterValue(DreamSky::Names::MPC_CloudLayer, Value) && Value.A > 0.5f;
+	};
+	auto DomeRadius = [&W]()
+	{
+		const UStaticMesh* Mesh = W.Sky->SkyDome->GetStaticMesh();
+		return Mesh ? W.Sky->SkyDome->GetComponentScale().X * Mesh->GetBounds().SphereRadius : 0.0;
+	};
+
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
+	W.Clock->ApplyClockConfig(Config, true);
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("toon clouds by default"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Toon);
+	TestFalse(TEXT("no volumetric layer with toon clouds"), W.Sky->VolumetricClouds->GetVisibleFlag());
+	TestFalse(TEXT("the dome draws its own clouds"), DomeLeavesCloudsOut());
+	const double ToonDome = DomeRadius();
+
+	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
+	W.Clock->Tick(0.016f);
+	const UDreamSkyStyle* Style = W.Sky->GetEffectiveStyle();
+	TestTrue(TEXT("the volumetric layer shows"), W.Sky->VolumetricClouds->GetVisibleFlag());
+	const UMaterialInterface* Material = W.Sky->VolumetricClouds->GetMaterial();
+	TestTrue(TEXT("with the plugin's cloud material (not the engine's default)"), Material && Material->GetPathName() == W.Sky->VolumetricCloudMaterial.ToSoftObjectPath().ToString());
+	TestNearlyEqual(TEXT("its base at the style's cloud height"), W.Sky->VolumetricClouds->LayerBottomAltitude, Style->CloudLayerHeight / 100000.0f, 1e-3f);
+	TestNearlyEqual(TEXT("as tall as asked"), W.Sky->VolumetricClouds->LayerHeight, W.Sky->VolumetricLayerThickness, 1e-3f);
+	TestNearlyEqual(TEXT("sampled as finely as asked"), W.Sky->VolumetricClouds->ViewSampleCountScale, W.Sky->VolumetricSampleCountScale, 1e-3f);
+	TestTrue(TEXT("the dome leaves its own clouds out"), DomeLeavesCloudsOut());
+	TestTrue(TEXT("the clouds shade the sky light under them"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
+	TestTrue(FString::Printf(TEXT("the dome stands beyond the traced clouds (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= W.Sky->VolumetricTracingDistance * 100000.0 && DomeRadius() > ToonDome);
+	TestTrue(TEXT("the moon is the second atmosphere light (it lights the clouds at night)"),
+		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
+
+	// The console variable wins over the actor's choice.
+	CVar->Set(0, ECVF_SetByCode);
+	W.Clock->Tick(0.016f);
+	TestFalse(TEXT("DreamSky.Clouds 0 turns the volumetric layer off"), W.Sky->VolumetricClouds->GetVisibleFlag());
+	TestFalse(TEXT("and gives the clouds back to the dome"), DomeLeavesCloudsOut());
+	TestFalse(TEXT("painted clouds cast no sky light shade"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
+	TestNearlyEqual(TEXT("the dome comes back in"), DomeRadius(), ToonDome, 1.0);
+	CVar->Set(SavedOverride, ECVF_SetByCode);
 	return true;
 }
 

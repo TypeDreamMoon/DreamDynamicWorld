@@ -100,11 +100,12 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(CloudLitColor, {
 		{ -12.0f, C(0.060f, 0.070f, 0.110f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
 		{ 5.0f, C(1.800f, 1.400f, 1.080f) }, { 15.0f, C(2.000f, 1.950f, 1.880f) }, { 60.0f, C(2.200f, 2.200f, 2.150f) } });
-	// Painted cloud shade is a pale blue-grey (about two thirds of the lit side by day), violet toward sunset:
-	// the complement of the warm light, never a neutral grey.
+	// Painted cloud shade is a pale sky-tinted blue-grey by day (the shade about 0.85 of the lit side's brightness
+	// on screen), a lavender blue toward sunset (about half): the complement of the warm light, never a neutral grey.
 	SetKeys(CloudShadowColor, {
-		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.130f, 0.100f, 0.170f) }, { 0.0f, C(0.680f, 0.480f, 0.620f) },
-		{ 5.0f, C(0.950f, 0.840f, 1.050f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) }, { 60.0f, C(1.400f, 1.520f, 1.780f) } });
+		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.090f, 0.075f, 0.140f) }, { 0.0f, C(0.300f, 0.230f, 0.420f) },
+		{ 5.0f, C(0.560f, 0.520f, 0.780f) }, { 10.0f, C(0.950f, 0.960f, 1.250f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) },
+		{ 60.0f, C(1.400f, 1.520f, 1.780f) } });
 
 	SetKeys(AmbientScale, { { -12.0f, 1.0f }, { 60.0f, 1.0f } });
 	SetKeys(SkyLightIntensity, { { -12.0f, 1.0f }, { 0.0f, 0.9f }, { 60.0f, 1.0f } });
@@ -315,4 +316,19 @@ FDreamSkyLighting UDreamSkyStyle::EvaluateLighting(const FDreamCelestialState& C
 	L.FogDensity = FMath::Max(0.0f, Eval(FogDensity, E));
 	L.ExposureEV100 = Eval(ExposureEV100, E);
 	return L;
+}
+
+float DreamSky::CumulusGrowth(float Hours)
+{
+	static const FVector2f Keys[] = { { 0.0f, 0.25f }, { 7.0f, 0.25f }, { 11.0f, 0.75f }, { 14.0f, 1.0f }, { 17.0f, 1.0f }, { 21.0f, 0.45f }, { 24.0f, 0.25f } };
+	const float H = FMath::Fmod(FMath::Fmod(Hours, 24.0f) + 24.0f, 24.0f);
+	for (int32 Index = 1; Index < UE_ARRAY_COUNT(Keys); ++Index)
+	{
+		if (H <= Keys[Index].X)
+		{
+			const float T = (H - Keys[Index - 1].X) / (Keys[Index].X - Keys[Index - 1].X);
+			return FMath::Lerp(Keys[Index - 1].Y, Keys[Index].Y, FMath::SmoothStep(0.0f, 1.0f, T));
+		}
+	}
+	return Keys[0].Y;
 }

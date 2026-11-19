@@ -174,74 +174,57 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "2"))
 	float CloudSunGlow = 0.5f;
 
-	/** Fraction of the sky covered (weather will drive this later). */
+	/** Fraction of the sky covered when no weather drives it. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float CloudCoverage = 0.45f;
 
-	/** Edge softness of the cloud shapes, beyond a pixel's anti-aliasing. 0 = crisp painted edges. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "0.5"))
-	float CloudSoftness = 0.06f;
-
-	/**
-	 * Clouds are heaps of round lobes, each lit on its own. This adds the small lobes along a heap's rim (the
-	 * cauliflower edge): 0 = smooth heaps .. 1 = busy rims.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
-	float CloudLobeDetail = 0.6f;
-
-	/** Fewer clouds toward the zenith, as painted skies keep it open (none of it under a closed overcast). */
+	/** Fewer and smaller clouds overhead, as painted skies keep the zenith open (none of it under a closing overcast). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float CloudZenithThinning = 0.5f;
 
-	/** How much each lobe swells and settles, once an hour of game time. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "0.3"))
-	float CloudBreathing = 0.08f;
-
 	/**
-	 * Fair-weather cumulus standing on the horizon, drawn like a painted backdrop: 0 none .. 1 in most
-	 * directions. They thin out with little cover and hide under a closed overcast. Weather towers (a storm
-	 * kilometres away, a front of thick cloud) come from the weather map regardless.
+	 * Fair-weather towers: far off (beyond 15 km), a few clouds heap into towering cumulus, 0 none .. 1 the most.
+	 * They need some cover and go under a closing overcast. A storm's cells grow into cumulonimbus with anvils
+	 * there regardless (from the weather map).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float CloudTowers = 0.55f;
 
 	/**
-	 * Elevation the tallest tower (a storm's cumulonimbus) reaches, degrees. Art, not physics: a real one ten
-	 * kilometres high and four away would climb most of the way up the sky.
+	 * How much the hour shapes fair-weather cumulus: 0 = the same all day .. 1 = few and flat in the morning, the most
+	 * and tallest in the mid-afternoon, falling apart toward evening, few left in the night. A closing cover is not
+	 * touched.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", ClampMax = "60"))
-	float CloudTowerElevation = 32.0f;
-
-	/** How much the towers fade toward the horizon's colour (they stand kilometres away). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
-	float CloudTowerHaze = 0.3f;
-
-	/** How far along each direction the weather map is read for the towers (and twice that), cm. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "10000", UIMax = "2000000"))
-	float CloudTowerDistance = 400000.0f;
-
-	/**
-	 * How far out on the cloud layer the weather map shapes the clouds overhead, cm. Weather further away shows
-	 * as towers on the horizon instead of a flat patch on the layer.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "10000", UIMax = "2000000"))
-	float CloudLayerWeatherReach = 250000.0f;
+	float CloudDiurnal = 0.6f;
 
 	/** Size of the cloud shapes; larger = bigger clouds. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.05", UIMax = "8"))
 	float CloudScale = 1.0f;
 
-	/** Number of light bands across a cloud (toon steps). 0 = smooth shading. */
+	/** Toon clouds' tones: 0 = smooth shading, 1 or more = three painted tones (lit, half tone, shade). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "8"))
 	int32 CloudBands = 3;
 
-	/** How much the cloud layer curves down toward the horizon. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.01", UIMax = "2"))
-	float CloudCurvature = 0.25f;
+	/**
+	 * How far the air lets clouds be seen in clear weather, cm: a cloud this far off near the ground keeps 2% of
+	 * its contrast against the sky behind it. The haze thins with height (CloudHazeHeight), so a tower's top stays
+	 * clear long after its base has sunk into the horizon; an overcast's air sees about a third as far.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "100000", UIMax = "20000000"))
+	float CloudVisibility = 5000000.0f;
 
-	/** Clouds fade out within this height of the horizon (dome direction z). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "0.5"))
-	float CloudHorizonFade = 0.12f;
+	/** How high the hazy lower air reaches, cm: its density falls off exponentially over this height. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "10000", UIMax = "500000"))
+	float CloudHazeHeight = 120000.0f;
+
+	/** Thin high cloud far above the cumulus (cirrus streaks along the wind): 0 none .. 1 most of the sky. Hidden under a closing overcast. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float CloudHighCover = 0.35f;
+
+	/** Altitude of the high cloud above the ground, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "300000", UIMax = "1500000"))
+	float CloudHighAltitude = 900000.0f;
 
 	/** Bright rim where a cloud edge is lit from behind (near the sun). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "2"))
@@ -258,7 +241,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	float CloudDirection = 30.0f;
 
-	/** Height of the cloud layer above the camera, cm: where a point of the dome is looked up in the weather map. */
+	/** Altitude of the clouds' base (where rising air condenses), cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "1000", UIMax = "500000"))
 	float CloudLayerHeight = 150000.0f;
 
@@ -401,3 +384,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Behaviour")
 	float NightBottom = -12.0f;
 };
+
+namespace DreamSky
+{
+	/**
+	 * How far fair-weather cumulus have grown by this hour (0..24), 0..1: they build through the late morning, peak
+	 * in the mid-afternoon and fall apart toward evening; a few hang on through the night.
+	 */
+	DREAMSKY_API float CumulusGrowth(float Hours);
+}

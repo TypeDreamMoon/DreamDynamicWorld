@@ -1,0 +1,430 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The shape of the clouds, shared by both ways the sky draws them: the toon clouds the dome marches itself
+// (DreamSkyStylized.ush) and the engine's volumetric cloud layer (M_DreamVolumetricCloud). Whichever draws them,
+// the same clouds stand in the same places.
+//
+// Clouds are placed one by one, as real cumulus fields and painted skies both are, and noise only adds detail:
+//   - a jittered grid holds a cloud per cell when the weather at its centre has the cover for one; a slow
+//     "gathering" field clears whole stretches of sky and crowds the rest, so clouds come in groups;
+//   - each cloud draws its own size from an exponential spread (a few large, many small), and its height follows
+//     its size: small cumulus are flat (wider than tall), large ones tall, the largest heaped into towers; their
+//     bases are level (one condensation height), their tops not;
+//   - a small cloud may keep a few smaller ones close by (the scraps beside a mother cloud);
+//   - its envelope has a flat base, sides bulging a little above it and a rounded top; a tower narrows as it
+//     climbs; a cumulonimbus spreads into an anvil. Those stand only far off, on the horizon (a painted sky's
+//     composition: overhead is ordinary cloud, a storm near the view is a heavy deck), from a storm there, or a few
+//     in fair weather;
+//   - lobes in the cloud's own frame (a quarter to a sixth of its width, then a third of that, each level riding the
+//     one before) push its surface out into rounded heaps; a fine noise only frays the surface near the view;
+//   - fair-weather cumulus follow the hour (Cloud2.x): few and flat in the morning, the most and tallest in the
+//     afternoon;
+//   - a closing cover turns into a deck instead: stratocumulus, a sheet of cells with thin borders (cracks of sky
+//     while the cover is short of full), and under storm darkness a thick dark layer of larger cells.
+// The result is a distance, in cm, to the clouds' surface (> 0 inside): the toon march draws its surface, the
+// volumetric material turns it into density.
+
+#ifndef DREAMSKY_CLOUDSHAPE_USH
+#define DREAMSKY_CLOUDSHAPE_USH
+
+// How high above the layer's base the clouds reach, their lobes included (cm): the toon march stops there, and the
+// engine's cloud layer is that thick (ADreamSky::VolumetricLayerThickness).
+#define DCS_LAYER_TOP 700000.0
+
+// The weather the map holds at a point (cm from the view, horizontally): (cover, darkness, precipitation), or the
+// view's own values off the map.
+float3 DCS_MapAt(float2 Point, float3 Fallback, float4 MapParams, Texture2D Map, SamplerState MapSampler)
+{
+	float2 UV = (MapParams.xy + Point) * MapParams.z + 0.5;
+	float Inside = MapParams.w < 0.5 ? 0.0 : saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
+	return lerp(Fallback, Map.SampleLevel(MapSampler, saturate(UV), 0).xyz, Inside);
+}
+
+// The weather at the view itself, for points off the map: (cover, darkness, and rain going with the darkness).
+float3 DCS_ViewWeather(float4 Cloud0, float4 CloudLayer)
+{
+	return float3(Cloud0.x, CloudLayer.y, saturate(CloudLayer.y * 1.5 - 0.3));
+}
+
+// Integer hashes: a float hash loses its low bits at the coordinates drifting clouds reach.
+uint DCS_HashU(int3 C, uint Salt)
+{
+	uint H = uint(C.x) * 1597334677u ^ uint(C.y) * 3812015801u ^ uint(C.z) * 2741598713u ^ Salt * 2654435769u;
+	H ^= H >> 16;
+	H *= 0x7feb352du;
+	H ^= H >> 15;
+	H *= 0x846ca68bu;
+	H ^= H >> 16;
+	return H;
+}
+
+float4 DCS_Hash4(int3 C, uint Salt)
+{
+	uint A = DCS_HashU(C, Salt);
+	uint B = DCS_HashU(C, Salt ^ 0x5bd1e995u);
+	return float4(float(A & 0xffffu), float(A >> 16), float(B & 0xffffu), float(B >> 16)) * (1.0 / 65535.0);
+}
+
+// Round lobes packed in 3D, one per lattice cell (jittered within its middle half, a radius of half to three
+// quarters of a cell): a spherical cap's height, 1 in a lobe's middle, 0 at its rim and in the rounded creases
+// between lobes. With that reach, the eight nearest cells hold every lobe touching the point.
+float DCS_Lobes(float3 P, uint Seed)
+{
+	int3 Cell = int3(floor(P - 0.5));
+	float Best = 0.0;
+	[loop]
+	for (int k = 0; k < 2; ++k)
+	{
+		for (int j = 0; j < 2; ++j)
+		{
+			for (int i = 0; i < 2; ++i)
+			{
+				int3 C = Cell + int3(i, j, k);
+				float4 H = DCS_Hash4(C, Seed);
+				float3 D = (P - (float3(C) + 0.25 + 0.5 * H.xyz)) / (0.5 + 0.25 * H.w);
+				Best = max(Best, sqrt(saturate(1.0 - dot(D, D))));
+			}
+		}
+	}
+	return Best;
+}
+
+// One cloud: where it stands (cm, in the drifting frame the field is laid out in), how wide and tall.
+struct FDCloud
+{
+	float2 Centre;
+	float Radius;       // cm
+	float Bottom;       // cm above the layer's base
+	float Top;          // cm above the layer's base
+	float Tower;        // 0 a heap .. 1 a tower (narrowing as it climbs)
+	float Anvil;        // 1: a cumulonimbus, spreading into an anvil near its top
+	float Seed;
+	float Deck;         // 1: the deck (its lobes small below, moderate on top)
+};
+
+// How far a cloud's lobes push its surface (cm), U = the height through it: small on the base, large on the top and
+// upper sides of a heap; on a deck, a smooth underside and a lumpy top.
+float DCS_LobeAmp(FDCloud C, float U)
+{
+	return C.Radius * (C.Deck > 0.5 ? lerp(0.03, 0.2, smoothstep(0.4, 1.0, U)) : lerp(0.05, 0.3, saturate(U * 2.5)));
+}
+
+// How far inside a cloud's envelope a point is (cm; < 0 outside), and its height through the cloud (0 base ..
+// 1 top). A flat base; the sides bulge a little above it (widest at about a third up); a rounded top. A tower keeps
+// its width further up, narrowing slowly, and rounds off only near its top; an anvil spreads wide near the top.
+float DCS_Envelope(float2 Offset, float Z, FDCloud C, out float U)
+{
+	float H = max(C.Top - C.Bottom, 1.0);
+	U = (Z - C.Bottom) / H;
+	float Widest = lerp(0.3, 0.15, C.Tower);
+	float DomeFrom = lerp(Widest, 0.72, C.Tower);
+	float F;
+	if (U < Widest)
+	{
+		float B = (Widest - U) / Widest;
+		F = 1.0 - 0.12 * B * B;
+	}
+	else
+	{
+		float Body = 1.0 - 0.3 * C.Tower * saturate((U - Widest) / max(DomeFrom - Widest, 1.0e-3)) * (DomeFrom - Widest);
+		float T = saturate((U - DomeFrom) / max(1.0 - DomeFrom, 1.0e-3));
+		F = Body * sqrt(saturate(1.0 - T * T));
+	}
+	if (C.Anvil > 0.0)
+	{
+		F = max(F, C.Anvil * 1.9 * smoothstep(0.72, 0.88, U) * (1.0 - smoothstep(0.95, 1.0, U)));
+	}
+	float Side = (F - length(Offset) / C.Radius) * C.Radius;
+	return min(Side, min(Z - C.Bottom, C.Top - Z));
+}
+
+// How much of a cloud the air between it and the view veils, 0..1 (in the colour of the sky behind it): Distance cm
+// along a ray rising at Up (its direction's z), Cover = the cover at the view (an overcast's air is thicker), Cloud3 =
+// (visibility, cm; haze height, cm; -, -). The haze is thick low down and thins with height (the optical depth along
+// the rising ray), so a tower's top stays clear long after its base has sunk into the horizon; whatever stands in
+// the last degrees above the horizon sinks into its haze.
+float DCS_AirVeil(float Distance, float Up, float Cover, float4 Cloud3)
+{
+	float Visibility = max(Cloud3.x, 1000.0) * lerp(1.0, 0.35, smoothstep(0.45, 0.95, Cover));
+	float HazeHeight = max(Cloud3.y, 1000.0);
+	// How high the ray has climbed (over the planet's curve), and the share of the low haze it went through.
+	float Rise = max(Distance * Up + Distance * Distance / (2.0 * 636000000.0), 0.0);
+	float X = Rise / HazeHeight;
+	float Share = X > 1.0e-3 ? (1.0 - exp(-X)) / X : 1.0;
+	float Veil = 1.0 - exp(-3.912 * Distance / Visibility * Share);
+	return max(Veil, 1.0 - smoothstep(0.004, 0.03, Up));
+}
+
+struct FDCloudShape
+{
+	float Distance;       // cm to the clouds' surface, > 0 inside
+	float Density;        // 0..1 (the distance over a soft edge)
+	float Conservative;   // an upper bound of Density (0 = surely empty)
+	float Dark;           // storm darkness here
+	float Height;         // 0 base .. 1 top of the cloud this point belongs to
+	float Column;         // cm: how tall that cloud is (a deck: how thick it is here)
+	float Deck;           // 1: the point belongs to the deck
+};
+
+// Rel = the point from the view (cm; the weather map and the thinning near the view use it), World = the point in
+// the world (cm), Z = its altitude above the layer's base (cm).
+// Cloud0 = (cover at the view, -, scale, -), Cloud1.xy = how far the wind has carried the clouds (in units of 2.2 km
+// times the scale), Cloud2.x = how far the hour has let fair-weather cumulus grow (0..1), Cloud2.y = how far a fair sky
+// clears overhead, Cloud2.w = how many towers fair weather raises on the horizon, CloudLayer.y = darkness at the view.
+// Detail (0..1) = the fine fraying near the view (0 for the cheap samples: normals, shadows).
+FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 CloudLayer,
+	float4 MapParams, float Detail, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
+{
+	const float Soft = 15000.0;   // the density rises over this much distance inside the surface
+	FDCloudShape S;
+	S.Distance = -1.0e6;
+	S.Density = 0.0;
+	S.Conservative = 0.0;
+	S.Height = 0.0;
+	S.Column = 1.0;
+	S.Deck = 0.0;
+	float3 ViewWeather = DCS_ViewWeather(Cloud0, CloudLayer);
+	float3 Here = DCS_MapAt(Rel.xy, ViewWeather, MapParams, Map, MapSampler);
+	S.Dark = saturate(Here.y * 1.3 - 0.2);
+	if (Z < -60000.0 || Z > DCS_LAYER_TOP)
+	{
+		return S;
+	}
+
+	// The field drifts with the wind; the view's place in the drifting frame finds the weather of each cloud.
+	float Scale = max(Cloud0.z, 0.05);
+	float2 P = World.xy + Cloud1.xy * 220000.0 * Scale;
+	float2 ViewInField = P - Rel.xy;
+	const float CellSize = 300000.0 * Scale;
+
+	// Gathering: a slow noise (the base noise's smooth blobs, very large) crowds clouds together and clears whole
+	// stretches between the groups. Read at each cloud's centre (a cloud is there or not as a whole), and here for
+	// the deck.
+	float Gather = Noise.SampleLevel(NoiseSampler, float3(P / (CellSize * 9.0), 0.37), 0).r;
+
+	// The two clouds whose envelopes reach nearest the point (each gets its lobes below).
+	float Best = -1.0e6;
+	float Second = -1.0e6;
+	FDCloud Owner = (FDCloud)0;
+	FDCloud Other = (FDCloud)0;
+	float OwnerU = 0.0;
+	float OtherU = 0.0;
+	float2 Cell = floor(P / CellSize);
+	[loop]
+	for (int j = -1; j <= 1; ++j)
+	{
+		for (int i = -1; i <= 1; ++i)
+		{
+			int2 Ci = int2(Cell) + int2(i, j);
+			float4 H1 = DCS_Hash4(int3(Ci, 0), 11u);
+			float2 Centre = (float2(Ci) + 0.2 + 0.6 * H1.xy) * CellSize;
+			float2 CentreRel = Centre - ViewInField;
+
+			// The weather at the cloud's centre (a zone's rim is made of whole clouds). Under a fair sky the cover
+			// thins near the view (a painted sky leaves the zenith open; a closing deck does not thin).
+			// Fair-weather cumulus also follow the hour (few in the morning); under a closing cover the deck takes
+			// over and no heaps stand on their own.
+			float3 W = DCS_MapAt(CentreRel, ViewWeather, MapParams, Map, MapSampler);
+			float Cover = saturate(W.x);
+			float Closing = smoothstep(0.7, 0.95, Cover);
+			float Near = smoothstep(200000.0, 1500000.0, length(CentreRel));
+			float Grown = lerp(1.0, saturate(Cloud2.x), 1.0 - Closing);
+			Cover *= lerp(1.0, lerp(0.25, 1.0, Near), saturate(Cloud2.y * 2.0) * (1.0 - Closing)) * lerp(0.4, 1.0, Grown);
+			float Dark = saturate(W.y * 1.3 - 0.2);
+			float GatherC = Noise.SampleLevel(NoiseSampler, float3(Centre / (CellSize * 9.0), 0.37), 0).r;
+			float Present = saturate(Cover * 1.4 + (GatherC - 0.5) * 1.8) * (1.0 - smoothstep(0.6, 0.85, saturate(W.x)));
+			if (H1.z >= Present)
+			{
+				continue;
+			}
+
+			// Its size: an exponential spread around a mean that grows with the cover and the gathering.
+			float4 H2 = DCS_Hash4(int3(Ci, 1), 23u);
+			float Mean = lerp(90000.0, 230000.0, smoothstep(0.1, 0.7, Cover)) * Scale * lerp(0.7, 1.3, GatherC);
+			// Overhead a fair sky's clouds are smaller too (fewer and smaller: the zenith stays open).
+			Mean *= lerp(1.0, lerp(0.6, 1.0, Near), saturate(Cloud2.y * 2.0) * (1.0 - Closing));
+			// (A cloud, its lobes included -- a fifth of its radius more -- must stay within 1.2 cells of its centre:
+			// only the 3 x 3 nearest cells are looked at.)
+			float Diameter = clamp(Mean * -log(1.0 - 0.95 * H1.w), 25000.0 * Scale, 2.0 * CellSize);
+			FDCloud C;
+			C.Centre = Centre;
+			C.Radius = 0.5 * Diameter;
+			C.Bottom = (H2.w - 0.5) * 8000.0;
+			C.Seed = H2.z * 61.0;
+			C.Anvil = 0.0;
+			C.Deck = 0.0;
+			// Height follows size: small cumulus wider than tall, large ones as tall as wide, the largest towers;
+			// morning cumulus stay flatter.
+			C.Tower = smoothstep(180000.0, 350000.0, Diameter * (0.7 + 0.6 * Cover)) * Grown;
+			float Aspect = (lerp(0.35, 0.95, smoothstep(60000.0, 250000.0, Diameter)) * lerp(0.85, 1.25, Cover) + 0.6 * C.Tower)
+				* lerp(0.7, 1.0, Grown);
+			C.Top = C.Bottom + min(Diameter * Aspect, 300000.0);
+
+			// Far off (on the horizon) the giants: a storm's cells grow into cumulonimbus with anvils; in fair weather
+			// a few clouds heap into towering cumulus (no anvil: the summer towers of a painted sky).
+			float Far = smoothstep(1500000.0, 3000000.0, length(CentreRel));
+			float StormCell = smoothstep(0.35, 0.7, Dark);
+			float FairGiant = step(H2.x, Cloud2.w * 0.12 * smoothstep(0.2, 0.5, Cover) * (1.0 - Closing));
+			float Grow = Far * max(StormCell, FairGiant);
+			if (Grow > 0.0)
+			{
+				C.Anvil = Far * StormCell;
+				// An anvil spreads to 1.9 times the column's radius; the column stays narrow enough to keep it in reach.
+				float MaxRadius = CellSize / max(1.0, 1.9 * C.Anvil);
+				C.Radius = min(lerp(C.Radius, max(C.Radius, lerp(150000.0, 280000.0, H2.y) * Scale), Grow), MaxRadius);
+				// (Its top, lobes included, stays under the layer's top.)
+				float Tall = min(C.Bottom + lerp(420000.0, 640000.0, H2.z), DCS_LAYER_TOP - 0.25 * C.Radius - 8000.0);
+				C.Top = lerp(C.Top, max(Tall, C.Top), Grow);
+				C.Tower = lerp(C.Tower, 1.0, Grow);
+			}
+
+			// The scraps beside a smaller cloud: two or three little ones close by, on the same base (reaching at
+			// most 1.9 radii from its centre, so only around a cloud small enough to keep them in reach). The cloud
+			// is k = 0, its scraps k > 0: one envelope for all (each call is a copy the shader compiler builds).
+			float4 H3 = DCS_Hash4(int3(Ci, 2), 37u);
+			int Count = (C.Radius < 0.6 * CellSize && Cover < 0.85 && C.Anvil <= 0.0) ? int(H3.x * 3.99) : 0;
+			[loop]
+			for (int k = 0; k <= Count; ++k)
+			{
+				FDCloud Q = C;
+				if (k > 0)
+				{
+					float Angle = 6.2831853 * (H3.y + 0.37 * float(k));
+					float Spread = C.Radius * (0.85 + 0.5 * frac(H3.z + 0.61 * float(k)));
+					Q.Radius = C.Radius * (0.25 + 0.2 * frac(H3.w + 0.43 * float(k)));
+					Q.Centre = C.Centre + float2(cos(Angle), sin(Angle)) * Spread;
+					Q.Top = Q.Bottom + 2.0 * Q.Radius * lerp(0.35, 0.6, frac(H3.x * 7.0 + float(k) * 0.29));
+					Q.Tower = 0.0;
+					Q.Seed = C.Seed + 13.0 * float(k);
+				}
+				float U;
+				float D = DCS_Envelope(P - Q.Centre, Z, Q, U);
+				if (D > Best)
+				{
+					Second = Best;
+					Other = Owner;
+					OtherU = OwnerU;
+					Best = D;
+					Owner = Q;
+					OwnerU = U;
+				}
+				else if (D > Second)
+				{
+					Second = D;
+					Other = Q;
+					OtherU = U;
+				}
+			}
+		}
+	}
+
+	// A closing cover becomes a deck. Stratocumulus: a sheet of soft cells 2 to 4 km across (the smooth noise's blobs),
+	// each thickest in its middle, where its underside also hangs a little lower (the rolls seen from below), thin
+	// between cells; short of a full cover, in places (where the gathering thins it), the thin parts open into cracks of
+	// sky. Storm darkness thickens it into a heavy layer of larger cells, its underside flatter, with no cracks
+	// (nimbostratus). The cells, the cracks and the lobes are laid out in the world (lobes some 0.3 km on a
+	// stratocumulus).
+	float Deck = smoothstep(0.7, 0.95, saturate(Here.x));
+	if (Deck > 0.0)
+	{
+		float Storm = S.Dark;
+		float DeckCell = lerp(250000.0, 450000.0, Storm) * Scale;
+		float Cells = Noise.SampleLevel(NoiseSampler, float3(P / (DeckCell * 4.0), 0.57), 0).r * 0.75
+			+ Noise.SampleLevel(NoiseSampler, float3(P / (DeckCell * 1.7), 0.19), 0).r * 0.25;
+		// 0 between cells .. 1 in a cell's middle.
+		float Pillow = smoothstep(0.25, 0.75, Cells);
+		float Thick = lerp(lerp(30000.0, 80000.0, Deck), lerp(200000.0, 350000.0, Gather), Storm) * (0.8 + 0.4 * Gather);
+		float Crack = (1.0 - smoothstep(0.85, 1.0, saturate(Here.x))) * (1.0 - Storm) * smoothstep(0.4, 0.65, 1.0 - Gather) * 0.4;
+		FDCloud Q = (FDCloud)0;
+		Q.Radius = 0.35 * DeckCell;
+		Q.Bottom = Thick * lerp(0.22, 0.1, Storm) * (1.0 - Pillow);
+		Q.Top = Thick * (0.7 + 0.3 * Pillow) - Crack * Thick * 1.5 * (1.0 - Pillow);
+		Q.Seed = 3.0;
+		Q.Deck = 1.0;
+		float U = saturate((Z - Q.Bottom) / max(Q.Top - Q.Bottom, 1.0));
+		float D = min(Q.Top - Z, Z - Q.Bottom);
+		if (D > Best)
+		{
+			Second = Best;
+			Other = Owner;
+			OtherU = OwnerU;
+			Best = D;
+			Owner = Q;
+			OwnerU = U;
+		}
+		else if (D > Second)
+		{
+			Second = D;
+			Other = Q;
+			OtherU = U;
+		}
+	}
+	if (Best <= -1.0e5)
+	{
+		return S;
+	}
+
+	// Lobes in each cloud's own frame: a quarter to a sixth of its width, rounded heaps with rounded creases, small on
+	// the base, large on the top and upper sides; then a second level a third that size, only on the first's surface.
+	// Both nearest clouds get theirs and the point keeps whichever reaches further (the union of the lobed clouds:
+	// lobes taken from the nearest cloud alone would end on a straight cut where the nearest one changes).
+	float Amp0 = DCS_LobeAmp(Owner, OwnerU);
+	float AmpB = DCS_LobeAmp(Other, OtherU);
+	float Reach0 = Amp0 * (2.0 / 3.0) + 6000.0;
+	float ReachB = AmpB * (2.0 / 3.0) + 6000.0;
+	float Upper = max(Best + Reach0, Second + ReachB);
+	S.Conservative = saturate(Upper / Soft);
+	S.Height = saturate(OwnerU);
+	S.Column = max(Owner.Top - Owner.Bottom, 1.0);
+	S.Deck = Owner.Deck;
+	if (Upper <= 0.0)
+	{
+		S.Distance = Best;
+		return S;
+	}
+	int Owners = Second + ReachB > Best - Reach0 ? 2 : 1;
+	float Dist = -1.0e6;
+	[loop]
+	for (int o = 0; o < Owners; ++o)
+	{
+		float R = max(o == 0 ? Owner.Radius : Other.Radius, 1.0);
+		float2 Centre = o == 0 ? Owner.Centre : Other.Centre;
+		float Bottom = o == 0 ? Owner.Bottom : Other.Bottom;
+		float Seed = o == 0 ? Owner.Seed : Other.Seed;
+		float Amp = o == 0 ? Amp0 : AmpB;
+		float D = o == 0 ? Best : Second;
+		float3 Lp = float3(P - Centre, Z - Bottom) / R;
+		[loop]
+		for (int Level = 0; Level < 2; ++Level)
+		{
+			float Frequency = Level == 0 ? 3.0 : 9.0;
+			float Offset = Level == 0 ? Seed : 31.7 + Seed * 0.37;
+			float Lobe = DCS_Lobes(Lp * Frequency + Offset, uint(Level + 1));
+			float Weight = Level == 0 ? 1.0 : saturate(1.0 - abs(D) / (0.12 * R)) / 3.0;
+			D += (Lobe - 0.5) * Amp * Weight;
+		}
+		if (D > Dist)
+		{
+			Dist = D;
+			S.Height = saturate(o == 0 ? OwnerU : OtherU);
+			S.Column = max(o == 0 ? Owner.Top - Owner.Bottom : Other.Top - Other.Bottom, 1.0);
+			S.Deck = o == 0 ? Owner.Deck : Other.Deck;
+		}
+	}
+
+	// The fine fraying, near the view only, and only inward (it never adds cloud).
+	if (Detail > 0.0)
+	{
+		float Fine = Detail * (1.0 - smoothstep(300000.0, 800000.0, length(Rel)));
+		if (Fine > 0.0)
+		{
+			float N = Noise.SampleLevel(NoiseSampler, float3(P, Z) / 600000.0, 0).a;
+			Dist -= (1.0 - N) * 6000.0 * Fine * saturate(1.0 - abs(Dist) / 20000.0);
+		}
+	}
+	S.Distance = Dist;
+	S.Density = saturate(Dist / Soft);
+	return S;
+}
+
+#endif // DREAMSKY_CLOUDSHAPE_USH

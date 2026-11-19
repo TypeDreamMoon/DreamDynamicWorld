@@ -61,7 +61,7 @@ public:
 
 private:
 	void Update(UDreamWorldSubsystem& Clock, float DeltaTime);
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style);
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bVolumetricClouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 
