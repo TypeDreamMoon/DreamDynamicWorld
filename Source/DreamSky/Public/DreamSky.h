@@ -229,6 +229,13 @@ private:
 	/** Set when the material overrides changed: the instance takes them on its next ApplyClouds. */
 	bool bCloudMaterialDirty = true;
 
+	/** Draws the volumetric clouds without their frame history while a lightning flash lasts (no checkerboard). */
+	void HoldCloudHistoryThroughFlash();
+	/** The lightning flash at the last ApplyClouds, the frame its level last jumped, whether the history is held for it. */
+	float LastCloudFlash = 0.0f;
+	uint64 CloudFlashJumpFrame = 0;
+	bool bHoldingCloudHistory = false;
+
 #if WITH_EDITOR
 	/** The style asset was edited: the overridden copy is rebuilt. */
 	void HandleObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);

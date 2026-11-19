@@ -411,6 +411,7 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
 			SkyLight->MarkRenderStateDirty();
 		}
+		HoldCloudHistoryThroughFlash();
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
 	{
@@ -423,6 +424,40 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 	{
 		SkyLight->bCloudAmbientOcclusion = bVolumetric;
 		SkyLight->MarkRenderStateDirty();
+	}
+}
+
+void ADreamSky::HoldCloudHistoryThroughFlash()
+{
+	// A lightning flash lights the whole cloud field from one frame to the next, while the engine traces only a quarter
+	// of the clouds' pixels each frame and takes the rest from the frames before: the frames of a flash came out as a
+	// checkerboard of lit and unlit pixels. While the flash's level jumps, and for the four frames the history takes to
+	// catch up, the clouds are drawn from this frame's trace alone: a little noisier for those frames, never a
+	// checkerboard, at no extra cost; the flash's slow fade keeps the history. (Left alone where a project or the
+	// console has set it.)
+	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
+	const UWorld* World = GetWorld();
+	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	if (!Reprojection || !WorldClock)
+	{
+		return;
+	}
+	const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Reprojection->GetFlags() & ECVF_SetByMask);
+	if (SetBy > ECVF_SetByScalability && SetBy != ECVF_SetByCode)
+	{
+		return;
+	}
+	const float Flash = WorldClock->GetEnvironment().LightningFlash;
+	if (FMath::Abs(Flash - LastCloudFlash) > 0.02f)
+	{
+		CloudFlashJumpFrame = GFrameCounter;
+	}
+	LastCloudFlash = Flash;
+	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 4;
+	if (bHold != bHoldingCloudHistory)
+	{
+		bHoldingCloudHistory = bHold;
+		Reprojection->Set(bHold ? 1.0e6f : 0.0f, ECVF_SetByCode);
 	}
 }
 
