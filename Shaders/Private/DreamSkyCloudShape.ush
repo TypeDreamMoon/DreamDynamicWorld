@@ -436,7 +436,10 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	float3 Q = float3(P, Z) / (500000.0 * Scale);
 	float4 E = Noise.SampleLevel(NoiseSampler, Q, 0);
 	float Billow = dot(E.gba, float3(0.5, 0.33, 0.17));
-	float Shape = Base - pow(saturate(1.0 - Billow), 1.5) * Cloud2.y * Profile.z;
+	// (A billow's middle is barely eroded, so in the thinnest rim of a shape it would stand alone, a crumb off the
+	// cloud: the rim is pared back a little as well, whatever the billows there.)
+	float Rim = 1.0 - smoothstep(0.0, 0.2, Base);
+	float Shape = Base - (pow(saturate(1.0 - Billow), 1.5) + 0.08 * Rim) * Cloud2.y * Profile.z;
 	// Near the view a finer octave frays the edges (it fades out with distance, as UDS's high frequency does).
 	if (Detail > 0.0 && Shape > 0.0)
 	{
