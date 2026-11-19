@@ -136,6 +136,8 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
+	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).
+	Sky->ApplyLightingOverrides(Target);
 
 	// Ease while the clock runs; snap on jumps (scrubbing, set time, snapshots) and while it stands still.
 	const bool bSnap = !bHasApplied || Clock.GetTimeJumpSerial() != LastJumpSerial || !Clock.IsClockRunning() || Style->LightResponseTime <= 0.0f;

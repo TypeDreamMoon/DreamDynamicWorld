@@ -6,10 +6,12 @@
 #include "GameFramework/Actor.h"
 #include "DreamWorldTypes.h"
 #include "DreamSkyTypes.h"
+#include "DreamSkyOverrides.h"
 #include "DreamSky.generated.h"
 
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
+class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UPostProcessComponent;
 class USkyLightComponent;
@@ -26,9 +28,14 @@ class UDreamSkyStyle;
  * rather than the dome's own toon clouds (see Clouds). It also carries the level's clock:
  * the date and hour the level starts at, how long a day lasts, and how the sun and moon move.
  *
- * The lighting itself is decided every frame by UDreamSkySubsystem from the world clock and Style.
+ * The lighting itself is decided every frame by UDreamSkySubsystem from the world clock and Style. The panel shows
+ * only what is worth setting: the style, the clock, the clouds, and per-level overrides of the style and of the
+ * lights' and fog's own settings (the components it drives are still editable from the component tree, though the
+ * sky rewrites most of what they hold every frame).
  */
-UCLASS(ClassGroup = "Dream", hidecategories = (Collision, Physics, Input, Replication, HLOD, Cooking, Networking), meta = (DisplayName = "Dream Sky"))
+UCLASS(ClassGroup = "Dream", meta = (DisplayName = "Dream Sky"), hidecategories = (Collision, Physics, Input, Replication, HLOD,
+	Cooking, Networking, Rendering, Actor, LOD, WorldPartition, DataLayers, Events, Navigation, AssetUserData, LevelInstance,
+	Tags, Activation, Components))
 class DREAMSKY_API ADreamSky : public AActor
 {
 	GENERATED_BODY()
@@ -57,7 +64,7 @@ public:
 	float DomeRadius = 500000.0f;
 
 	/** The sky light recaptures the dome continuously (time-sliced by the engine). Off = recaptured when the sky changed enough. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lighting")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
 	bool bRealTimeSkyCapture = true;
 
 	/** What draws the clouds. The console variable DreamSky.Clouds overrides it (0 toon, 1 volumetric). */
@@ -91,6 +98,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "8"))
 	float VolumetricSampleCountScale = 2.0f;
 
+	/** This level's cloud settings over the style's (tick one to use it). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyCloudOverrides CloudOverrides;
+
+	/** This level's sun and moon settings over the style's and the lights' own. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (ShowOnlyInnerProperties))
+	FDreamSkyLightOverrides LightOverrides;
+
+	/** This level's sky light and fog settings over the style's and the fog's own. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky Light and Fog", meta = (ShowOnlyInnerProperties))
+	FDreamSkyAmbientOverrides AmbientOverrides;
+
+	/** This level's exposure settings over the style's. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Exposure", meta = (ShowOnlyInnerProperties))
+	FDreamSkyExposureOverrides ExposureOverrides;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SkyDome;
 
@@ -117,9 +140,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UVolumetricCloudComponent> VolumetricClouds;
 
-	/** The style in effect (Style, or the default). */
+	/** The style in effect: Style (or the default) with this level's overrides written over it. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	UDreamSkyStyle* GetEffectiveStyle() const;
+
+	/**
+	 * Takes in changed overrides (and a changed style): rebuilds the effective style, sets the lights' and the fog's
+	 * own settings, and refreshes the cloud material's. Called when they are edited; call it after changing the
+	 * override structs from code.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream Sky")
+	void RefreshOverrides();
+
+	/** Scales the style's lighting by this level's overrides (sun, moon, sky light, fog, exposure compensation). */
+	void ApplyLightingOverrides(FDreamSkyLighting& Lighting) const;
 
 	/** The clouds in effect: Clouds, or the console variable DreamSky.Clouds when it is set. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
@@ -160,6 +194,26 @@ public:
 #endif
 
 private:
+	/** The style with the overrides written over it (null while no style override is ticked). */
+	UPROPERTY(Transient)
+	TObjectPtr<UDreamSkyStyle> OverriddenStyle;
+
+	/** The volumetric cloud material with the material overrides set on it (null while none is ticked). */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> CloudMaterialInstance;
+
+	/** Set when the material overrides changed: the instance takes them on its next ApplyClouds. */
+	bool bCloudMaterialDirty = true;
+
+#if WITH_EDITOR
+	/** The style asset was edited: the overridden copy is rebuilt. */
+	void HandleObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
+	FDelegateHandle StyleChangedHandle;
+#endif
+
+	void RebuildOverriddenStyle();
+	/** Sets the lights' and the fog's ticked settings; bRestoreUnticked puts the unticked ones back to the sky's defaults. */
+	void ApplyComponentOverrides(bool bRestoreUnticked);
 	void ApplyDome();
 	/** The dome's radius: DomeRadius, pushed beyond the traced clouds while the volumetric clouds are on. */
 	float GetEffectiveDomeRadius() const;

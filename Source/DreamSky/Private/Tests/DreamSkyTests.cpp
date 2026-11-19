@@ -9,6 +9,7 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/VolumetricCloudComponent.h"
@@ -17,6 +18,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
 #include "Engine/World.h"
@@ -337,6 +339,97 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("painted clouds cast no sky light shade"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
 	TestNearlyEqual(TEXT("the dome comes back in"), DomeRadius(), ToonDome, 1.0);
 	CVar->Set(SavedOverride, ECVF_SetByCode);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyOverridesTest, "DreamSky.Actor.Overrides", DreamSky::Tests::Flags)
+bool FDreamSkyOverridesTest::RunTest(const FString& Parameters)
+{
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
+	// Every check jumps the clock to noon again: a jump applies the lighting at once (no easing).
+	auto Noon = [&W, &Config]()
+	{
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+	};
+	Noon();
+	const UDreamSkyStyle* Preset = Sky.GetEffectiveStyle();
+	const float PresetCoverage = Preset->CloudCoverage;
+	const float PlainSun = Sky.SunLight->Intensity;
+	const float PlainBias = Sky.PostProcess->Settings.AutoExposureBias;
+	const int32 DefaultCascades = GetDefault<ADreamSky>()->SunLight->DynamicShadowCascades;
+
+	// A style setting: a private copy carries it, the preset stays as it was.
+	Sky.CloudOverrides.bOverride_Coverage = true;
+	Sky.CloudOverrides.Coverage = PresetCoverage > 0.5f ? 0.2f : 0.8f;
+	Sky.RefreshOverrides();
+	TestTrue(TEXT("the effective style is a copy"), Sky.GetEffectiveStyle() != Preset);
+	TestNearlyEqual(TEXT("with the level's coverage"), Sky.GetEffectiveStyle()->CloudCoverage, Sky.CloudOverrides.Coverage, 1e-5f);
+	TestNearlyEqual(TEXT("the preset is untouched"), Preset->CloudCoverage, PresetCoverage, 1e-5f);
+
+	// A scale over the style's lighting.
+	Sky.LightOverrides.bOverride_SunIntensity = true;
+	Sky.LightOverrides.SunIntensity = 0.5f;
+	Sky.RefreshOverrides();
+	Noon();
+	TestNearlyEqual(TEXT("the sun at half its illuminance"), Sky.SunLight->Intensity, PlainSun * 0.5f, FMath::Max(1e-3f, PlainSun * 1e-3f));
+
+	// Exposure compensation: a brighter picture (manual mode, the bias is minus the exposure value).
+	Sky.ExposureOverrides.bOverride_Compensation = true;
+	Sky.ExposureOverrides.Compensation = 1.0f;
+	Sky.RefreshOverrides();
+	Noon();
+	TestNearlyEqual(TEXT("one stop brighter"), Sky.PostProcess->Settings.AutoExposureBias, PlainBias + 1.0f, 1e-3f);
+
+	// Auto exposure: eye adaptation held around the curve.
+	Sky.ExposureOverrides.bOverride_Mode = true;
+	Sky.ExposureOverrides.Mode = EDreamSkyExposureMode::Auto;
+	Sky.RefreshOverrides();
+	Noon();
+	const FPostProcessSettings& Exposure = Sky.PostProcess->Settings;
+	TestTrue(TEXT("auto exposure adapts (histogram)"), Exposure.bOverride_AutoExposureMethod && Exposure.AutoExposureMethod == AEM_Histogram);
+	TestTrue(TEXT("within a range"), Exposure.bOverride_AutoExposureMinBrightness && Exposure.AutoExposureMinBrightness < Exposure.AutoExposureMaxBrightness);
+
+	// A light's own setting, and back to the sky's default when unticked.
+	Sky.LightOverrides.bOverride_ShadowCascades = true;
+	Sky.LightOverrides.ShadowCascades = DefaultCascades + 2;
+	Sky.RefreshOverrides();
+	TestEqual(TEXT("the sun's cascades as set"), Sky.SunLight->DynamicShadowCascades, DefaultCascades + 2);
+	Sky.LightOverrides.bOverride_ShadowCascades = false;
+	Sky.RefreshOverrides();
+	TestEqual(TEXT("unticked: the sky's default again"), Sky.SunLight->DynamicShadowCascades, DefaultCascades);
+
+	// A material setting: the volumetric clouds draw an instance of their material carrying it.
+	Sky.Clouds = EDreamSkyClouds::Volumetric;
+	Sky.CloudOverrides.bOverride_Extinction = true;
+	Sky.CloudOverrides.Extinction = 0.2f;
+	Sky.RefreshOverrides();
+	Noon();
+	const UMaterialInstanceDynamic* Instance = Cast<UMaterialInstanceDynamic>(Sky.VolumetricClouds->GetMaterial());
+	if (TestNotNull(TEXT("the clouds draw an instance"), Instance))
+	{
+		TestTrue(TEXT("of the actor's material"), Instance->Parent && Instance->Parent->GetPathName() == Sky.VolumetricCloudMaterial.ToSoftObjectPath().ToString());
+		float Extinction = 0.0f;
+		TestTrue(TEXT("carrying the extinction"), Instance->GetScalarParameterValue(TEXT("CloudExtinction"), Extinction) && FMath::IsNearlyEqual(Extinction, 0.2f, 1e-5f));
+	}
+	Sky.CloudOverrides.bOverride_Extinction = false;
+	Sky.RefreshOverrides();
+	Noon();
+	TestFalse(TEXT("unticked: the plain material again"), Sky.VolumetricClouds->GetMaterial() && Sky.VolumetricClouds->GetMaterial()->IsA<UMaterialInstanceDynamic>());
+
+	// Nothing ticked: the preset itself.
+	Sky.CloudOverrides = FDreamSkyCloudOverrides();
+	Sky.LightOverrides = FDreamSkyLightOverrides();
+	Sky.ExposureOverrides = FDreamSkyExposureOverrides();
+	Sky.RefreshOverrides();
+	TestTrue(TEXT("no overrides: the preset in effect"), Sky.GetEffectiveStyle() == Preset);
 	return true;
 }
 

@@ -14,6 +14,8 @@ enum class EDreamSkyExposureMode : uint8
 	None,
 	/** Fixed exposure from the style's EV100 curve (no eye adaptation lag when time jumps). */
 	Manual,
+	/** Eye adaptation, held within the style's ExposureAutoRange of its EV100 curve. */
+	Auto,
 };
 
 /** What draws the clouds. */

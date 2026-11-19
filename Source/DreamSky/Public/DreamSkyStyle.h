@@ -274,9 +274,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure")
 	EDreamSkyExposureMode ExposureMode = EDreamSkyExposureMode::Manual;
 
-	/** Fixed exposure (EV100) in Manual mode. Lower = brighter picture. */
+	/** Exposure (EV100) through the day: fixed in Manual mode, the middle of the eye's range in Auto. Lower = brighter picture. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (XAxisName = "Sun elevation", YAxisName = "EV100"))
 	FRuntimeFloatCurve ExposureEV100;
+
+	/** Auto mode: how far, EV, the eye may adapt either side of the curve. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0", UIMax = "8"))
+	float ExposureAutoRange = 2.0f;
+
+	/** Auto mode: how fast the eye adapts to brighter light, EV per second. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0.02", UIMax = "20"))
+	float ExposureSpeedUp = 3.0f;
+
+	/** Auto mode: how fast the eye adapts to darker light, EV per second. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0.02", UIMax = "20"))
+	float ExposureSpeedDown = 1.0f;
 
 	// ---- Weather ------------------------------------------------------------------------------
 

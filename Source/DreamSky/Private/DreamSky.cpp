@@ -16,7 +16,9 @@
 #include "HAL/IConsoleManager.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "UObject/UObjectGlobals.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSky)
 
@@ -141,11 +143,159 @@ ADreamSky::ADreamSky()
 
 UDreamSkyStyle* ADreamSky::GetEffectiveStyle() const
 {
+	if (OverriddenStyle)
+	{
+		return OverriddenStyle;
+	}
 	if (Style)
 	{
 		return Style;
 	}
 	return UDreamSkySubsystem::GetDefaultStyle();
+}
+
+void ADreamSky::RebuildOverriddenStyle()
+{
+	UDreamSkyStyle* Base = Style ? Style.Get() : UDreamSkySubsystem::GetDefaultStyle();
+	const bool bAny = CloudOverrides.TouchesStyle() || LightOverrides.TouchesStyle() || AmbientOverrides.TouchesStyle() || ExposureOverrides.TouchesStyle();
+	if (!Base || !bAny)
+	{
+		OverriddenStyle = nullptr;
+		return;
+	}
+	// A private copy of the preset, never saved: the preset stays as it is for every other level using it.
+	FObjectDuplicationParameters Params(Base, this);
+	Params.FlagMask = RF_AllFlags & ~(RF_Standalone | RF_Public | RF_MarkAsRootSet | RF_ArchetypeObject);
+	Params.ApplyFlags = RF_Transient;
+	OverriddenStyle = Cast<UDreamSkyStyle>(StaticDuplicateObjectEx(Params));
+	if (OverriddenStyle)
+	{
+		CloudOverrides.ApplyTo(*OverriddenStyle);
+		LightOverrides.ApplyTo(*OverriddenStyle);
+		AmbientOverrides.ApplyTo(*OverriddenStyle);
+		ExposureOverrides.ApplyTo(*OverriddenStyle);
+	}
+}
+
+void ADreamSky::RefreshOverrides()
+{
+	RebuildOverriddenStyle();
+	ApplyComponentOverrides(true);
+	bCloudMaterialDirty = true;
+	if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
+	{
+		ApplyClouds(*Effective);
+	}
+}
+
+void ADreamSky::ApplyLightingOverrides(FDreamSkyLighting& L) const
+{
+	const float Sun = LightOverrides.bOverride_SunIntensity ? FMath::Max(0.0f, LightOverrides.SunIntensity) : 1.0f;
+	const float Moon = LightOverrides.bOverride_MoonIntensity ? FMath::Max(0.0f, LightOverrides.MoonIntensity) : 1.0f;
+	L.SunIlluminance *= Sun;
+	L.MoonIlluminance *= Moon;
+	L.MainLightIlluminance *= L.bMainLightIsMoon ? Moon : Sun;
+	if (AmbientOverrides.bOverride_SkyLightIntensity)
+	{
+		L.SkyLightIntensity *= FMath::Max(0.0f, AmbientOverrides.SkyLightIntensity);
+	}
+	if (AmbientOverrides.bOverride_FogDensity)
+	{
+		L.FogDensity *= FMath::Max(0.0f, AmbientOverrides.FogDensity);
+	}
+	// A brighter picture is a lower exposure value.
+	if (ExposureOverrides.bOverride_Compensation)
+	{
+		L.ExposureEV100 -= ExposureOverrides.Compensation;
+	}
+}
+
+void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
+{
+	// What an unticked setting goes back to: the sky's own default (only on an edit of the overrides, so a light set
+	// by hand in the component tree keeps its settings otherwise).
+	const ADreamSky* Defaults = GetDefault<ADreamSky>();
+	const FDreamSkyLightOverrides& O = LightOverrides;
+	auto Want = [bRestoreUnticked](bool bTicked, auto Value, auto Default, auto Current)
+	{
+		return bTicked ? Value : (bRestoreUnticked ? Default : Current);
+	};
+	auto ApplyLight = [&](UDirectionalLightComponent* Light, const UDirectionalLightComponent* Default, bool bSun)
+	{
+		if (!Light || !Default)
+		{
+			return;
+		}
+		const float Angle = bSun ? Want(O.bOverride_SunSourceAngle, O.SunSourceAngle, Default->LightSourceAngle, Light->LightSourceAngle)
+			: Want(O.bOverride_MoonSourceAngle, O.MoonSourceAngle, Default->LightSourceAngle, Light->LightSourceAngle);
+		if (Light->LightSourceAngle != Angle)
+		{
+			Light->SetLightSourceAngle(Angle);
+		}
+		const float Distance = Want(O.bOverride_ShadowDistance, O.ShadowDistance, Default->DynamicShadowDistanceMovableLight, Light->DynamicShadowDistanceMovableLight);
+		if (Light->DynamicShadowDistanceMovableLight != Distance)
+		{
+			Light->SetDynamicShadowDistanceMovableLight(Distance);
+		}
+		const int32 Cascades = Want(O.bOverride_ShadowCascades, O.ShadowCascades, Default->DynamicShadowCascades, Light->DynamicShadowCascades);
+		if (Light->DynamicShadowCascades != Cascades)
+		{
+			Light->SetDynamicShadowCascades(Cascades);
+		}
+		const float Scattering = Want(O.bOverride_VolumetricScattering, O.VolumetricScattering, Default->VolumetricScatteringIntensity, Light->VolumetricScatteringIntensity);
+		if (Light->VolumetricScatteringIntensity != Scattering)
+		{
+			Light->SetVolumetricScatteringIntensity(Scattering);
+		}
+		bool bDirty = false;
+		const float Contact = Want(O.bOverride_ContactShadowLength, O.ContactShadowLength, Default->ContactShadowLength, Light->ContactShadowLength);
+		if (Light->ContactShadowLength != Contact)
+		{
+			Light->ContactShadowLength = Contact;
+			bDirty = true;
+		}
+		if (bSun)
+		{
+			const float CloudShadow = Want(O.bOverride_CloudShadowStrength, O.CloudShadowStrength, Default->CloudShadowStrength, Light->CloudShadowStrength);
+			if (Light->CloudShadowStrength != CloudShadow)
+			{
+				Light->CloudShadowStrength = CloudShadow;
+				bDirty = true;
+			}
+		}
+		if (bDirty)
+		{
+			Light->MarkRenderStateDirty();
+		}
+	};
+	ApplyLight(SunLight, Defaults->SunLight, true);
+	ApplyLight(MoonLight, Defaults->MoonLight, false);
+
+	const FDreamSkyAmbientOverrides& A = AmbientOverrides;
+	const UExponentialHeightFogComponent* DefaultFog = Defaults->HeightFog;
+	if (HeightFog && DefaultFog)
+	{
+		const float Start = Want(A.bOverride_FogStartDistance, A.FogStartDistance, DefaultFog->StartDistance, HeightFog->StartDistance);
+		if (HeightFog->StartDistance != Start)
+		{
+			HeightFog->SetStartDistance(Start);
+		}
+		const bool bVolumetric = Want(A.bOverride_VolumetricFog, A.bVolumetricFog, bool(DefaultFog->bEnableVolumetricFog), bool(HeightFog->bEnableVolumetricFog));
+		if (bool(HeightFog->bEnableVolumetricFog) != bVolumetric)
+		{
+			HeightFog->SetVolumetricFog(bVolumetric);
+		}
+		const float VolumetricDistance = Want(A.bOverride_VolumetricFogDistance, A.VolumetricFogDistance, DefaultFog->VolumetricFogDistance, HeightFog->VolumetricFogDistance);
+		if (HeightFog->VolumetricFogDistance != VolumetricDistance)
+		{
+			HeightFog->SetVolumetricFogDistance(VolumetricDistance);
+		}
+		const float Extinction = Want(A.bOverride_VolumetricFogExtinction, A.VolumetricFogExtinction, DefaultFog->VolumetricFogExtinctionScale, HeightFog->VolumetricFogExtinctionScale);
+		if (HeightFog->VolumetricFogExtinctionScale != Extinction)
+		{
+			HeightFog->SetVolumetricFogExtinctionScale(Extinction);
+		}
+	}
 }
 
 EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
@@ -191,6 +341,26 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		if (!Wanted)
 		{
 			Wanted = VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous();
+		}
+		// The material overrides go on an instance of it.
+		if (Wanted && CloudOverrides.TouchesMaterial())
+		{
+			if (!CloudMaterialInstance || CloudMaterialInstance->Parent != Wanted)
+			{
+				CloudMaterialInstance = UMaterialInstanceDynamic::Create(Wanted, this);
+				bCloudMaterialDirty = true;
+			}
+			if (bCloudMaterialDirty)
+			{
+				CloudMaterialInstance->ClearParameterValues();
+				CloudOverrides.ApplyTo(*CloudMaterialInstance);
+				bCloudMaterialDirty = false;
+			}
+			Wanted = CloudMaterialInstance;
+		}
+		else
+		{
+			CloudMaterialInstance = nullptr;
 		}
 		if (Wanted && VolumetricClouds->GetMaterial() != Wanted)
 		{
@@ -251,6 +421,16 @@ void ADreamSky::PostRegisterAllComponents()
 	{
 		return;
 	}
+	// The overrides are taken in here: placed actors in a game are loaded, not constructed.
+	RebuildOverriddenStyle();
+	ApplyComponentOverrides(false);
+	bCloudMaterialDirty = true;
+#if WITH_EDITOR
+	if (!StyleChangedHandle.IsValid())
+	{
+		StyleChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddUObject(this, &ADreamSky::HandleObjectPropertyChanged);
+	}
+#endif
 	if (UDreamSkySubsystem* Sky = World->GetSubsystem<UDreamSkySubsystem>())
 	{
 		Sky->RegisterSky(this);
@@ -264,6 +444,10 @@ void ADreamSky::PostRegisterAllComponents()
 
 void ADreamSky::PostUnregisterAllComponents()
 {
+#if WITH_EDITOR
+	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(StyleChangedHandle);
+	StyleChangedHandle.Reset();
+#endif
 	if (UWorld* World = GetWorld())
 	{
 		if (UDreamSkySubsystem* Sky = World->GetSubsystem<UDreamSkySubsystem>())
@@ -316,17 +500,29 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	{
 		ApplyDome();
 	}
-	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial) && VolumetricClouds)
+	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Style) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudOverrides)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, LightOverrides) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, AmbientOverrides)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, ExposureOverrides))
 	{
-		VolumetricClouds->SetMaterial(VolumetricCloudMaterial.LoadSynchronous());
+		RefreshOverrides();
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricLayerThickness)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{
 			ApplyClouds(*Effective);
 		}
+	}
+}
+
+void ADreamSky::HandleObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
+{
+	// The preset was edited while the level is open: the private copy takes the change in.
+	if (Object && OverriddenStyle && Object != OverriddenStyle && Object == (Style ? Style.Get() : UDreamSkySubsystem::GetDefaultStyle()))
+	{
+		RebuildOverriddenStyle();
 	}
 }
 #endif
@@ -458,14 +654,24 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 	{
 		FPostProcessSettings& S = PostProcess->Settings;
 		const bool bManual = InStyle.ExposureMode == EDreamSkyExposureMode::Manual;
-		// Manual exposure without the physical camera: the bias is the exposure, so EV100 = -bias.
-		S.bOverride_AutoExposureMethod = bManual;
-		S.AutoExposureMethod = AEM_Manual;
-		S.bOverride_AutoExposureApplyPhysicalCameraExposure = bManual;
+		const bool bAuto = InStyle.ExposureMode == EDreamSkyExposureMode::Auto;
+		// Manual exposure without the physical camera: the bias is the exposure, so EV100 = -bias. Auto: the eye
+		// adapts, held within the style's range either side of the curve's exposure.
+		S.bOverride_AutoExposureMethod = bManual || bAuto;
+		S.AutoExposureMethod = bAuto ? AEM_Histogram : AEM_Manual;
+		S.bOverride_AutoExposureApplyPhysicalCameraExposure = bManual || bAuto;
 		S.AutoExposureApplyPhysicalCameraExposure = false;
-		S.bOverride_AutoExposureBias = bManual;
-		S.AutoExposureBias = -L.ExposureEV100;
-		PostProcess->bEnabled = bManual;
+		S.bOverride_AutoExposureBias = bManual || bAuto;
+		S.AutoExposureBias = bManual ? -L.ExposureEV100 : 0.0f;
+		S.bOverride_AutoExposureMinBrightness = bAuto;
+		S.AutoExposureMinBrightness = L.ExposureEV100 - InStyle.ExposureAutoRange;
+		S.bOverride_AutoExposureMaxBrightness = bAuto;
+		S.AutoExposureMaxBrightness = L.ExposureEV100 + InStyle.ExposureAutoRange;
+		S.bOverride_AutoExposureSpeedUp = bAuto;
+		S.AutoExposureSpeedUp = InStyle.ExposureSpeedUp;
+		S.bOverride_AutoExposureSpeedDown = bAuto;
+		S.AutoExposureSpeedDown = InStyle.ExposureSpeedDown;
+		PostProcess->bEnabled = bManual || bAuto;
 	}
 }
 
