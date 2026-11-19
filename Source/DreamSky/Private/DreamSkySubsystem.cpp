@@ -183,7 +183,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_Cloud0, FLinearColor(Look.CloudCoverage, 0.0f, Style.CloudScale, float(Style.CloudBands)));
 	Clock.SetVectorParameter(MPC_Cloud1, FLinearColor(float(FMath::Cos(Yaw) * Distance), float(FMath::Sin(Yaw) * Distance), 0.0f, 0.0f));
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
-	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudZenithThinning, 0.0f, Style.CloudTowers));
+	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Style.CloudHighCover, Style.CloudHighAltitude));
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));

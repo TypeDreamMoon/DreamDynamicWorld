@@ -154,7 +154,7 @@ struct FDSkyCloudField
 {
 	float3 Camera;     // the view in the world (cm): the shapes are anchored in the world, not to the view
 	float Base;        // altitude of the cloud layer's base (cm)
-	float Edge;        // cm: how far either side of the clouds' surface the toon density turns from 0 to 1
+	float Iso;         // the level of the clouds' solid shape (0..1) the toon surface is drawn at
 	float4 Cloud0;
 	float4 Cloud1;
 	float4 Cloud2;
@@ -200,7 +200,8 @@ FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, float4 MapParams, Tex
 	FDCloudShape C = DCS_Shape(P, World, Z, F.Cloud0, F.Cloud1, F.Cloud2, F.CloudLayer, MapParams, Detail, Map,
 		MapSampler, Noise, NoiseSampler);
 	FDSkyCloudSample S;
-	S.Density = saturate(0.5 + C.Distance / (2.0 * F.Edge));
+	// (0.5 on the surface, 0 to 1 within a sixteenth of the shape either side of it.)
+	S.Density = saturate(0.5 + (C.Solid - F.Iso) * 8.0);
 	S.Dark = C.Dark;
 	S.Column = C.Column;
 	S.Height = C.Height;
@@ -225,7 +226,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	FDSkyCloudField F;
 	F.Camera = Camera;
 	F.Base = max(CloudLayer.x, 10000.0);
-	F.Edge = 8000.0;
+	F.Iso = 0.06;
 	F.Cloud0 = Cloud0;
 	F.Cloud1 = Cloud1;
 	F.Cloud2 = Cloud2;
@@ -236,7 +237,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	const int Steps = 72;
 	// The layer along the ray, over the planet's curve: from its base to the top of the tallest towers.
 	float T0 = DSky_AltitudeT(Camera, V, F.Base);
-	float T1 = min(DSky_AltitudeT(Camera, V, F.Base + DCS_LAYER_TOP), MaxDist);
+	float T1 = min(DSky_AltitudeT(Camera, V, F.Base + DCS_STORM_TOP), MaxDist);
 	if (T0 >= T1)
 	{
 		return float4(0, 0, 0, 0);

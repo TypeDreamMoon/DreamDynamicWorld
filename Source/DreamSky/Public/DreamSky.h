@@ -68,9 +68,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	TSoftObjectPtr<UMaterialInterface> VolumetricCloudMaterial;
 
-	/** How tall the volumetric cloud layer stands above its base (the style's CloudLayerHeight), km: room for storm towers. */
+	/**
+	 * How tall the volumetric cloud layer stands above its base (the style's CloudLayerHeight), km. Fair-weather and
+	 * overcast clouds keep to its lowest 4 km; a storm's cumulonimbus climb to 10 km.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "1", UIMax = "15"))
-	float VolumetricLayerThickness = 7.0f;
+	float VolumetricLayerThickness = 10.0f;
 
 	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", UIMax = "200"))
