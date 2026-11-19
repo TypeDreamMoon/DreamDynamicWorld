@@ -60,9 +60,10 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// takes its place.
 	float Distance = length(Rel);
 	float3 Ray = Rel / max(Distance, 1.0);
-	float Veil = DCS_AirVeil(Distance, Ray.z, Cloud0.x, Cloud3);
+	float Veil = DCS_AirVeil(Distance, Ray.z, World.z - Rel.z, Cloud0.x, Cloud3);
 	float3 Halo;
-	float3 Behind = DSky_Backdrop(Ray, normalize(SunDir.xyz), Zenith, Horizon, Ground, SunHalo, Halo) + Halo;
+	// (Looking down on a cloud, the air between takes the low sky's colour, not the ground's.)
+	float3 Behind = DSky_Backdrop(DSky_HazeDirection(Ray), normalize(SunDir.xyz), Zenith, Horizon, Ground, SunHalo, Halo) + Halo;
 	OutAlbedo *= 1.0 - Veil;
 	// The engine adds the glow again for its multiple scattering octave, through the cloud thinned to Occlusion: in a
 	// dense cloud it shows 1 + 1 / Occlusion times over. Divided out, the glow is what it says (a cloud the air

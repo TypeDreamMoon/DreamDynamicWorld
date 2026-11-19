@@ -68,20 +68,27 @@ float3 DCS_Profile(float X, float H)
 }
 
 // How much of a cloud the air between it and the view veils, 0..1 (in the colour of the sky behind it): Distance cm
-// along a ray rising at Up (its direction's z), Cover = the cover at the view (an overcast's air is thicker), Cloud3 =
+// along a ray rising at Up (its direction's z; < 0 looking down) from the view at Altitude cm above the ground, Cover =
+// the cover at the view (an overcast's air is thicker), Cloud3 =
 // (visibility, cm; haze height, cm; -, -). The haze is thick low down and thins with height (the optical depth along
-// the rising ray), so a tower's top stays clear long after its base has sunk into the horizon; whatever stands in
-// the last degrees above the horizon sinks into its haze.
-float DCS_AirVeil(float Distance, float Up, float Cover, float4 Cloud3)
+// the rising ray), so a tower's top stays clear long after its base has sunk into the horizon; whatever stands far
+// off within the last degrees of the horizon sinks into its haze.
+float DCS_AirVeil(float Distance, float Up, float Altitude, float Cover, float4 Cloud3)
 {
 	float Visibility = max(Cloud3.x, 1000.0) * lerp(1.0, 0.35, smoothstep(0.45, 0.95, Cover));
 	float HazeHeight = max(Cloud3.y, 1000.0);
-	// How high the ray has climbed (over the planet's curve), and the share of the low haze it went through.
-	float Rise = max(Distance * Up + Distance * Distance / (2.0 * 636000000.0), 0.0);
-	float X = Rise / HazeHeight;
-	float Share = X > 1.0e-3 ? (1.0 - exp(-X)) / X : 1.0;
+	// The ray from the view's altitude to the cloud's (over the planet's curve): the haze it went through, as a share of
+	// as long a stretch at the ground (the density falls off exponentially with height).
+	float From = max(Altitude, 0.0);
+	float To = max(From + Distance * Up + Distance * Distance / (2.0 * 636000000.0), 0.0);
+	float X = (To - From) / HazeHeight;
+	float Share = exp(-From / HazeHeight) * (abs(X) > 1.0e-3 ? (1.0 - exp(-X)) / X : 1.0);
 	float Veil = 1.0 - exp(-3.912 * Distance / Visibility * Share);
-	return max(Veil, 1.0 - smoothstep(0.004, 0.03, Up));
+	// (Far off along the horizon, either side of it, whatever stands there sinks into the haze: from the ground that is
+	// everything in the last degrees over it. From among the clouds the near ones at eye level stay: it goes by distance,
+	// not by the angle alone, or they would be cut off in a band along the horizon.)
+	float Horizon = (1.0 - smoothstep(0.004, 0.03, abs(Up))) * smoothstep(1000000.0, 3000000.0, Distance);
+	return max(Veil, Horizon);
 }
 
 // Integer hash of a cell, 4 values 0..1 (a float hash loses its low bits at the coordinates drifting clouds reach).

@@ -189,6 +189,72 @@ float DSky_AltitudeT(float3 Camera, float3 V, float A)
 	return -2.0 * c / (b + sqrt(max(b * b - 4.0 * a * c, 0.0)));
 }
 
+// Where along V the ray's altitude (h + b t + a t^2: over the planet's curve it falls to its lowest, then rises) is A:
+// T1 <= T2; false if it never is. In the form that keeps its precision (a is tiny; a nearly vertical ray gets one root
+// where its altitude line crosses A and one far off).
+bool DSky_AltitudeRoots(float a, float b, float h, float A, out float T1, out float T2)
+{
+	float c = h - A;
+	float D = b * b - 4.0 * a * c;
+	T1 = 0.0;
+	T2 = 0.0;
+	if (D < 0.0)
+	{
+		return false;
+	}
+	float q = -0.5 * (b + (b >= 0.0 ? 1.0 : -1.0) * sqrt(D));
+	float R1 = q / a;
+	float R2 = abs(q) > 1.0e-20 ? c / q : R1;
+	T1 = min(R1, R2);
+	T2 = max(R1, R2);
+	return true;
+}
+
+// The stretch along V (from the view) inside the layer between altitudes Lo and Hi above the ground, over the planet's
+// curve, within MaxT: [T0, T1], empty if T1 <= T0. From below the ray enters at Lo, from inside it starts at the view,
+// from above it enters at Hi; looking down it ends at Lo (nothing stands below the layer's base).
+void DSky_LayerSpan(float3 Camera, float3 V, float Lo, float Hi, float MaxT, out float T0, out float T1)
+{
+	float a = max(dot(V.xy, V.xy) / (2.0 * DSky_PlanetRadius), 1.0e-12);
+	float b = V.z + dot(Camera.xy, V.xy) / DSky_PlanetRadius;
+	float h = Camera.z + dot(Camera.xy, Camera.xy) / (2.0 * DSky_PlanetRadius);
+	T0 = 0.0;
+	T1 = 0.0;
+	float U1;
+	float U2;
+	// (Never as low as Hi: always above the layer.)
+	if (!DSky_AltitudeRoots(a, b, h, Hi, U1, U2))
+	{
+		return;
+	}
+	float Start = max(U1, 0.0);
+	float End = min(U2, MaxT);
+	float L1;
+	float L2;
+	if (DSky_AltitudeRoots(a, b, h, Lo, L1, L2))
+	{
+		// Below the base between L1 and L2: the stretch starts after it, or ends where it dips under it.
+		if (Start > L1 && Start < L2)
+		{
+			Start = L2;
+		}
+		if (L1 > Start && L1 < End)
+		{
+			End = L1;
+		}
+	}
+	T0 = Start;
+	T1 = End;
+}
+
+// The direction whose sky colour the haze takes along V: V itself, or, looking down, the horizon under it (the air
+// between the view and a cloud below is lit like the low sky, not coloured like the ground).
+float3 DSky_HazeDirection(float3 V)
+{
+	float3 H = float3(V.xy, max(V.z, 0.0));
+	return dot(H, H) > 1.0e-6 ? normalize(H) : float3(1.0, 0.0, 0.0);
+}
+
 // The density at a point (cm from the view) as the toon surface sees it: the shared clouds' distance turned into a
 // ramp with the surface at one half. Detail (0..1) scales the fine fraying near the view.
 FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, float4 MapParams, Texture2D Map, SamplerState MapSampler,
@@ -219,7 +285,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float Dither, out float Core)
 {
 	Core = 0.0;
-	if (V.z <= 0.004 || Cloud0.x <= 0.0)
+	if (Cloud0.x <= 0.0)
 	{
 		return float4(0, 0, 0, 0);
 	}
@@ -235,9 +301,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	const float MaxDist = 9000000.0;
 	const float DetailEnd = 6000000.0;
 	const int Steps = 72;
-	// The layer along the ray, over the planet's curve: from its base to the top of the tallest towers.
-	float T0 = DSky_AltitudeT(Camera, V, F.Base);
-	float T1 = min(DSky_AltitudeT(Camera, V, F.Base + DCS_STORM_TOP), MaxDist);
+	// The layer along the ray, over the planet's curve, from its base to the top of the tallest towers: entered from
+	// below, from inside, or from above (looking down on the clouds).
+	float T0;
+	float T1;
+	DSky_LayerSpan(Camera, V, F.Base, F.Base + DCS_STORM_TOP, MaxDist, T0, T1);
 	if (T0 >= T1)
 	{
 		return float4(0, 0, 0, 0);
@@ -480,7 +548,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// Storm clouds are dark below; their lit tops much less so.
 	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(0.55, 1.0, 1.0 - Light) * lerp(1.0, 0.3, Here.Height));
 	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops.
-	float Veil = DCS_AirVeil(SurfaceT, V.z, Cloud0.x, Cloud3);
+	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
 	Color = lerp(Color, SkyBehind, Veil);
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
@@ -521,7 +589,7 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	// Thin ice: white in the sun and brightest toward it (it scatters forward), letting the sky through; far off,
 	// veiled like any cloud.
 	float3 Color = lerp(SkyBehind, CloudLit.rgb * 0.9 + Halo * 1.5, 0.75);
-	Color = lerp(Color, SkyBehind, DCS_AirVeil(T, V.z, Cloud0.x, Cloud3));
+	Color = lerp(Color, SkyBehind, DCS_AirVeil(T, V.z, Camera.z, Cloud0.x, Cloud3));
 	return float4(Color * Alpha, Alpha);
 }
 
@@ -569,7 +637,7 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 	// (It sets in just under the base: within a fifth of the base's own height above the horizon, however far off.)
 	float Alpha = Rain * Curtain * lerp(0.55, 1.0, Streak) * (1.0 - 0.6 * Fall)
 		* smoothstep(0.0, 0.2 * max(BaseUp, 0.0) + 0.002, BaseUp - V.z) * 0.75;
-	float Veil = DCS_AirVeil(Distance, max(V.z, 0.0) + 0.03, Cloud0.x, Cloud3);
+	float Veil = DCS_AirVeil(Distance, max(V.z, 0.0) + 0.03, Camera.z, Cloud0.x, Cloud3);
 	// Rain darkens the air it falls through: the curtains keep more of their grey through the haze than a cloud does.
 	float3 Color = lerp(Shade * 0.6, SkyBehind, 0.15 + 0.45 * Veil);
 	return float4(Color * Alpha, Alpha);
@@ -607,8 +675,11 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 VC = float4(0, 0, 0, 0);
 	if (CloudLayer.w < 0.5)
 	{
+		// Looking down on clouds, the air between takes the low sky's colour, not the ground's.
+		float3 HazeHalo = Halo;
+		float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
 		VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-			Noise, NoiseSampler, Camera, Tone, Halo, Base + Halo, CloudLit, CloudShadow, Extra, Dither, CloudCore);
+			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Dither, CloudCore);
 		VC *= CloudShadow.a;
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
