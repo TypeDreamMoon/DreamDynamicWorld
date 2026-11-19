@@ -120,7 +120,7 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	bool bOverride_EdgeSoftness = false;
 	/** Painted material: how wide the soft outer skin of a cloud is: wider = softer, cleaner outlines. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_EdgeSoftness", ClampMin = "0.02", UIMax = "0.3"))
-	float EdgeSoftness = 0.12f;
+	float EdgeSoftness = 0.06f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_HalfToneAt = false;

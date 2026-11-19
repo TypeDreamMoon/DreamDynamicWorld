@@ -29,7 +29,7 @@ uniform float EngineLight = 0.025;
 uniform float PaintGain = 1.0;
 
 /// @group Cloud   @sort 40   @slider 0.02 0.3   @desc How wide the soft outer skin of a cloud is (in the shape's own measure): wider = softer, cleaner outlines
-uniform float EdgeSoftness = 0.12;
+uniform float EdgeSoftness = 0.06;
 
 /// @group Light   @sort 10   @slider 0 1   @desc Where the half tone starts (light reaching the cloud, 0..1)
 uniform float HalfToneAt = 0.32;
