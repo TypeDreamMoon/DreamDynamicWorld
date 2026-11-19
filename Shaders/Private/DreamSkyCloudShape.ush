@@ -112,19 +112,20 @@ float4 DCS_Hash4(int2 C, uint Salt)
 
 // One storm cell's cumulonimbus, at Offset from its centre (cm, horizontally) and Z above the layer's base (cm); Size
 // scales it (about 1), Downwind is the wind's direction (unit), Seed varies it, Ragged (0..1, a slow noise at the point)
-// frays the anvil's rim and lifts and sags its underside, Pouch (0..1, cells some 2 km across: 1 in a cell's middle)
-// hangs the mammatus from it. Returns how far inside it the point is, in a solid-shape measure (> 0 inside; 0.25 about
-// 700 m in), and, for the point, how much it belongs to the anvil (0 column .. 1 anvil), how near the anvil's underside
-// it is (0..1), its height through the cloud (0..1) and, outside it, at least how far it is from it (cm; no more than
-// the true distance, so a march that keeps to it steps over nothing).
+// frays the anvil's rim and lifts and sags its underside, Pouches (the noise at the point some 2 km to a cell: g and b
+// cells to hang the mammatus from, r and b to notch the rim). Returns how far inside it the point is, in a solid-shape
+// measure (> 0 inside; 0.25 about 700 m in), and, for the point, how much it belongs to the anvil (0 column .. 1
+// anvil), how near the anvil's underside it is (0..1), how near its rim (0..1), its height through the cloud (0..1)
+// and, outside it, at least how far it is from it (cm; no more than the true distance, so a march that keeps to it
+// steps over nothing).
 //   - The column: some 5 to 8 km wide, rising from the base, hardly narrowing as it climbs, bulging in tiers (the
 //     towers that built it), leaning downwind higher up, and flaring out into the anvil's underside near the top.
 //   - The anvil: a wedge at the tropopause (7.5 to 9.5 km): short and steep upwind over the column, drawn out some 12 km
-//     downwind and thinning that way, its top nearly flat; the overshooting top domes over the core. Its underside
-//     sags and lifts by a few hundred metres, and downwind of the column, away from the rim, it hangs in pouches
-//     (mammatus) up to some 700 m deep.
-float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, float Seed, float Ragged, float Pouch,
-	out float Anvil, out float Under, out float Height, out float Outside)
+//     downwind and thinning that way, thinning out toward a frayed and notched rim, its top nearly flat; the
+//     overshooting top domes over the core. Its underside sags and lifts by some 450 m, and outside the column, away
+//     from the rim and most downwind, it hangs in pouches (mammatus) up to some 1.2 km deep.
+float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, float Seed, float Ragged, float4 Pouches,
+	out float Anvil, out float Under, out float Edge, out float Height, out float Outside)
 {
 	const float AnvilTop = 950000.0;
 	float Rc = 330000.0 * Size;
@@ -147,24 +148,32 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 	float Ra = 2.0 * Rc;
 	float2 A = Offset - Downwind * (0.3 * Ra);
 	float Along = dot(A, Downwind);
-	float Rr = length(float2(Along / (Along > 0.0 ? 1.6 : 0.7), dot(A, Across))) / Ra * lerp(0.8, 1.2, Ragged);
+	// (Its rim is frayed slowly by Ragged and bitten into by notches a few kilometres and one across, so it is no
+	// ellipse: the notches' noise is the pouches' own, its smooth and its fine channel.)
+	float Fray = lerp(0.8, 1.2, Ragged) * lerp(0.85, 1.3, 0.6 * Pouches.r + 0.4 * Pouches.b);
+	float Rr = length(float2(Along / (Along > 0.0 ? 1.6 : 0.7), dot(A, Across))) / Ra * Fray;
 	float Thick = 170000.0 * saturate(1.0 - Rr * Rr) * lerp(1.0, 0.45, saturate(Along / (1.6 * Ra)));
 	float Top = AnvilTop - 25000.0 * Rr * Rr;
-	// (The pouches hang downwind of the column, where the anvil is thick enough to hold them, not under its rim; each
-	// a rounded lobe, deepest in its cell's middle.)
-	float Mammatus = smoothstep(0.05, 0.45, Along / Ra) * (1.0 - smoothstep(0.7, 0.95, Rr)) * saturate(Thick / 80000.0);
-	float Lobe = smoothstep(0.3, 0.85, Pouch);
-	float Bottom = Top - Thick - 70000.0 * Mammatus * Lobe * Lobe - 50000.0 * (Ragged - 0.5) * saturate(Thick / 40000.0);
+	// (The pouches hang wherever the anvil is thick enough to hold them, but outside the column itself and not under
+	// the rim, most downwind; each a rounded lobe, deepest in its cell's middle. The underside around them sags and
+	// lifts by some 450 m.)
+	float Pouch = 0.7 * Pouches.g + 0.3 * Pouches.b;
+	float Mammatus = smoothstep(-0.35, 0.15, Along / Ra) * (1.0 - smoothstep(0.75, 0.97, Rr)) * saturate(Thick / 60000.0)
+		* smoothstep(0.0, 0.25 * Rc, Wall);
+	float Lobe = smoothstep(0.25, 0.8, Pouch);
+	float Bottom = Top - Thick - 120000.0 * Mammatus * Lobe * sqrt(Lobe) - 90000.0 * (Ragged - 0.5) * saturate(Thick / 40000.0);
 	float AnvilShape = min(Top - Z, Z - Bottom) / 280000.0;
 	Anvil = AnvilShape > Column ? 1.0 : 0.0;
 	Under = Anvil * (1.0 - smoothstep(0.0, 60000.0, Z - Bottom));
+	// (Toward the rim the anvil thins out: its outer part thinner and more frayed.)
+	Edge = Anvil * smoothstep(0.55, 1.0, Rr);
 
 	// How far outside, at least: the column's wall (at the point's own height; the flare above can come nearer, hence
 	// the slack), above the column's top, the dome (without its squash), and the anvil, above or under it and beyond
 	// its rim (the rim measured in its shortest, upwind, stretch at its widest fraying).
 	float ColumnOut = max(0.6 * Wall, Z - (AnvilTop - 60000.0));
 	float DomeOut = length(float3(Core, max(Z - (AnvilTop - 60000.0), 0.0))) - 0.45 * Rc;
-	float AnvilOut = max(max(Z - Top, Bottom - Z), (Rr - 1.0) * Ra * 0.7 / 1.2);
+	float AnvilOut = max(max(Z - Top, Bottom - Z), (Rr - 1.0) * Ra * 0.7 / (1.2 * 1.3));
 	Outside = min(ColumnOut, min(DomeOut, AnvilOut));
 	return max(Column, AnvilShape);
 }
@@ -174,11 +183,12 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 #define DCS_STORM_BOUND_MARGIN 250000.0
 
 // What a full sample found (DCS_Shape) that samples near it can take as theirs (DCS_ShapeNear): the weather there and
-// the cumulonimbus standing nearest.
+// the two cumulonimbus standing nearest.
 struct FDCloudAnchor
 {
 	float2 Weather;       // the weather map's (cover, darkness), read where the point's weather wanders to
-	float4 Storm;         // the cumulonimbus: its middle in the drifting field (cm, x, y), its size (0 = none), its seed
+	float4 Storm;         // the nearest cumulonimbus: its middle in the drifting field (cm, x, y), its size (0 = none), its seed
+	float4 Storm2;        // the next nearest, the same way
 };
 
 struct FDCloudShape
@@ -221,10 +231,10 @@ float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, fl
 
 // The field at a point of the drifting field P (cm), World2 its place in the world (cm, horizontally), Rel the point
 // from the view (cm), Z its altitude above the layer's base (cm), Weather the weather map's (cover, darkness) there.
-// bSearch: look for the storm cells around it (Wander = where its weather was read, from World2); otherwise Storm is
-// the one cumulonimbus to stand there (FDCloudAnchor.Storm). Shared by DCS_Shape and DCS_ShapeNear: pass bSearch as a
+// bSearch: look for the storm cells around it (Wander = where its weather was read, from World2);
+// otherwise Storm and Storm2 are the cumulonimbus to stand there (FDCloudAnchor). Shared by DCS_Shape and DCS_ShapeNear: pass bSearch as a
 // literal, so each keeps only its own half.
-FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weather, bool bSearch, float4 Storm, float2 Wander,
+FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weather, bool bSearch, float4 Storm, float4 Storm2, float2 Wander,
 	float Scale, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 CloudLayer, float4 MapParams, float Detail,
 	Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
 {
@@ -296,8 +306,11 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	{
 		float4 C = Noise.SampleLevel(NoiseSampler, float3(P / (1200000.0 * Scale), 0.29 + Phase), 0);
 		float Cell = saturate((0.65 * C.g + 0.35 * C.r - 0.2) / 0.6);
-		float Thick = smoothstep(0.15, 0.6, S.Dark);
-		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.8, 0.97, X), DeckW, Thick, H);
+		// (A rain deck is deep only while it is closed: as it opens -- a storm clearing -- it first sinks back to a
+		// stratocumulus' thickness, then cracks along its cells' borders and its cells shrink one by one, the way it
+		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
+		float Thick = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
+		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
 		float CumulusU = BaseU - DeckW;
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
@@ -335,15 +348,18 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	float Bound = 0.0;
 	if (bStorm)
 	{
-		// The anvils' mammatus: rounded pouches some 2 km across (with smaller ones among them).
+		// The anvils' mammatus (rounded pouches some 2 km across, with smaller ones among them) and the notches in their
+		// rims.
 		float4 M = Noise.SampleLevel(NoiseSampler, float3(P / (1600000.0 * Scale), 0.47 + Phase), 0);
-		float Pouch = 0.7 * M.g + 0.3 * M.b;
 		float Best = -1.0;
 		float BestAnvil = 0.0;
 		float BestUnder = 0.0;
+		float BestEdge = 0.0;
 		float BestHeight = 0.0;
 		float Nearest = 1.0e9;
 		float4 BestCell = float4(0, 0, 0, 0);
+		float SecondBest = -1.0e9;
+		float4 SecondCell = float4(0, 0, 0, 0);
 		if (bSearch)
 		{
 			// (A cumulonimbus, its anvil included, reaches at most a cell from where it stands: only the 3 x 3 nearest
@@ -390,27 +406,60 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 					float Size = lerp(0.8, 1.2, Hc.w) * Scale;
 					float CellAnvil;
 					float CellUnder;
+					float CellEdge;
 					float CellHeight;
 					float CellOut;
-					float D = DCS_Cumulonimbus(P - Centre, Z, Size, Downwind, Hc.z, F.r, Pouch, CellAnvil, CellUnder, CellHeight, CellOut);
+					float D = DCS_Cumulonimbus(P - Centre, Z, Size, Downwind, Hc.z, F.r, M, CellAnvil, CellUnder, CellEdge, CellHeight, CellOut);
 					Nearest = min(Nearest, CellOut);
 					if (D > Best)
 					{
+						SecondBest = Best;
+						SecondCell = BestCell;
 						Best = D;
 						BestAnvil = CellAnvil;
 						BestUnder = CellUnder;
+						BestEdge = CellEdge;
 						BestHeight = CellHeight;
 						BestCell = float4(Centre, Size, Hc.z);
+					}
+					else if (D > SecondBest)
+					{
+						SecondBest = D;
+						SecondCell = float4(Centre, Size, Hc.z);
 					}
 				}
 			}
 		}
 		else
 		{
-			Best = DCS_Cumulonimbus(P - Storm.xy, Z, Storm.z, Downwind, Storm.w, F.r, Pouch, BestAnvil, BestUnder, BestHeight, Nearest);
+			// (The anchor's two nearest cells: with one only, the samples around a surface would see the other tower
+			// vanish where the nearest changes, a hard seam across the sky.)
+			Best = DCS_Cumulonimbus(P - Storm.xy, Z, Storm.z, Downwind, Storm.w, F.r, M, BestAnvil, BestUnder, BestEdge, BestHeight, Nearest);
 			BestCell = Storm;
+			if (Storm2.z > 0.0)
+			{
+				float CellAnvil;
+				float CellUnder;
+				float CellEdge;
+				float CellHeight;
+				float CellOut;
+				float D = DCS_Cumulonimbus(P - Storm2.xy, Z, Storm2.z, Downwind, Storm2.w, F.r, M, CellAnvil, CellUnder, CellEdge, CellHeight, CellOut);
+				Nearest = min(Nearest, CellOut);
+				SecondCell = Storm2;
+				if (D > Best)
+				{
+					Best = D;
+					BestAnvil = CellAnvil;
+					BestUnder = CellUnder;
+					BestEdge = CellEdge;
+					BestHeight = CellHeight;
+					SecondCell = Storm;
+					BestCell = Storm2;
+				}
+			}
 		}
 		S.Anchor.Storm = BestCell;
+		S.Anchor.Storm2 = SecondCell;
 		Bound = saturate(1.0 - Nearest / DCS_STORM_BOUND_MARGIN);
 		float TowerU = Best * 4.0;
 		float Tower = saturate(TowerU);
@@ -420,7 +469,7 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		float Take = saturate((Tower - Base) * 4.0) * (1.0 - DeckBand);
 		Base = max(Base, Tower * (1.0 - DeckBand));
 		Signed = max(Signed, TowerU > 0.0 ? Tower * (1.0 - DeckBand) : TowerU);
-		Profile = lerp(Profile, float3(1.0, 0.5, lerp(0.9, lerp(0.15, 0.4, BestUnder), BestAnvil)), Take);
+		Profile = lerp(Profile, float3(1.0, lerp(0.5, 0.2, BestEdge), lerp(0.9, lerp(lerp(0.15, 0.4, BestUnder), 0.8, BestEdge), BestAnvil)), Take);
 		S.Height = lerp(S.Height, BestHeight, Take);
 		S.Column = lerp(S.Column, DCS_STORM_TOP, Take);
 		S.Deck *= 1.0 - Take;
@@ -432,18 +481,20 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		return S;
 	}
 
-	// Billows some 600 m across (large, finer and finest mixed) eat into it.
+	// Billows some 600 m across eat into it: in its outer rim only the large ones, deeper in the finer and finest
+	// mixed in. (The fine octaves' middles in the thin rim would stand alone, crumbs off the cloud; the large ones
+	// leave lumps on it, or whole lumps off it. The rim is pared back a little as well, whatever the billows there.)
 	float3 Q = float3(P, Z) / (500000.0 * Scale);
 	float4 E = Noise.SampleLevel(NoiseSampler, Q, 0);
-	float Billow = dot(E.gba, float3(0.5, 0.33, 0.17));
-	// (A billow's middle is barely eroded, so in the thinnest rim of a shape it would stand alone, a crumb off the
-	// cloud: the rim is pared back a little as well, whatever the billows there.)
+	float Deep = smoothstep(0.1, 0.4, Base);
+	float Billow = lerp(E.g, dot(E.gba, float3(0.5, 0.33, 0.17)), Deep);
 	float Rim = 1.0 - smoothstep(0.0, 0.2, Base);
 	float Shape = Base - (pow(saturate(1.0 - Billow), 1.5) + 0.08 * Rim) * Cloud2.y * Profile.z;
-	// Near the view a finer octave frays the edges (it fades out with distance, as UDS's high frequency does).
+	// Near the view a finer octave frays the edges (it fades out with distance, as UDS's high frequency does), within
+	// the body, not off its thinnest rim.
 	if (Detail > 0.0 && Shape > 0.0)
 	{
-		float Fine = Detail * (1.0 - smoothstep(300000.0, 1500000.0, length(Rel)));
+		float Fine = Detail * (1.0 - smoothstep(300000.0, 1500000.0, length(Rel))) * smoothstep(0.05, 0.3, Base);
 		if (Fine > 0.0)
 		{
 			float N = Noise.SampleLevel(NoiseSampler, Q * 3.5 + E.rgb * 0.21, 0).a;
@@ -478,13 +529,13 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// the level drew.
 	float2 Wander = (Noise.SampleLevel(NoiseSampler, float3(P / (1600000.0 * Scale), 0.13 + Z / 1500000.0), 0).rb - 0.5) * 500000.0;
 	float3 Here = DCS_MapAt(World.xy + Wander, DCS_ViewWeather(Cloud0, CloudLayer), MapParams, Map, MapSampler);
-	return DCS_Field(P, World.xy, Rel, Z, Here.xy, true, float4(0, 0, 0, 0), Wander, Scale, Cloud0, Cloud1, Cloud2, CloudLayer,
+	return DCS_Field(P, World.xy, Rel, Z, Here.xy, true, float4(0, 0, 0, 0), float4(0, 0, 0, 0), Wander, Scale, Cloud0, Cloud1, Cloud2, CloudLayer,
 		MapParams, Detail, Map, MapSampler, Noise, NoiseSampler);
 }
 
 // The clouds at a point near one DCS_Shape has sampled (Anchor = that sample's S.Anchor): for the samples around a
 // surface -- its normal's taps, the shadow's samples toward the light, a few kilometres at most. It takes the weather
-// and the nearest cumulonimbus from the anchor instead of reading the weather map (no wandering read, no 3 x 3 storm
+// and the two nearest cumulonimbus from the anchor instead of reading the weather map (no wandering read, no 3 x 3 storm
 // search) and leaves out the fine fraying near the view; otherwise it is the same field, so the normals and shadows
 // fit the surface. Texture reads: 2 noise; 1 more where a deck closes, 1 more with a cumulonimbus, 1 more inside the
 // shape; no map reads. (MapParams, Map and MapSampler go unread; they keep the call like DCS_Shape's.)
@@ -493,7 +544,7 @@ FDCloudShape DCS_ShapeNear(float3 World, float Z, FDCloudAnchor Anchor, float4 C
 {
 	float Scale = max(Cloud0.z, 0.05);
 	float2 P = World.xy + Cloud1.xy * 220000.0 * Scale;
-	return DCS_Field(P, World.xy, float3(0, 0, 0), Z, Anchor.Weather, false, Anchor.Storm, float2(0, 0), Scale, Cloud0, Cloud1,
+	return DCS_Field(P, World.xy, float3(0, 0, 0), Z, Anchor.Weather, false, Anchor.Storm, Anchor.Storm2, float2(0, 0), Scale, Cloud0, Cloud1,
 		Cloud2, CloudLayer, MapParams, 0.0, Map, MapSampler, Noise, NoiseSampler);
 }
 

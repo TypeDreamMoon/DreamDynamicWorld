@@ -385,8 +385,8 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	//   3 here     the surface itself
 	//   4 normal   four taps on a tetrahedron around it (wider apart far away)
 	//   5 shadow   four samples toward the light, further apart as they go
-	//   6 sliver   on a deck, two samples on along the ray behind the surface: how much of the deck the ray goes
-	//              through there
+	//   6 sliver   on a deck or a storm's tower and anvil, two samples on along the ray behind the surface: how much
+	//              of the cloud the ray goes through there
 	//   7 done
 	const float3 Ld = normalize(LightDir + float3(0.0, 0.0, 0.08));
 	int Phase = 0;
@@ -411,7 +411,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	FDSkyCloudSample Here = (FDSkyCloudSample)0;
 	float3 GradSolid = float3(0, 0, 0);
 	float3 GradForm = float3(0, 0, 0);
+	float3 GradSigned = float3(0, 0, 0);
 	float3 N = -V;
+	float3 NForm = -V;    // the normal of the cloud's mass alone (the form before the billows)
 	float Depth = 0.0;
 	float Travelled = 0.0;
 	float Sliver = 0.0;
@@ -566,9 +568,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		else if (Phase == 3)
 		{
 			Here = S;
-			// A deck's shape is solid a couple of hundred metres in from its surface: taps further apart all land inside
-			// or all outside it, and its normal comes out straight down whatever its lobes do. Its taps stay close.
-			E = lerp(E, max(8000.0, SurfaceT * 0.0015), S.Deck);
+			// A deck's shape is solid a couple of hundred metres in from its surface, and its cells meet in sharp creases:
+			// its normal is read from the signed shape, which goes on falling outside it, over a few hundred metres (the
+			// solid shape's gradient there snapped to straight down; read close, it flipped across every crease, and a
+			// storm's deck came out in hard dark arcs across the sky).
+			E = lerp(E, max(25000.0, SurfaceT * 0.004), S.Deck);
 			Phase = 4;
 			Index = 0;
 		}
@@ -579,11 +583,21 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			// together.
 			GradSolid += DSky_Tetra(Index) * S.Solid;
 			GradForm += DSky_Tetra(Index) * S.Form;
+			GradSigned += DSky_Tetra(Index) * S.Signed;
 			if (++Index >= 4)
 			{
 				float3 Nb = dot(GradSolid, GradSolid) > 1.0e-12 ? -normalize(GradSolid) : -V;
 				float3 Nm = dot(GradForm, GradForm) > 1.0e-12 ? -normalize(GradForm) : Nb;
-				N = normalize(Nb * 0.55 + Nm * 0.45 + 1.0e-4 * -V);
+				float3 Ns = dot(GradSigned, GradSigned) > 1.0e-12 ? -normalize(GradSigned) : Nm;
+				Nb = normalize(lerp(Nb, Ns, Here.Deck));
+				Nm = normalize(lerp(Nm, Ns, Here.Deck));
+				// (Far off, where a cloud is small on screen and the march's steps are long, a ray grazing its tops finds its
+				// surface on one billow or the next from row to row: lit by the billows' normal, far clouds came out in
+				// horizontal streaks. There the cloud is lit by its signed shape's normal, which the wide taps far off read
+				// smoothly: the form's, solid a few hundred metres in, snapped between a few directions and drew rings.)
+				float Far = smoothstep(1000000.0, 4000000.0, SurfaceT);
+				N = normalize(lerp(Nb * 0.55 + Nm * 0.45, Ns, Far) + 1.0e-4 * -V);
+				NForm = normalize(lerp(Nm, Ns, Far) + 1.0e-4 * -V);
 				// (A deck's underside takes its tones from its thickness and its lobes, and faces away from the light: no
 				// shadow to look for there, the heaviest samples of a storm saved.)
 				Phase = (Here.Deck > 0.95 && N.z < -0.3) ? 6 : 5;
@@ -597,13 +611,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			Travelled = Along;
 			if (++Index >= 4)
 			{
-				Phase = Here.Deck > 0.05 ? 6 : 7;
+				Phase = (Here.Deck > 0.05 || Here.Column > 600000.0) ? 6 : 7;
 				Index = 0;
 			}
 		}
 		else
 		{
-			Sliver += 0.5 * smoothstep(F.Iso - 0.02, F.Iso + 0.02, S.Signed);
+			Sliver += 0.5 * smoothstep(F.Iso - 0.08, F.Iso + 0.08, S.Signed);
 			if (++Index >= 2)
 			{
 				Phase = 7;
@@ -684,12 +698,18 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Thickest = lerp(120000.0, 300000.0, Deep);
 	float Thinnest = lerp(8000.0, 190000.0, Deep);
 	float Gap = saturate((Thickest - Here.Column) / (Thickest - Thinnest));
-	float Flank = smoothstep(0.05, 0.4, 1.0 + N.z);
+	// (Read from the normal of the cloud's mass: by the billows' normal the backlit body of a big cumulus came out
+	// spattered with specks of the underside's tones.) Where the ray only clips a cumulonimbus's anvil, near its thinning
+	// rim (only its underside, high in the cloud and facing down), it is lighter, and see-through further on (below): the
+	// anvil's underside feathers out instead of ending in a hard arc across the sky.
+	float Anvil = smoothstep(500000.0, 900000.0, Here.Column) * smoothstep(0.55, 0.75, Here.Height) * smoothstep(-0.2, -0.5, NForm.z);
+	float Flank = smoothstep(0.05, 0.4, 1.0 + NForm.z);
 	// (A storm's underside is heavy: its lightest is well short of the half tone.)
-	float Glow = saturate((0.45 * Gap + 0.45 * Flank + 0.3 * saturate((NdL + 0.45) / 0.6) * SunLit) * lerp(1.0, 0.65, Deep));
+	float Glow = saturate((0.45 * Gap + 0.45 * Flank + 0.3 * saturate((dot(NForm, Ld) + 0.45) / 0.6) * SunLit) * lerp(1.0, 0.65, Deep)
+		+ 0.5 * (1.0 - Sliver) * Anvil);
 	float3 Underside = lerp(Shadow * float3(0.62, 0.64, 0.7), Shadow, smoothstep(0.05, 0.35, Glow));
 	Underside = lerp(Underside, Half, smoothstep(0.45, 0.8, Glow));
-	Color = lerp(Color, Underside, smoothstep(-0.25, -0.65, N.z) * (1.0 - smoothstep(0.35, 0.6, Light)));
+	Color = lerp(Color, Underside, smoothstep(-0.25, -0.65, NForm.z) * (1.0 - smoothstep(0.35, 0.6, Light)));
 	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. Its upper side, seen from above, is
 	// a sea of cloud in the sun, from the half tone to the lit white -- only from above: from below, the walls of a hole
 	// in it are its underside's tones, not a lit white rim.
@@ -707,16 +727,16 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// in with distance: the veil eases in, the more slowly under a storm (its low dark base looms through the rain).
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
 	Color = lerp(Color, SkyBehind, pow(Veil, 1.6 + 1.4 * Deep));
-	// Where the ray only clips a thin sliver of a deck (the rim of a hole in it, the specks a breaking deck leaves) it is
-	// see-through: a hole's edge feathers into the sky instead of being cut out, and the specks fade instead of
-	// sparkling.
-	Cover *= lerp(1.0, lerp(0.3, 1.0, Sliver), Here.Deck);
+	// Where the ray only clips a thin sliver of a deck (the rim of a hole in it, the specks a breaking deck leaves) or of
+	// an anvil (its thinning rim) it is see-through: a hole's edge feathers into the sky instead of being cut out, the
+	// specks fade instead of sparkling, an anvil's edge thins out.
+	Cover *= lerp(1.0, lerp(0.3, 1.0, Sliver), max(Here.Deck, Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
 }
 
-// High cloud: thin cirrus wisps on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
+// High cloud: thin cirrus veils on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
 // faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
 // under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
 // The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
@@ -741,19 +761,18 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	// Where the patches are (large, slow), and a gentle bend of the streaks over tens of kilometres.
 	float Patch = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.71), 0).r;
 	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.23), 0).r - 0.5;
-	// The wisps: the smooth noise drawn out six to one along the wind, some 1.5 km wide, bent gently, swelling and
-	// thinning along their length and broken into pieces (thin and twenty-five times as long, they ran together toward
-	// one point of the horizon like combed hair or scratches); a coarser layer of the same noise feathers their edges.
-	// Soft brushed wisps, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray
-	// tracing hits, which have no screen derivatives, and the finest level far below its texels shimmers.)
-	float2 R = Q;
-	float2 S = float2(R.x / 900000.0, (R.y + Bend * 300000.0) / 150000.0);
-	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 150000.0)).r;
-	float Feather = Noise.SampleLevel(NoiseSampler, float3(R.x / 700000.0 + 0.37, R.y / 250000.0, 0.11), DSky_NoiseLod(T, 250000.0)).r;
-	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 1500000.0, Q.y / 600000.0, 0.87), DSky_NoiseLod(T, 600000.0)).r;
-	float Fibre = smoothstep(0.42, 0.78, Body) * lerp(0.6, 1.0, Feather) * smoothstep(0.3, 0.7, Along);
+	// The veils: the smooth noise drawn out four to one along the wind, some 3.5 km wide, bent gently and broken into
+	// sheets, only the strongest of it (thin streaks twenty-five times as long as they were wide ran together toward one
+	// point of the horizon like combed hair; short ones like brush dashes); fine fibres run along them, faint. Thin
+	// gauze, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray tracing hits,
+	// which have no screen derivatives, and the finest level far below its texels shimmers.)
+	float2 S = float2(Q.x / 1500000.0, (Q.y + Bend * 300000.0) / 350000.0);
+	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 350000.0)).r;
+	float Fibres = Noise.SampleLevel(NoiseSampler, float3(Q.x / 800000.0 + 0.37, Q.y / 60000.0, 0.11), DSky_NoiseLod(T, 60000.0)).r;
+	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 2500000.0, Q.y / 1200000.0, 0.87), DSky_NoiseLod(T, 1200000.0)).r;
+	float Fibre = smoothstep(0.5, 0.82, Body) * lerp(0.7, 1.0, Fibres) * smoothstep(0.35, 0.7, Along);
 	float Mask = saturate((Patch - (1.0 - Amount)) * 2.0);
-	float Alpha = Fibre * Mask * 0.42 * smoothstep(0.02, 0.15, V.z);
+	float Alpha = Fibre * Mask * 0.3 * smoothstep(0.02, 0.15, V.z);
 	// Thin ice: white in the sun and brightest toward it (it scatters forward), letting the sky through; far off,
 	// veiled like any cloud.
 	float3 Color = lerp(SkyBehind, CloudLit.rgb * 0.9 + Halo * 1.5, 0.75);
