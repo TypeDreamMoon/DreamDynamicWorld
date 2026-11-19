@@ -451,10 +451,10 @@ void ADreamSky::HoldCloudHistoryThroughFlash()
 {
 	// A lightning flash lights the whole cloud field from one frame to the next, while the engine traces only a quarter
 	// of the clouds' pixels each frame and takes the rest from the frames before: the frames of a flash came out as a
-	// checkerboard of lit and unlit pixels. While the flash's level jumps, and for the four frames the history takes to
-	// catch up, the clouds are drawn from this frame's trace alone: a little noisier for those frames, never a
-	// checkerboard, at no extra cost; the flash's slow fade keeps the history. (Left alone where a project or the
-	// console has set it.)
+	// checkerboard of lit and unlit pixels. On the frames a stroke flares up, and two after, the clouds are drawn from
+	// that frame's trace alone: a little noisier for those frames, never a checkerboard, at no extra cost. The rest of
+	// the flash -- its small steps and its fade -- keeps the history, which smooths the noise. (Left alone where a
+	// project or the console has set it.)
 	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
 	const UWorld* World = GetWorld();
 	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
@@ -468,12 +468,12 @@ void ADreamSky::HoldCloudHistoryThroughFlash()
 		return;
 	}
 	const float Flash = WorldClock->GetEnvironment().LightningFlash;
-	if (FMath::Abs(Flash - LastCloudFlash) > 0.02f)
+	if (Flash - LastCloudFlash > 0.1f)
 	{
 		CloudFlashJumpFrame = GFrameCounter;
 	}
 	LastCloudFlash = Flash;
-	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 4;
+	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 2;
 	if (bHold != bHoldingCloudHistory)
 	{
 		bHoldingCloudHistory = bHold;
