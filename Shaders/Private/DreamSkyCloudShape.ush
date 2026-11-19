@@ -209,9 +209,9 @@ struct FDCloudShape
 
 // The overcast deck at a height H in the layer (0..1): stratocumulus, cells some 1.5 km across, over a kilometre thick
 // in their middles, which hang down as rounded lobes (seen from below a ceiling of cells), some 80 m between them,
-// where the base is lifted some 350 m; as it darkens toward rain and storms (Thick 0..1) it grows into a deck some 2 to
+// where the base is lifted some 240 m (lumpy all over); as it darkens toward rain and storms (Thick 0..1) it grows into a deck some 2 to
 // 3 km deep whose lumpy base (relief some 250 m) hangs at the layer's bottom. While the cover is short of full
-// (Shut < 1) it cracks open along the borders between its cells (Gap: the cells' Worley value, low on a border): the
+// (Shut < 1) it cracks open along the borders between its cells (Gap: the cells' Worley value, low on a border, wandered): the
 // deck thins toward a crack from above and below alike, so a hole's rim is a tapering lip, not a cut wall, and the
 // holes are narrow and many (a few percent of the deck at an overcast) rather than one large blot. Cell = 0 between
 // the cells .. 1 in a cell's middle. Formed (0..1) = how far the deck has formed: its strongest cells condense first,
@@ -220,11 +220,11 @@ struct FDCloudShape
 // edge it is, 0..1; the deck's base and top here, both in the layer).
 float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, float H)
 {
-	float Bottom = lerp(0.02 + 0.09 * pow(1.0 - Cell, 1.5), 0.004 + 0.06 * pow(1.0 - Cell, 1.5), Thick);
+	float Bottom = lerp(0.03 + 0.06 * pow(1.0 - Cell, 1.5), 0.004 + 0.06 * pow(1.0 - Cell, 1.5), Thick);
 	float Top = lerp(0.13 + 0.19 * Cell, 0.5 + 0.25 * Cell, Thick);
 	float Open = 0.26 * (1.0 - Shut);
 	float Emerge = 1.45 * (1.0 - Formed);
-	float Crack = max(1.0 - smoothstep(Open - 0.03, Open + 0.1, Gap), 1.0 - smoothstep(Emerge - 0.35, Emerge + 0.1, Cell));
+	float Crack = max(1.0 - smoothstep(Open - 0.06, Open + 0.16, Gap), 1.0 - smoothstep(Emerge - 0.35, Emerge + 0.1, Cell));
 	float Half = 0.5 * (Top - Bottom) * (1.0 - Crack);
 	float Inside = (Half - abs(H - 0.5 * (Top + Bottom))) / 0.05;
 	return float4(Inside, Crack, Bottom, Top);
@@ -307,12 +307,15 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	if (DeckW > 0.0)
 	{
 		float4 C = Noise.SampleLevel(NoiseSampler, float3(P / (1200000.0 * Scale), 0.29 + Phase), 0);
-		float Cell = saturate((0.65 * C.g + 0.35 * C.r - 0.2) / 0.6);
+		float Cell = saturate((0.65 * C.g + 0.2 * C.r + 0.15 * C.b - 0.2) / 0.6);
+		// (Where it cracks: along the cells' borders, wandered off them by the smooth and the fine channel -- a Worley
+		// border alone runs in straight lines between corners, and a crack along it read as cut with a knife.)
+		float Gap = C.g + 0.18 * (C.r - 0.5) + 0.12 * (C.b - 0.5);
 		// (A rain deck is deep only while it is closed: as it opens -- a storm clearing -- it first sinks back to a
 		// stratocumulus' thickness, then cracks along its cells' borders and its cells shrink one by one, the way it
 		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
 		float Thick = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
-		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
+		float4 D = DCS_Deck(Cell, Gap, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
 		float CumulusU = BaseU - smoothstep(0.75, 1.0, DeckW);
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
@@ -324,9 +327,9 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		Signed = max(CumulusU, DeckU);
 		// Thin cells less dense than thick ones; the base lumpy (the billows eat into it), a rain deck's ragged (scud),
 		// the inside hardly; a crack's lip frayed, and a deck still forming billowed all over.
-		float Rise = saturate((H - D.z) / lerp(0.06, 0.12, Thick));
+		float Rise = saturate((H - D.z) / lerp(0.08, 0.12, Thick));
 		float3 DeckProfile = float3(1.0, lerp(lerp(0.25, 0.5, Cell), 0.5, Thick),
-			max(max(lerp(lerp(0.55, 0.95, Thick), lerp(0.2, 0.3, Thick), Rise), 0.7 * D.y), 0.6 * (1.0 - DeckW)));
+			max(max(lerp(lerp(0.75, 0.95, Thick), 0.3, Rise), 0.7 * D.y), 0.6 * (1.0 - DeckW)));
 		Profile = lerp(Profile, DeckProfile, W);
 		S.Height = lerp(S.Height, saturate((H - D.z) / max(D.w - D.z, 1.0e-3)), W);
 		S.Column = lerp(S.Column, (D.w - D.z) * DCS_LAYER_TOP, W);
@@ -483,13 +486,15 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		return S;
 	}
 
-	// Billows some 600 m across eat into it: in its outer rim only the large ones, deeper in the finer and finest
-	// mixed in. (The fine octaves' middles in the thin rim would stand alone, crumbs off the cloud; the large ones
-	// leave lumps on it, or whole lumps off it. The rim is pared back a little as well, whatever the billows there.)
+	// Billows some 600 m across eat into it: in a cumulus' outer rim mostly the large ones, deeper in the finer and
+	// finest mixed in. (The fine octaves' middles in the thin rim would stand alone, crumbs off the cloud; the large
+	// ones alone leave round lumps like grapes, so a quarter of the next octave goes with them. The rim is pared back
+	// a little as well, whatever the billows there.) A deck is all one body: all the octaves throughout, or its
+	// underside swells in large smooth bubbles.
 	float3 Q = float3(P, Z) / (500000.0 * Scale);
 	float4 E = Noise.SampleLevel(NoiseSampler, Q, 0);
-	float Deep = smoothstep(0.1, 0.4, Base);
-	float Billow = lerp(E.g, dot(E.gba, float3(0.5, 0.33, 0.17)), Deep);
+	float Deep = max(smoothstep(0.1, 0.4, Base), S.Deck);
+	float Billow = lerp(0.75 * E.g + 0.25 * E.b, dot(E.gba, float3(0.5, 0.33, 0.17)), Deep);
 	float Rim = 1.0 - smoothstep(0.0, 0.2, Base);
 	float Shape = Base - (pow(saturate(1.0 - Billow), 1.5) + 0.08 * Rim) * Cloud2.y * Profile.z;
 	// Near the view a finer octave frays the edges (it fades out with distance, as UDS's high frequency does), within
