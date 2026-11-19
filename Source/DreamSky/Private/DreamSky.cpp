@@ -391,6 +391,26 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetSkyLightCloudBottomOcclusion(VolumetricBaseSkyOcclusion);
 		}
+		// The shadow map and the sky light's occlusion map cover the clouds that are traced (the engine's default
+		// spreads them over 150 km around the view, 586 m a texel): drawing them costs about their texel count, each
+		// texel a march through the clouds' material.
+		const float MapExtentKm = FMath::Max(VolumetricTracingDistance, 10.0f);
+		if (SunLight && (!FMath::IsNearlyEqual(SunLight->CloudShadowExtent, MapExtentKm, 1.0e-2f)
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)))
+		{
+			SunLight->CloudShadowExtent = MapExtentKm;
+			SunLight->CloudShadowMapResolutionScale = VolumetricShadowResolution;
+			SunLight->MarkRenderStateDirty();
+		}
+		// (The sky light's occlusion is soft: half the shadow map's resolution is plenty.)
+		const float SkyMapScale = FMath::Max(0.25f, 0.5f * VolumetricShadowResolution);
+		if (SkyLight && (!FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionExtent, MapExtentKm, 1.0e-2f)
+			|| !FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionMapResolutionScale, SkyMapScale, 1.0e-3f)))
+		{
+			SkyLight->CloudAmbientOcclusionExtent = MapExtentKm;
+			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
+			SkyLight->MarkRenderStateDirty();
+		}
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
 	{

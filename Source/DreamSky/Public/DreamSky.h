@@ -113,6 +113,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.5", UIMax = "15"))
 	float VolumetricShadowTracingDistance = 6.0f;
 
+	/**
+	 * Resolution of the maps the volumetric clouds are shadowed through -- the sun's cloud shadow map (their shadows
+	 * on the ground, and their own sunlight where a material reads it) and the sky light's cloud occlusion map --
+	 * relative to the engine's 512 texels. Both cover the traced distance, not the engine's 150 km, so they stay as
+	 * fine at a lower resolution; each costs about its resolution squared.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "2"))
+	float VolumetricShadowResolution = 0.75f;
+
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyCloudOverrides CloudOverrides;
