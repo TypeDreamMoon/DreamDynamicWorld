@@ -215,15 +215,16 @@ struct FDCloudShape
 // deck thins toward a crack from above and below alike, so a hole's rim is a tapering lip, not a cut wall, and the
 // holes are narrow and many (a few percent of the deck at an overcast) rather than one large blot. Cell = 0 between
 // the cells .. 1 in a cell's middle. Formed (0..1) = how far the deck has formed: its strongest cells condense first,
-// lens-shaped, and spread until it closes at 1. Returns (how far inside it the point is: 1 at 200 m in, below 0
-// outside; how near a crack or an edge it is, 0..1; the deck's base and top here, both in the layer).
+// as rounded lenses (each thickening gradually from its rim to its middle, not a flat-topped slab), and spread until
+// it closes at 1. Returns (how far inside it the point is: 1 at 200 m in, below 0 outside; how near a crack or an
+// edge it is, 0..1; the deck's base and top here, both in the layer).
 float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, float H)
 {
 	float Bottom = lerp(0.02 + 0.09 * pow(1.0 - Cell, 1.5), 0.004 + 0.06 * pow(1.0 - Cell, 1.5), Thick);
 	float Top = lerp(0.13 + 0.19 * Cell, 0.5 + 0.25 * Cell, Thick);
 	float Open = 0.26 * (1.0 - Shut);
-	float Emerge = 1.25 * (1.0 - Formed);
-	float Crack = max(1.0 - smoothstep(Open - 0.03, Open + 0.1, Gap), 1.0 - smoothstep(Emerge - 0.15, Emerge + 0.05, Cell));
+	float Emerge = 1.45 * (1.0 - Formed);
+	float Crack = max(1.0 - smoothstep(Open - 0.03, Open + 0.1, Gap), 1.0 - smoothstep(Emerge - 0.35, Emerge + 0.1, Cell));
 	float Half = 0.5 * (Top - Bottom) * (1.0 - Crack);
 	float Inside = (Half - abs(H - 0.5 * (Top + Bottom))) / 0.05;
 	return float4(Inside, Crack, Bottom, Top);
@@ -296,9 +297,10 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 
 	// A closing cover turns into a deck (DCS_Deck) out of its own cells, some 1.5 km across, that grow and dissolve
 	// with the phase as the cumulus do. Its height and thickness are its own, so the drawing sees thick cells and thin
-	// gaps. On the way the two trade places by their thresholds, not their strength: the cumulus shrink away whole
-	// and the deck's thickest cells appear first and spread, each solid inside as ever (weakening both instead left
-	// thin shapes the billows ate into crumbs).
+	// gaps. On the way the two trade places by their thresholds, not their strength (weakening both instead left thin
+	// shapes the billows ate into crumbs): the deck's thickest cells appear first and spread, and only once it has
+	// all but closed do the cumulus within it shrink away whole -- so as the cover rises the sky only ever fills
+	// (shrinking them as the deck began opened blue sky again between the two).
 	float DeckW = smoothstep(0.55, 0.85, X);
 	float DeckBand = 0.0;
 	float DeckThin = 0.0;
@@ -311,7 +313,7 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
 		float Thick = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
 		float4 D = DCS_Deck(Cell, C.g, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
-		float CumulusU = BaseU - DeckW;
+		float CumulusU = BaseU - smoothstep(0.75, 1.0, DeckW);
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
 		float DeckSolid = saturate(DeckU);
@@ -321,10 +323,10 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		Base = max(Cumulus, DeckSolid);
 		Signed = max(CumulusU, DeckU);
 		// Thin cells less dense than thick ones; the base lumpy (the billows eat into it), a rain deck's ragged (scud),
-		// the inside hardly; a crack's lip frayed.
+		// the inside hardly; a crack's lip frayed, and a deck still forming billowed all over.
 		float Rise = saturate((H - D.z) / lerp(0.06, 0.12, Thick));
 		float3 DeckProfile = float3(1.0, lerp(lerp(0.25, 0.5, Cell), 0.5, Thick),
-			max(lerp(lerp(0.55, 0.95, Thick), lerp(0.2, 0.3, Thick), Rise), 0.7 * D.y));
+			max(max(lerp(lerp(0.55, 0.95, Thick), lerp(0.2, 0.3, Thick), Rise), 0.7 * D.y), 0.6 * (1.0 - DeckW)));
 		Profile = lerp(Profile, DeckProfile, W);
 		S.Height = lerp(S.Height, saturate((H - D.z) / max(D.w - D.z, 1.0e-3)), W);
 		S.Column = lerp(S.Column, (D.w - D.z) * DCS_LAYER_TOP, W);
