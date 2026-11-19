@@ -75,9 +75,11 @@ void DreamCloud_Painted(float3 Rel, float3 World, float Z, float4 Cloud0, float4
 	// (Only inside a cloud is it lit.)
 	if (E > 0.0)
 	{
-		// The big forms: the envelope toward the light, 0.2, 0.6 and 1.5 km on. (Only the envelope is read there, so
-		// the billows' noise is never sampled for these taps.) What lies well inside it shades: the envelope stands a
-		// little proud of the eroded surface.
+		// The big forms: the envelope toward the light, 0.2, 0.6 and 1.5 km on. What lies well inside it shades: the
+		// envelope stands a little proud of the eroded surface. (The taps take this sample's weather and storm cell
+		// (DCS_ShapeNear): no weather map reads, no search for storm cells. The envelope's bound reaches 2.5 km around
+		// a cumulonimbus; the signed shape, which falls off within a few hundred metres outside one, keeps that margin
+		// from shading the clouds around it.)
 		float3 L = normalize(MainLight.xyz);
 		float Depth = 0.0;
 		[unroll]
@@ -86,13 +88,13 @@ void DreamCloud_Painted(float3 Rel, float3 World, float Z, float4 Cloud0, float4
 			float Reach = i == 0 ? 20000.0 : (i == 1 ? 60000.0 : 150000.0);
 			float Weight = i == 0 ? 0.4 : (i == 1 ? 0.35 : 0.25);
 			float3 Step = L * Reach;
-			FDCloudShape T = DCS_Shape(Rel + Step, World + Step, Z + Step.z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams,
-				0.0, Map, MapSampler, Noise, NoiseSampler);
-			Depth += saturate((T.Conservative - 0.15) * 4.0) * Weight;
+			FDCloudShape T = DCS_ShapeNear(World + Step, Z + Step.z, S.Anchor, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams,
+				Map, MapSampler, Noise, NoiseSampler);
+			Depth += saturate((T.Conservative - 0.15) * 4.0) * saturate(T.Signed * 2.0 + 1.0) * Weight;
 		}
 		// The billows: the full shape some 60 m on (a turret's own sunlit side).
 		float3 Near = L * 6000.0;
-		FDCloudShape B = DCS_Shape(Rel + Near, World + Near, Z + Near.z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, 0.0,
+		FDCloudShape B = DCS_ShapeNear(World + Near, Z + Near.z, S.Anchor, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams,
 			Map, MapSampler, Noise, NoiseSampler);
 		float Turret = 1.0 - saturate(B.Solid * 6.0);
 		// The bottom of a cloud sits in its own shade and sees little of the sky: a little darker.
