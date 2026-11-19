@@ -396,10 +396,12 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		// texel a march through the clouds' material.
 		const float MapExtentKm = FMath::Max(VolumetricTracingDistance, 10.0f);
 		if (SunLight && (!FMath::IsNearlyEqual(SunLight->CloudShadowExtent, MapExtentKm, 1.0e-2f)
-			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)))
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowRaySampleCountScale, VolumetricShadowSamples, 1.0e-3f)))
 		{
 			SunLight->CloudShadowExtent = MapExtentKm;
 			SunLight->CloudShadowMapResolutionScale = VolumetricShadowResolution;
+			SunLight->CloudShadowRaySampleCountScale = VolumetricShadowSamples;
 			SunLight->MarkRenderStateDirty();
 		}
 		// (The sky light's occlusion is soft: half the shadow map's resolution is plenty.)
@@ -410,6 +412,26 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			SkyLight->CloudAmbientOcclusionExtent = MapExtentKm;
 			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
 			SkyLight->MarkRenderStateDirty();
+		}
+		// The sun's light scattered in the clouds, and the moon's while it lights anything: a second atmosphere light
+		// the clouds scatter costs a second march toward it at every lit sample, so a dark moon is left out of them.
+		// (The earth's shadow: with the sun below the horizon the clouds, a few kilometres up, see it until it is some
+		// two degrees down. Stepped, so the light is not re-made every frame through the dusk.)
+		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const float SunUp = WorldClock ? FMath::SmoothStep(-2.5f, 0.5f, WorldClock->GetCelestial().SunElevation) : 1.0f;
+		const float SunScale = VolumetricSunScattering * FMath::RoundToFloat(SunUp * 20.0f) / 20.0f;
+		const FLinearColor SunScatter(SunScale, SunScale, SunScale);
+		const FLinearColor MoonScale(VolumetricSunScattering, VolumetricSunScattering, VolumetricSunScattering);
+		if (SunLight && SunLight->CloudScatteredLuminanceScale != SunScatter)
+		{
+			SunLight->CloudScatteredLuminanceScale = SunScatter;
+			SunLight->MarkRenderStateDirty();
+		}
+		const FLinearColor MoonScatter = MoonLight && MoonLight->Intensity > 1.0e-4f ? MoonScale : FLinearColor::Black;
+		if (MoonLight && MoonLight->CloudScatteredLuminanceScale != MoonScatter)
+		{
+			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
+			MoonLight->MarkRenderStateDirty();
 		}
 		HoldCloudHistoryThroughFlash();
 	}
@@ -431,10 +453,10 @@ void ADreamSky::HoldCloudHistoryThroughFlash()
 {
 	// A lightning flash lights the whole cloud field from one frame to the next, while the engine traces only a quarter
 	// of the clouds' pixels each frame and takes the rest from the frames before: the frames of a flash came out as a
-	// checkerboard of lit and unlit pixels. While the flash's level jumps, and for the four frames the history takes to
-	// catch up, the clouds are drawn from this frame's trace alone: a little noisier for those frames, never a
-	// checkerboard, at no extra cost; the flash's slow fade keeps the history. (Left alone where a project or the
-	// console has set it.)
+	// checkerboard of lit and unlit pixels. On the frames a stroke flares up, and two after, the clouds are drawn from
+	// that frame's trace alone: a little noisier for those frames, never a checkerboard, at no extra cost. The rest of
+	// the flash -- its small steps and its fade -- keeps the history, which smooths the noise. (Left alone where a
+	// project or the console has set it.)
 	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
 	const UWorld* World = GetWorld();
 	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
@@ -448,12 +470,12 @@ void ADreamSky::HoldCloudHistoryThroughFlash()
 		return;
 	}
 	const float Flash = WorldClock->GetEnvironment().LightningFlash;
-	if (FMath::Abs(Flash - LastCloudFlash) > 0.02f)
+	if (Flash - LastCloudFlash > 0.1f)
 	{
 		CloudFlashJumpFrame = GFrameCounter;
 	}
 	LastCloudFlash = Flash;
-	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 4;
+	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 2;
 	if (bHold != bHoldingCloudHistory)
 	{
 		bHoldingCloudHistory = bHold;
@@ -573,7 +595,8 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{
