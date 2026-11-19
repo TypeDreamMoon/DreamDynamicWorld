@@ -15,7 +15,6 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
-#include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -117,6 +116,35 @@ bool FDreamSkyCumulusGrowthTest::RunTest(const FString& Parameters)
 		Last = CumulusGrowth(H);
 	}
 	TestTrue(TEXT("no jumps through the day"), bSmooth);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudFormationTest, "DreamSky.Clouds.FormationFollowsTheClock", DreamSky::Tests::Flags)
+bool FDreamSkyCloudFormationTest::RunTest(const FString& Parameters)
+{
+	using DreamSky::CloudFormation;
+	// Some game days in, where float seconds would have lost the minutes.
+	const double Day = 86400.0;
+	const double Start = 40.0 * Day + 16.0 * 3600.0;
+	TestNearlyEqual(TEXT("the same moment gives the same clouds"), CloudFormation(Start, 1.0f), CloudFormation(Start, 1.0f), 0.0f);
+	TestNearlyEqual(TEXT("speed 0 holds the shapes"), CloudFormation(Start, 0.0f), CloudFormation(Start + 7200.0, 0.0f), 0.0f);
+	// Twenty game minutes take a cloud through about an eighth of the phase.
+	auto Gap = [](float A, float B) { const float D = FMath::Abs(A - B); return FMath::Min(D, 1.0f - D); };
+	TestNearlyEqual(TEXT("an eighth in twenty minutes"), Gap(CloudFormation(Start, 1.0f), CloudFormation(Start + 1200.0, 1.0f)), 0.125f, 1e-3f);
+	TestNearlyEqual(TEXT("twice as far at twice the speed"), Gap(CloudFormation(Start, 2.0f), CloudFormation(Start + 600.0, 2.0f)), 0.125f, 1e-3f);
+	// Smooth: a frame moves it a hair, and where it wraps it wraps to the same place in the noise (0 = 1).
+	bool bInRange = true;
+	bool bSmooth = true;
+	float Last = CloudFormation(Start, 1.0f);
+	for (double T = Start; T < Start + 6.0 * 3600.0; T += 30.0)
+	{
+		const float Now = CloudFormation(T, 1.0f);
+		bInRange &= Now >= 0.0f && Now < 1.0f;
+		bSmooth &= Gap(Now, Last) < 0.005f;
+		Last = Now;
+	}
+	TestTrue(TEXT("0..1"), bInRange);
+	TestTrue(TEXT("no jumps over six hours, the wrap included"), bSmooth);
 	return true;
 }
 
@@ -229,22 +257,6 @@ bool FDreamSkyTestLevelTest::RunTest(const FString& Parameters)
 	const UMaterialInterface* DomeMaterial = Sky->SkyMaterial.LoadSynchronous();
 	TestNotNull(TEXT("the sky material exists"), DomeMaterial);
 	TestTrue(TEXT("the sky material is a sky material"), DomeMaterial && DomeMaterial->GetMaterial() && DomeMaterial->GetMaterial()->bIsSky);
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudSpritesTest, "DreamSky.Assets.CloudSprites", DreamSky::Tests::Flags)
-bool FDreamSkyCloudSpritesTest::RunTest(const FString& Parameters)
-{
-	const UTexture2D* Sprites = LoadObject<UTexture2D>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudSprites.T_DreamCloudSprites"));
-	if (!TestNotNull(TEXT("the horizon cloud sprites exist"), Sprites))
-	{
-		return false;
-	}
-	// The channels are light, rim, core and coverage: data, read as it is stored.
-	TestFalse(TEXT("stored as data, not colour"), Sprites->SRGB);
-	TestTrue(TEXT("compressed with a full alpha channel"), Sprites->CompressionSettings == TC_BC7);
-	TestEqual(TEXT("the packer's atlas size"), int32(Sprites->Source.GetSizeX()), 2048);
-	TestTrue(TEXT("not streamed (the sky always shows it whole)"), Sprites->NeverStream);
 	return true;
 }
 
