@@ -98,6 +98,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "8"))
 	float VolumetricSampleCountScale = 2.0f;
 
+	/**
+	 * How much of the sky light the volumetric clouds' bases are shut off from (the cloud above hides the sky):
+	 * 0 = lit by the whole sky like their tops .. 1 = none. Higher = darker, flatter bases.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float VolumetricBaseSkyOcclusion = 0.7f;
+
+	/**
+	 * How far each sample of the volumetric clouds looks toward the sun for its shadow, km (the engine's march, for a
+	 * material that marches it). Its samples crowd toward the start: shorter = finer near the cloud's surface, so the
+	 * sunlit faces stay lit; a tower's shadow on clouds further than this is left out.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.5", UIMax = "15"))
+	float VolumetricShadowTracingDistance = 6.0f;
+
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyCloudOverrides CloudOverrides;

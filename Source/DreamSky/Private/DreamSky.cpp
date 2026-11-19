@@ -383,6 +383,14 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetViewSampleCountScale(VolumetricSampleCountScale);
 		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->ShadowTracingDistance, VolumetricShadowTracingDistance, 1.0e-3f))
+		{
+			VolumetricClouds->SetShadowTracingDistance(VolumetricShadowTracingDistance);
+		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->SkyLightCloudBottomOcclusion, VolumetricBaseSkyOcclusion, 1.0e-3f))
+		{
+			VolumetricClouds->SetSkyLightCloudBottomOcclusion(VolumetricBaseSkyOcclusion);
+		}
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
 	{
