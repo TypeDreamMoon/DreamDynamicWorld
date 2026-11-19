@@ -2,12 +2,13 @@
 //
 // Draws the weather map: for every texel of a square around the camera, the global weather (cloud
 // coverage, darkness, precipitation) pulled toward each zone by its weight, in priority order. The zones'
-// falloff is DreamWeatherShared.h, the same code SampleWeather runs on the CPU.
+// falloff and the cloud gate on precipitation are DreamWeatherShared.h, the same code SampleWeather runs on the CPU.
 
 #include "/Engine/Private/Common.ush"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamWeatherShared.h"
 
 float4 GlobalWeather;  // coverage, darkness, precipitation, -
+float2 PrecipitationGate; // the cover below which nothing falls, and from which all of it does
 float2 MapCenter;      // world cm
 float MapExtent;       // world cm the map spans
 uint NumZones;
@@ -31,5 +32,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	{
 		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2]);
 	}
+	// After the zones, as SampleWeather does: rain only under a cover closed enough for it.
+	V = DWX_GatePrecipitation(V, PrecipitationGate);
 	OutMap[DispatchThreadId.xy] = float4(V, 1.0f);
 }

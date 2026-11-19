@@ -97,6 +97,25 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Shelter", meta = (ClampMin = "100"))
 	float RainFallSpeed = 900.0f;
 
+	// ---- What the clouds allow ------------------------------------------------------------------
+
+	/**
+	 * Rain and snow need a closed cloud cover: precipitation is held to nothing below the first cloud coverage and let
+	 * through in full from the second, after every preset, modifier and zone (at a point, and in the weather map). A
+	 * change of weather then stops raining before its clouds break up, and starts only once they have closed in.
+	 * Second <= first: no limit.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	FVector2D PrecipitationCloudCover = FVector2D(0.75, 0.9);
+
+	/** Lightning needs a storm cloud: held to nothing below the first cloud darkness, in full from the second (second <= first: no limit). */
+	UPROPERTY(Config, EditAnywhere, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	FVector2D LightningCloudDarkness = FVector2D(0.45, 0.75);
+
+	/** ...under a closed cover: held to nothing below the first cloud coverage, in full from the second (second <= first: no limit). */
+	UPROPERTY(Config, EditAnywhere, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	FVector2D LightningCloudCover = FVector2D(0.85, 0.97);
+
 	// ---- Lightning ------------------------------------------------------------------------------
 
 	/** Strikes per real minute at Lightning 1 (real, so a storm looks the same at any day length). */

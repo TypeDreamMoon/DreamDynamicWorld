@@ -110,7 +110,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	bool IsSheltered(FVector Position) const { return GetExposureAt(Position) < 0.5f; }
 
-	/** The weather everywhere before influences (schedule and modifiers), registry order. */
+	/** The weather everywhere before influences (schedule and modifiers), registry order; raw, before the cloud gates on rain and lightning (SampleWeather applies them). */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	const FDreamWeatherValues& GetGlobalValues() const { return GlobalValues; }
 

@@ -282,6 +282,83 @@ bool FDreamWeatherModifierTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherCloudGatesTest, "DreamWeather.CloudGates", DreamWeather::Tests::Flags)
+bool FDreamWeatherCloudGatesTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	const UDreamWeatherSettings* S = UDreamWeatherSettings::Get();
+
+	// On their own: rain needs a closed cover, lightning a dark one.
+	auto Gated = [](float Cover, float Dark, float Precip, float Bolts)
+	{
+		FDreamWeatherValues V = FDreamWeatherChannels::Defaults();
+		V.Values[C::CloudCoverage] = Cover;
+		V.Values[C::CloudDarkness] = Dark;
+		V.Values[C::Precipitation] = Precip;
+		V.Values[C::Lightning] = Bolts;
+		FDreamWeatherChannels::ApplyCloudGates(V);
+		return V;
+	};
+	TestNearlyEqual(TEXT("no rain from a broken sky"), Gated(0.5f, 0.5f, 1.0f, 0.0f).Get(C::Precipitation), 0.0f, 1e-5f);
+	TestNearlyEqual(TEXT("all of it under a closed cover"), Gated(0.95f, 0.45f, 0.6f, 0.0f).Get(C::Precipitation), 0.6f, 1e-5f);
+	TestNearlyEqual(TEXT("snow's cover is closed enough"), Gated(0.9f, 0.2f, 0.5f, 0.0f).Get(C::Precipitation), 0.5f, 1e-5f);
+	TestNearlyEqual(TEXT("no lightning from a pale cover"), Gated(1.0f, 0.25f, 0.0f, 1.0f).Get(C::Lightning), 0.0f, 1e-5f);
+	TestNearlyEqual(TEXT("a storm's lightning in full"), Gated(1.0f, 0.85f, 0.95f, 0.8f).Get(C::Lightning), 0.8f, 1e-5f);
+	TestNearlyEqual(TEXT("coverage itself is left alone"), Gated(0.5f, 0.5f, 1.0f, 1.0f).Get(C::CloudCoverage), 0.5f, 1e-5f);
+
+	// A change of weather that blends every channel at once: clear -> storm -> clear. Whenever it rains the cover is
+	// closing or still closed; whenever it may strike the cloud is a storm's.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetPaused(true);
+	W.Clock->Tick(0.0f);
+	UDreamWeatherPreset* Storm = MakePreset(TEXT("Storm"), { { Channel_CloudCoverage, 1.0f }, { Channel_CloudDarkness, 0.85f }, { Channel_Precipitation, 0.95f }, { Channel_Lightning, 0.8f } });
+	for (UDreamWeatherPreset* To : { Storm, Clear() })
+	{
+		W.Weather->ForceWeather(To, 20.0f);
+		bool bRained = false, bBroken = false, bFlashedPale = false, bStruck = false;
+		float RainFrom = -1.0f;
+		for (float T = 0.5f; T <= 21.0f; T += 0.5f)
+		{
+			W.Clock->Tick(0.5f);
+			const FDreamWeatherSample V = W.Weather->SampleWeather(FVector::ZeroVector);
+			if (V.Precipitation > 0.01f)
+			{
+				bRained = true;
+				RainFrom = RainFrom < 0.0f ? T : RainFrom;
+				bBroken |= V.CloudCoverage < S->PrecipitationCloudCover.X;
+			}
+			if (V.Lightning > 0.01f)
+			{
+				bStruck = true;
+				bFlashedPale |= V.CloudDarkness < S->LightningCloudDarkness.X || V.CloudCoverage < S->LightningCloudCover.X;
+			}
+		}
+		const FString Name = To == Storm ? TEXT("into the storm") : TEXT("out of it");
+		TestFalse(*(Name + TEXT(": no rain while the cover is broken")), bBroken);
+		TestFalse(*(Name + TEXT(": no lightning from a pale or broken cover")), bFlashedPale);
+		if (To == Storm)
+		{
+			TestTrue(TEXT("into the storm: it rains and strikes in the end"), bRained && bStruck);
+			TestTrue(*FString::Printf(TEXT("into the storm: the rain starts after the clouds have closed in, not with them (at %.1f s of 20)"), RainFrom), RainFrom > 8.0f);
+			const FDreamWeatherSample End = W.Weather->SampleWeather(FVector::ZeroVector);
+			TestNearlyEqual(TEXT("the storm's own rain in full"), End.Precipitation, 0.95f, 1e-3f);
+			TestNearlyEqual(TEXT("the storm's own lightning in full"), End.Lightning, 0.8f, 1e-3f);
+		}
+		else
+		{
+			TestNearlyEqual(TEXT("out of it: dry at the end"), W.Weather->SampleWeather(FVector::ZeroVector).Precipitation, 0.0f, 1e-4f);
+		}
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherZoneTest, "DreamWeather.Zones", DreamWeather::Tests::Flags)
 bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 {
@@ -298,7 +375,9 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 	W.Clock->Tick(0.0f);
 
 	TestNearlyEqual(TEXT("full effect inside"), W.Weather->SampleWeather(FVector(500, 0, 0)).Precipitation, 1.0f, 1e-4f);
-	TestNearlyEqual(TEXT("half way across the blend"), W.Weather->SampleWeather(FVector(1500, 0, 0)).Precipitation, 0.5f, 1e-3f);
+	// (The falloff on the coverage: rain halfway across is held back by the half-closed cover, see CloudGates.)
+	const float Cover0 = W.Weather->GetGlobalValues().Get(C::CloudCoverage);
+	TestNearlyEqual(TEXT("half way across the blend"), W.Weather->SampleWeather(FVector(1500, 0, 0)).CloudCoverage, (Cover0 + 1.0f) * 0.5f, 1e-3f);
 	TestNearlyEqual(TEXT("untouched beyond"), W.Weather->SampleWeather(FVector(2500, 0, 0)).Precipitation, 0.0f, 1e-4f);
 	TestNearlyEqual(TEXT("the zone stands on the whole height"), W.Weather->SampleWeather(FVector(0, 0, 100000)).Precipitation, 1.0f, 1e-4f);
 
@@ -307,8 +386,8 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("higher priority applies last"), W.Weather->SampleWeather(FVector(300, 0, 0)).Precipitation, 0.25f, 1e-4f);
 
 	// Equal priorities apply in the order of their stable ids, never in the order they happened to register.
-	ADreamWeatherZone* P = W.AddZone(FVector(8000, 0, 0), 1000.0f, 1000.0f, 0, { { Channel_Precipitation, 0.6f } });
-	ADreamWeatherZone* Q = W.AddZone(FVector(8100, 0, 0), 1000.0f, 1000.0f, 0, { { Channel_Precipitation, 0.3f } });
+	ADreamWeatherZone* P = W.AddZone(FVector(8000, 0, 0), 1000.0f, 1000.0f, 0, { { Channel_Precipitation, 0.6f }, { Channel_CloudCoverage, 1.0f } });
+	ADreamWeatherZone* Q = W.AddZone(FVector(8100, 0, 0), 1000.0f, 1000.0f, 0, { { Channel_Precipitation, 0.3f }, { Channel_CloudCoverage, 1.0f } });
 	W.Clock->Tick(0.0f);
 	const float Expected = P->Zone->GetWeatherInfluenceStableId() > Q->Zone->GetWeatherInfluenceStableId() ? 0.6f : 0.3f;
 	TestNearlyEqual(TEXT("equal priorities: the larger stable id applies last"), W.Weather->SampleWeather(FVector(8050, 0, 0)).Precipitation, Expected, 1e-4f);
@@ -326,6 +405,7 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 		{
 			V = DWX_ApplyZone(V, float2(float(At.X), float(At.Y)), ToHlsl(Records[i]), ToHlsl(Records[i + 1]), ToHlsl(Records[i + 2]));
 		}
+		V = DWX_GatePrecipitation(V, float2(float(UDreamWeatherSettings::Get()->PrecipitationCloudCover.X), float(UDreamWeatherSettings::Get()->PrecipitationCloudCover.Y)));
 		const FDreamWeatherSample S = W.Weather->SampleWeather(At);
 		TestNearlyEqual(*FString::Printf(TEXT("map precipitation matches the query at %s"), *At.ToString()), V.z, S.Precipitation, 1e-4f);
 		TestNearlyEqual(*FString::Printf(TEXT("map coverage matches the query at %s"), *At.ToString()), V.x, S.CloudCoverage, 1e-4f);
@@ -387,7 +467,7 @@ bool FDreamWeatherTemperatureTest::RunTest(const FString& Parameters)
 	using namespace DreamWeather::Tests;
 	using namespace DreamWeather::Tags;
 	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
-	Fixed->Preset = MakePreset(TEXT("Drizzle"), { { Channel_Precipitation, 0.5f } });
+	Fixed->Preset = MakePreset(TEXT("Drizzle"), { { Channel_Precipitation, 0.5f }, { Channel_CloudCoverage, 1.0f } });
 	FWeatherWorld W(Fixed);
 	if (!TestNotNull(TEXT("weather"), W.Weather))
 	{
@@ -476,7 +556,7 @@ bool FDreamWeatherLightningTest::RunTest(const FString& Parameters)
 {
 	using namespace DreamWeather::Tests;
 	using namespace DreamWeather::Tags;
-	auto Storm = [] { UDreamWeatherSelector_Fixed* F = NewObject<UDreamWeatherSelector_Fixed>(); F->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f } }); return F; };
+	auto Storm = [] { UDreamWeatherSelector_Fixed* F = NewObject<UDreamWeatherSelector_Fixed>(); F->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f }, { Channel_CloudCoverage, 1.0f }, { Channel_CloudDarkness, 1.0f } }); return F; };
 	FWeatherWorld A(Storm());
 	FWeatherWorld B(Storm());
 	if (!TestNotNull(TEXT("weather A"), A.Weather) || !TestNotNull(TEXT("weather B"), B.Weather))
@@ -550,7 +630,7 @@ bool FDreamWeatherLightningInFrontTest::RunTest(const FString& Parameters)
 	{
 		GetMutableDefault<UDreamWeatherSettings>()->StrikeViewBias = Bias;
 		UDreamWeatherSelector_Fixed* Storm = NewObject<UDreamWeatherSelector_Fixed>();
-		Storm->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f } });
+		Storm->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f }, { Channel_CloudCoverage, 1.0f }, { Channel_CloudDarkness, 1.0f } });
 		FWeatherWorld W(Storm);
 		W.Clock->ReportView(FVector(0, 0, 170), FRotator(0, 90, 0), true);
 		InFront = 0;
@@ -596,7 +676,7 @@ bool FDreamWeatherFlashEnvelopeTest::RunTest(const FString& Parameters)
 	using namespace DreamWeather::Tests;
 	using namespace DreamWeather::Tags;
 	UDreamWeatherSelector_Fixed* Storm = NewObject<UDreamWeatherSelector_Fixed>();
-	Storm->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f } });
+	Storm->Preset = MakePreset(TEXT("Storm"), { { Channel_Lightning, 1.0f }, { Channel_CloudCoverage, 1.0f }, { Channel_CloudDarkness, 1.0f } });
 	FWeatherWorld W(Storm);
 	if (!TestNotNull(TEXT("weather"), W.Weather))
 	{

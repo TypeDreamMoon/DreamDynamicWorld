@@ -420,6 +420,7 @@ FDreamWeatherSample UDreamWeatherSubsystem::SampleWeather(FVector Position) cons
 		Values = FDreamWeatherChannels::Defaults();
 	}
 	ApplyInfluences(Position, Values);
+	FDreamWeatherChannels::ApplyCloudGates(Values);
 	return MakeSample(Position, Values);
 }
 
@@ -432,6 +433,7 @@ float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channe
 	}
 	FDreamWeatherValues Values = GlobalValues;
 	ApplyInfluences(Position, Values);
+	FDreamWeatherChannels::ApplyCloudGates(Values);
 	return Values.Get(Index);
 }
 
@@ -867,6 +869,7 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 		Args.Center = FVector2f(MapCenter);
 		Args.Extent = float(Extent);
 		Args.Global = Global;
+		Args.PrecipitationGate = FVector2f(S->PrecipitationCloudCover);
 		Args.Zones = MapZones;
 		if (Args.Target)
 		{
