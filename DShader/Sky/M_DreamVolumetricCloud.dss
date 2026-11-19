@@ -68,8 +68,11 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	OutConservative = S.Conservative;
 	// A storm cloud is denser and darker (it absorbs: rain and graupel), its lit top less so.
 	float Storm = CloudLayer.z * S.Dark * lerp(1.0, 0.35, S.Height);
-	// The density's faint fringe is drawn in (1 - (1 - d)^2): the outline reads clear instead of a smoky skirt.
-	float Fringe = 1.0 - (1.0 - S.Density) * (1.0 - S.Density);
+	// The density's faint fringe is drawn in (1 - (1 - d)^4): the outline reads clear instead of a smoky skirt, and
+	// a small cumulus, whose density the shape keeps low, is still opaque (a real one is optically thick): softer,
+	// it was smoke by day and let the stars through at night.
+	float Sparse = (1.0 - S.Density) * (1.0 - S.Density);
+	float Fringe = 1.0 - Sparse * Sparse;
 	float E = Fringe * Sigma * (1.0 + S.Dark);
 	OutExtinction = E.xxx;
 	OutAlbedo = (Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * S.Deck)).xxx;
