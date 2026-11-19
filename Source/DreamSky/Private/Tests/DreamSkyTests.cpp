@@ -385,6 +385,12 @@ bool FDreamSkyOverridesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the effective style is a copy"), Sky.GetEffectiveStyle() != Preset);
 	TestNearlyEqual(TEXT("with the level's coverage"), Sky.GetEffectiveStyle()->CloudCoverage, Sky.CloudOverrides.Coverage, 1e-5f);
 	TestNearlyEqual(TEXT("the preset is untouched"), Preset->CloudCoverage, PresetCoverage, 1e-5f);
+	Sky.CloudOverrides.bOverride_FormationSpeed = true;
+	Sky.CloudOverrides.FormationSpeed = Preset->CloudFormationSpeed + 1.5f;
+	Sky.RefreshOverrides();
+	TestNearlyEqual(TEXT("with the level's formation speed"), Sky.GetEffectiveStyle()->CloudFormationSpeed, Sky.CloudOverrides.FormationSpeed, 1e-5f);
+	Sky.CloudOverrides.bOverride_FormationSpeed = false;
+	Sky.RefreshOverrides();
 
 	// A scale over the style's lighting.
 	Sky.LightOverrides.bOverride_SunIntensity = true;
