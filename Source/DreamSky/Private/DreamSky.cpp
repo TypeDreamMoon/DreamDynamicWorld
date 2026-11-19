@@ -383,6 +383,35 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetViewSampleCountScale(VolumetricSampleCountScale);
 		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->ShadowTracingDistance, VolumetricShadowTracingDistance, 1.0e-3f))
+		{
+			VolumetricClouds->SetShadowTracingDistance(VolumetricShadowTracingDistance);
+		}
+		if (!FMath::IsNearlyEqual(VolumetricClouds->SkyLightCloudBottomOcclusion, VolumetricBaseSkyOcclusion, 1.0e-3f))
+		{
+			VolumetricClouds->SetSkyLightCloudBottomOcclusion(VolumetricBaseSkyOcclusion);
+		}
+		// The shadow map and the sky light's occlusion map cover the clouds that are traced (the engine's default
+		// spreads them over 150 km around the view, 586 m a texel): drawing them costs about their texel count, each
+		// texel a march through the clouds' material.
+		const float MapExtentKm = FMath::Max(VolumetricTracingDistance, 10.0f);
+		if (SunLight && (!FMath::IsNearlyEqual(SunLight->CloudShadowExtent, MapExtentKm, 1.0e-2f)
+			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)))
+		{
+			SunLight->CloudShadowExtent = MapExtentKm;
+			SunLight->CloudShadowMapResolutionScale = VolumetricShadowResolution;
+			SunLight->MarkRenderStateDirty();
+		}
+		// (The sky light's occlusion is soft: half the shadow map's resolution is plenty.)
+		const float SkyMapScale = FMath::Max(0.25f, 0.5f * VolumetricShadowResolution);
+		if (SkyLight && (!FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionExtent, MapExtentKm, 1.0e-2f)
+			|| !FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionMapResolutionScale, SkyMapScale, 1.0e-3f)))
+		{
+			SkyLight->CloudAmbientOcclusionExtent = MapExtentKm;
+			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
+			SkyLight->MarkRenderStateDirty();
+		}
+		HoldCloudHistoryThroughFlash();
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
 	{
@@ -395,6 +424,40 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 	{
 		SkyLight->bCloudAmbientOcclusion = bVolumetric;
 		SkyLight->MarkRenderStateDirty();
+	}
+}
+
+void ADreamSky::HoldCloudHistoryThroughFlash()
+{
+	// A lightning flash lights the whole cloud field from one frame to the next, while the engine traces only a quarter
+	// of the clouds' pixels each frame and takes the rest from the frames before: the frames of a flash came out as a
+	// checkerboard of lit and unlit pixels. While the flash's level jumps, and for the four frames the history takes to
+	// catch up, the clouds are drawn from this frame's trace alone: a little noisier for those frames, never a
+	// checkerboard, at no extra cost; the flash's slow fade keeps the history. (Left alone where a project or the
+	// console has set it.)
+	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
+	const UWorld* World = GetWorld();
+	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	if (!Reprojection || !WorldClock)
+	{
+		return;
+	}
+	const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Reprojection->GetFlags() & ECVF_SetByMask);
+	if (SetBy > ECVF_SetByScalability && SetBy != ECVF_SetByCode)
+	{
+		return;
+	}
+	const float Flash = WorldClock->GetEnvironment().LightningFlash;
+	if (FMath::Abs(Flash - LastCloudFlash) > 0.02f)
+	{
+		CloudFlashJumpFrame = GFrameCounter;
+	}
+	LastCloudFlash = Flash;
+	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 4;
+	if (bHold != bHoldingCloudHistory)
+	{
+		bHoldingCloudHistory = bHold;
+		Reprojection->Set(bHold ? 1.0e6f : 0.0f, ECVF_SetByCode);
 	}
 }
 
@@ -508,7 +571,9 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricLayerThickness)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 		{

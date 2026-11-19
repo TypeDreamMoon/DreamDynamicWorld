@@ -31,8 +31,8 @@ bool FDreamSkyCloudOverrides::TouchesStyle() const
 
 bool FDreamSkyCloudOverrides::TouchesMaterial() const
 {
-	return bOverride_Extinction || bOverride_Glow || bOverride_PaintGain || bOverride_HalfToneAt || bOverride_LitToneAt || bOverride_ToneSoftness
-		|| bOverride_SilverLining;
+	return bOverride_Extinction || bOverride_Glow || bOverride_BaseGlow || bOverride_PaintGain || bOverride_EdgeSoftness || bOverride_HalfToneAt
+		|| bOverride_LitToneAt || bOverride_ToneSoftness || bOverride_SilverLining;
 }
 
 void FDreamSkyCloudOverrides::ApplyTo(UMaterialInstanceDynamic& Material) const
@@ -47,7 +47,9 @@ void FDreamSkyCloudOverrides::ApplyTo(UMaterialInstanceDynamic& Material) const
 	};
 	Set(bOverride_Extinction, TEXT("CloudExtinction"), Extinction);
 	Set(bOverride_Glow, TEXT("CloudGlow"), Glow);
+	Set(bOverride_BaseGlow, TEXT("BaseGlow"), BaseGlow);
 	Set(bOverride_PaintGain, TEXT("PaintGain"), PaintGain);
+	Set(bOverride_EdgeSoftness, TEXT("EdgeSoftness"), EdgeSoftness);
 	Set(bOverride_HalfToneAt, TEXT("HalfToneAt"), HalfToneAt);
 	Set(bOverride_LitToneAt, TEXT("LitToneAt"), LitToneAt);
 	Set(bOverride_ToneSoftness, TEXT("ToneSoftness"), ToneSoftness);

@@ -3,11 +3,17 @@
 //
 // The engine marches, lights (the sun and the moon are the atmosphere lights, plus the sky light), shadows and
 // filters the layer; this material says how dense the cloud is at a sample, what it scatters, and an ambient glow
-// (sky light the engine's single sky-light term leaves out, so undersides keep the style's shade colour rather
-// than going grey). The shapes are the same clouds the dome's toon clouds draw: /Plugin/DreamDynamicWorld/Private/
-// DreamSkyCloudShape.ush, from the weather map and the 3D noise T_DreamCloudNoise; the colours and the weather
-// come from the plugin's shared parameter collection, like the sky dome's. The air between the view and a cloud
-// veils it in the dome's own colour behind it (hazy low down, clear higher up), as on the toon clouds.
+// (the sky light the engine's single sky-light term leaves out). The shapes are the same clouds the dome's toon
+// clouds draw: /Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush, from the weather map and the 3D noise
+// T_DreamCloudNoise; the colours and the weather come from the plugin's shared parameter collection, like the sky
+// dome's. The air between the view and a cloud veils it in the dome's own colour behind it (hazy low down, clear
+// higher up), as on the toon clouds.
+//
+// The look is a fair-weather cumulus field: the sunlit faces bright (a cloud hardly absorbs, so what the sun puts in
+// comes back out), the bases flat and several times darker (the sun's light is spent before it gets there, and the
+// sky above is hidden by the cloud itself: the glow falls off steeply toward the base), the outline clear (a
+// cumulus is optically thick: its faint fringe is thin). An overcast deck is mottled from below, darker where it
+// is thicker, rather than one flat grey.
 #pragma material(Domain = Volume, BlendMode = Additive, bTangentSpaceNormal = false, bCastRayTracedShadows = false)
 
 /// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
@@ -20,42 +26,64 @@ static const VolumeTexture CloudNoise;
 /// @group Cloud   @sort 10   @slider 0.01 0.3   @desc Extinction of a solid cloud, per metre (a real cumulus is about 0.04 to 0.2): higher = harder, the inside unseen
 uniform float CloudExtinction = 0.08;
 
-/// @group Cloud   @sort 30   @slider 0 4   @desc How much of the style's shade colour the clouds glow with (keeps undersides from going grey)
-uniform float CloudGlow = 1.7;
+/// @group Cloud   @sort 20   @slider 0.5 1   @desc How much of the light a cloud scatters rather than absorbs (a real cloud: nearly all of it)
+uniform float CloudAlbedo = 0.98;
+
+/// @group Cloud   @sort 30   @slider 0 4   @desc How much of the style's shade colour the clouds glow with at their tops (the sky light falling on them)
+uniform float CloudGlow = 0.75;
+
+/// @group Cloud   @sort 40   @slider 0 1   @desc How much of that glow reaches a cloud's base (the sky above it is hidden by the cloud): lower = darker, flatter bases
+uniform float BaseGlow = 0.1;
+
+/// @group Cloud   @sort 50   @slider 0 1   @desc How mottled an overcast deck is from below (darker where it is thicker)
+uniform float DeckMottle = 0.45;
 
 /// @group Scattering   @sort 10   @slider -0.9 0.9   @desc Forward scattering lobe (silver lining)
 uniform float ScatterForward = 0.8;
-/// @group Scattering   @sort 20   @slider -0.9 0.9   @desc Backward scattering lobe
-uniform float ScatterBackward = -0.5;
+/// @group Scattering   @sort 20   @slider -0.9 0.9   @desc Backward scattering lobe (the sunlit faces seen with the sun behind the view)
+uniform float ScatterBackward = -0.3;
 /// @group Scattering   @sort 30   @slider 0 1   @desc Blend between the forward and the backward lobe
 uniform float ScatterBlend = 0.5;
 /// @group Scattering   @sort 40   @slider 0 1   @desc Multiple scattering: how much light keeps scattering inside
-uniform float MultiScatter = 0.8;
-/// @group Scattering   @sort 50   @slider 0 1   @desc How much the cloud occludes its own multiple scattering
-uniform float MultiScatterOcclusion = 0.3;
+uniform float MultiScatter = 0.85;
+/// @group Scattering   @sort 50   @slider 0 1   @desc How much the cloud occludes its own multiple scattering: higher = the light spreads less deep, the bases darker
+uniform float MultiScatterOcclusion = 0.5;
 /// @group Scattering   @sort 60   @slider 0 1   @desc How directional multiple scattering stays
-uniform float MultiScatterEccentricity = 0.6;
+uniform float MultiScatterEccentricity = 0.5;
 
 /// @custom
 /// @name Dream Cloud Sample
 void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3,
 	float4 CloudLayer, float4 MapParams, float4 CloudShadow, float4 Flash, float4 Extra, float4 SunDir, float4 Zenith,
-	float4 Horizon, float4 Ground, float4 SunHalo, float Sigma, float Glow, float Occlusion, Texture2D Map, VolumeTexture Noise,
+	float4 Horizon, float4 Ground, float4 SunHalo, float Sigma, float Albedo, float Glow, float BaseShare, float Mottle,
+	float Occlusion, float Detail, Texture2D Map, VolumeTexture Noise,
 	out float3 OutExtinction, out float3 OutAlbedo, out float3 OutEmissive, out float OutConservative)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
-	FDCloudShape S = DCS_Shape(Rel, World, Z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, 1.0, Map, MapSampler,
+	FDCloudShape S = DCS_Shape(Rel, World, Z, Cloud0, Cloud1, Cloud2, CloudLayer, MapParams, Detail, Map, MapSampler,
 		Noise, NoiseSampler);
-	// A storm cloud is denser and darker (lower albedo), its lit top less so.
+	OutConservative = S.Conservative;
+	// A storm cloud is denser and darker (it absorbs: rain and graupel), its lit top less so.
 	float Storm = CloudLayer.z * S.Dark * lerp(1.0, 0.35, S.Height);
-	float E = S.Density * Sigma * (1.0 + S.Dark);
+	// The density's faint fringe is drawn in (1 - (1 - d)^2): the outline reads clear instead of a smoky skirt.
+	float Fringe = 1.0 - (1.0 - S.Density) * (1.0 - S.Density);
+	float E = Fringe * Sigma * (1.0 + S.Dark);
 	OutExtinction = E.xxx;
-	// An overcast deck is grey from below, not white.
-	float Deck = S.Deck;
-	OutAlbedo = (0.95 * (1.0 - 0.75 * Storm) * (1.0 - 0.35 * Deck)).xxx;
-	// The glow: the style's shade colour, held to about that colour however thick; dimmer toward the base (the sky
-	// light reaching a cloud's underside is mostly blocked by the cloud itself).
-	float3 Shade = CloudShadow.rgb * lerp(0.3, 1.0, pow(S.Height, 0.7)) * Glow * (1.0 - 0.8 * Storm);
+	OutAlbedo = (Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * S.Deck)).xxx;
+
+	// The glow: the sky light on the cloud, which its top sees whole and its base hardly (UDS's top / bottom emissive,
+	// (1 - h)^3): the style's shade colour at the top, BaseShare of it at the base.
+	float FromBase = 1.0 - saturate(S.Height);
+	float Shade01 = lerp(1.0, BaseShare, FromBase * FromBase * FromBase);
+	// An overcast deck seen from below: thicker and thinner patches some kilometres across.
+	if (S.Deck > 0.0)
+	{
+		float Scale = max(Cloud0.z, 0.05);
+		float2 P = World.xy + Cloud1.xy * 220000.0 * Scale;
+		float Patch = Noise.SampleLevel(NoiseSampler, float3(P / (1100000.0 * Scale), 0.83), 0).g;
+		Shade01 *= 1.0 + (Patch - 0.5) * 2.0 * Mottle * S.Deck;
+	}
+	float3 Shade = CloudShadow.rgb * Glow * Shade01 * (1.0 - 0.8 * Storm);
 	// The air between: what the cloud scatters fades, and the sky behind it (a dense cloud glows Emissive / E)
 	// takes its place.
 	float Distance = length(Rel);
@@ -65,18 +93,18 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// (Looking down on a cloud, the air between takes the low sky's colour, not the ground's.)
 	float3 Behind = DSky_Backdrop(DSky_HazeDirection(Ray), normalize(SunDir.xyz), Zenith, Horizon, Ground, SunHalo, Halo) + Halo;
 	OutAlbedo *= 1.0 - Veil;
-	// The engine adds the glow again for its multiple scattering octave, through the cloud thinned to Occlusion: in a
-	// dense cloud it shows 1 + 1 / Occlusion times over. Divided out, the glow is what it says (a cloud the air
-	// veils completely is exactly the sky behind it).
-	OutEmissive = lerp(Shade, Behind, Veil) * E / (1.0 + 1.0 / max(Occlusion, 0.05));
+	// The engine adds the glow again for each of its two multiple scattering octaves, through the cloud thinned to
+	// Occlusion and Occlusion squared: in a dense cloud it shows 1 + 1 / Occlusion + 1 / Occlusion^2 times over.
+	// Divided out, the glow is what it says (a cloud the air veils completely is exactly the sky behind it).
+	float Thin = 1.0 / max(Occlusion, 0.05);
+	OutEmissive = lerp(Shade, Behind, Veil) * E / (1.0 + Thin + Thin * Thin);
 	// Lightning lights the clouds toward the strike from inside.
 	float FlashNow = Flash.w * Extra.w;
 	if (FlashNow > 0.0)
 	{
-		float Toward = pow(saturate(dot(normalize(Rel), normalize(Flash.xyz))), 3.0);
+		float Toward = pow(saturate(dot(Ray, normalize(Flash.xyz))), 3.0);
 		OutEmissive += float3(0.75, 0.8, 1.0) * FlashNow * (0.15 + 0.85 * Toward) * E * 3.0;
 	}
-	OutConservative = S.Conservative;
 }
 
 export void M_DreamVolumetricCloud(inout material m)
@@ -101,15 +129,21 @@ export void M_DreamVolumetricCloud(inout material m)
 	float3 SampleEmissive;
 	float Conservative;
 	float3 World = UE.WorldPosition().XYZ;
+	// Samples taken toward a light (the engine's shadow march, its shadow and sky occlusion maps) skip the fine fraying.
+	float ShadowDetail = saturate(1.0 - UE.CloudSampleAttribute().ShadowSampleDistance);
 	DreamCloud_Sample(World - UE.CameraPositionWS(), World, UE.CloudSampleAttribute().AltitudeInLayer,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, CloudShadow, Flash, Extra, SunDir, Zenith, Horizon, Ground, SunHalo,
-		CloudExtinction, CloudGlow, MultiScatterOcclusion, WeatherMap, CloudNoise, SampleExtinction, SampleAlbedo, SampleEmissive,
-		Conservative);
+		CloudExtinction, CloudAlbedo, CloudGlow, BaseGlow, DeckMottle, MultiScatterOcclusion, ShadowDetail, WeatherMap, CloudNoise,
+		SampleExtinction, SampleAlbedo, SampleEmissive, Conservative);
 
+	// Two octaves of multiple scattering carry the sunlight deeper into the sunlit faces (they cost arithmetic, not
+	// material evaluations); the bases of big clouds stay dark. (Grey-scale medium: the engine traces one channel of
+	// extinction and albedo; the light stays coloured.)
 	UE.VolumetricAdvancedMaterialOutput(PhaseG = ScatterForward, PhaseG2 = ScatterBackward, PhaseBlend = ScatterBlend,
 		MultiScatteringContribution = MultiScatter, MultiScatteringOcclusion = MultiScatterOcclusion,
 		MultiScatteringEccentricity = MultiScatterEccentricity, ConservativeDensity = float3(Conservative, Conservative, Conservative),
-		MultiScatteringApproximationOctaveCount = 1, bClampMultiScatteringContribution = false, bGroundContribution = true);
+		MultiScatteringApproximationOctaveCount = 2, bClampMultiScatteringContribution = false, bGroundContribution = false,
+		bGrayScaleMaterial = true);
 
 	m.BaseColor = SampleAlbedo;
 	m.SubsurfaceColor = SampleExtinction;

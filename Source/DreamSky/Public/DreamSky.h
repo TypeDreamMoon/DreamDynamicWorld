@@ -98,6 +98,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "8"))
 	float VolumetricSampleCountScale = 2.0f;
 
+	/**
+	 * How much of the sky light the volumetric clouds' bases are shut off from (the cloud above hides the sky):
+	 * 0 = lit by the whole sky like their tops .. 1 = none. Higher = darker, flatter bases.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float VolumetricBaseSkyOcclusion = 0.85f;
+
+	/**
+	 * How far each sample of the volumetric clouds looks toward the sun for its shadow, km (the engine's march, for a
+	 * material that marches it). Its samples crowd toward the start: shorter = finer near the cloud's surface, so the
+	 * sunlit faces stay lit; a tower's shadow on clouds further than this is left out.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.5", UIMax = "15"))
+	float VolumetricShadowTracingDistance = 6.0f;
+
+	/**
+	 * Resolution of the maps the volumetric clouds are shadowed through -- the sun's cloud shadow map (their shadows
+	 * on the ground, and their own sunlight where a material reads it) and the sky light's cloud occlusion map --
+	 * relative to the engine's 512 texels. Both cover the traced distance, not the engine's 150 km, so they stay as
+	 * fine at a lower resolution; each costs about its resolution squared.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "2"))
+	float VolumetricShadowResolution = 0.75f;
+
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyCloudOverrides CloudOverrides;
@@ -204,6 +228,13 @@ private:
 
 	/** Set when the material overrides changed: the instance takes them on its next ApplyClouds. */
 	bool bCloudMaterialDirty = true;
+
+	/** Draws the volumetric clouds without their frame history while a lightning flash lasts (no checkerboard). */
+	void HoldCloudHistoryThroughFlash();
+	/** The lightning flash at the last ApplyClouds, the frame its level last jumped, whether the history is held for it. */
+	float LastCloudFlash = 0.0f;
+	uint64 CloudFlashJumpFrame = 0;
+	bool bHoldingCloudHistory = false;
 
 #if WITH_EDITOR
 	/** The style asset was edited: the overridden copy is rebuilt. */
