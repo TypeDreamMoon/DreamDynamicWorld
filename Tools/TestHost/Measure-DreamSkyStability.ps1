@@ -44,6 +44,8 @@ param(
     [string]$Project,
     # Only measure frames an earlier run saved (with the same -Prefix, -Modes and -Speeds).
     [switch]$NoRun,
+    # Frames held after switching to a volumetric material: its shaders keep compiling after 'settle' returns.
+    [int]$CompileHold = 600,
     [switch]$OffScreen,
     [switch]$Force
 )
@@ -85,7 +87,7 @@ if (-not $NoRun)
     foreach ($Mode in $Modes)
     {
         if ($Mode -eq 'Toon') { $Lines += 'DreamSky.Clouds 0' }
-        else { $Lines += 'DreamSky.Clouds 1', "DreamSky.CloudMaterial $($MaterialOf[$Mode])" }
+        else { $Lines += 'DreamSky.Clouds 1', "DreamSky.CloudMaterial $($MaterialOf[$Mode])", 'settle', "wait $CompileHold" }
         foreach ($Speed in $Speeds)
         {
             if ($Start) { $Lines += "move $(($Start -split ',' | ForEach-Object { $_.Trim() }) -join ' ')" } else { $Lines += 'home' }
