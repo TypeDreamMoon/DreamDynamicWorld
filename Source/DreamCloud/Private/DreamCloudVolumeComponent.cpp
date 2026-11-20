@@ -539,3 +539,25 @@ void UDreamCloudVolumeComponent::TickCloud(float DeltaTime, const FVector& Light
 		UpdateCloudMaterial();
 	}
 }
+
+void UDreamCloudVolumeComponent::Serialize(FArchive& Ar)
+{
+	if (Ar.IsSaving())
+	{
+		// Only a mesh's field is saved, packed (a game may not have the mesh's triangles); primitives bake again where
+		// they are loaded, in a few milliseconds.
+		if (ShapeSource == EDreamCloudShapeSource::Mesh)
+		{
+			Field.Pack();
+		}
+		else
+		{
+			Field.Packed.Reset();
+		}
+	}
+	Super::Serialize(Ar);
+	if (Ar.IsLoading() && Field.Packed.Num() > 0)
+	{
+		Field.Unpack();
+	}
+}

@@ -6,6 +6,7 @@
 #include "Async/ParallelFor.h"
 #include "Engine/StaticMesh.h"
 #include "Math/Float16.h"
+#include "Misc/Compression.h"
 #include "StaticMeshResources.h"
 
 #if WITH_EDITORONLY_DATA
@@ -17,6 +18,74 @@ bool FDreamCloudField::IsValid() const
 {
 	return Resolution.X > 0 && Resolution.Y > 0 && Resolution.Z > 0 && Distances.Num() == Resolution.X * Resolution.Y * Resolution.Z
 		&& Size.X > 0.0 && Size.Y > 0.0 && Size.Z > 0.0;
+}
+
+
+void FDreamCloudField::Pack()
+{
+	if (Packed.Num() > 0 || !IsValid())
+	{
+		return;
+	}
+	const float Step = TexelSize() / 16.0f;
+	TArray<uint8> Bytes;
+	Bytes.SetNumUninitialized(Distances.Num());
+	for (int32 i = 0; i < Distances.Num(); ++i)
+	{
+		FFloat16 Value;
+		Value.Encoded = Distances[i];
+		Bytes[i] = uint8(int8(FMath::Clamp(FMath::RoundToInt(Value.GetFloat() / Step), -127, 127)));
+	}
+	// A byte for the method (0 stored, 1 Oodle), the count, then the bytes.
+	const int32 Count = Bytes.Num();
+	int32 Bound = FCompression::CompressMemoryBound(NAME_Oodle, Count);
+	TArray<uint8> Compressed;
+	Compressed.SetNumUninitialized(Bound);
+	int32 CompressedSize = Bound;
+	const bool bCompressed = FCompression::CompressMemory(NAME_Oodle, Compressed.GetData(), CompressedSize, Bytes.GetData(), Count) && CompressedSize < Count;
+	Packed.Reset(5 + (bCompressed ? CompressedSize : Count));
+	Packed.Add(bCompressed ? 1 : 0);
+	Packed.Append(reinterpret_cast<const uint8*>(&Count), 4);
+	Packed.Append(bCompressed ? Compressed.GetData() : Bytes.GetData(), bCompressed ? CompressedSize : Count);
+}
+
+bool FDreamCloudField::Unpack()
+{
+	const int32 Expected = Resolution.X * Resolution.Y * Resolution.Z;
+	if (Packed.Num() < 5 || Expected <= 0)
+	{
+		return false;
+	}
+	int32 Count = 0;
+	FMemory::Memcpy(&Count, Packed.GetData() + 1, 4);
+	if (Count != Expected)
+	{
+		return false;
+	}
+	TArray<uint8> Bytes;
+	Bytes.SetNumUninitialized(Count);
+	if (Packed[0] == 1)
+	{
+		if (!FCompression::UncompressMemory(NAME_Oodle, Bytes.GetData(), Count, Packed.GetData() + 5, Packed.Num() - 5))
+		{
+			return false;
+		}
+	}
+	else if (Packed.Num() - 5 == Count)
+	{
+		FMemory::Memcpy(Bytes.GetData(), Packed.GetData() + 5, Count);
+	}
+	else
+	{
+		return false;
+	}
+	const float Step = TexelSize() / 16.0f;
+	Distances.SetNumUninitialized(Count);
+	for (int32 i = 0; i < Count; ++i)
+	{
+		Distances[i] = FFloat16(float(int8(Bytes[i])) * Step).Encoded;
+	}
+	return true;
 }
 
 float FDreamCloudField::TexelSize() const

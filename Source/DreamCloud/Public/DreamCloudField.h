@@ -29,13 +29,23 @@ struct DREAMCLOUD_API FDreamCloudField
 	UPROPERTY(VisibleAnywhere, Category = "Cloud")
 	FVector Size = FVector::ZeroVector;
 
-	/** The distances as half floats, x fastest, then y, then z. */
-	UPROPERTY()
+	/** The distances as half floats, x fastest, then y, then z (in memory only: saved packed, see Pack). */
 	TArray<uint16> Distances;
+
+	/** The distances as saved: a byte each, in sixteenths of a texel, clamped to 8 texels either side of the surface (a
+	 *  bound still: the march only skips less far), compressed. Only what cannot be baked again where it is loaded is saved (a mesh's field: a game may not
+	 *  have the mesh's triangles); a field of primitives is baked again on load, in a few milliseconds. */
+	UPROPERTY()
+	TArray<uint8> Packed;
 
 	/** What the field was baked from (see UDreamCloudVolumeComponent): baked again when it no longer matches. */
 	UPROPERTY()
 	uint32 SourceHash = 0;
+
+	/** Packs Distances into Packed (when it is not already). */
+	void Pack();
+	/** Unpacks Packed into Distances; false when there is nothing to unpack. */
+	bool Unpack();
 
 	bool IsValid() const;
 	float TexelSize() const;
