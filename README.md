@@ -65,8 +65,9 @@ everything looks: colour and intensity curves keyed by the **sun's elevation** (
 latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time jumps) or
 with eye adaptation held around it. When the volumetric clouds shadow the sun themselves, the weather does not dim
 the sun as well (the moon still dims under cloud), and the fixed exposure may brighten by up to
-`CloudShadowExposureLift` EV (2) under a closed cover — less as it opens, never darker than the curve — since no
-curve can know whether the view stands in a cloud's shadow.
+`CloudShadowExposureLift` EV (2) under a closed grey cover — less as it opens, hardly any under a storm, which is
+meant to look dark, and never darker than the curve — since no curve can know whether the view stands in a cloud's
+shadow.
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
@@ -88,9 +89,13 @@ multiple-scattering approximation loses light; at 1 a sunlit cumulus comes out l
 shadows: `VolumetricShadowTracingDistance` (how far each sample looks toward the sun, km),
 `VolumetricShadowResolution` (the cloud shadow map and the sky light's cloud occlusion map, which cover the traced
 distance rather than the engine's 150 km) and `VolumetricShadowSamples` (the shadow map's march; storms cost the
-most). `bVolumetricHalfResTracing` traces them at half resolution every frame instead of the engine's quarter
-rebuilt from the frames before: no standing grain in dense clouds and crisper painted outlines, for up to twice the
-clouds' cost.
+most). The realistic clouds are traced at half resolution every frame (`bVolumetricHalfResTracing`, on) instead of
+the engine's quarter of the pixels rebuilt from the frames before, which leaves a standing grain over dense clouds
+and stripes for some frames after a lightning flash. It costs the clouds 0.2–0.9 ms more at 1080p, about 2 ms in a
+storm, so in a storm they go back to the engine's way (the rain hides the grain) except through each flash; the
+painted clouds always keep the engine's way. Under the painted clouds the clouds' shadows take only 0.55 of the sun
+off the ground — a painted background's cloud shadows lie light and warm — and all of it under the realistic ones
+(the `GroundShadow` override sets it for either).
 
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
@@ -117,7 +122,7 @@ captured light has no hot spot.
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the volumetric materials' extinction, glow, base
-glow, painted tones and edge softness), Sun
+glow, painted tones, edge softness and ground shadow), Sun
 and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, cloud
 shadows, the disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
 Exposure (mode, compensation, the eye's range and speed). Tick a setting to use it; the style stays the preset
