@@ -19,11 +19,13 @@
 //   N = DCL_TetraNormal(Signed at P + Scale * DCL_Tetra(0..3))   // Scale = the lobe size, not the noise's
 //   float Key = DCL_ToonKey(N, LightDir, Shadow, Params);        // 0 shade .. 1 lit, before the bands
 //   float3 C = DCL_ToonBands(Key, Shade, Half, Lit, Softness, Footprint) // smooth bands: no stair-step edges
+//   (DCL_ToonBandsAt: the same with the half and lit tones' thresholds given; DCL_ToonBands puts them at 0.33, 0.66)
 //
 // Painted clouds (soft volumes in the toon tones), per sample of a volume march like the realistic ones:
 //   FDCloudPaintedParams PP = DCL_DefaultPaintedParams();  // march with SigmaT * PP.DensityScale
 //   Scattered = SigmaT * PP.DensityScale * L.Albedo * DCL_ShadePainted(Tau, Cos, Height01, Depth01, Shade, Half, Lit, PP);
 //   (Shade, Half, Lit: the style's cloud tones; Tau toward the light as above, at the unscaled extinction)
+//   (PP.HalfAt / PP.LitAt: where the half and the lit tone begin in the key, 0.33 and 0.66 by default)
 // ---------------------------------------------------------------------------------------------------------------------
 
 #ifndef DREAMCLOUD_LIGHT_USH
@@ -188,13 +190,19 @@ float DCL_ToonKey(float3 N, float3 LightDir, float Shadow, FDCloudToonParams T)
 
 // Three tones from a key, with bands as wide as Softness in key units plus a pixel's footprint (Footprint: how far the key
 // changes over a pixel, e.g. fwidth(Key) or estimated from the curvature), so a band edge is clean at any distance:
-// never the stair steps of a hard threshold on a sampled field.
-float3 DCL_ToonBands(float Key, float3 Shade, float3 Half, float3 Lit, float Softness, float Footprint)
+// never the stair steps of a hard threshold on a sampled field. The half tone begins at HalfAt, the lit one at LitAt (in
+// key units); DCL_ToonBands puts them at 0.33 and 0.66.
+float3 DCL_ToonBandsAt(float Key, float3 Shade, float3 Half, float3 Lit, float HalfAt, float LitAt, float Softness, float Footprint)
 {
 	float W = max(Softness, 0.0) + max(Footprint, 0.0);
-	float ToHalf = smoothstep(0.33 - W, 0.33 + W, Key);
-	float ToLit = smoothstep(0.66 - W, 0.66 + W, Key);
+	float ToHalf = smoothstep(HalfAt - W, HalfAt + W, Key);
+	float ToLit = smoothstep(LitAt - W, LitAt + W, Key);
 	return lerp(lerp(Shade, Half, ToHalf), Lit, ToLit);
+}
+
+float3 DCL_ToonBands(float Key, float3 Shade, float3 Half, float3 Lit, float Softness, float Footprint)
+{
+	return DCL_ToonBandsAt(Key, Shade, Half, Lit, 0.33, 0.66, Softness, Footprint);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -208,6 +216,8 @@ struct FDCloudPaintedParams
 	float KeyLow;        // ... times KeyLow at the cloud's base rising to KeyHigh at its top (lit higher up)
 	float KeyHigh;
 	float Softness;      // how soft the edges between the tones are (in key units)
+	float HalfAt;        // where the half tone begins, and the lit one, in key units (0.33, 0.66 as DCL_ToonBands; a
+	float LitAt;         // material's HalfToneAt / LitToneAt go here)
 	float Rim;           // the silver lining: how much of the lit tone the thin outside adds against the sun,
 	float RimPower;      // how close to the sun (pow of the cosine),
 	float RimFalloff;    // and how fast it fades with the depth toward the light (exp(-RimFalloff * Tau))
@@ -221,6 +231,8 @@ FDCloudPaintedParams DCL_DefaultPaintedParams()
 	P.KeyLow = 0.7;
 	P.KeyHigh = 1.05;
 	P.Softness = 0.12;
+	P.HalfAt = 0.33;
+	P.LitAt = 0.66;
 	P.Rim = 0.8;
 	P.RimPower = 6.0;
 	P.RimFalloff = 0.3;
@@ -235,7 +247,7 @@ FDCloudPaintedParams DCL_DefaultPaintedParams()
 float3 DCL_ShadePainted(float Tau, float Cos, float Height01, float Depth01, float3 Shade, float3 Half, float3 Lit, FDCloudPaintedParams P)
 {
 	float Key = saturate(exp(-P.KeyFalloff * Tau) * lerp(P.KeyLow, P.KeyHigh, saturate(Height01)));
-	float3 Color = DCL_ToonBands(Key, Shade, Half, Lit, P.Softness, 0.0);
+	float3 Color = DCL_ToonBandsAt(Key, Shade, Half, Lit, P.HalfAt, P.LitAt, P.Softness, 0.0);
 	Color += Lit * P.Rim * pow(saturate(Cos), P.RimPower) * (1.0 - saturate(Depth01)) * exp(-P.RimFalloff * Tau);
 	return Color;
 }
