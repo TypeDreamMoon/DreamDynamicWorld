@@ -77,6 +77,20 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float Night = 1.0 - smoothstep(-0.12, -0.02, SunDir.z);
 	float Core = smoothstep(0.08, 0.3, S.Density) * Night;
 	float E = (Fringe + 2.0 * Core) * Sigma * (1.0 + S.Dark);
+	// By day the march toward the eye sees the body a third as thick. Its steps (some 80 m near, hundreds far off) are
+	// many times a solid cloud's mean free path (some 12 m): the first sample that lands in it would take the whole
+	// pixel, lit by wherever in its step the per-pixel jitter put it -- a standing grain over every cloud. Thinner,
+	// a pixel is the average of a few samples. (Toward the light, for the shading and the shadows, it stays as thick;
+	// so do the faint outer parts, the cloud in front of the sun's disk, and every cloud at night, or the sun and the
+	// stars would show through.)
+	float Distance = length(Rel);
+	float3 Ray = Rel / max(Distance, 1.0);
+	if (Detail > 0.5)
+	{
+		float Body = smoothstep(0.08, 0.3, S.Density) * (1.0 - Night);
+		Body *= 1.0 - smoothstep(0.995, 0.9995, dot(Ray, normalize(SunDir.xyz)));
+		E *= lerp(1.0, 0.35, Body);
+	}
 	OutExtinction = E.xxx;
 	OutAlbedo = (Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * S.Deck)).xxx;
 
@@ -95,8 +109,6 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float3 Shade = CloudShadow.rgb * ShadeMul.rgb * Glow * Shade01 * (1.0 - 0.8 * Storm);
 	// The air between: what the cloud scatters fades, and the sky behind it (a dense cloud glows Emissive / E)
 	// takes its place.
-	float Distance = length(Rel);
-	float3 Ray = Rel / max(Distance, 1.0);
 	float Veil = DCS_AirVeil(Distance, Ray.z, World.z - Rel.z, Cloud0.x, Cloud3);
 	float3 Halo;
 	// (Looking down on a cloud, the air between takes the low sky's colour, not the ground's.)
