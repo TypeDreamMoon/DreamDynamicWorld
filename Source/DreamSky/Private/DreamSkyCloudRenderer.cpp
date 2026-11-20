@@ -30,7 +30,8 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDebug(
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT("DreamSky.CloudRender.Look"), 0,
 	TEXT("How the sky cloud renderer draws the clouds: 0 = toon (the surface, lit in the style's tones), 1 = realistic (the")
-	TEXT(" density integrated along the view, lit by scattering)."),
+	TEXT(" density integrated along the view, lit by scattering), 2 = painted (the density integrated, painted in the style's")
+	TEXT(" tones by the light through it)."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDownsample(
@@ -70,8 +71,8 @@ class FDreamSkyCloudMarchCS : public FGlobalShader
 	DECLARE_GLOBAL_SHADER(FDreamSkyCloudMarchCS);
 	SHADER_USE_PARAMETER_STRUCT(FDreamSkyCloudMarchCS, FGlobalShader);
 
-	class FRealistic : SHADER_PERMUTATION_BOOL("DSKY_REALISTIC");
-	using FPermutationDomain = TShaderPermutationDomain<FRealistic>;
+	class FLook : SHADER_PERMUTATION_INT("DSKY_LOOK", 3);
+	using FPermutationDomain = TShaderPermutationDomain<FLook>;
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
@@ -331,7 +332,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.Parameters[Index] = FVector4f(Value.R, Value.G, Value.B, Value.A);
 		}
 		Settings.bClouds = Settings.Noise && Settings.Map;
-		Settings.Look = FMath::Clamp(CVarDreamSkyCloudRenderLook.GetValueOnGameThread(), 0, 1);
+		Settings.Look = FMath::Clamp(CVarDreamSkyCloudRenderLook.GetValueOnGameThread(), 0, 2);
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
@@ -424,7 +425,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->OutColor = GraphBuilder.CreateUAV(MarchColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(MarchDepth);
 			FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
-			Permutation.Set<FDreamSkyCloudMarchCS::FRealistic>(Settings.Look == 1);
+			Permutation.Set<FDreamSkyCloudMarchCS::FLook>(Settings.Look);
 			TShaderMapRef<FDreamSkyCloudMarchCS> Shader(ShaderMap, Permutation);
 			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("March %dx%d (1/%d)", Half.X, Half.Y, Downsample), Shader, Params,
 				FComputeShaderUtils::GetGroupCount(Half, FDreamSkyCloudMarchCS::GroupSize));
@@ -562,7 +563,7 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->PanoramaResolution = Resolution;
 		Params->OutPanorama = GraphBuilder.CreateUAV(Panorama);
 		FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
-		Permutation.Set<FDreamSkyCloudMarchCS::FRealistic>(RenderSettings.Look == 1);
+		Permutation.Set<FDreamSkyCloudMarchCS::FLook>(RenderSettings.Look);
 		TShaderMapRef<FDreamSkyCloudPanoramaCS> Shader(ShaderMap, Permutation);
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Panorama %dx%d", Resolution.X, Resolution.Y), Shader, Params,
 			FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudMarchCS::GroupSize));
