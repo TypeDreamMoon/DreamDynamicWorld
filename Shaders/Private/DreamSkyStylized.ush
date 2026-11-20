@@ -346,10 +346,13 @@ float DSky_EdgeWidth(float T)
 // then lit once, the way painted cumulus are: by its own normal (each billow on its own), shaded where a whole cloud
 // stands between it and the light, then the style's few tones. Returns the clouds' colour (over their own
 // transparency) and their cover; Core = how deep the cloud is (for the lightning). SkyBehind = the sky's colour along V:
-// the air between the view and a cloud veils it in that colour.
+// the air between the view and a cloud veils it in that colour. SceneReach: cm along V to whatever stands in front of the
+// clouds there (the clouds behind it are not drawn; the march itself does not change with it, or its samples would move
+// with the scene's depth from pixel to pixel and frame to frame).
 float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLayer,
 	float4 MapParams, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float3 Tone,
-	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float3 Sun, float4 LightColor, out float Core)
+	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float3 Sun, float4 LightColor, float SceneReach,
+	out float Core)
 {
 	Core = 0.0;
 	if (Cloud0.x <= 0.0)
@@ -806,6 +809,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	}
 	Cover *= lerp(1.0, Keep, max(Here.Deck, Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
+	// (A cloud just in front of the ground fades into it over the last few hundred metres, instead of a hard line where
+	// they cross.)
+	Cover *= saturate((SceneReach - SurfaceT) / max(0.05 * SceneReach, 20000.0));
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
 }
@@ -939,13 +945,16 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	// CloudLayer.w = 1: the engine's volumetric cloud layer draws the clouds over the dome; the dome leaves its own out.
 	float CloudCore = 0.0;
 	float4 VC = float4(0, 0, 0, 0);
-	if (CloudLayer.w < 0.5)
+	// Under the horizon the clouds are drawn over the scene instead (DSky_ShadeBelow): the dome is behind the ground. Not in
+	// the sky light, which sees no ground: there the dome still draws them.
+	if (CloudLayer.w < 0.5 && (V.z >= 0.0 || Capture > 0.5))
 	{
 		// Looking down on clouds, the air between takes the low sky's colour, not the ground's.
 		float3 HazeHalo = Halo;
 		float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
 		VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, CloudCore);
+			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, 1.0e10,
+			CloudCore);
 		VC *= CloudShadow.a;
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
@@ -992,6 +1001,47 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);
+}
+
+// The toon clouds under the horizon, drawn over the scene (M_DreamSkyBelow, translucent on a small sphere round the view):
+// the dome stands behind everything and leaves them out, or the ground they hang over would hide them. The same drawing
+// as the dome's, its weather fog and lightning on the clouds alone (the scene behind them has its own); only as far as
+// the scene reaches along V (Reach, cm). Returns the colour, premultiplied, and the cover.
+float4 DSky_ShadeBelow(float3 V, float4 SunDir, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo, float4 Cloud0,
+	float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor,
+	float4 CloudLayer, float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap,
+	SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float Reach)
+{
+	V = normalize(V);
+	if (V.z >= 0.0 || CloudLayer.w >= 0.5)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float3 Sun = normalize(SunDir.xyz);
+	float3 LightDir = normalize(MainLight.xyz);
+	float3 Halo;
+	float3 Base = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
+	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
+	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
+	float3 HazeHalo = Halo;
+	float3 HazeColor = DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
+	float CloudCore = 0.0;
+	float4 VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
+		Noise, NoiseSampler, Camera, Tone, Halo, HazeColor + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, Reach,
+		CloudCore);
+	VC *= CloudShadow.a;
+	// (The dome's weather fog under the horizon, where it hides all of it: the clouds fade into it, the fogged scene shows.)
+	VC *= 1.0 - saturate(Haze.a);
+	float FlashNow = Flash.w * Extra.w;
+	if (FlashNow > 0.0 && VC.a > 0.0)
+	{
+		float Toward = pow(saturate(dot(V, normalize(Flash.xyz))), 3.0);
+		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
+		float Level = saturate(0.3 + SkyLevel * 3.0);
+		float Body = lerp(0.6, 1.4, saturate(CloudCore));
+		VC.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * VC.a) * Body * VC.a;
+	}
+	return float4(max(VC.rgb, 0.0), VC.a);
 }
 
 #endif // DREAMSKY_STYLIZED_USH

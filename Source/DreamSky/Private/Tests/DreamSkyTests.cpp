@@ -17,6 +17,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
+#include "MaterialShared.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
@@ -311,6 +312,15 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("no volumetric layer with toon clouds"), W.Sky->VolumetricClouds->GetVisibleFlag());
 	TestFalse(TEXT("the dome draws its own clouds"), DomeLeavesCloudsOut());
 	const double ToonDome = DomeRadius();
+	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
+	// horizon. Its sky goes by the view direction alone, so it stands far beyond any terrain.)
+	TestTrue(FString::Printf(TEXT("the toon dome stands beyond far terrain (%.0f km)"), ToonDome / 100000.0), ToonDome >= 50000000.0);
+	// (So the clouds under the horizon are drawn over the scene instead, or the ground would hide them.)
+	const UMaterialInterface* Below = W.Sky->CloudsBelow->GetMaterial(0);
+	TestTrue(TEXT("the clouds under the horizon are drawn over the scene"), W.Sky->CloudsBelow->GetVisibleFlag());
+	TestTrue(TEXT("with their own material"), Below && Below->GetPathName() == TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow"));
+	TestTrue(TEXT("a translucent one"), Below && IsTranslucentBlendMode(*Below));
+	TestTrue(TEXT("round the view, well inside the dome"), W.Sky->CloudsBelow->Bounds.SphereRadius < ToonDome * 0.01);
 
 	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
 	W.Clock->Tick(0.016f);
@@ -322,8 +332,9 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("as tall as asked"), W.Sky->VolumetricClouds->LayerHeight, W.Sky->VolumetricLayerThickness, 1e-3f);
 	TestNearlyEqual(TEXT("sampled as finely as asked"), W.Sky->VolumetricClouds->ViewSampleCountScale, W.Sky->VolumetricSampleCountScale, 1e-3f);
 	TestTrue(TEXT("the dome leaves its own clouds out"), DomeLeavesCloudsOut());
+	TestFalse(TEXT("and so does the sphere of the clouds under the horizon"), W.Sky->CloudsBelow->GetVisibleFlag());
 	TestTrue(TEXT("the clouds shade the sky light under them"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
-	TestTrue(FString::Printf(TEXT("the dome stands beyond the traced clouds (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= W.Sky->VolumetricTracingDistance * 100000.0 && DomeRadius() > ToonDome);
+	TestTrue(FString::Printf(TEXT("the dome stands beyond the traced clouds (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= W.Sky->VolumetricTracingDistance * 100000.0 && DomeRadius() >= ToonDome);
 	TestTrue(TEXT("the moon is the second atmosphere light (it lights the clouds at night)"),
 		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
 
@@ -350,6 +361,7 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("and gives the clouds back to the dome"), DomeLeavesCloudsOut());
 	TestFalse(TEXT("painted clouds cast no sky light shade"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
 	TestNearlyEqual(TEXT("the dome comes back in"), DomeRadius(), ToonDome, 1.0);
+	TestTrue(TEXT("and the clouds under the horizon with it"), W.Sky->CloudsBelow->GetVisibleFlag());
 	CVar->Set(SavedOverride, ECVF_SetByCode);
 	return true;
 }
