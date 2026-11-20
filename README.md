@@ -63,7 +63,10 @@ process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamS
 engine's volumetric clouds draw them, the clouds. A `UDreamSkyStyle` (default `DS_DreamSkyStylized`) says how
 everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day length or
 latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time jumps) or
-with eye adaptation held around it.
+with eye adaptation held around it. When the volumetric clouds shadow the sun themselves, the weather does not dim
+the sun as well (the moon still dims under cloud), and the fixed exposure may brighten by up to
+`CloudShadowExposureLift` EV (2) under a closed cover — less as it opens, never darker than the curve — since no
+curve can know whether the view stands in a cloud's shadow.
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
@@ -78,7 +81,16 @@ The clouds are one density field drawn either of two ways (`ADreamSky.Clouds`, o
 `VolumetricTracingDistance`, `VolumetricSampleCountScale`) with one of two materials over the same clouds —
 `M_DreamVolumetricCloud`, realistic (soft, lit by scattering), or `M_DreamVolumetricCloud_Painted`, an anime
 background's (hard-edged, opaque, in the style's lit, half and shade tones with a silver lining near the sun), set as
-`VolumetricCloudMaterial` or from the console (`DreamSky.CloudMaterial <object path>`).
+`VolumetricCloudMaterial` or from the console (`DreamSky.CloudMaterial <object path>`). The volumetric clouds'
+light: `VolumetricSunScattering` (2.5) brightens the sun's and the moon's scattering in them (the engine's
+multiple-scattering approximation loses light; at 1 a sunlit cumulus comes out light grey);
+`VolumetricBaseSkyOcclusion` shuts their bases off from the sky light (higher = darker, flatter bases). Their
+shadows: `VolumetricShadowTracingDistance` (how far each sample looks toward the sun, km),
+`VolumetricShadowResolution` (the cloud shadow map and the sky light's cloud occlusion map, which cover the traced
+distance rather than the engine's 150 km) and `VolumetricShadowSamples` (the shadow map's march; storms cost the
+most). `bVolumetricHalfResTracing` traces them at half resolution every frame instead of the engine's quarter
+rebuilt from the frames before: no standing grain in dense clouds and crisper painted outlines, for up to twice the
+clouds' cost.
 
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
@@ -86,10 +98,14 @@ fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-f
 cut at a threshold that falls as the cover rises, says where cloud may stand — whole clouds of every size, crowded in
 places and sparse in others — and the type's vertical profile tapers it with height: small cumulus keep to the
 lowest few hundred metres above the base (`CloudLayerHeight`, 0.6 km), towering cumulus climb the 4 km layer
-narrowing, an overcast fills it, its base lifted here and there. Billows erode it (`CloudErosion`; erosion only, it
-never adds cloud), most on small clouds, hardly on an overcast's underside, and a finer octave frays the edges near
-the view (`CloudDetail`). Fair-weather cumulus follow the hour (`CloudDiurnal`): fewer in the morning, the most in
-the afternoon. Under storm darkness the strongest cells climb out of the deck into cumulonimbus, up to 10 km, and
+narrowing and leaning downwind, an overcast fills it, its base lifted here and there; a breaking overcast cracks
+along ragged, wandering lines. Billows erode it (`CloudErosion`; erosion only, it never adds cloud) — Worley swellings
+gathered into clumps of every size, not equal balls — most on small clouds, hardly on an overcast's underside, and a
+finer octave frays the edges near the view (`CloudDetail`). The clouds grow and fall apart as they drift
+(`CloudFormationSpeed`: at 1 a cloud builds and dissolves over some 20 game minutes, 0 holds every shape), following
+the world clock, so a given moment always shows the same clouds. Fair-weather cumulus follow the hour
+(`CloudDiurnal`): fewer and flat in the morning, building into the tall cumulus of the mid-afternoon, sinking and
+fraying toward evening. Under storm darkness the strongest cells climb out of the deck into cumulonimbus, up to 10 km, and
 spread into anvils there; rain hangs under a distant storm in grey curtains. The air between veils far clouds in
 the sky's own colour behind them, thicker low down (`CloudVisibility`, `CloudHazeHeight`): a tower's base sinks into
 the horizon while its top stays clear. Above it all lie thin cirrus streaks along the wind (`CloudHighCover`,
@@ -99,8 +115,9 @@ low. When the sky light captures the dome it sees no stars and only `SunDiskInSk
 captured light has no hot spot.
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
-level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, the hour's effect, erosion,
-detail, cirrus, storm darkening, visibility, and the volumetric materials' extinction, glow and painted tones), Sun
+level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
+effect, erosion, detail, cirrus, storm darkening, visibility, and the volumetric materials' extinction, glow, base
+glow, painted tones and edge softness), Sun
 and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, cloud
 shadows, the disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
 Exposure (mode, compensation, the eye's range and speed). Tick a setting to use it; the style stays the preset
@@ -146,7 +163,8 @@ load, in every replay, and `GetForecast` is just the function evaluated ahead. P
 hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`.
 
 **Bending it.** `PushModifier` (a scripted storm, a spell that brings rain: channel values or a preset,
-Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)`.
+Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)` (a second
+forcing blends in over the first, which holds until it has arrived: the schedule never shows through between).
 **Zones** (`ADreamWeatherZone`, or `UDreamWeatherZoneComponent` on anything) give a region weather of its own: a
 box or circle footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
 registration order). Anything else can bend the weather where it is by implementing `IDreamWeatherInfluence`.
@@ -162,7 +180,11 @@ wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view)
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
 up in it where each direction meets the cloud layer, so a storm zone's dark clouds show from afar. The zone
 falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the compute pass and for the CPU
-queries: what the sky shows over a valley is what gameplay reads there.
+queries: what the sky shows over a valley is what gameplay reads there. Rain, snow and lightning are held to what
+the clouds allow, after every preset, modifier and zone (*Project Settings ▸ Dream Weather ▸ Clouds*): no
+precipitation below 75% cover, in full from 90% (`PrecipitationCloudCover`), and lightning only from a dark, closed
+cover (`LightningCloudDarkness` 0.45–0.75, `LightningCloudCover` 0.85–0.97). A change of weather therefore stops
+raining before its clouds break up, and starts only once they have closed in.
 
 **Shelter.** Every query carries an *Exposure* (0 under a roof .. 1 in the open) and `RainHere / SnowHere`,
 the rain and snow that actually land on the point. Shelters are boxes (`ADreamWeatherShelter`, or
