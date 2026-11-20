@@ -25,7 +25,10 @@
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
-namespace DreamWorld::Setup
+// The test level's helpers have a namespace of their own: in a unity build this file shares a translation unit with
+// the setup commandlet, whose helpers in DreamWorld::Setup have the same names (an anonymous namespace inside it would
+// not keep them apart).
+namespace DreamWorld::CloudTestMap
 {
 	namespace
 	{
@@ -109,7 +112,10 @@ namespace DreamWorld::Setup
 			return Volume;
 		}
 	}
+}
 
+namespace DreamWorld::Setup
+{
 	UStaticMesh* EnsureCloudSculptMesh(bool bForce)
 	{
 		if (!bForce && FPackageName::DoesPackageExist(CloudSculptPackage))
@@ -156,7 +162,7 @@ namespace DreamWorld::Setup
 			FStaticMeshOperations::AppendMeshDescription(*Source, Merged, Settings);
 		}
 
-		UPackage* Package = FreshPackage(CloudSculptPackage);
+		UPackage* Package = CloudTestMap::FreshPackage(CloudSculptPackage);
 		UStaticMesh* Mesh = NewObject<UStaticMesh>(Package, TEXT("SM_DreamCloudSculpt"), RF_Public | RF_Standalone);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(UMaterial::GetDefaultMaterial(MD_Surface), TEXT("Cloud"), TEXT("Cloud")));
 		Mesh->AddSourceModel();
@@ -167,13 +173,13 @@ namespace DreamWorld::Setup
 		Mesh->Build(true);
 		Mesh->PostEditChange();
 		FAssetRegistryModule::AssetCreated(Mesh);
-		return SaveAsset(Package, Mesh, FPackageName::GetAssetPackageExtension()) ? Mesh : nullptr;
+		return CloudTestMap::SaveAsset(Package, Mesh, FPackageName::GetAssetPackageExtension()) ? Mesh : nullptr;
 	}
 
 	bool BuildCloudTestMap(UDreamSkyStyle* Style, UDreamWeatherPreset* Weather)
 	{
 		UStaticMesh* Sculpt = EnsureCloudSculptMesh(false);
-		UPackage* Package = FreshPackage(CloudTestMapPackage);
+		UPackage* Package = CloudTestMap::FreshPackage(CloudTestMapPackage);
 		UWorld::InitializationValues Values;
 		Values.RequiresHitProxies(false);
 		Values.ShouldSimulatePhysics(false);
@@ -206,15 +212,15 @@ namespace DreamWorld::Setup
 		}
 
 		const TCHAR* Plane = TEXT("/Engine/BasicShapes/Plane.Plane");
-		AddMesh(*World, Plane, FVector::ZeroVector, FVector(600.0f, 600.0f, 1.0f))->SetActorLabel(TEXT("Floor"));
-		if (AStaticMeshActor* Ground = AddMesh(*World, Plane, FVector(0.0f, 0.0f, -5.0f), FVector(1000000.0f, 1000000.0f, 1.0f)))
+		CloudTestMap::AddMesh(*World, Plane, FVector::ZeroVector, FVector(600.0f, 600.0f, 1.0f))->SetActorLabel(TEXT("Floor"));
+		if (AStaticMeshActor* Ground = CloudTestMap::AddMesh(*World, Plane, FVector(0.0f, 0.0f, -5.0f), FVector(1000000.0f, 1000000.0f, 1.0f)))
 		{
 			Ground->SetActorLabel(TEXT("Ground"));
 			Ground->GetStaticMeshComponent()->SetCastShadow(false);
 			Ground->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
 		// Something to stand in the clouds' soft contact: a pillar through the realistic heap.
-		if (AStaticMeshActor* Pillar = AddMesh(*World, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(7000.0f, -3400.0f, 1000.0f), FVector(2.0f, 2.0f, 20.0f)))
+		if (AStaticMeshActor* Pillar = CloudTestMap::AddMesh(*World, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(7000.0f, -3400.0f, 1000.0f), FVector(2.0f, 2.0f, 20.0f)))
 		{
 			Pillar->SetActorLabel(TEXT("Pillar"));
 		}
@@ -224,25 +230,25 @@ namespace DreamWorld::Setup
 			{ TEXT("Look_Toon"), EDreamCloudLook::Toon }, { TEXT("Look_Painted"), EDreamCloudLook::Painted } };
 		for (int32 i = 0; i < UE_ARRAY_COUNT(Looks); ++i)
 		{
-			AddCloud(*World, Looks[i].Key, FVector(7000.0, -3800.0 + 3800.0 * i, 1500.0), Looks[i].Value, [](UDreamCloudVolumeComponent& C)
+			CloudTestMap::AddCloud(*World, Looks[i].Key, FVector(7000.0, -3800.0 + 3800.0 * i, 1500.0), Looks[i].Value, [](UDreamCloudVolumeComponent& C)
 			{
-				C.Primitives = Heap(3000.0);
+				C.Primitives = CloudTestMap::Heap(3000.0);
 				C.PrimitiveBlend = 400.0f;
 			});
 		}
 
 		// Right: meshes as clouds.
-		AddCloud(*World, TEXT("Mesh_Cube"), FVector(-3000.0, 6000.0, 1200.0), EDreamCloudLook::Realistic, [](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("Mesh_Cube"), FVector(-3000.0, 6000.0, 1200.0), EDreamCloudLook::Realistic, [](UDreamCloudVolumeComponent& C)
 		{
 			C.ShapeSource = EDreamCloudShapeSource::Mesh;
 			C.ShapeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
 		}, FVector(14.0));
-		AddCloud(*World, TEXT("Mesh_Sphere"), FVector(0.0, 6000.0, 1200.0), EDreamCloudLook::Toon, [](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("Mesh_Sphere"), FVector(0.0, 6000.0, 1200.0), EDreamCloudLook::Toon, [](UDreamCloudVolumeComponent& C)
 		{
 			C.ShapeSource = EDreamCloudShapeSource::Mesh;
 			C.ShapeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 		}, FVector(16.0));
-		AddCloud(*World, TEXT("Mesh_Sculpt"), FVector(3200.0, 6000.0, 1100.0), EDreamCloudLook::Painted, [Sculpt](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("Mesh_Sculpt"), FVector(3200.0, 6000.0, 1100.0), EDreamCloudLook::Painted, [Sculpt](UDreamCloudVolumeComponent& C)
 		{
 			C.ShapeSource = EDreamCloudShapeSource::Mesh;
 			C.ShapeMesh = Sculpt;
@@ -250,35 +256,35 @@ namespace DreamWorld::Setup
 		}, FVector(7.0));
 
 		// Behind: a cloud with a tunnel through it at 1200 cm, and one to fly through beside it.
-		AddCloud(*World, TEXT("Tunnel"), FVector(-7000.0, 0.0, 1200.0), EDreamCloudLook::Toon, [](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("Tunnel"), FVector(-7000.0, 0.0, 1200.0), EDreamCloudLook::Toon, [](UDreamCloudVolumeComponent& C)
 		{
 			C.Primitives = {
-				Primitive(EDreamCloudPrimitive::Box, FVector::ZeroVector, FVector(2500.0, 1500.0, 1100.0), false, 600.0f),
-				Primitive(EDreamCloudPrimitive::Sphere, FVector(800.0, 300.0, 1000.0), FVector(1100.0)),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector::ZeroVector, FVector(450.0, 0.0, 3500.0), true, 0.0f, FRotator(90.0, 0.0, 0.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Box, FVector::ZeroVector, FVector(2500.0, 1500.0, 1100.0), false, 600.0f),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Sphere, FVector(800.0, 300.0, 1000.0), FVector(1100.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector::ZeroVector, FVector(450.0, 0.0, 3500.0), true, 0.0f, FRotator(90.0, 0.0, 0.0)),
 			};
 			C.PrimitiveBlend = 300.0f;
 			C.Resolution = 96;
 		});
-		AddCloud(*World, TEXT("FlyThrough"), FVector(-7000.0, -5200.0, 1200.0), EDreamCloudLook::Realistic, [](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("FlyThrough"), FVector(-7000.0, -5200.0, 1200.0), EDreamCloudLook::Realistic, [](UDreamCloudVolumeComponent& C)
 		{
-			C.Primitives = Heap(4500.0);
+			C.Primitives = CloudTestMap::Heap(4500.0);
 			C.PrimitiveBlend = 500.0f;
 		});
 
 		// Left, high up: a castle in the sky.
-		AddCloud(*World, TEXT("Sky_Castle"), FVector(2000.0, -26000.0, 14000.0), EDreamCloudLook::Painted, [](UDreamCloudVolumeComponent& C)
+		CloudTestMap::AddCloud(*World, TEXT("Sky_Castle"), FVector(2000.0, -26000.0, 14000.0), EDreamCloudLook::Painted, [](UDreamCloudVolumeComponent& C)
 		{
 			C.Primitives = {
-				Primitive(EDreamCloudPrimitive::Box, FVector::ZeroVector, FVector(4000.0, 3000.0, 900.0), false, 700.0f),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector(2800.0, 2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector(-2800.0, 2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector(2800.0, -2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector(-2800.0, -2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
-				Primitive(EDreamCloudPrimitive::Capsule, FVector(0.0, 0.0, 2600.0), FVector(1400.0, 0.0, 1800.0)),
-				Primitive(EDreamCloudPrimitive::Sphere, FVector(0.0, 0.0, 5000.0), FVector(1300.0)),
-				Primitive(EDreamCloudPrimitive::Sphere, FVector(2800.0, 2000.0, 3000.0), FVector(950.0)),
-				Primitive(EDreamCloudPrimitive::Sphere, FVector(-2800.0, -2000.0, 3000.0), FVector(950.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Box, FVector::ZeroVector, FVector(4000.0, 3000.0, 900.0), false, 700.0f),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector(2800.0, 2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector(-2800.0, 2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector(2800.0, -2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector(-2800.0, -2000.0, 1400.0), FVector(800.0, 0.0, 1300.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Capsule, FVector(0.0, 0.0, 2600.0), FVector(1400.0, 0.0, 1800.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Sphere, FVector(0.0, 0.0, 5000.0), FVector(1300.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Sphere, FVector(2800.0, 2000.0, 3000.0), FVector(950.0)),
+				CloudTestMap::Primitive(EDreamCloudPrimitive::Sphere, FVector(-2800.0, -2000.0, 3000.0), FVector(950.0)),
 			};
 			C.PrimitiveBlend = 700.0f;
 			C.NoiseScale = 4000.0f;
@@ -297,7 +303,7 @@ namespace DreamWorld::Setup
 		Camera->GetCameraComponent()->bConstrainAspectRatio = false;
 		Camera->SetActorLabel(TEXT("ShotCamera"));
 
-		const bool bSaved = SaveAsset(Package, World, FPackageName::GetMapPackageExtension());
+		const bool bSaved = CloudTestMap::SaveAsset(Package, World, FPackageName::GetMapPackageExtension());
 		World->DestroyWorld(false);
 		return bSaved;
 	}
