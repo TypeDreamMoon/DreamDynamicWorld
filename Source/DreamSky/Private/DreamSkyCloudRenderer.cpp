@@ -2,6 +2,7 @@
 
 #include "DreamSkyCloudRenderer.h"
 #include "DreamSky.h"
+#include "DreamSkyModule.h"
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSubsystem.h"
 
@@ -208,8 +209,10 @@ class FDreamSkyCloudTemporalCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, HistorySampler)
 		SHADER_PARAMETER(FVector2f, HistoryInvExtent)
 		SHADER_PARAMETER(float, HistoryWeight)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, HistoryRaySize)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutDepth)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<uint2>, OutRaySize)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -272,6 +275,35 @@ IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudPanoramaCS, "/Plugin/DreamDynamicWorld/Pri
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudTemporalCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "TemporalCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositePS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "CompositePS", SF_Pixel);
 
+namespace DreamSkyCloudRender
+{
+	/** A view's clouds, kept from the base pass for the composite over the scene before the post processing (the clouds
+	 * below the view, when it is over the layer's base). */
+	struct FBelow
+	{
+		FRDGTextureRef Color = nullptr;
+		FRDGTextureRef Depth = nullptr;
+		FRDGTextureRef SceneDepth = nullptr;
+		int32 Downsample = 2;
+		FVector4f Parameters[FDreamSkyCloudViewExtension::NumParameters];
+		FVector4f LookParameters[FDreamSkyCloudViewExtension::NumLookParameters];
+	};
+
+	/**
+	 * What the clouds keep for one render graph: its references to the sun maps, its views' clouds for the composite
+	 * below. On the graph's blackboard: no graph's resources are ever read by another. (A scene capture renders in a graph
+	 * of its own, in the same frame; held on the extension and told apart by the frame and the builder's address -- which
+	 * the next graph may well reuse -- a capture's march was handed the main view's sun maps from a graph long gone.)
+	 */
+	struct FGraphClouds
+	{
+		FRDGTextureRef SunMaps[2] = {nullptr, nullptr};
+		bool bSunMaps = false;
+		TMap<const FSceneView*, FBelow> Below;
+	};
+}
+RDG_REGISTER_BLACKBOARD_STRUCT(DreamSkyCloudRender::FGraphClouds);
+
 const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 {
 	static const TArray<FName> Names = {
@@ -295,6 +327,7 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[5] = FVector4f(L.PaintShadeTint.R, L.PaintShadeTint.G, L.PaintShadeTint.B, L.PaintExtinction * 0.01f);
 	Out[6] = FVector4f(L.EdgeSoftness, L.HalfToneAt, L.LitToneAt, L.ToneSoftness);
 	Out[7] = FVector4f(L.SilverLining, L.BillowShade, L.ShadowTracingDistance * 100000.0f, 0.0f);
+	Out[8] = FVector4f(L.LightIlluminance.R, L.LightIlluminance.G, L.LightIlluminance.B, L.ShadowReach);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -389,13 +422,14 @@ void FDreamSkyCloudViewExtension::PostRenderBasePassDeferred_RenderThread(FRDGBu
 	}
 	RDG_EVENT_SCOPE(GraphBuilder, "DreamSky.Clouds");
 	RenderClouds(GraphBuilder, InView, RenderTargets);
-	// Views that stopped drawing (closed viewports, finished captures) let go of their history.
+	// Views that stopped drawing (closed viewports, finished captures) let go of their history -- after some minutes: an
+	// editor viewport that is not realtime may stand still that long and is drawn again with it.
 	if ((GFrameCounterRenderThread & 255) == 0)
 	{
 		const uint64 Now = GFrameCounterRenderThread;
 		for (auto It = Histories.CreateIterator(); It; ++It)
 		{
-			if (!It.Value().IsValid() || It.Value()->LastFrame + 300 < Now)
+			if (!It.Value().IsValid() || It.Value()->LastFrame + 20000 < Now)
 			{
 				It.RemoveCurrent();
 			}
@@ -452,8 +486,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
 			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : 0u;
-			Params->NearTau = SunMaps[0].Current;
-			Params->FarTau = SunMaps[1].Current;
+			const DreamSkyCloudRender::FGraphClouds& Graph = GraphBuilder.Blackboard.GetChecked<DreamSkyCloudRender::FGraphClouds>();
+			Params->NearTau = Graph.SunMaps[0];
+			Params->FarTau = Graph.SunMaps[1];
 			Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 			Params->NearCenterExtent = SunMaps[0].CenterExtent;
 			Params->FarCenterExtent = SunMaps[1].CenterExtent;
@@ -479,12 +514,26 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			History = Slot;
 		}
 		const FIntPoint ViewSize = InView.UnscaledViewRect.Size();
-		const bool bHistory = History.IsValid() && History->Color.IsValid() && History->Depth.IsValid() && History->LastFrame + 2 >= GFrameCounterRenderThread
-			&& History->ViewSize == ViewSize && History->Downsample == Downsample && History->Look == Settings.Look
-			&& History->Color->GetDesc().Extent == Half;
+		// (However long ago this view was drawn: an editor viewport that is not realtime, or one in the background, is
+		// drawn again only now and then, and with the history dropped each of its frames was a single jittered march, all
+		// grain. The reprojection and the neighbourhood clamp keep an old history from ghosting.)
+		// (Nor whatever size it was drawn at: it is read by where the clouds were on screen, at the ray grid it keeps, so a
+		// change of screen percentage or of the window resamples it instead of reading it at the wrong place.)
+		const bool bHistory = History.IsValid() && History->Color.IsValid() && History->Depth.IsValid() && History->RaySize.IsValid()
+			&& History->Downsample == Downsample && History->Look == Settings.Look;
+		UE_LOG(LogDreamSky, VeryVerbose, TEXT("Clouds: view key %u, %dx%d (march %dx%d), %s, family frame %u"), Key, ViewSize.X, ViewSize.Y, Half.X, Half.Y,
+			bHistory ? TEXT("history") : (History.IsValid() ? TEXT("history dropped") : TEXT("no history kept")), InView.Family ? InView.Family->FrameNumber : 0u);
 
 		FRDGTextureRef OutColor = GraphBuilder.CreateTexture(ColorDesc, TEXT("DreamSky.Clouds"));
 		FRDGTextureRef OutDepth = GraphBuilder.CreateTexture(DepthDesc, TEXT("DreamSky.CloudsDepth"));
+		FRDGBufferRef OutRaySize = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32) * 2, 1), TEXT("DreamSky.CloudsRaySize"));
+		FRDGBufferRef HistoryRaySize = bHistory ? GraphBuilder.RegisterExternalBuffer(History->RaySize) : nullptr;
+		if (!HistoryRaySize)
+		{
+			// (Not read without a history; bound all the same.)
+			HistoryRaySize = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32) * 2, 1), TEXT("DreamSky.CloudsRaySizeNone"));
+			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(HistoryRaySize), 0u);
+		}
 		{
 			FDreamSkyCloudTemporalCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudTemporalCS::FParameters>();
 			FillCommon(Params->Common);
@@ -493,8 +542,12 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->HistoryColor = bHistory ? GraphBuilder.RegisterExternalTexture(History->Color) : MarchColor;
 			Params->HistoryDepth = bHistory ? GraphBuilder.RegisterExternalTexture(History->Depth) : MarchDepth;
 			Params->HistorySampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-			Params->HistoryInvExtent = FVector2f(1.0f / Half.X, 1.0f / Half.Y);
-			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : 0.0f;
+			const FIntPoint HistoryExtent = bHistory ? History->Color->GetDesc().Extent : Half;
+			Params->HistoryInvExtent = FVector2f(1.0f / HistoryExtent.X, 1.0f / HistoryExtent.Y);
+			Params->HistoryRaySize = GraphBuilder.CreateSRV(HistoryRaySize);
+			Params->OutRaySize = GraphBuilder.CreateUAV(OutRaySize);
+			// (Without one, the temporal pass puts out the neighbourhood's mean: a smooth frame, not one march's grain.)
+			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f);
 			Params->OutColor = GraphBuilder.CreateUAV(OutColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(OutDepth);
 			TShaderMapRef<FDreamSkyCloudTemporalCS> Shader(ShaderMap);
@@ -505,6 +558,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		{
 			GraphBuilder.QueueTextureExtraction(OutColor, &History->Color);
 			GraphBuilder.QueueTextureExtraction(OutDepth, &History->Depth);
+			GraphBuilder.QueueBufferExtraction(OutRaySize, &History->RaySize);
 			History->ViewSize = ViewSize;
 			History->Downsample = Downsample;
 			History->Look = Settings.Look;
@@ -515,12 +569,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		// Kept for the composite over the scene before the post processing, when the view looks down on clouds.
 		if (IsOverCloudBase(InView))
 		{
-			if (Below.Num() > 0 && Below.CreateConstIterator().Value().Frame != GFrameCounterRenderThread)
-			{
-				Below.Reset();
-			}
-			FBelow& Entry = Below.FindOrAdd(&InView);
-			Entry.Frame = GFrameCounterRenderThread;
+			DreamSkyCloudRender::FBelow& Entry = GraphBuilder.Blackboard.GetOrCreate<DreamSkyCloudRender::FGraphClouds>().Below.FindOrAdd(&InView);
 			Entry.Color = OutColor;
 			Entry.Depth = OutDepth;
 			Entry.SceneDepth = SceneDepth;
@@ -549,22 +598,25 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap,
 	FRDGTextureRef WeatherMap, FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon)
 {
-	// Once per frame (the first view draws them; the others read them), one cascade a frame: the near one on even
-	// frames, the far one on odd ones, either whenever it has never been drawn.
+	// Once per frame (the first view draws them; the others, and the other graphs of the frame -- scene captures --, read
+	// them), one cascade a frame: the near one on even frames, the far one on odd ones, either whenever it has never been
+	// drawn. Each graph registers them for itself.
 	const uint64 Frame = GFrameCounterRenderThread;
-	if (SunMapFrame == Frame && SunMapBuilder == &GraphBuilder)
+	DreamSkyCloudRender::FGraphClouds& Graph = GraphBuilder.Blackboard.GetOrCreate<DreamSkyCloudRender::FGraphClouds>();
+	if (Graph.bSunMaps)
 	{
 		return;
 	}
+	Graph.bSunMaps = true;
+	const bool bFirstThisFrame = SunMapFrame != Frame;
 	SunMapFrame = Frame;
-	SunMapBuilder = &GraphBuilder;
 	for (int32 Cascade = 0; Cascade < 2; ++Cascade)
 	{
 		FSunMap& Map = SunMaps[Cascade];
-		const bool bDraw = !Map.Texture.IsValid() || int32(Frame & 1) == Cascade;
+		const bool bDraw = !Map.Texture.IsValid() || (bFirstThisFrame && int32(Frame & 1) == Cascade);
 		if (!bDraw)
 		{
-			Map.Current = GraphBuilder.RegisterExternalTexture(Map.Texture);
+			Graph.SunMaps[Cascade] = GraphBuilder.RegisterExternalTexture(Map.Texture);
 			continue;
 		}
 		const FIntVector Resolution = Cascade == 0 ? FIntVector(96, 96, 24) : FIntVector(64, 64, 16);
@@ -589,7 +641,12 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SunMap %s %dx%dx%d", Cascade == 0 ? TEXT("near") : TEXT("far"), Resolution.X, Resolution.Y, Resolution.Z),
 			Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudSunMapCS::GroupSize));
 		GraphBuilder.QueueTextureExtraction(Tau, &Map.Texture);
-		Map.Current = Tau;
+		Graph.SunMaps[Cascade] = Tau;
+	}
+	// (The panorama and the ground shadow: once a frame too.)
+	if (!bFirstThisFrame)
+	{
+		return;
 	}
 
 	// The panorama of the clouds round the view the dome shows in the sky light capture, every fourth frame (the capture
@@ -607,8 +664,8 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->CloudNoise = CloudNoise;
 		Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 		Params->MaxSamples = FMath::Max(RenderSettings.MaxSamples / 2, 16);
-		Params->NearTau = SunMaps[0].Current;
-		Params->FarTau = SunMaps[1].Current;
+		Params->NearTau = Graph.SunMaps[0];
+		Params->FarTau = Graph.SunMaps[1];
 		Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 		Params->NearCenterExtent = SunMaps[0].CenterExtent;
 		Params->FarCenterExtent = SunMaps[1].CenterExtent;
@@ -631,8 +688,8 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		FRDGTextureRef Shadow = RegisterExternalTexture(GraphBuilder, ShadowRHI, TEXT("DreamSky.CloudShadow"));
 		const FIntPoint Resolution(ShadowRHI->GetSizeXYZ().X, ShadowRHI->GetSizeXYZ().Y);
 		FDreamSkyCloudShadowCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudShadowCS::FParameters>();
-		Params->NearTau = SunMaps[0].Current;
-		Params->FarTau = SunMaps[1].Current;
+		Params->NearTau = Graph.SunMaps[0];
+		Params->FarTau = Graph.SunMaps[1];
 		Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 		Params->NearCenterExtent = SunMaps[0].CenterExtent;
 		Params->FarCenterExtent = SunMaps[1].CenterExtent;
@@ -664,8 +721,9 @@ void FDreamSkyCloudViewExtension::SubscribeToPostProcessingPass(EPostProcessingP
 FScreenPassTexture FDreamSkyCloudViewExtension::CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)
 {
 	FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
-	const FBelow* Entry = Below.Find(&InView);
-	if (!Entry || Entry->Frame != GFrameCounterRenderThread || !Entry->Color || !SceneColor.IsValid())
+	const DreamSkyCloudRender::FGraphClouds* Graph = GraphBuilder.Blackboard.Get<DreamSkyCloudRender::FGraphClouds>();
+	const DreamSkyCloudRender::FBelow* Entry = Graph ? Graph->Below.Find(&InView) : nullptr;
+	if (!Entry || !Entry->Color || !SceneColor.IsValid())
 	{
 		return SceneColor;
 	}

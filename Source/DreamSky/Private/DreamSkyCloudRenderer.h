@@ -38,7 +38,7 @@ public:
 	static const TArray<FName>& GetParameterNames();
 	static constexpr int32 NumParameters = 18;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
-	static constexpr int32 NumLookParameters = 8;
+	static constexpr int32 NumLookParameters = 9;
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:
@@ -69,6 +69,7 @@ private:
 	{
 		TRefCountPtr<IPooledRenderTarget> Color;
 		TRefCountPtr<IPooledRenderTarget> Depth;
+		TRefCountPtr<FRDGPooledBuffer> RaySize;   // the ray grid it was drawn at (the view's size under its screen percentage)
 		FIntPoint ViewSize = FIntPoint::ZeroValue;
 		int32 Downsample = 0;
 		int32 Look = -1;
@@ -84,26 +85,9 @@ private:
 	{
 		TRefCountPtr<IPooledRenderTarget> Texture;
 		FVector4f CenterExtent = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
-		FRDGTextureRef Current = nullptr;
 	};
 
 	void RenderClouds(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets);
-
-	/**
-	 * A view's clouds of this frame, kept from the base pass for the composite over the scene before the post processing
-	 * (the clouds below the view, when it is over the layer's base). Render thread, the frame's graph only.
-	 */
-	struct FBelow
-	{
-		uint64 Frame = ~uint64(0);
-		FRDGTextureRef Color = nullptr;
-		FRDGTextureRef Depth = nullptr;
-		FRDGTextureRef SceneDepth = nullptr;
-		int32 Downsample = 2;
-		FVector4f Parameters[NumParameters];
-		FVector4f LookParameters[NumLookParameters];
-	};
-	TMap<const FSceneView*, FBelow> Below;
 
 	/** True when the view stands over the cloud layer's base: clouds may stand between it and the scene. */
 	bool IsOverCloudBase(const FSceneView& InView) const;
@@ -116,6 +100,6 @@ private:
 	FFrameSettings RenderSettings;
 	TMap<uint32, TSharedPtr<FHistory>> Histories;
 	FSunMap SunMaps[2];
+	/** The frame the sun maps were last brought up to date in (by whichever graph drew first in it). */
 	uint64 SunMapFrame = ~uint64(0);
-	const FRDGBuilder* SunMapBuilder = nullptr;
 };

@@ -615,6 +615,19 @@ bool FDreamSkyCloudLookParametersTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("its edge softness"), P.EdgeSoftness, Scalar(Painted, TEXT("EdgeSoftness")), 1e-5f);
 	TestNearlyEqual(TEXT("its silver lining"), P.SilverLining, Scalar(Painted, TEXT("SilverLining")), 1e-5f);
 	TestNearlyEqual(TEXT("the sun's scattering as the volumetric layer has it"), P.SunScattering, Sky.VolumetricSunScattering, 1e-5f);
+	TestNearlyEqual(TEXT("the shading's reach (ShadowReach)"), P.ShadowReach, Scalar(Realistic, TEXT("ShadowReach")), 1.0f);
+	// The light as the engine's clouds take it: by day the sun light component, its own colour times its illuminance.
+	if (W.Clock)
+	{
+		FDreamWorldClockConfig Config;
+		Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+		Sky.GetCloudLookParameters(P);
+		const FLinearColor Sun = Sky.SunLight->GetLightColor() * Sky.SunLight->Intensity;
+		TestTrue(FString::Printf(TEXT("noon: the sun light's colour x lux (%s vs %s)"), *P.LightIlluminance.ToString(), *Sun.ToString()),
+			Sun.R > 0.0f && P.LightIlluminance.Equals(Sun, 1e-3f * FMath::Max(1.0f, Sun.R)));
+	}
 	const float RealisticExtinction = P.Extinction;
 	const float PaintedExtinction = P.PaintExtinction;
 
