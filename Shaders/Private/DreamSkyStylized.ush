@@ -820,16 +820,16 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	// Where the patches are (large, slow), and a gentle bend of the streaks over tens of kilometres.
 	float Patch = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.71), 0).r;
 	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 6000000.0, 0.23), 0).r - 0.5;
-	// The veils: the smooth noise drawn out four to one along the wind, some 3.5 km wide, bent gently and broken into
-	// sheets, only the strongest of it (thin streaks twenty-five times as long as they were wide ran together toward one
-	// point of the horizon like combed hair; short ones like brush dashes); fine fibres run along them, faint. Thin
-	// gauze, not lines. (Explicit levels, the coarser the further: the sky material is also built for ray tracing hits,
-	// which have no screen derivatives, and the finest level far below its texels shimmers.)
-	float2 S = float2(Q.x / 1500000.0, (Q.y + Bend * 300000.0) / 350000.0);
-	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 350000.0)).r;
+	// The veils: the smooth noise drawn out two-and-a-half to one along the wind, some 6 km wide, bent gently and broken
+	// into sheets, most of it (thin streaks ran together toward one point of the horizon like combed hair, and only the
+	// strongest of a four-to-one noise was thin arcs: overhead, scratches radiating across the sky); fine fibres run along
+	// them, fainter still. Thin gauze, not lines. (Explicit levels, the coarser the further: the sky material is also
+	// built for ray tracing hits, which have no screen derivatives, and the finest level far below its texels shimmers.)
+	float2 S = float2(Q.x / 1600000.0, (Q.y + Bend * 300000.0) / 640000.0);
+	float Body = Noise.SampleLevel(NoiseSampler, float3(S, 0.53), DSky_NoiseLod(T, 640000.0)).r;
 	float Fibres = Noise.SampleLevel(NoiseSampler, float3(Q.x / 800000.0 + 0.37, Q.y / 60000.0, 0.11), DSky_NoiseLod(T, 60000.0)).r;
 	float Along = Noise.SampleLevel(NoiseSampler, float3(Q.x / 2500000.0, Q.y / 1200000.0, 0.87), DSky_NoiseLod(T, 1200000.0)).r;
-	float Fibre = smoothstep(0.5, 0.82, Body) * lerp(0.7, 1.0, Fibres) * smoothstep(0.35, 0.7, Along);
+	float Fibre = smoothstep(0.4, 0.8, Body) * lerp(0.85, 1.0, Fibres) * smoothstep(0.35, 0.7, Along);
 	float Mask = saturate((Patch - (1.0 - Amount)) * 2.0);
 	float Alpha = Fibre * Mask * 0.3 * smoothstep(0.02, 0.15, V.z);
 	// Thin ice: white in the sun and brightest toward it (it scatters forward), letting the sky through; far off,
