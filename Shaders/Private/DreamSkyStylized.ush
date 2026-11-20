@@ -439,6 +439,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Depth = 0.0;
 	float Travelled = 0.0;
 	float Sliver = 0.0;
+	float Behind = 1.0;   // the signed shape at the first of those samples: how far the cloud goes on behind its surface
 	[loop]
 	for (int It = 0; It < Steps + Skims && Phase == 0; ++It)
 	{
@@ -667,6 +668,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		else
 		{
 			Sliver += 0.5 * smoothstep(F.Iso - 0.08, F.Iso + 0.08, S.Signed);
+			Behind = Index == 0 ? S.Signed : Behind;
 			if (++Index >= 2)
 			{
 				Phase = 7;
@@ -777,24 +779,30 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
 	Color = lerp(Color, SkyBehind, pow(Veil, 1.6 + 1.4 * Deep));
 	// Where the ray only clips a thin sliver of a deck (its thin gaps, the specks a breaking deck leaves) or of an anvil
-	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. The lip of a
-	// crack in a deck (the ray goes into a deck there, not thin, and straight out into the crack) breaks up instead, the
-	// way a painted overcast's cracks are drawn: into ragged pieces, hard-edged, the lip wider here and narrower there (a
-	// band of even see-through round a crack, its outline as smooth as the deck's cells, read as cut with a knife). The
+	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. Round a crack
+	// in a deck (the ray goes into a deck there, not thin, and straight out into the crack) the deck tears instead, the
+	// way a painted overcast's cracks are drawn: holes open in it, hard-edged and ragged, the more and the larger the
+	// further it has thinned toward the crack (how far the deck goes on behind its surface), until it is open; between
+	// them pieces of the deck, as see-through as the deck round them. (Drawn whole up to the edge of where it thins, a
+	// crack's outline was a contour of the deck's smooth rifts: a long straight edge cut into the soft deck. The edge is
+	// torn too: the thinning is read through a noise of its own, so the first holes do not all open along one line.) The
 	// pieces drift with the clouds.
 	float SeeThrough = lerp(0.3, 1.0, Sliver);
 	float Keep = SeeThrough;
 	float Lip = smoothstep(12000.0, 18000.0, Here.Column) * Here.Deck;
-	if (Lip > 0.0 && Sliver < 0.35)
+	if (Lip > 0.0 && Sliver < 0.5)
 	{
 		float3 Q = float3(Camera.xy + Surface.xy + Cloud1.xy * 220000.0 * max(Cloud0.z, 0.05), Here.Z);
 		float Big = Noise.SampleLevel(NoiseSampler, Q / 300000.0 + float3(0.17, 0.61, 0.29), DSky_NoiseLod(SurfaceT, 300000.0)).g;
 		float Mid = Noise.SampleLevel(NoiseSampler, Q / 110000.0 + float3(0.53, 0.07, 0.83), DSky_NoiseLod(SurfaceT, 110000.0)).r;
 		float Fine = Noise.SampleLevel(NoiseSampler, Q / 40000.0 + float3(0.91, 0.37, 0.13), DSky_NoiseLod(SurfaceT, 40000.0)).g;
 		float Ragged = saturate((0.45 * Big + 0.35 * Mid + 0.2 * Fine - 0.3) / 0.4);
-		// (Where the lip ends and the deck goes on, ragged as well.)
-		Lip *= 1.0 - smoothstep(0.05 + 0.2 * Ragged, 0.15 + 0.2 * Ragged, Sliver);
-		Keep = lerp(SeeThrough, smoothstep(Ragged - 0.03, Ragged + 0.03, 0.5), Lip);
+		// (Ragged: which pieces hold longest; Tear: where the deck reads as more or less thinned than it is.)
+		float Tear = Noise.SampleLevel(NoiseSampler, Q / 70000.0 + float3(0.29, 0.83, 0.47), DSky_NoiseLod(SurfaceT, 70000.0)).g;
+		float Thinned = F.Iso - Behind + 0.8 * (Tear - 0.5);
+		float Open = 0.5 * saturate(Thinned / 0.4) + 0.5 * saturate((Thinned - 0.4) / 0.6);
+		float Piece = smoothstep(Ragged - 0.03, Ragged + 0.03, 1.05 - 1.1 * Open);
+		Keep = lerp(SeeThrough, 0.65 * Piece, Lip);
 	}
 	Cover *= lerp(1.0, Keep, max(Here.Deck, Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
