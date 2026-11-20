@@ -1,11 +1,15 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// Console commands for trying cloud volumes out in a running game (and from DreamWorld.Script files):
+// Console commands for trying cloud volumes out in a running game (and from DreamWorld.Script files); the quality
+// level is DreamCloud.Quality (DreamCloudSubsystem.cpp):
 //   DreamCloud.Spawn <look> <shape> <x> <y> <z> [size cm]
 //   DreamCloud.Set <property> <value> [name filter]
-//   DreamCloud.Clear
+//   DreamCloud.Clear, DreamCloud.Dump, DreamCloud.CarveView <radius>
 
+#include "DreamCloudCarverComponent.h"
 #include "DreamCloudModule.h"
+#include "DreamCloudSubsystem.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "DreamCloudVolume.h"
 #include "DreamCloudVolumeComponent.h"
 
@@ -171,6 +175,38 @@ namespace DreamCloud::Console
 				It->Destroy();
 			}
 		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs CarveViewCommand(
+		TEXT("DreamCloud.CarveView"),
+		TEXT("DreamCloud.CarveView <radius cm, 0 = stop>: the view (the player's pawn, or the camera it looks through) carves the clouds it passes through."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+			AActor* Carrier = PC ? (PC->GetPawn() ? static_cast<AActor*>(PC->GetPawn()) : PC->GetViewTarget()) : nullptr;
+			if (!Carrier)
+			{
+				UE_LOG(LogDreamCloud, Warning, TEXT("DreamCloud.CarveView: no view"));
+				return;
+			}
+			const float Radius = Args.IsValidIndex(0) ? FCString::Atof(*Args[0]) : 200.0f;
+			UDreamCloudCarverComponent* Carver = Carrier->FindComponentByClass<UDreamCloudCarverComponent>();
+			if (Radius <= 0.0f)
+			{
+				if (Carver)
+				{
+					Carver->DestroyComponent();
+				}
+				return;
+			}
+			if (!Carver)
+			{
+				Carver = NewObject<UDreamCloudCarverComponent>(Carrier, TEXT("ViewCarver"), RF_Transient);
+				Carver->SetupAttachment(Carrier->GetRootComponent());
+				Carver->RegisterComponent();
+			}
+			Carver->Radius = Radius;
+			UE_LOG(LogDreamCloud, Display, TEXT("DreamCloud.CarveView: %s carves %.0f cm"), *Carrier->GetName(), Radius);
+		}));
 }
 
 namespace DreamCloud::Console
@@ -197,6 +233,19 @@ namespace DreamCloud::Console
 					*It->GetName(), *Cloud->GetComponentScale().ToString(), *Cloud->Field.Resolution.ToString(), *Cloud->Field.Center.ToString(),
 					*Cloud->Field.Size.ToString(), *Render.GetOrigin().ToString(), *Render.GetScaleVector().ToString(), *Cloud->Bounds.BoxExtent.ToString(),
 					*Box.ToString(), Cloud->GetMaterial(0) ? *Cloud->GetMaterial(0)->GetName() : TEXT("none"));
+				const UDreamCloudSubsystem* Clouds = World->GetSubsystem<UDreamCloudSubsystem>();
+				const FVector LightW = Clouds ? Clouds->GetLightDirection() : FVector::UpVector;
+				const UDreamCloudVolumeComponent::FLightState Light = Cloud->GetLightState(LightW);
+				float Valid = -1.0f;
+				if (UMaterialInstanceDynamic* Material = Cloud->GetCloudMaterial())
+				{
+					Material->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("LightMapValid")), Valid);
+				}
+				const UTextureRenderTargetVolume* Map = Cloud->GetLightMap();
+				UE_LOG(LogDreamCloud, Display, TEXT("%s: light %s (in the shape %s, sigma %.6f/cm), light map %s %dx%dx%d after %d updates, valid %.0f; carving %.3f at its middle"),
+					*It->GetName(), *LightW.ToString(), *Light.Direction.ToString(), Light.SigmaPerUnit, Map ? *Map->GetName() : TEXT("none"),
+					Map ? Map->SizeX : 0, Map ? Map->SizeY : 0, Map ? Map->SizeZ : 0, Cloud->GetLightMapUpdates(), Valid,
+					Cloud->GetCarving(Cloud->Bounds.Origin));
 			}
 		}));
 }
