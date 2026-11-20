@@ -33,7 +33,7 @@
 #endif
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames).
-float4 Parameters[17];
+float4 Parameters[18];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -51,6 +51,7 @@ float4 Parameters[17];
 #define P_MapParams    Parameters[14]
 #define P_Extra        Parameters[15]
 #define P_Haze         Parameters[16]
+#define P_Flash        Parameters[17]
 
 float3 CameraWorld;   // the view in the world (cm)
 float SkyDepth;       // view depth (cm) beyond which a pixel is sky
@@ -610,4 +611,19 @@ void CompositePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		return;
 	}
 	Out = CloudColor.SampleLevel(CloudSampler, (Local / float(Downsample)) * CloudInvExtent, 0);
+	// Lightning lights the clouds toward the strike, their solid middles more than their edges, as the dome lights its
+	// own (its flash on the sky behind sees no clouds: theirs is added here), held back against a dark sky by the sky's
+	// own brightness so a night storm keeps its shapes. Here, after the frames are blended: a flash lasts a frame or two,
+	// and through the history it came out speckled.
+	float FlashNow = P_Flash.w * P_Extra.w;
+	float Cover = 1.0 - Out.a;
+	if (FlashNow > 0.0 && Cover > 0.0)
+	{
+		float3 V = DSkyR_ViewDir(Pixel);
+		float Toward = pow(saturate(dot(V, normalize(P_Flash.xyz))), 3.0);
+		float3 Mean = max(0.5 * (P_Zenith.rgb + P_Horizon.rgb), 1.0e-4);
+		float Level = saturate(0.3 + dot(Mean, float3(0.2126, 0.7152, 0.0722)) * 3.0);
+		Out.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * 1.7 * Cover * lerp(0.6, 1.4, Cover)
+			* View.PreExposure * P_CloudShadow.a;
+	}
 }

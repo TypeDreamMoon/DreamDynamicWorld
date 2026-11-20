@@ -33,7 +33,7 @@ public:
 
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
-	static constexpr int32 NumParameters = 17;
+	static constexpr int32 NumParameters = 18;
 
 private:
 	/** What the game thread decided for the frame; copied to the render thread ahead of the family's rendering. */
