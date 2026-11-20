@@ -1,12 +1,16 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamCloudCarverComponent.h"
 #include "DreamCloudField.h"
+#include "DreamCloudLighting.h"
+#include "DreamCloudSubsystem.h"
 #include "DreamCloudVolume.h"
 #include "DreamCloudVolumeComponent.h"
 
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
 
@@ -277,6 +281,220 @@ bool FDreamCloudVolumeActorTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("a mesh needs a bake"), Cloud->NeedsBake());
 	TestTrue(TEXT("baked from the mesh"), Cloud->Rebake());
 	TestNearlyEqual(TEXT("the cube's middle"), Cloud->Field.Sample(FVector::ZeroVector), -50.0f, Cloud->Field.TexelSize());
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamCloudBakeCarvedAndMergedTest, "DreamCloud.Bake.SubtractedAndOverlapping", DreamCloud::Tests::Flags)
+bool FDreamCloudBakeCarvedAndMergedTest::RunTest(const FString& Parameters)
+{
+	// A sphere with a tunnel through it along x.
+	FDreamCloudPrimitiveShape Ball;
+	Ball.Size = FVector(500.0);
+	FDreamCloudPrimitiveShape Tunnel;
+	Tunnel.Type = EDreamCloudPrimitive::Capsule;
+	Tunnel.bSubtract = true;
+	Tunnel.Size = FVector(150.0, 0.0, 800.0);
+	Tunnel.Transform.SetRotation(FRotator(90.0, 0.0, 0.0).Quaternion());
+	DreamCloudBake::FSettings Settings;
+	Settings.Resolution = 96;
+	FDreamCloudField Field;
+	TestTrue(TEXT("baked"), DreamCloudBake::FromPrimitives({ Ball, Tunnel }, 0.0f, Settings, Field));
+	const float Texel = Field.TexelSize();
+	TestTrue(TEXT("the subtracted capsule does not grow the box"), Field.Size.X < 1400.0);
+	TestNearlyEqual(TEXT("the tunnel's middle is clear, 150 cm from its wall"), Field.Sample(FVector::ZeroVector), 150.0f, Texel);
+	TestNearlyEqual(TEXT("the tunnel runs through"), Field.Sample(FVector(400.0, 0.0, 0.0)), 150.0f, Texel);
+	TestTrue(TEXT("above the tunnel is cloud"), Field.Sample(FVector(0.0, 0.0, 300.0)) < -100.0f);
+
+	// Two overlapping cubes merged into one mesh: their overlap is inside (parity alone would call it outside).
+	const UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	TArray<FVector3f> Positions;
+	TArray<uint32> Indices;
+	if (!TestTrue(TEXT("cube read"), DreamCloudBake::GatherMesh(Cube, Positions, Indices)))
+	{
+		return false;
+	}
+	const int32 NumPositions = Positions.Num();
+	const int32 NumIndices = Indices.Num();
+	for (int32 i = 0; i < NumPositions; ++i)
+	{
+		Positions.Add(Positions[i] + FVector3f(60.0f, 0.0f, 0.0f));
+	}
+	for (int32 i = 0; i < NumIndices; ++i)
+	{
+		Indices.Add(Indices[i] + NumPositions);
+	}
+	FDreamCloudField Merged;
+	Settings.Resolution = 80;
+	TestTrue(TEXT("baked merged"), DreamCloudBake::FromTriangles(Positions, Indices, Settings, Merged));
+	TestTrue(TEXT("the overlap is inside"), Merged.Sample(FVector(30.0, 0.0, 0.0)) < -10.0f);
+	TestTrue(TEXT("only the first cube"), Merged.Sample(FVector(-30.0, 0.0, 0.0)) < -10.0f);
+	TestTrue(TEXT("only the second cube"), Merged.Sample(FVector(90.0, 0.0, 0.0)) < -10.0f);
+	TestTrue(TEXT("beyond both"), Merged.Sample(FVector(30.0, 0.0, 70.0)) > 10.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamCloudLightMapTest, "DreamCloud.Light.Transmittance", DreamCloud::Tests::Flags)
+bool FDreamCloudLightMapTest::RunTest(const FString& Parameters)
+{
+	FDreamCloudPrimitiveShape Ball;
+	Ball.Size = FVector(500.0);
+	DreamCloudBake::FSettings Settings;
+	Settings.Resolution = 64;
+	FDreamCloudField Field;
+	TestTrue(TEXT("baked"), DreamCloudBake::FromPrimitives({ Ball }, 0.0f, Settings, Field));
+	DreamCloudLighting::FLightMapParams Params;
+	Params.LightDir = FVector3f(0.0f, 0.0f, 1.0f);
+	Params.SigmaPerUnit = 0.005f;
+	Params.Edge = 50.0f;
+	Params.Resolution = DreamCloudLighting::ResolutionFor(Field.Size, 24);
+	const TArray<float> NoHoles;
+	auto At = [&](const FVector& P) { return DreamCloudLighting::TransmittanceAt(Field, NoHoles, FIntVector::ZeroValue, Params, P); };
+	TestNearlyEqual(TEXT("above the cloud the light is whole"), At(FVector(0.0, 0.0, 550.0)), 1.0f, 1.0e-3f);
+	TestNearlyEqual(TEXT("beside it too"), At(FVector(560.0, 0.0, 0.0)), 1.0f, 1.0e-3f);
+	const float Top = At(FVector(0.0, 0.0, 450.0));
+	const float Middle = At(FVector::ZeroVector);
+	const float Bottom = At(FVector(0.0, 0.0, -450.0));
+	AddInfo(FString::Printf(TEXT("transmittance top %.3f middle %.4f bottom %.6f"), Top, Middle, Bottom));
+	// 50 cm of cloud under the top at 0.005/cm (less its soft edge): about exp(-0.25 + edge).
+	TestTrue(TEXT("just under the top, most of the light"), Top > 0.7f && Top < 0.95f);
+	TestNearlyEqual(TEXT("the middle: 500 cm through"), Middle, FMath::Exp(-0.005f * (500.0f - 25.0f)), 0.03f);
+	TestTrue(TEXT("the bottom darker still"), Bottom < Middle);
+	TArray<float> Map;
+	DreamCloudLighting::ComputeTransmittance(Field, NoHoles, FIntVector::ZeroValue, Params, Map);
+	TestEqual(TEXT("a value per texel"), Map.Num(), Params.Resolution.X * Params.Resolution.Y * Params.Resolution.Z);
+	float Lowest = 1.0f;
+	for (float T : Map)
+	{
+		Lowest = FMath::Min(Lowest, T);
+	}
+	TestTrue(TEXT("the map darkens inside"), Lowest < 0.05f);
+
+	// A shaft carved down the middle lets the light in.
+	const FIntVector HoleSize(16, 16, 16);
+	TArray<float> Holes;
+	Holes.SetNumZeroed(HoleSize.X * HoleSize.Y * HoleSize.Z);
+	for (int32 Z = 0; Z < HoleSize.Z; ++Z)
+	{
+		for (int32 Y = 7; Y <= 8; ++Y)
+		{
+			for (int32 X = 7; X <= 8; ++X)
+			{
+				Holes[X + HoleSize.X * (Y + HoleSize.Y * Z)] = 1.0f;
+			}
+		}
+	}
+	const float Shaft = DreamCloudLighting::TransmittanceAt(Field, Holes, HoleSize, Params, FVector::ZeroVector);
+	TestTrue(TEXT("down a carved shaft the light reaches the middle"), Shaft > 0.9f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamCloudCarvingTest, "DreamCloud.Volume.CarvingAndRefill", DreamCloud::Tests::Flags)
+bool FDreamCloudCarvingTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamCloud::Tests;
+	FCloudWorld W;
+	if (!TestNotNull(TEXT("world"), W.World))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamCloudVolume* Volume = W.World->SpawnActor<ADreamCloudVolume>(FVector(0.0, 0.0, 1000.0), FRotator::ZeroRotator, Params);
+	UDreamCloudVolumeComponent* Cloud = Volume->GetCloud();
+	Cloud->HoldTime = 1.0f;
+	Cloud->RefillTime = 2.0f;
+	const FVector Middle(0.0, 0.0, 1000.0);
+	const FVector Aside(0.0, 400.0, 1000.0);
+	TestEqual(TEXT("untouched"), Cloud->GetCarving(Middle), 0.0f);
+
+	// A carver flying through along x.
+	AActor* Plane = W.World->SpawnActor<AActor>(FVector(-800.0, 0.0, 1000.0), FRotator::ZeroRotator, Params);
+	USceneComponent* Root = NewObject<USceneComponent>(Plane, TEXT("Root"));
+	Plane->SetRootComponent(Root);
+	Root->RegisterComponent();
+	Plane->SetActorLocation(FVector(-800.0, 0.0, 1000.0));
+	UDreamCloudCarverComponent* Carver = NewObject<UDreamCloudCarverComponent>(Plane, TEXT("Carver"));
+	Carver->Radius = 150.0f;
+	Carver->SetupAttachment(Root);
+	Carver->RegisterComponent();
+	UDreamCloudSubsystem* Clouds = W.World->GetSubsystem<UDreamCloudSubsystem>();
+	if (!TestNotNull(TEXT("subsystem"), Clouds))
+	{
+		return false;
+	}
+	Clouds->SetLightDirectionOverride(FVector(0.3, 0.2, 1.0));
+	Clouds->Tick(0.0f);
+	Plane->SetActorLocation(FVector(800.0, 0.0, 1000.0));
+	Clouds->Tick(0.0f);
+	TestNearlyEqual(TEXT("the path is cleared"), Cloud->GetCarving(Middle), 1.0f, 0.05f);
+	TestNearlyEqual(TEXT("all along it"), Cloud->GetCarving(FVector(-300.0, 0.0, 1000.0)), 1.0f, 0.05f);
+	TestEqual(TEXT("but not beside it"), Cloud->GetCarving(Aside), 0.0f);
+	Carver->bCarving = false;
+
+	// Held open, then growing back.
+	Clouds->Tick(0.5f);
+	TestNearlyEqual(TEXT("held open"), Cloud->GetCarving(Middle), 1.0f, 0.05f);
+	Clouds->Tick(1.0f);
+	const float Refilling = Cloud->GetCarving(Middle);
+	TestTrue(TEXT("growing back after the hold"), Refilling > 0.5f && Refilling < 0.9f);
+	Clouds->Tick(2.0f);
+	TestEqual(TEXT("grown back"), Cloud->GetCarving(Middle), 0.0f);
+
+	// A volume that may not be carved.
+	Cloud->bCarvable = false;
+	Cloud->Carve(FVector(-800.0, 0.0, 1000.0), FVector(800.0, 0.0, 1000.0), 150.0f, 1.0f);
+	TestEqual(TEXT("not carvable"), Cloud->GetCarving(Middle), 0.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamCloudLightFollowsTest, "DreamCloud.Volume.LightMapFollowsTheLight", DreamCloud::Tests::Flags)
+bool FDreamCloudLightFollowsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamCloud::Tests;
+	FCloudWorld W;
+	if (!TestNotNull(TEXT("world"), W.World))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamCloudVolume* Volume = W.World->SpawnActor<ADreamCloudVolume>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	UDreamCloudVolumeComponent* Cloud = Volume->GetCloud();
+	const FVector Light = FVector(1.0, 0.0, 1.0).GetSafeNormal();
+	Cloud->TickCloud(0.0f, Light, nullptr);
+	const int32 First = Cloud->GetLightMapUpdates();
+	TestTrue(TEXT("drawn once at the start"), First >= 1);
+	Cloud->TickCloud(0.1f, Light, nullptr);
+	TestEqual(TEXT("not again for the same light"), Cloud->GetLightMapUpdates(), First);
+	Cloud->TickCloud(0.1f, FRotator(0.0, 0.0, 0.0).RotateVector(FQuat(FVector::UpVector, FMath::DegreesToRadians(0.5)).RotateVector(Light)), nullptr);
+	TestEqual(TEXT("not for half a degree"), Cloud->GetLightMapUpdates(), First);
+	Cloud->TickCloud(0.1f, FQuat(FVector::UpVector, FMath::DegreesToRadians(5.0)).RotateVector(Light), nullptr);
+	TestEqual(TEXT("again for five degrees"), Cloud->GetLightMapUpdates(), First + 1);
+	Volume->SetActorRotation(FRotator(0.0, 90.0, 0.0));
+	Cloud->TickCloud(0.1f, FQuat(FVector::UpVector, FMath::DegreesToRadians(5.0)).RotateVector(Light), nullptr);
+	TestEqual(TEXT("again when the volume turns under the light"), Cloud->GetLightMapUpdates(), First + 2);
+	Cloud->Extinction *= 2.0f;
+	Cloud->TickCloud(0.1f, FQuat(FVector::UpVector, FMath::DegreesToRadians(5.0)).RotateVector(Light), nullptr);
+	TestEqual(TEXT("again for a denser cloud"), Cloud->GetLightMapUpdates(), First + 3);
+	const UDreamCloudVolumeComponent::FLightState State = Cloud->GetLightState(FVector::UpVector);
+	TestTrue(TEXT("light from above stays above in the shape"), State.Direction.Equals(FVector3f(0.0f, 0.0f, 1.0f), 1.0e-4f));
+
+	// The quality level reaches the material's step.
+	IConsoleVariable* Quality = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamCloud.Quality"));
+	if (TestNotNull(TEXT("quality variable"), Quality) && Cloud->GetCloudMaterial())
+	{
+		const int32 Was = Quality->GetInt();
+		Quality->Set(0, ECVF_SetByCode);
+		Cloud->TickCloud(0.1f, FVector::UpVector, nullptr);
+		float Step = 0.0f;
+		Cloud->GetCloudMaterial()->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("StepScale")), Step);
+		TestNearlyEqual(TEXT("low quality: twice the step"), Step, 2.0f * Cloud->StepScale, 1.0e-4f);
+		Quality->Set(Was, ECVF_SetByCode);
+		Cloud->TickCloud(0.1f, FVector::UpVector, nullptr);
+		Cloud->GetCloudMaterial()->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("StepScale")), Step);
+		TestNearlyEqual(TEXT("back"), Step, DreamCloud::GetQuality().StepScale * Cloud->StepScale, 1.0e-4f);
+	}
 	return true;
 }
 
