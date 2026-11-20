@@ -121,9 +121,21 @@ namespace DreamCloud::Console
 			UE_LOG(LogDreamCloud, Display, TEXT("DreamCloud.Spawn: %s %s at %s, field %s"), *Args[0], *Shape, *At.ToString(), *Cloud->Field.Resolution.ToString());
 		}));
 
+	/** Whether an actor's name (or, in the editor, its label) contains the filter. */
+	static bool NameMatches(const AActor& Actor, const FString& Filter)
+	{
+#if WITH_EDITOR
+		if (Actor.GetActorLabel().Contains(Filter))
+		{
+			return true;
+		}
+#endif
+		return Actor.GetName().Contains(Filter);
+	}
+
 	static FAutoConsoleCommandWithWorldAndArgs SetCommand(
 		TEXT("DreamCloud.Set"),
-		TEXT("DreamCloud.Set <property> <value> [name filter]: sets a property of every cloud volume (or those whose actor name contains the filter),")
+		TEXT("DreamCloud.Set <property> <value> [name filter]: sets a property of every cloud volume (or those whose actor name or label contains the filter),")
 		TEXT(" as the editor would (text form: 0.1, (R=1,G=0.5,B=0.5,A=1), Toon), and bakes again when the shape changed."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
@@ -141,7 +153,7 @@ namespace DreamCloud::Console
 			int32 Count = 0;
 			for (TActorIterator<ADreamCloudVolume> It(World); It; ++It)
 			{
-				if (Args.IsValidIndex(2) && !It->GetName().Contains(Args[2]))
+				if (Args.IsValidIndex(2) && !NameMatches(**It, Args[2]))
 				{
 					continue;
 				}
@@ -155,6 +167,7 @@ namespace DreamCloud::Console
 				{
 					Cloud->Rebake();
 				}
+				Cloud->MarkRenderStateDirty();
 				Cloud->UpdateCloudMaterial();
 				++Count;
 			}
@@ -182,7 +195,8 @@ namespace DreamCloud::Console
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
-			AActor* Carrier = PC ? (PC->GetPawn() ? static_cast<AActor*>(PC->GetPawn()) : PC->GetViewTarget()) : nullptr;
+			// The actor the view moves with: what the player controller looks through (a camera actor, its pawn).
+			AActor* Carrier = PC ? (PC->GetViewTarget() ? PC->GetViewTarget() : static_cast<AActor*>(PC->GetPawn())) : nullptr;
 			if (!Carrier)
 			{
 				UE_LOG(LogDreamCloud, Warning, TEXT("DreamCloud.CarveView: no view"));
