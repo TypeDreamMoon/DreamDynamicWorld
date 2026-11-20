@@ -2,6 +2,7 @@
 
 #include "DreamSkyCloudRenderer.h"
 #include "DreamSky.h"
+#include "DreamSkyModule.h"
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSubsystem.h"
 
@@ -208,8 +209,10 @@ class FDreamSkyCloudTemporalCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, HistorySampler)
 		SHADER_PARAMETER(FVector2f, HistoryInvExtent)
 		SHADER_PARAMETER(float, HistoryWeight)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, HistoryRaySize)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutDepth)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<uint2>, OutRaySize)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -418,13 +421,14 @@ void FDreamSkyCloudViewExtension::PostRenderBasePassDeferred_RenderThread(FRDGBu
 	}
 	RDG_EVENT_SCOPE(GraphBuilder, "DreamSky.Clouds");
 	RenderClouds(GraphBuilder, InView, RenderTargets);
-	// Views that stopped drawing (closed viewports, finished captures) let go of their history.
+	// Views that stopped drawing (closed viewports, finished captures) let go of their history -- after some minutes: an
+	// editor viewport that is not realtime may stand still that long and is drawn again with it.
 	if ((GFrameCounterRenderThread & 255) == 0)
 	{
 		const uint64 Now = GFrameCounterRenderThread;
 		for (auto It = Histories.CreateIterator(); It; ++It)
 		{
-			if (!It.Value().IsValid() || It.Value()->LastFrame + 300 < Now)
+			if (!It.Value().IsValid() || It.Value()->LastFrame + 20000 < Now)
 			{
 				It.RemoveCurrent();
 			}
@@ -509,12 +513,26 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			History = Slot;
 		}
 		const FIntPoint ViewSize = InView.UnscaledViewRect.Size();
-		const bool bHistory = History.IsValid() && History->Color.IsValid() && History->Depth.IsValid() && History->LastFrame + 2 >= GFrameCounterRenderThread
-			&& History->ViewSize == ViewSize && History->Downsample == Downsample && History->Look == Settings.Look
-			&& History->Color->GetDesc().Extent == Half;
+		// (However long ago this view was drawn: an editor viewport that is not realtime, or one in the background, is
+		// drawn again only now and then, and with the history dropped each of its frames was a single jittered march, all
+		// grain. The reprojection and the neighbourhood clamp keep an old history from ghosting.)
+		// (Nor whatever size it was drawn at: it is read by where the clouds were on screen, at the ray grid it keeps, so a
+		// change of screen percentage or of the window resamples it instead of reading it at the wrong place.)
+		const bool bHistory = History.IsValid() && History->Color.IsValid() && History->Depth.IsValid() && History->RaySize.IsValid()
+			&& History->Downsample == Downsample && History->Look == Settings.Look;
+		UE_LOG(LogDreamSky, VeryVerbose, TEXT("Clouds: view key %u, %dx%d (march %dx%d), %s, family frame %u"), Key, ViewSize.X, ViewSize.Y, Half.X, Half.Y,
+			bHistory ? TEXT("history") : (History.IsValid() ? TEXT("history dropped") : TEXT("no history kept")), InView.Family ? InView.Family->FrameNumber : 0u);
 
 		FRDGTextureRef OutColor = GraphBuilder.CreateTexture(ColorDesc, TEXT("DreamSky.Clouds"));
 		FRDGTextureRef OutDepth = GraphBuilder.CreateTexture(DepthDesc, TEXT("DreamSky.CloudsDepth"));
+		FRDGBufferRef OutRaySize = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32) * 2, 1), TEXT("DreamSky.CloudsRaySize"));
+		FRDGBufferRef HistoryRaySize = bHistory ? GraphBuilder.RegisterExternalBuffer(History->RaySize) : nullptr;
+		if (!HistoryRaySize)
+		{
+			// (Not read without a history; bound all the same.)
+			HistoryRaySize = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32) * 2, 1), TEXT("DreamSky.CloudsRaySizeNone"));
+			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(HistoryRaySize), 0u);
+		}
 		{
 			FDreamSkyCloudTemporalCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudTemporalCS::FParameters>();
 			FillCommon(Params->Common);
@@ -523,8 +541,12 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->HistoryColor = bHistory ? GraphBuilder.RegisterExternalTexture(History->Color) : MarchColor;
 			Params->HistoryDepth = bHistory ? GraphBuilder.RegisterExternalTexture(History->Depth) : MarchDepth;
 			Params->HistorySampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-			Params->HistoryInvExtent = FVector2f(1.0f / Half.X, 1.0f / Half.Y);
-			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : 0.0f;
+			const FIntPoint HistoryExtent = bHistory ? History->Color->GetDesc().Extent : Half;
+			Params->HistoryInvExtent = FVector2f(1.0f / HistoryExtent.X, 1.0f / HistoryExtent.Y);
+			Params->HistoryRaySize = GraphBuilder.CreateSRV(HistoryRaySize);
+			Params->OutRaySize = GraphBuilder.CreateUAV(OutRaySize);
+			// (Without one, the temporal pass puts out the neighbourhood's mean: a smooth frame, not one march's grain.)
+			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f);
 			Params->OutColor = GraphBuilder.CreateUAV(OutColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(OutDepth);
 			TShaderMapRef<FDreamSkyCloudTemporalCS> Shader(ShaderMap);
@@ -535,6 +557,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		{
 			GraphBuilder.QueueTextureExtraction(OutColor, &History->Color);
 			GraphBuilder.QueueTextureExtraction(OutDepth, &History->Depth);
+			GraphBuilder.QueueBufferExtraction(OutRaySize, &History->RaySize);
 			History->ViewSize = ViewSize;
 			History->Downsample = Downsample;
 			History->Look = Settings.Look;

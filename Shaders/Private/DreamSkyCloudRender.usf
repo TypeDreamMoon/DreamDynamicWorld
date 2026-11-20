@@ -122,6 +122,8 @@ Texture2D<float4> HistoryColor;
 Texture2D<float> HistoryDepth;
 SamplerState HistorySampler;
 float2 HistoryInvExtent;
+StructuredBuffer<uint2> HistoryRaySize;   // the ray grid the history was drawn at
+RWStructuredBuffer<uint2> OutRaySize;
 float HistoryWeight;
 
 Texture2D<float4> CloudColor;
@@ -698,35 +700,25 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	{
 		return;
 	}
+	if (all(Ray == 0))
+	{
+		OutRaySize[0] = uint2(Size);
+	}
 	float4 Current = CurrentColor[Ray];
 	float Depth = CurrentDepth[Ray];
 	OutDepth[Ray] = Depth;
-	if (Depth < -1.5 || HistoryWeight <= 0.0)
+	if (Depth < -1.5 || HistoryWeight == 0.0)
 	{
 		OutColor[Ray] = Current;
 		return;
 	}
-	// Where this ray's clouds were on screen the frame before: at their depth, or (none) the sky at infinity.
-	float3 V = DSkyR_ViewDir(DSkyR_FullPixel(Ray));
-	float4 Clip = Depth > 0.0 ? mul(float4(View.TranslatedWorldCameraOrigin + V * Depth, 1.0), View.TranslatedWorldToClip)
-		: mul(float4(V, 0.0), View.TranslatedWorldToClip);
-	float4 Prev = mul(Clip, View.ClipToPrevClip);
-	float2 PrevUV = (Prev.xy / max(Prev.w, 1.0e-6)) * float2(0.5, -0.5) + 0.5;
-	float2 PrevRay = PrevUV * View.ViewSizeAndInvSize.xy / float(Downsample);
-	if (Prev.w <= 0.0 || any(PrevRay < 0.0) || any(PrevRay > float2(Size)))
-	{
-		OutColor[Ray] = Current;
-		return;
-	}
-	if (HistoryDepth.Load(int3(int2(PrevRay), 0)) < -1.5)
-	{
-		OutColor[Ray] = Current;
-		return;
-	}
-	float4 History = HistoryColor.SampleLevel(HistorySampler, PrevRay * HistoryInvExtent, 0);
-	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.
+	// The neighbourhood: its range keeps the history from ghosting; its mean stands in for a ray with no history (a cut, a
+	// view first drawn, an editor viewport drawn again after standing still): one frame's per-pixel jitter is a grain
+	// that a 3x3 mean of its interleaved gradient noise smooths out.
 	float4 Lo = Current;
 	float4 Hi = Current;
+	float4 Sum = 0.0;
+	float Count = 0.0;
 	for (int y = -1; y <= 1; ++y)
 	{
 		for (int x = -1; x <= 1; ++x)
@@ -737,9 +729,38 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 				float4 N = CurrentColor[Q];
 				Lo = min(Lo, N);
 				Hi = max(Hi, N);
+				Sum += N;
+				Count += 1.0;
 			}
 		}
 	}
+	float4 Mean = Sum / max(Count, 1.0);
+	if (HistoryWeight < 0.0)
+	{
+		OutColor[Ray] = Mean;
+		return;
+	}
+	// Where this ray's clouds were on screen the frame before: at their depth, or (none) the sky at infinity.
+	float3 V = DSkyR_ViewDir(DSkyR_FullPixel(Ray));
+	float4 Clip = Depth > 0.0 ? mul(float4(View.TranslatedWorldCameraOrigin + V * Depth, 1.0), View.TranslatedWorldToClip)
+		: mul(float4(V, 0.0), View.TranslatedWorldToClip);
+	float4 Prev = mul(Clip, View.ClipToPrevClip);
+	float2 PrevUV = (Prev.xy / max(Prev.w, 1.0e-6)) * float2(0.5, -0.5) + 0.5;
+	// (At the ray grid the history was drawn at: the screen percentage may have changed since.)
+	float2 PrevSize = float2(HistoryRaySize[0]);
+	float2 PrevRay = PrevUV * PrevSize;
+	if (Prev.w <= 0.0 || any(PrevRay < 0.0) || any(PrevRay > PrevSize))
+	{
+		OutColor[Ray] = Mean;
+		return;
+	}
+	if (HistoryDepth.Load(int3(int2(PrevRay), 0)) < -1.5)
+	{
+		OutColor[Ray] = Mean;
+		return;
+	}
+	float4 History = HistoryColor.SampleLevel(HistorySampler, PrevRay * HistoryInvExtent, 0);
+	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.
 	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), HistoryWeight);
 }
 

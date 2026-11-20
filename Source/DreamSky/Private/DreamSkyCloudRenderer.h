@@ -69,6 +69,7 @@ private:
 	{
 		TRefCountPtr<IPooledRenderTarget> Color;
 		TRefCountPtr<IPooledRenderTarget> Depth;
+		TRefCountPtr<FRDGPooledBuffer> RaySize;   // the ray grid it was drawn at (the view's size under its screen percentage)
 		FIntPoint ViewSize = FIntPoint::ZeroValue;
 		int32 Downsample = 0;
 		int32 Look = -1;
