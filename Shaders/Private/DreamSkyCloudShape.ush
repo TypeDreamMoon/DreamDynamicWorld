@@ -371,11 +371,14 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	}
 
 	// Storms: cells 16 km apart, each where the weather is storm-dark at its centre raising a cumulonimbus out of the
-	// deck (most do; their size varies). Looked for only near a storm: here, or upwind as far as an anvil reaches.
+	// deck (most do; their size varies). Looked for only near a storm: here, or upwind as far as an anvil reaches;
+	// and not within a closed deck, up to its top, where none shows (the deck stands there) -- under a storm most
+	// samples are taken there, in it and under its base.
 	float2 Downwind = dot(Cloud1.xy, Cloud1.xy) > 1.0e-6 ? normalize(Cloud1.xy) : float2(0.866, 0.5);
 	float3 ViewWeather = DCS_ViewWeather(Cloud0, CloudLayer);
-	bool bStorm = Storm.z > 0.0;
-	if (bSearch)
+	bool bInDeck = DeckBand > 0.999;
+	bool bStorm = Storm.z > 0.0 && !bInDeck;
+	if (bSearch && !bInDeck)
 	{
 		float Upwind = DCS_MapAt(World2 + Wander - Downwind * 900000.0, ViewWeather, MapParams, Map, MapSampler).y;
 		bStorm = max(S.Dark, saturate(Upwind * 1.3 - 0.2)) > 0.3;
