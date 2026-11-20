@@ -97,7 +97,7 @@ public:
 
 	/** Multiplies the sunlight the cloud scatters. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Appearance", meta = (ClampMin = "0", UIMax = "4"))
-	float SunStrength = 1.5f;
+	float SunStrength = 2.0f;
 
 	/** Multiplies the sky light the cloud scatters. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Appearance", meta = (ClampMin = "0", UIMax = "4"))

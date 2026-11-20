@@ -119,7 +119,15 @@ float4 DCV_Shade(FDCloudVolume V, FDCloudVolumeLook Look, float3 Cam, float3 Dir
 	P.MaxSkip = 48.0 * Fine;
 	float Reach = 0.5 * length(V.Box);
 	float Cos = dot(ViewW, LightW);
+	// The multiple scattering keeps its energy (a sunlit face stays white), but its octaves see more of the depth toward
+	// the light (b 0.5, three octaves: the deepest still sees a quarter of it), so the shaded side and the base go clearly
+	// darker instead of the light leaking through the whole cloud; the forward lobe weighs a little more (the thin rim
+	// glows against the sun).
 	FDCloudLightParams L = DCL_DefaultParams();
+	L.Blend = 0.4;
+	L.MsContribution = 0.8;
+	L.MsOcclusion = 0.5;
+	L.MsOctaves = 3;
 	float Billow;
 
 	if (Look.Mode < 0.5 || Look.Mode > 1.5)
@@ -201,15 +209,18 @@ float4 DCV_Shade(FDCloudVolume V, FDCloudVolumeLook Look, float3 Cam, float3 Dir
 	{
 		return float4(S.bHit ? saturate(Hit / V.Box + 0.5) : float3(0.0, 0.0, 0.0), 1.0);
 	}
-	// The normal at the lobes' scale: the smooth field with only the coarse noise (and the carving), around the hit.
+	// The normal at the lobes' scale: the field eroded by the billows (not the finest octave) and carved, around the hit.
 	float H = max(Look.Lobe, V.Texel);
 	float4 Taps;
 	for (int t = 0; t < 4; ++t)
 	{
 		float3 Y = Hit + DCL_Tetra(t) * (0.577 * H);
 		float Dtap = DCM_SampleDistance(Field, FieldSampler, Y, V.Box);
-		float Coarse = Noise.SampleLevel(NoiseSampler, (Y + V.Drift) * (0.25 * V.InvNoise), 0).r;
-		float Signed = -(Dtap - V.Inflate) - V.ErodeDepth * (1.0 - Coarse);
+		// The billows the surface is made of (not the finest octave): each lobe turns its own way to the light, so the
+		// terminator runs over the bumps instead of across the shape in one line.
+		float4 Nt = Noise.SampleLevel(NoiseSampler, (Y + V.Drift) * V.InvNoise, 0);
+		float LobeBillow = saturate(0.65 * Nt.g + 0.35 * Nt.b);
+		float Signed = -(Dtap - V.Inflate) - V.ErodeDepth * (1.0 - LobeBillow) * lerp(0.6, 1.4, 1.0 - Nt.r);
 		if (V.HolesOn > 0.5)
 		{
 			float C = smoothstep(0.3, 0.7, Holes.SampleLevel(HolesSampler, saturate(Y / V.Box + 0.5), 0).r);

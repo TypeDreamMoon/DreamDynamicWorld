@@ -39,7 +39,7 @@ uniform float Look = 0.0;
 uniform float Extinction = 1.5;
 
 /// @group Appearance   @sort 30   @slider 0 4   @desc Multiplies the sunlight scattered
-uniform float SunStrength = 1.5;
+uniform float SunStrength = 2.0;
 
 /// @group Appearance   @sort 40   @slider 0 4   @desc Multiplies the sky light scattered
 uniform float AmbientStrength = 1.0;
