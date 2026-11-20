@@ -359,6 +359,8 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			{
 				CloudMaterialInstance->ClearParameterValues();
 				CloudOverrides.ApplyTo(*CloudMaterialInstance);
+				// (The clouds' shadows fade out short of the shadow map's edge: the map reaches the traced distance.)
+				CloudMaterialInstance->SetScalarParameterValue(TEXT("ShadowReach"), FMath::Max(VolumetricTracingDistance, 10.0f) * 100000.0f);
 				bCloudMaterialDirty = false;
 			}
 			Wanted = CloudMaterialInstance;
@@ -619,6 +621,7 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance))
 	{
 		ApplyDome();
+		bCloudMaterialDirty = true;
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Style) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudOverrides)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, LightOverrides) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, AmbientOverrides)

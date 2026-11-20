@@ -87,7 +87,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "1", UIMax = "15"))
 	float VolumetricLayerThickness = 10.0f;
 
-	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it). */
+	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it),
+	 *  and the clouds' shadow map reaches as far (the plugin's cloud materials fade their shadows out short of it:
+	 *  their ShadowReach parameter, set from this when the material overrides make an instance of them). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", UIMax = "200"))
 	float VolumetricTracingDistance = 60.0f;
 

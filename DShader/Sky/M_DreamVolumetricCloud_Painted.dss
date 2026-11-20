@@ -46,6 +46,9 @@ uniform float SilverLining = 1.5;
 /// @group Light   @sort 50   @slider 0 1   @desc How much the billows shade themselves (0 = only the big forms are shaded)
 uniform float BillowShade = 0.3;
 
+/// @group Light   @sort 60   @desc How far the cloud shadow map reaches around the view, cm (Dream Sky makes it its VolumetricTracingDistance): the clouds' shadows fade out short of it
+uniform float ShadowReach = 6000000.0;
+
 /// @group Palette   @sort 10   @desc Multiplies the style's lit cloud colour (warm near-white)
 uniform float4 LitTint = float4(1.0, 0.975, 0.93, 1.0);
 
@@ -197,6 +200,15 @@ export void M_DreamVolumetricCloud_Painted(inout material m)
 		Horizon, Ground, SunHalo, CloudExtinction, EngineLight, PaintGain, EdgeSoftness, HalfToneAt, LitToneAt, ToneSoftness,
 		SilverLining, BillowShade, LitTint, ShadeTint, 0.0, WeatherMap, CloudNoise, SampleExtinction, SampleAlbedo, SampleEmissive,
 		Conservative);
+	// Toward the light (the cloud shadow map) the cloud fades out by where its shadow lands, from a quarter of the way
+	// to the map's edge, so the clouds' shadows thin out into a gradient instead of ending in a line across the ground.
+	if (UE.CloudSampleAttribute().ShadowSampleDistance > 0.0)
+	{
+		float3 Rel = World - UE.CameraPositionWS();
+		float3 L = normalize(SunDir.xyz);
+		float2 Lands = Rel.xy - L.xy * (max(World.z, 0.0) / max(L.z, 0.05));
+		SampleExtinction *= 1.0 - smoothstep(0.25 * ShadowReach, 0.95 * ShadowReach, length(Lands));
+	}
 
 	// The engine's own light is a small share here: it reads the sun's shadow from the cloud shadow map instead of
 	// marching toward the sun per sample (that march evaluates this whole material again at every step). (Not a
