@@ -406,7 +406,13 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
 			float3 Paint = DCL_ShadePainted(Tau, Cos, C.Height, saturate(C.Signed * 4.0), Shade, lerp(Shade, PaintLit, 0.55), PaintLit, PP);
 			// Storm clouds are dark below, their lit tops much less so (as the engine's painted material has it).
-			Paint *= saturate(1.0 - P_CloudLayer.z * C.Dark * lerp(1.0, 0.3, saturate(C.Height)));
+			float Storm = P_CloudLayer.z * C.Dark;
+			Paint *= saturate(1.0 - Storm * lerp(1.0, 0.3, saturate(C.Height)));
+			// The sky's light on the cloud, as the realistic look's glow: no part of it goes darker than the shade tone lit by
+			// the sky (less of it low in the cloud and in a storm). Without it a storm's thick body went a flat grey where the
+			// engine's painted clouds keep their blue-lavender.
+			float FromBase = 1.0 - saturate(C.Height);
+			Paint = max(Paint, PaintShade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
 			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint, Dt);
 #else
 			float3 Sun = SunColor * DCL_SunScatter(Tau, Cos, L);
