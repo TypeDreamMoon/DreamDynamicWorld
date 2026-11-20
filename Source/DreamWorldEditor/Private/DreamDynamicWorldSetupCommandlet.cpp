@@ -289,6 +289,18 @@ namespace DreamWorld::Setup
 		const TCHAR* Cone = TEXT("/Engine/BasicShapes/Cone.Cone");
 
 		AddMesh(*World, Plane, FVector::ZeroVector, FVector(600.0f, 600.0f, 1.0f))->SetActorLabel(TEXT("Floor"));
+		// Ground out to 500 km each way, just under the floor: from inside or above the cloud layer the eye sees the
+		// ground through thin cloud out to the horizon (250 km from 5 km up), where a smaller one showed the sky below
+		// its edge. It casts no shadow and leaves distance-field lighting to the floor, so the lighting near the camera
+		// stays as it was.
+		if (AStaticMeshActor* Ground = AddMesh(*World, Plane, FVector(0.0f, 0.0f, -5.0f), FVector(1000000.0f, 1000000.0f, 1.0f)))
+		{
+			Ground->SetActorLabel(TEXT("Ground"));
+			UStaticMeshComponent* Mesh = Ground->GetStaticMeshComponent();
+			Mesh->SetCastShadow(false);
+			Mesh->bAffectDistanceFieldLighting = false;
+			Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
 		// A ring of shapes around the camera's view, at several heights.
 		AddMesh(*World, Cube, FVector(-1200.0f, -300.0f, 150.0f), FVector(3.0f, 3.0f, 3.0f))->SetActorLabel(TEXT("Cube"));
 		AddMesh(*World, Cylinder, FVector(-1600.0f, -1100.0f, 500.0f), FVector(1.5f, 1.5f, 10.0f))->SetActorLabel(TEXT("Pillar"));
