@@ -364,6 +364,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// how long its schedule is: half as long, so that where cloud may be it can take its fine steps all the way.
 	const int Steps = 80;
 	const float Schedule = 36.0;
+	// Far off, a ray skimming a cumulus's top (within some 300 m of its surface, where the march's fine steps are longer
+	// than 400 m) takes steps a third as long, up to this many more: the fine steps were longer than a billow there, rows
+	// of rays found the surface on one billow or the one behind (or the cloud behind), and far cumulus came out in
+	// horizontal streaks and brushed edges. Its own budget: no other ray steps differently.
+	const int Skims = 30;
 	// The layer along the ray, over the planet's curve, from its base to the top of the tallest towers: entered from
 	// below, from inside, or from above (looking down on the clouds).
 	float T0;
@@ -385,8 +390,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	//              fine where one may be (backing up to the last clear sample first), never more than the samples left
 	//              can spread over the rest of the ray
 	//   1 refine   halving the gap between the last sample outside the cloud and the first inside
-	//   2 closest  a ray that only came near a cloud: a golden-section search of the signed shape for its closest
-	//              approach; if it reaches the surface, that is a hit like any other (refined in 1)
+	//   2 closest  a ray that only came near a cloud, or came near one before it hit: a golden-section search of the
+	//              signed shape for its closest approach; if it reaches the surface, that is a hit like any other (refined
+	//              in 1), else the hit after it is refined
 	//   3 here     the surface itself
 	//   4 normal   four taps on a tetrahedron around it (wider apart far away)
 	//   5 shadow   four samples toward the light, further apart as they go
@@ -402,6 +408,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float PrevU = 0.0;
 	bool bFine = false;
 	int Quiet = 0;
+	int Skimmed = 0;
 	bool bHit = false;
 	float BestSigned = -1.0e6;
 	float BestT = T0;
@@ -409,6 +416,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
 	float Lo = 0.0;
 	float Hi = 0.0;
+	float HitLo = 0.0;
+	float HitHi = 0.0;
+	bool bHitWaiting = false;
 	float FirstProbe = 0.0;
 	float SurfaceT = 0.0;
 	float3 Surface = float3(0, 0, 0);
@@ -423,18 +433,33 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Travelled = 0.0;
 	float Sliver = 0.0;
 	[loop]
-	for (int It = 0; It < Steps && Phase == 0; ++It)
+	for (int It = 0; It < Steps + Skims && Phase == 0; ++It)
 	{
 		float T = Next;
 		FDSkyCloudSample S = DSky_CloudAt(V * T, F, false, Anchor, MapParams, Map, MapSampler, Noise, NoiseSampler,
 			1.0 - smoothstep(DetailEnd * 0.5, DetailEnd, T));
 		if (S.Solid >= F.Iso)
 		{
-			Lo = PrevT;
-			Hi = T;
+			// A ray grazing far cloud tops can step over a bump and hit the next one: neighbouring rows found their surface
+			// on different billows, and the shading came out in horizontal streaks. If the march came close to cloud before
+			// the hit, that closest approach is searched first; where it reaches the surface, that is the surface.
+			HitLo = PrevT;
+			HitHi = T;
 			Anchor = S.Anchor;
-			Phase = 1;
 			Index = 0;
+			if (BestSigned > -0.025 && BestT < PrevT && S.Deck < 0.5 && S.Column < 500000.0)
+			{
+				bHitWaiting = true;
+				Lo = max(BestT - BestStep, T0);
+				Hi = min(BestT + BestStep, PrevT);
+				Phase = 2;
+			}
+			else
+			{
+				Lo = HitLo;
+				Hi = HitHi;
+				Phase = 1;
+			}
 		}
 		else
 		{
@@ -452,7 +477,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			}
 			// (Never slower than the samples left can cover the rest of the schedule at.)
 			float From = bBack ? PrevU : U;
-			float Pace = max(DSky_MarchPace(bFine), (Schedule - From) / float(max(Steps - 1 - Index, 1)));
+			float Pace = max(DSky_MarchPace(bFine), (Schedule - From) / float(max(Steps - 1 - (Index - Skimmed), 1)));
+			if (bFine && !bBack && Skimmed < Skims && S.Signed > -0.1 && S.Deck < 0.5 && S.Column < 500000.0
+				&& T0 + (T1 - T0) * DSky_Square((From + Pace) / Schedule) - T > 40000.0)
+			{
+				Pace /= 3.0;
+				++Skimmed;
+			}
 			float NextU = From + Pace;
 			Next = T0 + (T1 - T0) * DSky_Square(NextU / Schedule);
 			if (!bBack)
@@ -468,7 +499,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 				PrevU = U;
 			}
 			U = NextU;
-			if (++Index >= Steps || U > Schedule)
+			if (++Index - Skimmed >= Steps || U > Schedule)
 			{
 				// (A ray that came within some 80 m of a cumulus, a few metres of a deck.)
 				Phase = BestSigned > -0.025 ? 2 : 7;
@@ -557,6 +588,12 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 				{
 					Lo = max(BestT - BestStep, T0);
 					Hi = BestT;
+					Phase = 1;
+				}
+				else if (bHitWaiting)
+				{
+					Lo = HitLo;
+					Hi = HitHi;
 					Phase = 1;
 				}
 				else if (BestSigned > F.Iso - DSky_EdgeWidth(BestT))
