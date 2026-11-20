@@ -1,0 +1,422 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// Marching a ray through a cloud: the step logic both of the plugin's cloud renderers share (the local cloud volumes,
+// drawn by their translucent material, and the sky's cloud layer, drawn by a compute shader). Plain HLSL: no material
+// or global shader globals, every input a function argument, so a material's custom HLSL and a global shader include
+// it alike. The caller owns the loop and the shape; this file decides where the samples go.
+//
+// ---------------------------------------------------------------------------------------------------------------------
+// The interface
+//
+// A shape source says, at a point, an FDCloudField:
+//   Distance  a lower bound of the distance (in the march's units) to the nearest point where there may be cloud;
+//             <= 0 where there may be cloud here. The march skips that far in one step.
+//   Signed    the surface function: > 0 inside the cloud's surface, < 0 outside (in the march's units near the surface
+//             for a distance field; any monotone measure works for the bisection). Surface marches only.
+//   Density   0..1 at the point. Volume marches only.
+// Two sources come with the file:
+//   - a signed distance field in a volume texture (DCM_FieldFromDistance, after sampling it with DCM_SampleDistance):
+//     the local cloud volumes, a mesh or primitives baked to 64^3..128^3 texels;
+//   - the sky's parametric field DCS_Shape (DreamSkyCloudShape.ush), when that file is included before this one:
+//     DCM_FieldFromShape. Its bound is not metric (Conservative > 0 or not), so it skips a fixed length in clear air
+//     and backs off on entering (FDCloudMarchParams.BackOff = 1).
+//
+// A march is parameterized by FDCloudMarchParams (DCM_DefaultParams gives a start):
+//   FineStep         step length where there may be cloud
+//   MinSkip/MaxSkip  the shortest and longest step through clear air (a skip is Distance * SkipScale between them)
+//   SkipScale        how much of the bound a skip trusts: 1 for an exact distance, ~0.8 for a trilinear one
+//   ExitDistance     a fine walk returns to skipping when Distance exceeds this (> FineStep: hysteresis)
+//   BackOff          1: on entering, go back to the last clear sample and walk fine from there (bounds that may
+//                    have been overstepped); 0: go back at most one fine step
+//   Jitter           0..1, the per-pixel offset of the fine samples within a step (DCM_InterleavedGradientNoise or
+//                    a blue noise texture, varied per frame for a temporal filter); 0 = the same samples every frame
+//   MinTransmittance a volume march stops when the view sees less than this through it
+//
+// Volume march (realistic clouds, integrating extinction and in-scattered light):
+//
+//   FDCloudMarch M = DCM_Begin(T0, T1, Params);
+//   for (int i = 0; i < MaxSamples && DCM_Running(M); ++i)
+//   {
+//       FDCloudField F = MyField(Origin + Dir * M.T);
+//       float Dt = DCM_Advance(M, F, Params);          // the length this sample stands for, 0 when it does not count
+//       if (Dt > 0.0 && F.Density > 0.0)
+//           DCM_Integrate(M, SigmaT, ScatteredLight, Dt);  // SigmaT per march unit; ScatteredLight = sigma_s * L_in
+//       DCM_CheckDone(M, Params);
+//   }
+//   Result: M.Luminance (premultiplied), M.Transmittance, DCM_MeanDepth(M) (transmittance-weighted depth),
+//   M.FirstHit (the first sample with density, T1 when none).
+//
+// Surface march (toon clouds, finding the first crossing of Signed = 0 and refining it):
+//
+//   FDCloudSurface S = DCM_SurfaceBegin(T0, T1, Refines);
+//   for (int i = 0; i < MaxSamples && DCM_SurfaceRunning(S); ++i)
+//       DCM_SurfaceAdvance(S, MyField(Origin + Dir * S.M.T), Params);
+//   Result: S.bHit, S.HitT (refined), and for the misses S.Closest / S.ClosestT (the highest Signed met outside,
+//   for an antialiased silhouette: coverage = DCM_EdgeCoverage(S.Closest, footprint at S.ClosestT)).
+//
+// Noise for the jitter: DCM_InterleavedGradientNoise(PixelPosition, FrameIndex).
+// ---------------------------------------------------------------------------------------------------------------------
+
+#ifndef DREAMCLOUD_MARCH_USH
+#define DREAMCLOUD_MARCH_USH
+
+struct FDCloudField
+{
+	float Distance;
+	float Signed;
+	float Density;
+};
+
+struct FDCloudMarchParams
+{
+	float FineStep;
+	float MinSkip;
+	float MaxSkip;
+	float SkipScale;
+	float ExitDistance;
+	float BackOff;
+	float Jitter;
+	float MinTransmittance;
+};
+
+// A start for a march whose fine step is FineStep: skips from one fine step up to 64, trusting 85 % of the bound,
+// back to skipping two fine steps out of the cloud, no back-off, no jitter, stopping at 1 % transmittance.
+FDCloudMarchParams DCM_DefaultParams(float FineStep)
+{
+	FDCloudMarchParams P;
+	P.FineStep = max(FineStep, 1.0e-4);
+	P.MinSkip = P.FineStep;
+	P.MaxSkip = 64.0 * P.FineStep;
+	P.SkipScale = 0.85;
+	P.ExitDistance = 2.0 * P.FineStep;
+	P.BackOff = 0.0;
+	P.Jitter = 0.0;
+	P.MinTransmittance = 0.01;
+	return P;
+}
+
+#define DCM_MODE_SKIP 0
+#define DCM_MODE_FINE 1
+#define DCM_MODE_DONE 2
+
+struct FDCloudMarch
+{
+	float T;             // where the next sample goes
+	float T0;            // the segment marched
+	float T1;
+	float LastEmpty;     // the last sample that was clear
+	int Mode;            // DCM_MODE_*
+	float Transmittance; // how much of what is behind the view still sees
+	float3 Luminance;    // what the cloud adds in front of it (premultiplied)
+	float FirstHit;      // the first sample with density (T1 when none)
+	float DepthSum;      // sum of T * (opacity this sample added), for DCM_MeanDepth
+	float OpacitySum;
+	int Samples;         // samples that counted (fine)
+};
+
+FDCloudMarch DCM_Begin(float T0, float T1, FDCloudMarchParams P)
+{
+	FDCloudMarch M;
+	M.T = T0;
+	M.T0 = T0;
+	M.T1 = T1;
+	M.LastEmpty = T0;
+	M.Mode = T1 > T0 ? DCM_MODE_SKIP : DCM_MODE_DONE;
+	M.Transmittance = 1.0;
+	M.Luminance = 0.0;
+	M.FirstHit = T1;
+	M.DepthSum = 0.0;
+	M.OpacitySum = 0.0;
+	M.Samples = 0;
+	return M;
+}
+
+bool DCM_Running(FDCloudMarch M)
+{
+	return M.Mode != DCM_MODE_DONE;
+}
+
+// Moves the march past the sample just taken at M.T, whose field was F. Returns the length of the ray the sample
+// stands for (a fine sample: its step, the last one cut at T1), or 0 when it does not count (clear air skipped, or the
+// sample thrown away on entering because the walk restarts behind it).
+float DCM_Advance(inout FDCloudMarch M, FDCloudField F, FDCloudMarchParams P)
+{
+	if (M.Mode == DCM_MODE_DONE)
+	{
+		return 0.0;
+	}
+	if (M.Mode == DCM_MODE_SKIP)
+	{
+		if (F.Distance > P.FineStep)
+		{
+			M.LastEmpty = M.T;
+			M.T += clamp(F.Distance * P.SkipScale, P.MinSkip, P.MaxSkip);
+			if (M.T >= M.T1)
+			{
+				M.Mode = DCM_MODE_DONE;
+			}
+			return 0.0;
+		}
+		// There may be cloud here: walk fine from behind this sample (the last clear one, or one step back), offset by the
+		// jitter, so the fine samples do not stand where the skips happened to land.
+		float Back = P.BackOff > 0.5 ? M.LastEmpty : max(M.T - P.FineStep, M.T0);
+		M.Mode = DCM_MODE_FINE;
+		M.T = max(Back, M.T0) + P.Jitter * P.FineStep;
+		return 0.0;
+	}
+	// Fine: this sample stands for one step (centred on it), the last cut at the segment's end.
+	float Dt = min(P.FineStep, M.T1 - M.T + 0.5 * P.FineStep);
+	M.Samples += 1;
+	if (F.Distance > P.ExitDistance)
+	{
+		M.Mode = DCM_MODE_SKIP;
+		M.LastEmpty = M.T;
+	}
+	float Here = M.T;
+	M.T += P.FineStep;
+	if (Here >= M.T1)
+	{
+		M.Mode = DCM_MODE_DONE;
+		return max(Dt, 0.0);
+	}
+	if (M.T >= M.T1 + 0.5 * P.FineStep)
+	{
+		M.Mode = DCM_MODE_DONE;
+	}
+	return max(Dt, 0.0);
+}
+
+// Adds one sample of a participating medium: SigmaT the extinction (per march unit), Scattered the light it scatters
+// toward the view per march unit (sigma_s times the in-scattered radiance), over Dt. Integrated over the step in closed
+// form (Hillaire 2016: energy-conserving however long the step), so a dense cloud does not glow brighter with longer
+// steps.
+void DCM_Integrate(inout FDCloudMarch M, float SigmaT, float3 Scattered, float Dt)
+{
+	float Tr = exp(-SigmaT * Dt);
+	float3 Added = SigmaT > 1.0e-7 ? Scattered * (1.0 - Tr) / SigmaT : Scattered * Dt;
+	M.Luminance += M.Transmittance * Added;
+	float Opacity = M.Transmittance * (1.0 - Tr);
+	M.DepthSum += Opacity * M.T;
+	M.OpacitySum += Opacity;
+	M.FirstHit = min(M.FirstHit, M.T);
+	M.Transmittance *= Tr;
+}
+
+// Stops the march once the view sees too little through it.
+void DCM_CheckDone(inout FDCloudMarch M, FDCloudMarchParams P)
+{
+	if (M.Transmittance < P.MinTransmittance)
+	{
+		M.Mode = DCM_MODE_DONE;
+	}
+}
+
+// Where the cloud the march went through mostly stands (opacity-weighted), T1 when it met none: the depth to
+// reproject a temporal history with, or to fog the cloud at.
+float DCM_MeanDepth(FDCloudMarch M)
+{
+	return M.OpacitySum > 1.0e-4 ? M.DepthSum / M.OpacitySum : M.T1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Surface march
+
+struct FDCloudSurface
+{
+	FDCloudMarch M;    // the stepping (its light and transmittance unused)
+	float LastT;       // the last sample outside the surface
+	float LastSigned;
+	float Lo;          // bisection: outside .. inside
+	float Hi;
+	float LoSigned;
+	float HiSigned;
+	int Refines;       // halvings still to do (> 0 while refining)
+	bool bRefining;
+	bool bHit;
+	float HitT;
+	float Closest;     // the highest Signed met outside the surface, and where
+	float ClosestT;
+};
+
+FDCloudSurface DCM_SurfaceBegin(float T0, float T1, int Refines)
+{
+	FDCloudMarchParams Unused = DCM_DefaultParams(1.0);
+	FDCloudSurface S;
+	S.M = DCM_Begin(T0, T1, Unused);
+	S.LastT = T0;
+	S.LastSigned = -1.0e9;
+	S.Lo = T0;
+	S.Hi = T0;
+	S.LoSigned = -1.0;
+	S.HiSigned = 1.0;
+	S.Refines = Refines;
+	S.bRefining = false;
+	S.bHit = false;
+	S.HitT = T1;
+	S.Closest = -1.0e9;
+	S.ClosestT = T1;
+	return S;
+}
+
+bool DCM_SurfaceRunning(FDCloudSurface S)
+{
+	return S.M.Mode != DCM_MODE_DONE;
+}
+
+// Where the surface lies between an outside sample (Lo, LoSigned < 0) and an inside one (Hi, HiSigned > 0), by the
+// secant, kept within the middle of the bracket so a flat Signed cannot throw it to one end.
+float DCM_SecantSplit(float Lo, float Hi, float LoSigned, float HiSigned)
+{
+	float W = saturate(-LoSigned / max(HiSigned - LoSigned, 1.0e-6));
+	return lerp(Lo, Hi, clamp(W, 0.1, 0.9));
+}
+
+// Moves the surface march past the sample just taken at S.M.T, whose field was F.
+void DCM_SurfaceAdvance(inout FDCloudSurface S, FDCloudField F, FDCloudMarchParams P)
+{
+	if (S.M.Mode == DCM_MODE_DONE)
+	{
+		return;
+	}
+	if (S.bRefining)
+	{
+		if (F.Signed > 0.0)
+		{
+			S.Hi = S.M.T;
+			S.HiSigned = F.Signed;
+		}
+		else
+		{
+			S.Lo = S.M.T;
+			S.LoSigned = F.Signed;
+		}
+		S.Refines -= 1;
+		if (S.Refines <= 0)
+		{
+			S.bHit = true;
+			S.HitT = DCM_SecantSplit(S.Lo, S.Hi, S.LoSigned, S.HiSigned);
+			S.M.Mode = DCM_MODE_DONE;
+			return;
+		}
+		S.M.T = DCM_SecantSplit(S.Lo, S.Hi, S.LoSigned, S.HiSigned);
+		return;
+	}
+	float Here = S.M.T;
+	bool bWasFine = S.M.Mode == DCM_MODE_FINE;
+	if (bWasFine && F.Signed > 0.0)
+	{
+		// Crossed in: bracket it between the last outside sample and this one.
+		S.Lo = S.LastT;
+		S.LoSigned = min(S.LastSigned, -1.0e-6);
+		S.Hi = Here;
+		S.HiSigned = F.Signed;
+		if (S.Refines <= 0)
+		{
+			S.bHit = true;
+			S.HitT = DCM_SecantSplit(S.Lo, S.Hi, S.LoSigned, S.HiSigned);
+			S.M.Mode = DCM_MODE_DONE;
+			return;
+		}
+		S.bRefining = true;
+		S.M.T = DCM_SecantSplit(S.Lo, S.Hi, S.LoSigned, S.HiSigned);
+		return;
+	}
+	if (F.Signed > S.Closest && F.Signed <= 0.0)
+	{
+		S.Closest = F.Signed;
+		S.ClosestT = Here;
+	}
+	DCM_Advance(S.M, F, P);
+	// Only samples the walk keeps count as the last outside one (a thrown-away entry sample lies ahead of the restart).
+	if (bWasFine || S.M.Mode == DCM_MODE_SKIP)
+	{
+		S.LastT = Here;
+		S.LastSigned = F.Signed;
+	}
+	else
+	{
+		// Entering fine: the restart point is outside (it is behind a clear sample at most one step).
+		S.LastT = S.M.T;
+		S.LastSigned = min(S.LastSigned, -1.0e-6);
+	}
+	// A march that started inside the cloud (the view in it) hits at once.
+	if (Here <= S.M.T0 && F.Signed > 0.0)
+	{
+		S.bHit = true;
+		S.HitT = S.M.T0;
+		S.M.Mode = DCM_MODE_DONE;
+	}
+}
+
+// How much of a pixel a surface the ray missed still covers: Closest is how far inside it the ray came nearest (< 0,
+// in the units of Signed), Footprint the pixel's width there in the same units. 0.5 where the ray grazes it.
+float DCM_EdgeCoverage(float Closest, float Footprint)
+{
+	return saturate(0.5 + Closest / max(Footprint, 1.0e-6));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Shape sources
+
+// A signed distance field: the texture holds the signed distance (< 0 inside) in the field's units at each texel
+// centre. P is the point in field units relative to the box's centre, BoxSize the box's size; outside the box the
+// distance is at least the distance to it.
+float DCM_SampleDistance(Texture3D Field, SamplerState FieldSampler, float3 P, float3 BoxSize)
+{
+	float3 UVW = P / BoxSize + 0.5;
+	float D = Field.SampleLevel(FieldSampler, saturate(UVW), 0).r;
+	float3 Out = max(abs(P) - 0.5 * BoxSize, 0.0);
+	float Outside = length(Out);
+	return Outside > 0.0 ? max(D, Outside) : D;
+}
+
+// The field a distance gives: the cloud stands where the distance is below -Inflate's negative (Inflate > 0 grows it
+// past the mesh), its density rising over Edge from the surface inward. Erode (>= 0, in the same units) eats into it
+// (a noise times a depth): it only removes cloud, so the bound stays a bound.
+FDCloudField DCM_FieldFromDistance(float Distance, float Inflate, float Edge, float Erode)
+{
+	FDCloudField F;
+	float D = Distance - Inflate;
+	F.Distance = D;
+	F.Signed = -D - Erode;
+	F.Density = saturate(F.Signed / max(Edge, 1.0e-4));
+	return F;
+}
+
+#ifdef DREAMSKY_CLOUDSHAPE_USH
+// The sky's parametric field: where its conservative bound is 0 the march may skip Skip (clear air for that far is not
+// guaranteed: march with BackOff = 1); the surface is at Solid = Iso.
+FDCloudField DCM_FieldFromShape(FDCloudShape S, float Skip, float Iso)
+{
+	FDCloudField F;
+	F.Distance = S.Conservative > 0.0 ? 0.0 : Skip;
+	F.Signed = S.Signed - Iso;
+	F.Density = S.Density;
+	return F;
+}
+#endif
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Ray helpers
+
+// The ray's segment inside an axis-aligned box centred at the origin (half size Extent): (enter, exit); enter > exit
+// when it misses. Dir need not be normalized (the result is in its units).
+float2 DCM_BoxSegment(float3 Origin, float3 Dir, float3 Extent)
+{
+	float3 Inv = 1.0 / (max(abs(Dir), 1.0e-8) * (step(0.0, Dir) * 2.0 - 1.0));
+	float3 A = (-Extent - Origin) * Inv;
+	float3 B = (Extent - Origin) * Inv;
+	float3 Near = min(A, B);
+	float3 Far = max(A, B);
+	return float2(max(max(Near.x, Near.y), Near.z), min(min(Far.x, Far.y), Far.z));
+}
+
+// Interleaved gradient noise (Jimenez 2014), 0..1, varied per frame by a golden-ratio shift: a cheap per-pixel jitter
+// a temporal filter averages out.
+float DCM_InterleavedGradientNoise(float2 Pixel, uint Frame)
+{
+	Pixel += float(Frame % 64u) * 5.588238;
+	return frac(52.9829189 * frac(dot(Pixel, float2(0.06711056, 0.00583715))));
+}
+
+#endif // DREAMCLOUD_MARCH_USH

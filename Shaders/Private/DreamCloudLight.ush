@@ -1,0 +1,190 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// Lighting a cloud: what both of the plugin's cloud renderers (the local cloud volumes and the sky's cloud layer) use to
+// turn the light reaching a sample into the light it sends toward the view. Plain HLSL like DreamCloudMarch.ush: every
+// input a function argument, included alike by a material's custom HLSL and a global shader.
+//
+// ---------------------------------------------------------------------------------------------------------------------
+// The interface
+//
+// Realistic (volume) clouds, per sample of a volume march:
+//   FDCloudLightParams L = DCL_DefaultParams();            // phase lobes, multiple scattering, albedo
+//   float Cos = dot(ViewDir, LightDir);                    // ViewDir from the eye toward the sample
+//   float3 Sun = LightColor * DCL_SunScatter(Tau, Cos, L); // Tau = optical depth from the sample toward the light
+//   float3 Sky = DCL_Ambient(SkyTop, SkyBottom, Height01, Depth01, L);
+//   Scattered = SigmaT * L.Albedo * (Sun + Sky);           // into DCM_Integrate
+// Tau comes from a transmittance volume (DCL_TauFromTransmittance) or a few taps toward the light (DCL_ShadowTapT).
+//
+// Toon clouds, at the surface a surface march found:
+//   N = DCL_TetraNormal(Signed at P + Scale * DCL_Tetra(0..3))   // Scale = the lobe size, not the noise's
+//   float Key = DCL_ToonKey(N, LightDir, Shadow, Params);        // 0 shade .. 1 lit, before the bands
+//   float3 C = DCL_ToonBands(Key, Shade, Half, Lit, Softness, Footprint) // smooth bands: no stair-step edges
+// ---------------------------------------------------------------------------------------------------------------------
+
+#ifndef DREAMCLOUD_LIGHT_USH
+#define DREAMCLOUD_LIGHT_USH
+
+#define DCL_PI 3.14159265
+
+struct FDCloudLightParams
+{
+	float G1;              // forward lobe (silver lining), -1..1
+	float G2;              // backward lobe
+	float Blend;           // 0 = G1 only .. 1 = G2 only
+	float Albedo;          // share of the extinction scattered (a cloud: nearly all)
+	float MsContribution;  // multiple scattering octaves: each a times the light,
+	float MsOcclusion;     // b times the optical depth,
+	float MsEccentricity;  // c times the phase's anisotropy (Wrenninge 2013, Hillaire 2016)
+	int MsOctaves;         // 1..4 octaves (1 = single scattering)
+	float Powder;          // 0..1: the dark rim of a sunlit cloud's edge seen against the light (Schneider 2015)
+	float AmbientStrength; // multiplies the sky light
+};
+
+FDCloudLightParams DCL_DefaultParams()
+{
+	FDCloudLightParams L;
+	L.G1 = 0.8;
+	L.G2 = -0.3;
+	L.Blend = 0.5;
+	L.Albedo = 0.98;
+	L.MsContribution = 0.8;
+	L.MsOcclusion = 0.35;
+	L.MsEccentricity = 0.5;
+	L.MsOctaves = 4;
+	L.Powder = 0.0;
+	L.AmbientStrength = 1.0;
+	return L;
+}
+
+// Henyey-Greenstein phase function (normalized over the sphere): Cos = cosine between the light's travel and the view's
+// (dot(ViewDir, LightDir) with ViewDir from the eye toward the sample, LightDir toward the light, is the cosine to the
+// light behind the sample: 1 looking into the sun).
+float DCL_HG(float Cos, float G)
+{
+	float G2 = G * G;
+	float Denom = max(1.0 + G2 - 2.0 * G * Cos, 1.0e-4);
+	return (1.0 - G2) / (4.0 * DCL_PI * Denom * sqrt(Denom));
+}
+
+float DCL_DualHG(float Cos, float G1, float G2, float Blend)
+{
+	return lerp(DCL_HG(Cos, G1), DCL_HG(Cos, G2), Blend);
+}
+
+// The sunlight a sample scatters toward the view per unit of in-scattering (multiply by the light's colour and by
+// sigma_s): Tau the optical depth toward the light. Octave i takes a^i of the light through b^i of the depth with c^i of
+// the lobes' anisotropy, the cheap stand-in for the light scattered many times inside (which keeps a cloud's shaded
+// side from going black).
+float DCL_SunScatter(float Tau, float Cos, FDCloudLightParams L)
+{
+	float Sum = 0.0;
+	float A = 1.0;
+	float B = 1.0;
+	float C = 1.0;
+	for (int i = 0; i < 4; ++i)
+	{
+		if (i >= L.MsOctaves)
+		{
+			break;
+		}
+		Sum += A * DCL_DualHG(Cos, L.G1 * C, L.G2 * C, L.Blend) * exp(-B * Tau);
+		A *= L.MsContribution;
+		B *= L.MsOcclusion;
+		C *= L.MsEccentricity;
+	}
+	// The powder term darkens the thin outer shell seen with the light behind the eye.
+	float Powder = lerp(1.0, 1.0 - exp(-2.0 * Tau), L.Powder * saturate(0.5 - 0.5 * Cos));
+	return Sum * Powder;
+}
+
+// The sky's light on a sample (per unit of in-scattering, isotropic): SkyTop the radiance of the sky above, SkyBottom
+// that from below (the ground's bounce), Height01 the sample's height in its cloud (0 base .. 1 top), Depth01 how deep
+// inside it is (0 at its surface .. 1 deep: a deep sample sees little of the sky). An isotropic phase over a sky of
+// radiance L scatters L, so the result is a radiance.
+float3 DCL_Ambient(float3 SkyTop, float3 SkyBottom, float Height01, float Depth01, FDCloudLightParams L)
+{
+	float Up = saturate(Height01);
+	float3 Sky = lerp(SkyBottom, SkyTop, Up * Up * (3.0 - 2.0 * Up));
+	float Open = lerp(1.0, 0.25, saturate(Depth01));
+	return Sky * Open * L.AmbientStrength;
+}
+
+// The optical depth a transmittance (0..1, e.g. read from a transmittance volume toward the light) stands for.
+float DCL_TauFromTransmittance(float Transmittance)
+{
+	return -log(max(Transmittance, 1.0e-4));
+}
+
+// The distance of shadow tap Index (0..Count-1) toward the light, as a share of Reach: spaced so the near taps are dense
+// (the soft edge of a cloud's own shadow) and the far ones sparse; the share of the reach each tap stands for is
+// DCL_ShadowTapLength.
+float DCL_ShadowTapT(int Index, int Count)
+{
+	float X = (float(Index) + 0.5) / float(max(Count, 1));
+	return X * X;
+}
+
+float DCL_ShadowTapLength(int Index, int Count)
+{
+	float A = float(Index) / float(max(Count, 1));
+	float B = float(Index + 1) / float(max(Count, 1));
+	return B * B - A * A;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Toon
+
+// Tetrahedral offsets for a gradient from four samples (one per corner, no centre sample).
+float3 DCL_Tetra(int Index)
+{
+	return Index == 0 ? float3(1.0, -1.0, -1.0) : Index == 1 ? float3(-1.0, -1.0, 1.0) : Index == 2 ? float3(-1.0, 1.0, -1.0) : float3(1.0, 1.0, 1.0);
+}
+
+// The outward normal from Signed (> 0 inside) at the four DCL_Tetra corners around a point.
+float3 DCL_TetraNormal(float4 Signed)
+{
+	float3 G = DCL_Tetra(0) * Signed.x + DCL_Tetra(1) * Signed.y + DCL_Tetra(2) * Signed.z + DCL_Tetra(3) * Signed.w;
+	float Len = length(G);
+	return Len > 1.0e-6 ? -G / Len : float3(0.0, 0.0, 1.0);
+}
+
+struct FDCloudToonParams
+{
+	float Terminator;   // where the light gives way to shade, in N.L (0 = at the geometric terminator; < 0 wraps the light around)
+	float Wrap;         // how wide the key's ramp is in N.L
+	float SkyFacing;    // how much an upward normal brightens (the sky's light on the tops)
+	float ShadowWeight; // how much the cloud's own shadow (0..1 lit) darkens the key
+};
+
+FDCloudToonParams DCL_DefaultToonParams()
+{
+	FDCloudToonParams T;
+	T.Terminator = -0.1;
+	T.Wrap = 0.6;
+	T.SkyFacing = 0.25;
+	T.ShadowWeight = 0.7;
+	return T;
+}
+
+// The toon key: 0 deep shade .. 1 fully lit, from the normal (taken at the lobes' scale so the tones follow the lobes,
+// not the noise), the light direction and the cloud's own shadow there (1 = no shadow).
+float DCL_ToonKey(float3 N, float3 LightDir, float Shadow, FDCloudToonParams T)
+{
+	float NdotL = dot(N, LightDir);
+	float Key = saturate((NdotL - T.Terminator) / max(T.Wrap, 1.0e-3) + 0.5);
+	Key = saturate(Key + T.SkyFacing * N.z * 0.5);
+	return Key * lerp(1.0, saturate(Shadow), T.ShadowWeight);
+}
+
+// Three tones from a key, with bands as wide as Softness in key units plus a pixel's footprint (Footprint: how far the key
+// changes over a pixel, e.g. fwidth(Key) or estimated from the curvature), so a band edge is clean at any distance:
+// never the stair steps of a hard threshold on a sampled field.
+float3 DCL_ToonBands(float Key, float3 Shade, float3 Half, float3 Lit, float Softness, float Footprint)
+{
+	float W = max(Softness, 0.0) + max(Footprint, 0.0);
+	float ToHalf = smoothstep(0.33 - W, 0.33 + W, Key);
+	float ToLit = smoothstep(0.66 - W, 0.66 + W, Key);
+	return lerp(lerp(Shade, Half, ToHalf), Lit, ToLit);
+}
+
+#endif // DREAMCLOUD_LIGHT_USH

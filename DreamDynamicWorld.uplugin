@@ -46,6 +46,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "DreamCloud",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DreamWindEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
