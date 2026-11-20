@@ -200,6 +200,13 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 // (cm): a march may step this far through what the bound calls clear air without stepping over an anvil.
 #define DCS_STORM_BOUND_MARGIN 250000.0
 
+// How far a march may trust there is no cumulonimbus beyond the ones a full sample searched (cm, times the field's scale):
+// a tower stands at least 0.4 km inside its 18 km cell and reaches at most 16 km from where it stands, so one outside the
+// 3 x 3 cells searched is at least 2.4 km off. Where the darkness keeps a sample from searching at all, no tower stands at
+// the point, but one may stand nearby: a shorter, untrusted step.
+#define DCS_STORM_UNSEARCHED_GAP 230000.0
+#define DCS_STORM_UNSEARCHED_STEP 120000.0
+
 // What a full sample found (DCS_Shape) that samples near it can take as theirs (DCS_ShapeNear): the weather there and
 // the two cumulonimbus standing nearest.
 struct FDCloudAnchor
@@ -223,6 +230,11 @@ struct FDCloudShape
 	float Column;         // cm: how tall the cloud here stands (a deck: how thick it is here)
 	float Deck;           // 1: an overcast deck
 	FDCloudAnchor Anchor; // for DCS_ShapeNear around this point
+	float StormDistance;  // cm: at least how far the nearest cumulonimbus is (DCS_Cumulonimbus's Outside, never more than
+	                      // the true distance), or DCS_STORM_UNSEARCHED_GAP when none is nearer; under the layer's base
+	                      // or over the tallest tops, how far the nearest cloud of any kind is. A full sample's only
+	                      // (DCS_Shape): DCS_ShapeNear knows two towers only. Where no storm is searched for, a step
+	                      // length to take (DCS_STORM_UNSEARCHED_STEP), not a bound.
 };
 
 // The overcast deck at a height H in the layer (0..1): stratocumulus, cells some 1.5 km across, over a kilometre thick
@@ -263,10 +275,13 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	S.Signed = -1.0;
 	S.Anchor.Weather = Weather;
 	S.Dark = saturate(Weather.y * 1.3 - 0.2);
+	// (No anvil tops 9.8 km.)
+	S.StormDistance = Z <= 0.0 ? -Z : max(Z - 980000.0, 0.0);
 	if (Z <= 0.0 || Z >= DCS_STORM_TOP)
 	{
 		return S;
 	}
+	S.StormDistance = DCS_STORM_UNSEARCHED_STEP * Scale;
 	float H = Z / DCS_LAYER_TOP;
 	// (The noise tiles in z as well: the phase wraps where it repeats, and the clouds never jump.)
 	float Phase = Cloud1.z;
@@ -562,6 +577,7 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		}
 		S.Anchor.Storm = BestCell;
 		S.Anchor.Storm2 = SecondCell;
+		S.StormDistance = min(Nearest, DCS_STORM_UNSEARCHED_GAP * Scale);
 		Bound = saturate(1.0 - Nearest / DCS_STORM_BOUND_MARGIN);
 		float TowerU = Best * 4.0;
 		float Tower = saturate(TowerU);
