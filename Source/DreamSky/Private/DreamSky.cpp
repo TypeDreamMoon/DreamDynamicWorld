@@ -374,11 +374,16 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			VolumetricClouds->SetMaterial(Wanted);
 		}
 		// How much sun the clouds' shadows take off the ground: all of it under realistic clouds; under the painted ones
-		// (the material with a PaintGain) a little over half, so the shadows lie light and keep some of the sun's warmth,
-		// as in a painted background, instead of the sky light's dark blue alone.
+		// (the material with a PaintGain), between broken clouds, a little over half, so the shadows lie light and keep
+		// some of the sun's warmth, as in a painted background, instead of the sky light's dark blue alone. Under a
+		// closing cover it goes back to all of it: an overcast or a storm lets no sun through to cast shadows. (Stepped,
+		// so the sun is not re-made every frame while the weather turns.)
 		float PaintGain = 0.0f;
 		const bool bPainted = Wanted && Wanted->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), PaintGain);
-		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? 0.55f : 1.0f), 0.0f, 1.0f);
+		const UDreamWorldSubsystem* Weather = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const float Cover = Weather && Weather->GetEnvironment().bActive ? Weather->GetEnvironment().CloudCoverage : 0.0f;
+		const float PaintedShadow = FMath::RoundToFloat(FMath::Lerp(0.55f, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
+		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? PaintedShadow : 1.0f), 0.0f, 1.0f);
 		if (SunLight && !FMath::IsNearlyEqual(SunLight->CloudShadowOnSurfaceStrength, GroundShadow, 1.0e-3f))
 		{
 			SunLight->CloudShadowOnSurfaceStrength = GroundShadow;
