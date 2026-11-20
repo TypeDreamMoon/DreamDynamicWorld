@@ -9,6 +9,7 @@
 
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class UTextureRenderTargetVolume;
 class UVolumeTexture;
 
 /** Where a cloud volume's shape comes from. */
@@ -91,8 +92,8 @@ public:
 	float EdgeSoftness = 50.0f;
 
 	/** Extinction of the cloud at full density, per metre (a real cumulus: some 0.04 to 0.2, but a cloud a few tens of metres across needs more to read as one). Realistic and painted. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Appearance", meta = (ClampMin = "0.001", UIMax = "0.5"))
-	float Extinction = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Appearance", meta = (ClampMin = "0.001", UIMax = "5"))
+	float Extinction = 1.5f;
 
 	/** Multiplies the sunlight the cloud scatters. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Appearance", meta = (ClampMin = "0", UIMax = "4"))
@@ -123,7 +124,7 @@ public:
 
 	/** The size of the noise that erodes the cloud's edges (cm a tile; the finest billows are an eighth of it). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Noise", meta = (ClampMin = "10", UIMax = "20000"))
-	float NoiseScale = 3000.0f;
+	float NoiseScale = 1500.0f;
 
 	/** How deep the noise eats into the cloud (cm): 0 = the shape's own smooth surface. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Noise", meta = (ClampMin = "0", UIMax = "2000"))
@@ -138,6 +139,32 @@ public:
 	/** Multiplies the march's step inside the cloud (half a texel at 1): larger = faster and coarser. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Quality", meta = (ClampMin = "0.25", UIMax = "4"))
 	float StepScale = 1.0f;
+
+	/** How far the light may turn within the volume (degrees) before its light map is drawn again. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Quality", meta = (ClampMin = "0.1", UIMax = "10"))
+	float LightUpdateAngle = 1.0f;
+
+	// ---- Carving ----
+
+	/** Whether carvers (UDreamCloudCarverComponent) cut passages through this cloud. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Carving")
+	bool bCarvable = true;
+
+	/** How long a passage stays open after the carver left (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Carving", meta = (ClampMin = "0", UIMax = "30"))
+	float HoldTime = 2.0f;
+
+	/** How long a passage then takes to grow back (s). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Carving", meta = (ClampMin = "0.1", UIMax = "60"))
+	float RefillTime = 8.0f;
+
+	/** How ragged a passage's walls are (0 = smooth tubes). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Carving", meta = (ClampMin = "0", UIMax = "1"))
+	float HoleEdgeNoise = 0.35f;
+
+	/** Texels of the carving grid along the box's longest axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud|Carving", meta = (ClampMin = "8", ClampMax = "128"))
+	int32 HoleResolution = 48;
 
 	// ---- The baked field ----
 
@@ -166,6 +193,42 @@ public:
 	/** The box the field fills, in the component's space. */
 	FBox GetFieldBox() const;
 
+	/** Cuts the capsule from Start to End (world) out of the cloud, Strength 0..1 of a clean passage. */
+	UFUNCTION(BlueprintCallable, Category = "Dream Cloud")
+	void Carve(FVector WorldStart, FVector WorldEnd, float Radius, float Strength = 1.0f);
+
+	/** How much is carved out at a world point (0 = untouched, 1 = a clean passage). */
+	UFUNCTION(BlueprintCallable, Category = "Dream Cloud")
+	float GetCarving(FVector WorldPoint) const;
+
+	/** Lets every passage close at once. */
+	UFUNCTION(BlueprintCallable, Category = "Dream Cloud")
+	void ClearCarving();
+
+	/** The carving grid (values above 1 are passages still held open), and its size. */
+	TConstArrayView<float> GetHoles() const { return Holes; }
+	FIntVector GetHoleGridSize() const { return HoleGridSize; }
+
+	/** The light map's settings for a light direction (world) now: what the subsystem draws it with. */
+	struct FLightState
+	{
+		FVector3f Direction = FVector3f::ZeroVector;
+		float SigmaPerUnit = 0.0f;
+		float Inflate = 0.0f;
+		float Edge = 0.0f;
+	};
+	FLightState GetLightState(const FVector& LightDirection) const;
+
+	/** How many times the light map was asked to be drawn (it is drawn on the GPU when the world renders). */
+	int32 GetLightMapUpdates() const { return LightMapUpdates; }
+
+	UFUNCTION(BlueprintCallable, Category = "Dream Cloud")
+	UTextureRenderTargetVolume* GetLightMap() const { return LightMap; }
+
+	/** The subsystem's per-frame update: holes grow back, the light map follows the light, the steps thin out while
+	 *  the cloud fills much of the view (ViewLocation, when there is a view). */
+	void TickCloud(float DeltaTime, const FVector& LightDirection, const FVector* ViewLocation);
+
 	/** What the shape is now, as FDreamCloudField::SourceHash. */
 	uint32 ComputeSourceHash() const;
 
@@ -178,10 +241,35 @@ public:
 
 protected:
 	virtual void OnRegister() override;
+	virtual void OnUnregister() override;
 
 private:
 	void UploadField();
 	void EnsureMaterial();
+	void ResetCarving();
+	void UploadHoles();
+	float MeanScale() const;
+
+	TArray<float> Holes;
+	FIntVector HoleGridSize = FIntVector::ZeroValue;
+	bool bHolesChanged = false;
+	bool bHolesLive = false;
+	float HoleUploadWait = 0.0f;
+	float LightHoleWait = 0.0f;
+	bool bLightStale = true;
+	FLightState LastLight;
+	int32 LastLightResolution = 0;
+	int32 LightMapUpdates = 0;
+	bool bLightMapDrawn = false;
+	float CoverageStepScale = 1.0f;
+	float LastQualityStep = -1.0f;
+	bool bUsedLightMap = true;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTargetVolume> HoleTexture;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTargetVolume> LightMap;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UVolumeTexture> FieldTexture;
