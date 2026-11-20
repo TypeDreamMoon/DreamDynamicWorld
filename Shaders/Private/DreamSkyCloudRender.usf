@@ -673,9 +673,9 @@ void PanoramaCS(uint3 Id : SV_DispatchThreadID)
 	OutPanorama[Id.xy] = float4(max(VC.rgb, 0.0), saturate(VC.a));
 }
 
-// The share of the sun the clouds let through to the layer's base (and below it) round the view. (A twentieth of the
-// optical depth: a kilometre of cumulus takes some nine tenths of the sun, as a cloud's shadow on the ground does, not
-// all of it.)
+// The share of the sun the clouds let through to the layer's base (and below it) round the view: the transmittance
+// through them toward the sun, as the engine's cloud shadow map has it (how much of it the ground takes is the light
+// function's strength, GroundShadow).
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void ShadowCS(uint3 Id : SV_DispatchThreadID)
 {
@@ -685,7 +685,7 @@ void ShadowCS(uint3 Id : SV_DispatchThreadID)
 	}
 	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
 	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
-	OutShadow[Id.xy] = exp(-0.05 * DSkyR_SunTau(float3(XY, 0.0), 0.0));
+	OutShadow[Id.xy] = exp(-DSkyR_SunTau(float3(XY, 0.0), 0.0));
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]

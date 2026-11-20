@@ -498,7 +498,15 @@ void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 	const double Texel = 2.0 * CloudShadowHalfExtent / CloudShadowResolution;
 	const float X = float(FMath::RoundToDouble(ViewLocation.X / Texel) * Texel);
 	const float Y = float(FMath::RoundToDouble(ViewLocation.Y / Texel) * Texel);
-	const float Strength = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : 1.0f, 0.0f, 1.0f);
+	// As under the engine's clouds: all of the sun under the realistic ones; under the painted and toon ones, between
+	// broken clouds, a little over half -- a painted background's cloud shadows lie light and keep some of the sun's
+	// warmth -- rising to all of it as the cover closes (stepped, so the sun is not re-made every frame while the weather
+	// turns). The GroundShadow override sets it for any look.
+	const UDreamWorldSubsystem* Weather = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	const float Cover = Weather && Weather->GetEnvironment().bActive ? Weather->GetEnvironment().CloudCoverage : 0.0f;
+	const float Painted = FMath::RoundToFloat(FMath::Lerp(0.55f, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
+	const float Strength = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow
+		: (GetEffectiveCloudLook() == EDreamSkyCloudLook::Realistic ? 1.0f : Painted), 0.0f, 1.0f);
 	const FVector4f Placement(X, Y, CloudShadowHalfExtent, Strength);
 	if (Placement != CloudShadowPlacement)
 	{
