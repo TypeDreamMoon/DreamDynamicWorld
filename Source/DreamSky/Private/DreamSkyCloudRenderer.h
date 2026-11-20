@@ -7,6 +7,8 @@
 #include "SceneViewExtension.h"
 
 class FTextureResource;
+class FGlobalShaderMap;
+namespace DreamSkyCloudRender { class FCommonParameters; }
 class UDreamSkySubsystem;
 
 /**
@@ -31,7 +33,7 @@ public:
 
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
-	static constexpr int32 NumParameters = 17;
+	static constexpr int32 NumParameters = 19;
 
 private:
 	/** What the game thread decided for the frame; copied to the render thread ahead of the family's rendering. */
@@ -61,9 +63,26 @@ private:
 		uint64 LastFrame = 0;
 	};
 
+	/**
+	 * The optical depth toward the sun round the view, in two cascades (some 48 km across at 500 m texels, 180 km at
+	 * 2.8 km), each 10 km tall over the layer's base: what the realistic clouds are shadowed by. Kept between frames,
+	 * one cascade redrawn a frame.
+	 */
+	struct FSunMap
+	{
+		TRefCountPtr<IPooledRenderTarget> Texture;
+		FVector4f CenterExtent = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+		FRDGTextureRef Current = nullptr;
+	};
+
 	void RenderClouds(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets);
+	void UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap, FRDGTextureRef WeatherMap,
+		FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon);
 
 	TWeakObjectPtr<UDreamSkySubsystem> Subsystem;
 	FFrameSettings RenderSettings;
 	TMap<uint32, TSharedPtr<FHistory>> Histories;
+	FSunMap SunMaps[2];
+	uint64 SunMapFrame = ~uint64(0);
+	const FRDGBuilder* SunMapBuilder = nullptr;
 };

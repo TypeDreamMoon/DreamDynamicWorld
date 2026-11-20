@@ -79,11 +79,46 @@ class FDreamSkyCloudMarchCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, CloudNoise)
 		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
 		SHADER_PARAMETER(int32, MaxSamples)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, NearTau)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, FarTau)
+		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
+		SHADER_PARAMETER(FVector4f, NearCenterExtent)
+		SHADER_PARAMETER(FVector4f, FarCenterExtent)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutDepth)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static constexpr int32 GroupSize = 8;
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), GroupSize);
+	}
+};
+
+class FDreamSkyCloudSunMapCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyCloudSunMapCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyCloudSunMapCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WeatherMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, WeatherMapSampler)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, CloudNoise)
+		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
+		SHADER_PARAMETER(FVector4f, MapCenterExtent)
+		SHADER_PARAMETER(FIntVector, MapResolution)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutTau)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static constexpr int32 GroupSize = 4;
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
@@ -149,6 +184,7 @@ class FDreamSkyCloudCompositePS : public FGlobalShader
 };
 
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudMarchCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "MarchCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudSunMapCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "SunMapCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudTemporalCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "TemporalCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositePS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "CompositePS", SF_Pixel);
 
@@ -158,7 +194,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_SunDir"), TEXT("DDW_SkyZenith"), TEXT("DDW_SkyHorizon"), TEXT("DDW_SkyGround"), TEXT("DDW_SunHalo"),
 		TEXT("DDW_Cloud0"), TEXT("DDW_Cloud1"), TEXT("DDW_Cloud2"), TEXT("DDW_Cloud3"), TEXT("DDW_CloudLit"), TEXT("DDW_CloudShadow"),
 		TEXT("DDW_MainLight"), TEXT("DDW_MainLightColor"), TEXT("DDW_CloudLayer"), TEXT("DDW_WeatherMap"), TEXT("DDW_SkyExtra"),
-		TEXT("DDW_SkyHaze"),
+		TEXT("DDW_SkyHaze"), TEXT("DDW_AmbientSky"), TEXT("DDW_AmbientGround"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;
@@ -281,16 +317,29 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		const FRDGTextureDesc DepthDesc = FRDGTextureDesc::Create2D(Half, PF_R32_FLOAT, FClearValueBinding::None, TexCreate_ShaderResource | TexCreate_UAV);
 		FRDGTextureRef MarchColor = GraphBuilder.CreateTexture(ColorDesc, TEXT("DreamSky.CloudMarch"));
 		FRDGTextureRef MarchDepth = GraphBuilder.CreateTexture(DepthDesc, TEXT("DreamSky.CloudMarchDepth"));
+		FRDGTextureRef WeatherMap = RegisterExternalTexture(GraphBuilder, Settings.Map->TextureRHI, TEXT("DreamSky.WeatherMap"));
+		FRDGTextureRef CloudNoise = RegisterExternalTexture(GraphBuilder, Settings.Noise->TextureRHI, TEXT("DreamSky.CloudNoise"));
+		// (The toon clouds find their shade by looking toward the light from their surface.)
+		const bool bSunMaps = Settings.Look == 1;
+		if (bSunMaps)
+		{
+			UpdateSunMaps(GraphBuilder, InView, ShaderMap, WeatherMap, CloudNoise, FillCommon);
+		}
 
 		{
 			FDreamSkyCloudMarchCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudMarchCS::FParameters>();
 			FillCommon(Params->Common);
 			Params->SceneDepth = SceneDepth;
-			Params->WeatherMap = RegisterExternalTexture(GraphBuilder, Settings.Map->TextureRHI, TEXT("DreamSky.WeatherMap"));
+			Params->WeatherMap = WeatherMap;
 			Params->WeatherMapSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-			Params->CloudNoise = RegisterExternalTexture(GraphBuilder, Settings.Noise->TextureRHI, TEXT("DreamSky.CloudNoise"));
+			Params->CloudNoise = CloudNoise;
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
+			Params->NearTau = bSunMaps ? SunMaps[0].Current : nullptr;
+			Params->FarTau = bSunMaps ? SunMaps[1].Current : nullptr;
+			Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+			Params->NearCenterExtent = SunMaps[0].CenterExtent;
+			Params->FarCenterExtent = SunMaps[1].CenterExtent;
 			Params->OutColor = GraphBuilder.CreateUAV(MarchColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(MarchDepth);
 			FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
@@ -361,4 +410,51 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 	// grid: multiplied in.
 	FRHIBlendState* Blend = Clouds ? TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>::GetRHI() : TStaticBlendState<CW_RGB, BO_Add, BF_DestColor, BF_Zero>::GetRHI();
 	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Composite"), Shader, Params, Whole, Blend);
+}
+
+void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap,
+	FRDGTextureRef WeatherMap, FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon)
+{
+	// Once per frame (the first view draws them; the others read them), one cascade a frame: the near one on even
+	// frames, the far one on odd ones, either whenever it has never been drawn.
+	const uint64 Frame = GFrameCounterRenderThread;
+	if (SunMapFrame == Frame && SunMapBuilder == &GraphBuilder)
+	{
+		return;
+	}
+	SunMapFrame = Frame;
+	SunMapBuilder = &GraphBuilder;
+	for (int32 Cascade = 0; Cascade < 2; ++Cascade)
+	{
+		FSunMap& Map = SunMaps[Cascade];
+		const bool bDraw = !Map.Texture.IsValid() || int32(Frame & 1) == Cascade;
+		if (!bDraw)
+		{
+			Map.Current = GraphBuilder.RegisterExternalTexture(Map.Texture);
+			continue;
+		}
+		const FIntVector Resolution = Cascade == 0 ? FIntVector(96, 96, 24) : FIntVector(64, 64, 16);
+		const float HalfExtent = Cascade == 0 ? 2400000.0f : 9000000.0f;
+		// (Centred on the view, snapped to its texels: the clouds' shadows do not swim as the view moves.)
+		const double Texel = 2.0 * HalfExtent / Resolution.X;
+		const FVector2D Centre(FMath::RoundToDouble(InView.ViewLocation.X / Texel) * Texel, FMath::RoundToDouble(InView.ViewLocation.Y / Texel) * Texel);
+		Map.CenterExtent = FVector4f(float(Centre.X), float(Centre.Y), HalfExtent, 1.0f);
+
+		FRDGTextureRef Tau = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(Resolution, PF_R16F, FClearValueBinding::None,
+			TexCreate_ShaderResource | TexCreate_UAV), Cascade == 0 ? TEXT("DreamSky.SunMapNear") : TEXT("DreamSky.SunMapFar"));
+		FDreamSkyCloudSunMapCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudSunMapCS::FParameters>();
+		FillCommon(Params->Common);
+		Params->WeatherMap = WeatherMap;
+		Params->WeatherMapSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Params->CloudNoise = CloudNoise;
+		Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+		Params->MapCenterExtent = Map.CenterExtent;
+		Params->MapResolution = Resolution;
+		Params->OutTau = GraphBuilder.CreateUAV(Tau);
+		TShaderMapRef<FDreamSkyCloudSunMapCS> Shader(ShaderMap);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SunMap %s %dx%dx%d", Cascade == 0 ? TEXT("near") : TEXT("far"), Resolution.X, Resolution.Y, Resolution.Z),
+			Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudSunMapCS::GroupSize));
+		GraphBuilder.QueueTextureExtraction(Tau, &Map.Texture);
+		Map.Current = Tau;
+	}
 }
