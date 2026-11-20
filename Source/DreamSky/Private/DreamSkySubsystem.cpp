@@ -2,11 +2,14 @@
 
 #include "DreamSkySubsystem.h"
 #include "DreamSky.h"
+#include "DreamSkyCloudRenderer.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Engine/World.h"
+#include "Misc/App.h"
+#include "SceneViewExtension.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSkySubsystem)
 
@@ -49,6 +52,10 @@ void UDreamSkySubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		TickHandle = Clock->OnWorldTick.AddUObject(this, &UDreamSkySubsystem::Update);
 		RecaptureTask = Clock->GetScheduler().Register(TEXT("DreamSky.Recapture"), 0, 0.5, 0.0, [this] { return RecaptureIfChanged(); });
 	}
+	if (FApp::CanEverRender())
+	{
+		CloudViewExtension = FSceneViewExtensions::NewExtension<FDreamSkyCloudViewExtension>(GetWorld(), this);
+	}
 }
 
 void UDreamSkySubsystem::Deinitialize()
@@ -57,6 +64,11 @@ void UDreamSkySubsystem::Deinitialize()
 	{
 		Clock->OnWorldTick.Remove(TickHandle);
 		Clock->GetScheduler().Unregister(RecaptureTask);
+	}
+	if (CloudViewExtension.IsValid())
+	{
+		CloudViewExtension->Detach();
+		CloudViewExtension.Reset();
 	}
 	Skies.Reset();
 	Super::Deinitialize();

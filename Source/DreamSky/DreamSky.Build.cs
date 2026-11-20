@@ -20,5 +20,12 @@ public class DreamSky : ModuleRules
 			"Engine",
 			"DreamDynamicWorld",
 		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"RenderCore",
+			"Renderer",
+			"RHI",
+		});
 	}
 }
