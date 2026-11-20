@@ -780,17 +780,20 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 	}
 
 	// Clouds that shadow the sun: a Manual curve cannot know whether the view stands in their shadow. The eye may
-	// brighten meanwhile, by what it actually sees (Auto), at most CloudShadowExposureLift under a closed cover and
-	// never darker than the curve: a clear day, and white tops seen from above, keep the curve's exposure.
+	// brighten meanwhile, by what it actually sees (Auto), at most CloudShadowExposureLift under a closed grey cover,
+	// little under a storm (it is meant to look dark), and never darker than the curve: a clear day, and white tops
+	// seen from above, keep the curve's exposure.
 	if (PostProcess && InStyle.ExposureMode == EDreamSkyExposureMode::Manual && InStyle.CloudShadowExposureLift > 0.0f && CloudsShadowTheSun())
 	{
 		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-		const float Cover = WorldClock && WorldClock->GetEnvironment().bActive ? WorldClock->GetEnvironment().CloudCoverage : 0.0f;
+		const bool bWeather = WorldClock && WorldClock->GetEnvironment().bActive;
+		const float Cover = bWeather ? WorldClock->GetEnvironment().CloudCoverage : 0.0f;
+		const float Dark = bWeather ? WorldClock->GetEnvironment().CloudDarkness : 0.0f;
 		FPostProcessSettings& S = PostProcess->Settings;
 		S.AutoExposureMethod = AEM_Histogram;
 		S.AutoExposureBias = 0.0f;
 		S.bOverride_AutoExposureMinBrightness = true;
-		S.AutoExposureMinBrightness = L.ExposureEV100 - InStyle.CloudShadowExposureLift * FMath::SmoothStep(0.2f, 0.85f, Cover);
+		S.AutoExposureMinBrightness = L.ExposureEV100 - InStyle.CloudShadowExposureLiftFor(Cover, Dark);
 		S.bOverride_AutoExposureMaxBrightness = true;
 		S.AutoExposureMaxBrightness = L.ExposureEV100;
 		S.bOverride_AutoExposureSpeedUp = true;

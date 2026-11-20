@@ -266,6 +266,13 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	L.ExposureEV100 -= FogExposureLift * FMath::Clamp(Env.Fog, 0.0f, 1.0f) + DustExposureLift * FMath::Clamp(Env.Dust, 0.0f, 1.0f);
 }
 
+float UDreamSkyStyle::CloudShadowExposureLiftFor(float Cover, float Darkness) const
+{
+	// An overcast deck (darkness ~0.25) keeps all of it; storm-dark clouds (0.85) give it back, as with OvercastExposureLift.
+	const float Fade = FMath::SmoothStep(0.3f, 0.9f, FMath::Clamp(Darkness, 0.0f, 1.0f));
+	return CloudShadowExposureLift * FMath::SmoothStep(0.2f, 0.85f, Cover) * (1.0f - Fade);
+}
+
 FDreamSkyLighting UDreamSkyStyle::EvaluateLighting(const FDreamCelestialState& Celestial) const
 {
 	using namespace DreamSky::Style;
