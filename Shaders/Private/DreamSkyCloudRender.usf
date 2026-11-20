@@ -361,13 +361,17 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 
 #else
 
-// Realistic: the shape's density integrated along the ray (extinction some 0.08 per metre in a full cloud, twice that
-// in a storm's darkest, as the engine's cloud material has it), the sunlight reaching each sample through the cloud
-// toward the sun (three taps, then the sun map), scattered by two lobes and two octaves of multiple scattering, the sky's
-// light as the engine's cloud material's glow.
-// Painted (DSKY_LOOK 2): the same march, twice as dense (the forms read whole), each sample painted in the style's three
-// tones by the light through the cloud toward the sun and its height in the cloud, the thin outside glowing against the
-// sun (the core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep).
+// Realistic: the shape's density integrated along the ray, as the engine's cloud material (M_DreamVolumetricCloud) has
+// it, with that material's settings (LP_*: the level's material or the plugin's, the sky's overrides over them): its
+// extinction, a storm's cloud up to twice as dense; near clouds by day thinner to the eye (ViewThinning); the sunlight
+// reaching each sample through the cloud toward the sun (three taps, then the sun map), scattered by its two lobes and
+// two octaves of multiple scattering, at VolumetricSunScattering; the sky's light as its glow (CloudGlow, BaseGlow, its
+// shade tint, an overcast deck mottled, DeckMottle); a storm absorbing; the earth's shadow at dusk.
+// Painted (DSKY_LOOK 2): the same march at the painted material's extinction through its soft outer skin
+// (EdgeSoftness), each sample painted in the style's three tones by the light through the cloud toward the sun (the
+// core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep), the painted material's tone thresholds
+// (HalfToneAt, LitToneAt, ToneSoftness), tints, billows (BillowShade), silver lining (SilverLining), gain (PaintGain), a
+// low sun warming the lit side, an overcast deck painted soft by its thickness, a storm dark below.
 float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 {
 	SurfaceDepth = -1.0;
@@ -388,26 +392,48 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	float3 SkyBehind;
 	DSkyR_Sky(V, Halo, Tone, SkyBehind);
 	float3 LightDir = normalize(P_MainLight.xyz);
-	// The sun as the cloud volumes' realistic look has it (M_DreamCloudVolume's defaults: the main light at twice its
-	// illuminance), the core's scattering but for its octaves: two, as the engine's cloud material has. (Clouds
-	// kilometres deep: a third octave, seeing a quarter of the depth toward the sun, lit a backlit storm tower through
-	// and through, one milky body.) The sky's light is the glow below; the style's ambient on top of it whitened the
-	// shaded sides further still.
-	float3 SunColor = P_MainLightColor.rgb * P_MainLight.w * 2.0;
-	FDCloudLightParams L = DCL_DefaultParams();
-	L.MsOctaves = 2;
 	float Cos = dot(V, LightDir);
 	float Day = smoothstep(-0.12, -0.02, normalize(P_SunDir.xyz).z);
+	float Scale = max(P_Cloud0.z, 0.05);
+	// The main light's illuminance times VolumetricSunScattering, as it brightens the engine's clouds; the engine
+	// material's lobes and multiple scattering, its two octaves. (Clouds kilometres deep: a third octave lit a backlit
+	// storm tower through and through, one milky body.)
+	float3 SunColor = P_MainLightColor.rgb * P_MainLight.w * LP_SunScattering;
+	FDCloudLightParams L = DCL_DefaultParams();
+	L.G1 = LP_ScatterForward;
+	L.G2 = LP_ScatterBackward;
+	L.Blend = LP_ScatterBlend;
+	L.Albedo = LP_Albedo;
+	L.MsContribution = LP_MultiScatter;
+	L.MsOcclusion = LP_MultiScatterOcclusion;
+	L.MsEccentricity = LP_MultiScatterEccentricity;
+	L.MsOctaves = 2;
 #if DSKY_LOOK == 2
-	// The tones as the engine's painted cloud material has them: the lit one warm near-white, the shade blue-lavender
-	// (lighter higher in the cloud, below), the half tone between; the lit one tinted by the sky behind as the toon clouds'
-	// is. (The core's falloffs suit volumes some hundreds of metres across; a sky cloud's optical depth runs some fifty
-	// times as deep: the key goes by the cloud some 0.2 to 1.5 km toward the sun, as the engine material's does.)
-	float3 PaintLit = P_CloudLit.rgb * float3(1.0, 0.975, 0.93) * lerp(1.0, Tone, P_Extra.x * 0.2) + Halo * P_Extra.y;
-	float3 PaintShade = P_CloudShadow.rgb * float3(0.86, 0.84, 1.02);
+	// The tones as the engine's painted material makes them: the lit one in its tint, by the sky behind (as the toon
+	// clouds' are) and the halo round the sun; a low sun warms it, the more on the side toward the sun; the shade in its
+	// tint and the hue of the sky above, which lights it; the half tone between.
+	float3 PaintLit = P_CloudLit.rgb * LP_PaintLitTint * lerp(1.0, Tone, P_Extra.x * 0.2);
+	float3 SunHue = P_MainLightColor.rgb / max(dot(P_MainLightColor.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0e-4);
+	float2 Across = V.xy * rsqrt(max(dot(V.xy, V.xy), 1.0e-6));
+	float2 SunAcross = LightDir.xy * rsqrt(max(dot(LightDir.xy, LightDir.xy), 1.0e-6));
+	float Toward = saturate(dot(Across, SunAcross) * 0.5 + 0.5);
+	float LowSun = (1.0 - saturate(LightDir.z * 5.0)) * (1.0 - P_MainLightColor.a);
+	PaintLit *= lerp(1.0, min(SunHue, 2.0), LowSun * lerp(0.35, 1.0, Toward));
+	float3 Above = P_Zenith.rgb / max(dot(P_Zenith.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0e-4);
+	float3 PaintShade = P_CloudShadow.rgb * LP_PaintShadeTint * lerp(1.0, Above, 0.25 * P_Extra.x);
+	// (The core's falloffs suit volumes some hundreds of metres across; a sky cloud's optical depth runs some fifty times
+	// as deep: the key goes by the cloud some 0.2 to 1.5 km toward the sun, as the engine material's does. The key is
+	// worked out here -- the material's thresholds, its billows, the earth's shadow -- and handed to the core as the
+	// optical depth that gives it.)
 	FDCloudPaintedParams PP = DCL_DefaultPaintedParams();
-	PP.KeyFalloff = 0.05;
+	const float KeyFalloff = 0.04;
+	PP.KeyFalloff = KeyFalloff;
+	PP.KeyLow = 1.0;
+	PP.KeyHigh = 1.0;
 	PP.RimFalloff = 0.025;
+	PP.RimPower = 4.0;
+	PP.Rim = LP_SilverLining * P_CloudLit.a;
+	PP.Softness = LP_ToneSoftness;
 #endif
 
 	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
@@ -428,53 +454,90 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		float Dt = DCM_Advance(M, Fd, P);
 		if (Dt > 0.0 && C.Volume > 0.0)
 		{
-			// By day a near cloud's body is a third as thick to the eye (not to the light), as the engine's cloud material
-			// has it: a solid cloud's mean free path (some 12 m) is far shorter than a step, and the pixel would take the
-			// light of wherever its first sample in the cloud fell.
-#if DSKY_LOOK == 2
-			float SigmaT = DSkyR_Extinction(C) * PP.DensityScale;
-#else
-			float Body = smoothstep(0.08, 0.3, C.Volume) * Day * (1.0 - smoothstep(800000.0, 2000000.0, T));
-			float SigmaT = DSkyR_Extinction(C) * lerp(1.0, 0.35, Body);
-#endif
 			float3 At = V * T;
+			float3 World = CameraWorld + At;
+#if DSKY_LOOK == 2
+			// Opaque inside, with a thin soft skin: the extinction rises as the cube of the way through it, so a ray that only
+			// grazes a cloud's edge sees it partly. A deck goes by its density, which thins toward its cracks, over a wider
+			// skin; near the view the skin narrows to a quarter.
+			float Fill = lerp(C.Solid, C.Volume, C.Deck);
+			float Near = lerp(0.25, 1.0, saturate(T / 1500000.0));
+			float Skin = saturate((Fill - 0.02) / max(LP_EdgeSoftness * Near * lerp(1.0, 3.0, C.Deck), 0.005));
+			float SigmaT = Skin * Skin * Skin * LP_PaintExtinction;
+			if (SigmaT <= 0.0)
+			{
+				DCM_CheckDone(M, P);
+				continue;
+			}
+#else
+			// By day a near cloud's body is thinner to the eye (not to the light): a solid cloud's mean free path (some 12
+			// m) is far shorter than a step, and the pixel would take the light of wherever its first sample in it fell.
+			float Body = smoothstep(0.08, 0.3, C.Volume) * Day * (1.0 - smoothstep(800000.0, 2000000.0, T));
+			float SigmaT = DSkyR_Extinction(C) * lerp(1.0, LP_ViewThinning, Body);
+#endif
 			// Toward the sun: the first 900 m in three taps (the billows round the sample; the map's texels, 500 m by some
 			// 400 m, are too coarse there: read at the sample, a sunlit face took the dark inside's depth and the tower came
 			// out flat, and its texels' planes drew contour lines across an underside), the map from there on.
 			float Tau = 0.0;
 			float Prev = 0.0;
+			float NearSolid = 0.0;
 			[unroll]
 			for (int k = 1; k <= 3; ++k)
 			{
 				float Next = 90000.0 * DSky_Square(float(k) / 3.0);
-				FDSkyCloudSample Toward = DSky_CloudAt(At + LightDir * (0.5 * (Prev + Next)), F, true, C.Anchor, P_MapParams,
+				FDSkyCloudSample Tap = DSky_CloudAt(At + LightDir * (0.5 * (Prev + Next)), F, true, C.Anchor, P_MapParams,
 					WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
-				Tau += DSkyR_Extinction(Toward) * (Next - Prev);
+				Tau += DSkyR_Extinction(Tap) * (Next - Prev);
+				NearSolid = k == 1 ? Tap.Solid : NearSolid;
 				Prev = Next;
 			}
-			float3 Beyond = CameraWorld + At + LightDir * 90000.0;
+			float3 Beyond = World + LightDir * 90000.0;
 			Tau += DSkyR_SunTau(Beyond, C.Z + LightDir.z * 90000.0);
+			// The earth's shadow: with the light under the horizon a cloud is lit only while it stands high enough to see
+			// it over the curve of the earth (the horizon dips by sqrt(2 h / R) at a height h).
+			float Dip = sqrt(2.0 * max(World.z, 0.0) / DSky_PlanetRadius);
+			float EarthLit = smoothstep(-Dip - 0.008, -Dip + 0.004, LightDir.z);
 #if DSKY_LOOK == 2
+			// The key: the light through the cloud, lit higher up (as the core's), a turret's own sunlit side kept from the
+			// cloud 50 m on (BillowShade), the earth's shadow; then the material's thresholds onto the core's thirds.
+			float Key = exp(-KeyFalloff * Tau) * lerp(0.7, 1.05, saturate(C.Height));
+			Key *= lerp(1.0, 1.0 - saturate(NearSolid * 6.0), LP_BillowShade) * EarthLit;
+			Key = Key < LP_HalfToneAt ? Key / max(LP_HalfToneAt, 1.0e-3) * 0.33
+				: (Key < LP_LitToneAt ? 0.33 + (Key - LP_HalfToneAt) / max(LP_LitToneAt - LP_HalfToneAt, 1.0e-3) * 0.33
+				: 0.66 + (Key - LP_LitToneAt) / max(1.0 - LP_LitToneAt, 1.0e-3) * 0.34);
 			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
-			float3 Paint = DCL_ShadePainted(Tau, Cos, C.Height, saturate(C.Signed * 4.0), Shade, lerp(Shade, PaintLit, 0.55), PaintLit, PP);
-			// Storm clouds are dark below, their lit tops much less so (as the engine's painted material has it).
+			float3 Lit = PaintLit + Halo * P_Extra.y * saturate(Key);
+			float3 Half = lerp(Shade, Lit, 0.55) * float3(0.97, 0.97, 1.02);
+			float3 Paint = DCL_ShadePainted(-log(max(saturate(Key), 1.0e-4)) / KeyFalloff, Cos, C.Height, saturate(C.Signed * 4.0),
+				Shade, Half, Lit, PP);
+			// An overcast deck is painted soft: no bands, the gradient from its thick shade to the half tone where it thins.
+			float Through = exp(-C.Column / 60000.0) * (1.0 - 0.8 * C.Dark);
+			Paint = lerp(Paint, lerp(Shade, Half, smoothstep(0.05, 0.6, max(Key, Through))), C.Deck);
+			// Storm clouds are dark below, their lit tops much less so.
 			float Storm = P_CloudLayer.z * C.Dark;
-			Paint *= saturate(1.0 - Storm * lerp(1.0, 0.3, saturate(C.Height)));
+			Paint *= saturate(1.0 - Storm * lerp(0.55, 1.0, 1.0 - Key) * lerp(1.0, 0.3, saturate(C.Height)));
 			// The sky's light on the cloud, as the realistic look's glow: no part of it goes darker than the shade tone lit by
 			// the sky (less of it low in the cloud and in a storm). Without it a storm's thick body went a flat grey where the
 			// engine's painted clouds keep their blue-lavender.
 			float FromBase = 1.0 - saturate(C.Height);
-			Paint = max(Paint, PaintShade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
-			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint, Dt);
+			Paint = max(Paint, Shade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
+			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint * LP_PaintGain, Dt);
 #else
-			float3 Sun = SunColor * DCL_SunScatter(Tau, Cos, L);
-			// A storm's cloud absorbs (rain and graupel), its lit top less so: as the engine's cloud material has it.
+			float3 Sun = SunColor * DCL_SunScatter(Tau, Cos, L) * EarthLit;
+			// A storm's cloud absorbs (rain and graupel), its lit top less so; a deck a little.
 			float Storm = P_CloudLayer.z * C.Dark * lerp(1.0, 0.35, C.Height);
 			float Albedo = L.Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * C.Deck);
-			// The glow, as the engine's cloud material has it: the sky light on the cloud, the style's shade colour (kept
-			// blue-grey) at its top, 15 % of it at its base (the sky above hidden by the cloud).
+			// The glow: the sky light on the cloud, the style's shade colour in the tint at its top, BaseGlow of it at its base
+			// (the sky above hidden by the cloud); an overcast deck seen from below in thicker and thinner patches.
 			float FromBase = 1.0 - saturate(C.Height);
-			float3 Glow = P_CloudShadow.rgb * float3(0.86, 0.95, 1.14) * 0.75 * lerp(1.0, 0.15, FromBase * FromBase * FromBase) * (1.0 - 0.8 * Storm);
+			float Shade01 = lerp(1.0, LP_BaseGlow, FromBase * FromBase * FromBase);
+			if (C.Deck > 0.0)
+			{
+				float2 Drift = World.xy + P_Cloud1.xy * 220000.0 * Scale;
+				float Patch = CloudNoise.SampleLevel(CloudNoiseSampler, float3(Drift / (1100000.0 * Scale), 0.83), 0).g;
+				Shade01 *= 1.0 + (Patch - 0.5) * 2.0 * LP_DeckMottle * C.Deck;
+			}
+			float3 Glow = P_CloudShadow.rgb * LP_ShadeTint * LP_Glow * Shade01 * (1.0 - 0.8 * Storm);
 			DCM_Integrate(M, SigmaT, SigmaT * (Albedo * Sun + Glow), Dt);
 #endif
 		}
@@ -486,9 +549,10 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		return float4(0, 0, 0, 0);
 	}
 	SurfaceDepth = DCM_MeanDepth(M);
-	// The air between, as the toon clouds have it.
+	// The air between, as the engine's cloud materials have it: the cloud fades into the sky behind it (and the halo round
+	// the sun) by the veil itself.
 	float Veil = DCS_AirVeil(SurfaceDepth, V.z, CameraWorld.z, P_Cloud0.x, P_Cloud3);
-	float3 Light = lerp(M.Luminance, SkyBehind * Cover, pow(Veil, 1.6 + 1.4 * smoothstep(0.15, 0.6, P_CloudLayer.y)));
+	float3 Light = lerp(M.Luminance, SkyBehind * Cover, Veil);
 	return float4(Light, Cover) * P_CloudShadow.a;
 }
 
