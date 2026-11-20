@@ -171,6 +171,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->ApplyLighting(Applied, *Style, bSnap);
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->ApplyClouds(*Style);
+	Sky->UpdateCloudShadow(Clock.GetViewLocation());
 	WriteParameters(Clock, *Style, Sky->GetEffectiveClouds() != EDreamSkyClouds::Toon);
 	LogLighting(Clock);
 	Applied = Eased;

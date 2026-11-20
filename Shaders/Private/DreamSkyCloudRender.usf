@@ -12,6 +12,8 @@
 //   SunMapCS    the optical depth toward the sun at every texel of a box round the view (two cascades, 10 km tall over
 //               the layer's base): what the realistic clouds are shadowed by, read once a sample instead of looking
 //               toward the light from each.
+//   ShadowCS    the clouds' shadow on the ground: the sun map's transmittance from the layer's base toward the sun, which
+//               the sun light's light function (M_DreamCloudShadow) reads.
 //   TemporalCS  the previous frames' clouds reprojected by the clouds' depth (the sky at infinity by the rotation alone),
 //               clamped to the new frame's neighbourhood, blended in.
 //   CompositePS the clouds over the sky pixels (premultiplied: the sky behind times their transmittance plus their
@@ -63,6 +65,10 @@ Texture3D<float> FarTau;
 SamplerState TauSampler;
 float4 NearCenterExtent;  // the sun map cascades: centre x, y (world cm), half their width (cm)
 float4 FarCenterExtent;
+
+float4 ShadowPlacement;   // ShadowCS: the ground shadow's middle x, y (world cm), half its width (cm)
+int2 ShadowResolution;
+RWTexture2D<float> OutShadow;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
@@ -475,6 +481,21 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 		Prev = Next;
 	}
 	OutTau[Id] = Tau;
+}
+
+// The share of the sun the clouds let through to the layer's base (and below it) round the view. (A twentieth of the
+// optical depth: a kilometre of cumulus takes some nine tenths of the sun, as a cloud's shadow on the ground does, not
+// all of it.)
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void ShadowCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= ShadowResolution))
+	{
+		return;
+	}
+	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
+	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
+	OutShadow[Id.xy] = exp(-0.05 * DSkyR_SunTau(float3(XY, 0.0), 0.0));
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]

@@ -12,6 +12,7 @@
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
 class UMaterialInstanceDynamic;
+class UTextureRenderTarget2D;
 class UMaterialInterface;
 class UPostProcessComponent;
 class USkyLightComponent;
@@ -259,6 +260,19 @@ public:
 	/** The dome's radius: DomeRadius, pushed beyond the traced clouds while the volumetric clouds are on. */
 	float GetEffectiveDomeRadius() const;
 
+	/**
+	 * The sky cloud renderer's clouds on the ground: while it draws the clouds (EDreamSkyClouds::Rendered) the sun light
+	 * takes a light function (M_DreamCloudShadow) that reads the clouds' transmittance toward the sun from a texture the
+	 * renderer writes round the view; otherwise the light function is taken off again. Game thread, each frame.
+	 */
+	void UpdateCloudShadow(const FVector& ViewLocation);
+
+	/** The texture the renderer writes the clouds' shadow into (null while it does not draw the clouds). */
+	UTextureRenderTarget2D* GetCloudShadowTarget() const { return CloudShadowTarget; }
+
+	/** Where that texture lies: its middle x, y (world cm), half its width (cm), how much sun the shadows take. */
+	const FVector4f& GetCloudShadowPlacement() const { return CloudShadowPlacement; }
+
 	//~ AActor
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostRegisterAllComponents() override;
@@ -276,6 +290,13 @@ private:
 	/** The volumetric cloud material with the material overrides set on it (null while none is ticked). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudMaterialInstance;
+
+	/** The sky cloud renderer's shadow on the ground (UpdateCloudShadow). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> CloudShadowTarget;
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> CloudShadowFunction;
+	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 
 	/** Set when the material overrides changed: the instance takes them on its next ApplyClouds. */
 	bool bCloudMaterialDirty = true;

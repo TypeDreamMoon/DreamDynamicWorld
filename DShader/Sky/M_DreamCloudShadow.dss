@@ -1,0 +1,36 @@
+// M_DreamCloudShadow.dss -- the sky cloud renderer's clouds on the ground: the light function ADreamSky puts on its sun
+// while the renderer draws the clouds (EDreamSkyClouds::Rendered).
+//
+// From the lit point it goes up toward the sun to the cloud layer's base and reads there how much of the sun the clouds
+// let through, from the texture the renderer writes round the view (FDreamSkyCloudViewExtension, ShadowCS). Past the
+// texture's edge the sun is whole.
+#pragma material(Domain = LightFunction)
+
+/// The clouds' transmittance toward the sun at the layer's base (the renderer writes it; ADreamSky sets it).
+/// @default /Engine/EngineResources/WhiteSquareTexture
+uniform Texture2D CloudShadowMap;
+
+/// @desc Where the texture lies: its middle x, y (world cm), 1 / its width (1/cm), how much of the sun the shadows take (0..1)
+uniform float4 ShadowMap = float4(0.0, 0.0, 0.0000002, 1.0);
+
+/// @custom
+float2 DreamCloudShadow_UV(float3 World, float4 MainLight, float4 CloudLayer, float4 Map, out float Inside)
+{
+	// Up the sun's direction to the layer's base (kept 3 degrees over the horizon), then into the texture.
+	float3 L = normalize(MainLight.xyz);
+	float Up = max(CloudLayer.x - World.z, 0.0) / max(L.z, 0.05);
+	float2 UV = (World.xy + L.xy * Up - Map.xy) * Map.z + 0.5;
+	float Edge = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y));
+	Inside = saturate(Edge * 10.0);
+	return saturate(UV);
+}
+
+export void M_DreamCloudShadow(inout material m)
+{
+	float4 MainLight  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+	float4 CloudLayer = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudLayer");
+	float Inside;
+	float2 UV = DreamCloudShadow_UV(UE.WorldPosition().XYZ, MainLight, CloudLayer, ShadowMap, Inside);
+	float Through = CloudShadowMap.SampleLevel(UV, 0.0).r;
+	m.EmissiveColor = lerp(1.0, Through, ShadowMap.w * Inside).xxx;
+}

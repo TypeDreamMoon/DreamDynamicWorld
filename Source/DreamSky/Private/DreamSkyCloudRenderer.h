@@ -50,6 +50,9 @@ private:
 		FVector4f Parameters[NumParameters];
 		FTextureResource* Noise = nullptr;
 		FTextureResource* Map = nullptr;
+		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */
+		FTextureResource* Shadow = nullptr;
+		FVector4f ShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 	};
 
 	/** A view's clouds of the frame before (render thread only). */
