@@ -618,7 +618,8 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 }
 
 // One texel of a sun map cascade: from its middle toward the sun (kept 3 degrees over the horizon) to the top of the
-// tallest towers, at most 25 km, in 16 steps growing with the distance.
+// tallest towers, no further than a sample's shadow looks (VolumetricShadowTracingDistance), in 16 steps growing with the
+// distance.
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
 void SunMapCS(uint3 Id : SV_DispatchThreadID)
 {
@@ -635,7 +636,7 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 	// (Back from the field's height over the planet's curve to the world's.)
 	float3 World = float3(XY, F.Base + Z - dot(XY, XY) / (2.0 * DSky_PlanetRadius));
 	float3 Rel = World - CameraWorld;
-	float Reach = min((DCS_STORM_TOP - Z) / L.z, 2500000.0);
+	float Reach = min((DCS_STORM_TOP - Z) / L.z, max(LP_ShadowReach, 50000.0));
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
 	float Tau = 0.0;
 	float Prev = 0.0;
