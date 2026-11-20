@@ -72,9 +72,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
 	bool bRealTimeSkyCapture = true;
 
-	/** What draws the clouds. The console variable DreamSky.Clouds overrides it (0 toon, 1 volumetric). */
+	/** What draws the clouds. The console variable DreamSky.Clouds overrides it (0 toon, 1 volumetric, 2 rendered). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	EDreamSkyClouds Clouds = EDreamSkyClouds::Toon;
+
+	/**
+	 * How the sky cloud renderer draws the clouds (Clouds = Rendered). The realistic and painted looks take their
+	 * settings from the volumetric cloud material below when it is of that look (else from the plugin's material of
+	 * it), with the cloud overrides over them. The console variable DreamSky.CloudRender.Look overrides it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	EDreamSkyCloudLook CloudLook = EDreamSkyCloudLook::Toon;
 
 	/**
 	 * Material of the engine's volumetric cloud layer (a Volume domain material), for Clouds = Volumetric. The plugin
@@ -267,6 +275,12 @@ public:
 	 */
 	void UpdateCloudShadow(const FVector& ViewLocation);
 
+	/** CloudLook, or the console's DreamSky.CloudRender.Look. */
+	EDreamSkyCloudLook GetEffectiveCloudLook() const;
+
+	/** The settings the sky cloud renderer's realistic and painted looks are drawn with this frame. */
+	void GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const;
+
 	/** The texture the renderer writes the clouds' shadow into (null while it does not draw the clouds). */
 	UTextureRenderTarget2D* GetCloudShadowTarget() const { return CloudShadowTarget; }
 
@@ -290,6 +304,14 @@ private:
 	/** The volumetric cloud material with the material overrides set on it (null while none is ticked). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudMaterialInstance;
+
+	/** The plugin's realistic and painted cloud materials, for the renderer's looks when VolumetricCloudMaterial is not of them. */
+	UPROPERTY(Transient)
+	mutable TObjectPtr<UMaterialInterface> RealisticCloudMaterial;
+	UPROPERTY(Transient)
+	mutable TObjectPtr<UMaterialInterface> PaintedCloudMaterial;
+	/** The material the renderer's look reads its settings from. */
+	const UMaterialInterface* GetCloudLookMaterial(bool bPainted) const;
 
 	/** The sky cloud renderer's shadow on the ground (UpdateCloudShadow). */
 	UPROPERTY(Transient)

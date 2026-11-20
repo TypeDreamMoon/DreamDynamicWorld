@@ -57,6 +57,35 @@ float4 Parameters[18];
 #define P_Haze         Parameters[16]
 #define P_Flash        Parameters[17]
 
+// The realistic and painted looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
+// materials' parameters, the sky's overrides over them.
+float4 LookParameters[8];
+#define LP_Extinction           LookParameters[0].x   // per cm
+#define LP_Albedo               LookParameters[0].y
+#define LP_Glow                 LookParameters[0].z
+#define LP_BaseGlow             LookParameters[0].w
+#define LP_ScatterForward       LookParameters[1].x
+#define LP_ScatterBackward      LookParameters[1].y
+#define LP_ScatterBlend         LookParameters[1].z
+#define LP_MultiScatter         LookParameters[1].w
+#define LP_MultiScatterOcclusion LookParameters[2].x
+#define LP_MultiScatterEccentricity LookParameters[2].y
+#define LP_ViewThinning         LookParameters[2].z
+#define LP_DeckMottle           LookParameters[2].w
+#define LP_ShadeTint            LookParameters[3].xyz
+#define LP_SunScattering        LookParameters[3].w
+#define LP_PaintLitTint         LookParameters[4].xyz
+#define LP_PaintGain            LookParameters[4].w
+#define LP_PaintShadeTint       LookParameters[5].xyz
+#define LP_PaintExtinction      LookParameters[5].w   // per cm
+#define LP_EdgeSoftness         LookParameters[6].x
+#define LP_HalfToneAt           LookParameters[6].y
+#define LP_LitToneAt            LookParameters[6].z
+#define LP_ToneSoftness         LookParameters[6].w
+#define LP_SilverLining         LookParameters[7].x
+#define LP_BillowShade          LookParameters[7].y
+#define LP_ShadowReach          LookParameters[7].z   // cm toward the sun a sample's shadow looks (VolumetricShadowTracingDistance)
+
 float3 CameraWorld;   // the view in the world (cm)
 float SkyDepth;       // view depth (cm) beyond which a pixel is sky
 int Downsample;       // pixels per ray across and down
@@ -205,11 +234,12 @@ void DSkyR_Sky(float3 V, out float3 Halo, out float3 Tone, out float3 SkyBehind)
 	SkyBehind = Haze + HazeHalo;
 }
 
-// The extinction at a sample (per cm), as the engine's cloud material has it: some 0.08 per metre in a full cloud, the
-// faint fringe drawn in a little (1 - (1 - d)^2), a storm's cloud up to twice as dense.
+// The extinction at a sample (per cm), as the engine's cloud material has it: its CloudExtinction (some 0.08 per metre)
+// in a full cloud, the faint fringe drawn in a little (1 - (1 - d)^2), a storm's cloud up to twice as dense. (What the
+// sun map and the light toward the sun go by, in every look.)
 float DSkyR_Extinction(FDSkyCloudSample C)
 {
-	return (1.0 - (1.0 - C.Volume) * (1.0 - C.Volume)) * 0.0008 * (1.0 + C.Dark);
+	return (1.0 - (1.0 - C.Volume) * (1.0 - C.Volume)) * LP_Extinction * (1.0 + C.Dark);
 }
 
 // The sun map at a point (World: in the world, cm; Z: above the layer's base over the planet's curve, cm): the optical
@@ -319,7 +349,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	// solid cloud).
 	float3 Toward = V * SurfaceT + Ld * 60000.0;
 	float TowardZ = DSkyR_HeightAt(CameraWorld + Toward, F);
-	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / 0.0008;
+	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / max(LP_Extinction, 1.0e-6);
 	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler);
 	float Core;
 	float4 VC = DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, P_Cloud0, P_Cloud1, P_Cloud3, P_CloudLayer, CloudNoise,

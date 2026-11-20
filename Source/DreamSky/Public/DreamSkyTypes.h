@@ -33,6 +33,54 @@ enum class EDreamSkyClouds : uint8
 	Rendered UMETA(DisplayName = "Rendered (sky cloud renderer)"),
 };
 
+/** How the sky cloud renderer (EDreamSkyClouds::Rendered) draws the clouds. */
+UENUM(BlueprintType)
+enum class EDreamSkyCloudLook : uint8
+{
+	/** The clouds' surface, lit and painted in the style's few tones (as the dome's toon clouds). */
+	Toon,
+	/** The density integrated along the view, lit by scattering (as M_DreamVolumetricCloud). */
+	Realistic,
+	/** The density integrated, painted in the style's tones by the light through it (as M_DreamVolumetricCloud_Painted). */
+	Painted,
+};
+
+/**
+ * What the sky cloud renderer's realistic and painted looks are drawn with: the parameters of the volumetric cloud
+ * materials (read from the material in use, the sky's overrides over them), so a level set up for those materials
+ * looks the same drawn by the renderer.
+ */
+struct FDreamSkyCloudLookParameters
+{
+	// Realistic (M_DreamVolumetricCloud).
+	float Extinction = 0.08f;          // per metre
+	float Albedo = 0.98f;
+	float Glow = 0.75f;
+	float BaseGlow = 0.15f;
+	float DeckMottle = 0.45f;
+	FLinearColor ShadeTint = FLinearColor(0.86f, 0.95f, 1.14f, 1.0f);
+	float ViewThinning = 0.35f;
+	float ScatterForward = 0.8f;
+	float ScatterBackward = -0.3f;
+	float ScatterBlend = 0.5f;
+	float MultiScatter = 0.85f;
+	float MultiScatterOcclusion = 0.5f;
+	float MultiScatterEccentricity = 0.5f;
+	float SunScattering = 2.5f;        // ADreamSky::VolumetricSunScattering
+	float ShadowTracingDistance = 6.0f; // ADreamSky::VolumetricShadowTracingDistance, km: how far toward the sun a sample's shadow looks
+	// Painted (M_DreamVolumetricCloud_Painted).
+	float PaintExtinction = 0.3f;      // per metre
+	float PaintGain = 1.0f;
+	float EdgeSoftness = 0.06f;
+	float HalfToneAt = 0.32f;
+	float LitToneAt = 0.62f;
+	float ToneSoftness = 0.06f;
+	float SilverLining = 1.5f;
+	float BillowShade = 0.3f;
+	FLinearColor PaintLitTint = FLinearColor(1.0f, 0.975f, 0.93f, 1.0f);
+	FLinearColor PaintShadeTint = FLinearColor(0.86f, 0.84f, 1.02f, 1.0f);
+};
+
 /**
  * The sky's lighting: what the lights, the sky light and the fog are set to, and what any material or
  * character shader can read (main light, ambient gradient, day phase). Both sky looks (stylized now, a

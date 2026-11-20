@@ -30,6 +30,13 @@ static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
 	TEXT(" 2 = the plugin's sky cloud renderer."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
+	TEXT("DreamSky.CloudRender.Look"), -1,
+	TEXT("How the sky cloud renderer draws the clouds: -1 = each Dream Sky's CloudLook, 0 = toon (the surface, lit in the")
+	TEXT(" style's tones), 1 = realistic (the density integrated along the view, lit by scattering), 2 = painted (the density")
+	TEXT(" integrated, painted in the style's tones by the light through it)."),
+	ECVF_Default);
+
 static TAutoConsoleVariable<FString> CVarDreamSkyCloudMaterial(
 	TEXT("DreamSky.CloudMaterial"), FString(),
 	TEXT("The volumetric clouds' material, as an object path (for example /DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted); empty = each Dream Sky's own."),
@@ -42,6 +49,7 @@ namespace DreamSky::Actor
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudsBelowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
+	static const TCHAR* PaintedCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
 	static constexpr int32 CloudShadowResolution = 256;
 	static constexpr float CloudShadowHalfExtent = 2400000.0f;
@@ -353,6 +361,93 @@ EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
 bool ADreamSky::CloudsShadowTheSun() const
 {
 	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric && SunLight && SunLight->bCastCloudShadows && SunLight->CloudShadowStrength > 0.0f;
+}
+
+EDreamSkyCloudLook ADreamSky::GetEffectiveCloudLook() const
+{
+	const int32 Override = CVarDreamSkyCloudRenderLook.GetValueOnGameThread();
+	return Override >= 0 ? EDreamSkyCloudLook(FMath::Min(Override, 2)) : CloudLook;
+}
+
+const UMaterialInterface* ADreamSky::GetCloudLookMaterial(bool bPainted) const
+{
+	using namespace DreamSky::Actor;
+	// The level's volumetric cloud material (its overrides' instance while the engine's clouds draw), when it is of
+	// this look (the painted material has a PaintGain), else the plugin's material of it.
+	const UMaterialInterface* Mine = CloudMaterialInstance ? CloudMaterialInstance.Get()
+		: (VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous());
+	float Unused = 0.0f;
+	if (Mine && Mine->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), Unused) == bPainted)
+	{
+		return Mine;
+	}
+	TObjectPtr<UMaterialInterface>& Default = bPainted ? PaintedCloudMaterial : RealisticCloudMaterial;
+	if (!Default)
+	{
+		Default = LoadObject<UMaterialInterface>(nullptr, bPainted ? PaintedCloudMaterialPath : DefaultCloudMaterialPath);
+	}
+	return Default;
+}
+
+void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
+{
+	Out = FDreamSkyCloudLookParameters();
+	auto Scalar = [](const UMaterialInterface* Material, const TCHAR* Name, float& Value)
+	{
+		if (Material)
+		{
+			Material->GetScalarParameterValue(FMaterialParameterInfo(Name), Value);
+		}
+	};
+	auto Vector = [](const UMaterialInterface* Material, const TCHAR* Name, FLinearColor& Value)
+	{
+		if (Material)
+		{
+			Material->GetVectorParameterValue(FMaterialParameterInfo(Name), Value);
+		}
+	};
+	const UMaterialInterface* Realistic = GetCloudLookMaterial(false);
+	Scalar(Realistic, TEXT("CloudExtinction"), Out.Extinction);
+	Scalar(Realistic, TEXT("CloudAlbedo"), Out.Albedo);
+	Scalar(Realistic, TEXT("CloudGlow"), Out.Glow);
+	Scalar(Realistic, TEXT("BaseGlow"), Out.BaseGlow);
+	Scalar(Realistic, TEXT("DeckMottle"), Out.DeckMottle);
+	Vector(Realistic, TEXT("ShadeTint"), Out.ShadeTint);
+	Scalar(Realistic, TEXT("ViewThinning"), Out.ViewThinning);
+	Scalar(Realistic, TEXT("ScatterForward"), Out.ScatterForward);
+	Scalar(Realistic, TEXT("ScatterBackward"), Out.ScatterBackward);
+	Scalar(Realistic, TEXT("ScatterBlend"), Out.ScatterBlend);
+	Scalar(Realistic, TEXT("MultiScatter"), Out.MultiScatter);
+	Scalar(Realistic, TEXT("MultiScatterOcclusion"), Out.MultiScatterOcclusion);
+	Scalar(Realistic, TEXT("MultiScatterEccentricity"), Out.MultiScatterEccentricity);
+	Out.SunScattering = VolumetricSunScattering;
+	Out.ShadowTracingDistance = VolumetricShadowTracingDistance;
+	const UMaterialInterface* Painted = GetCloudLookMaterial(true);
+	Scalar(Painted, TEXT("CloudExtinction"), Out.PaintExtinction);
+	Scalar(Painted, TEXT("PaintGain"), Out.PaintGain);
+	Scalar(Painted, TEXT("EdgeSoftness"), Out.EdgeSoftness);
+	Scalar(Painted, TEXT("HalfToneAt"), Out.HalfToneAt);
+	Scalar(Painted, TEXT("LitToneAt"), Out.LitToneAt);
+	Scalar(Painted, TEXT("ToneSoftness"), Out.ToneSoftness);
+	Scalar(Painted, TEXT("SilverLining"), Out.SilverLining);
+	Scalar(Painted, TEXT("BillowShade"), Out.BillowShade);
+	Vector(Painted, TEXT("LitTint"), Out.PaintLitTint);
+	Vector(Painted, TEXT("ShadeTint"), Out.PaintShadeTint);
+	// The overrides, as they go on either material (FDreamSkyCloudOverrides::ApplyTo): the extinction is the one of the
+	// look in use.
+	const FDreamSkyCloudOverrides& O = CloudOverrides;
+	if (O.bOverride_Extinction)
+	{
+		(GetEffectiveCloudLook() == EDreamSkyCloudLook::Painted ? Out.PaintExtinction : Out.Extinction) = O.Extinction;
+	}
+	if (O.bOverride_Glow) { Out.Glow = O.Glow; }
+	if (O.bOverride_BaseGlow) { Out.BaseGlow = O.BaseGlow; }
+	if (O.bOverride_PaintGain) { Out.PaintGain = O.PaintGain; }
+	if (O.bOverride_EdgeSoftness) { Out.EdgeSoftness = O.EdgeSoftness; }
+	if (O.bOverride_HalfToneAt) { Out.HalfToneAt = O.HalfToneAt; }
+	if (O.bOverride_LitToneAt) { Out.LitToneAt = O.LitToneAt; }
+	if (O.bOverride_ToneSoftness) { Out.ToneSoftness = O.ToneSoftness; }
+	if (O.bOverride_SilverLining) { Out.SilverLining = O.SilverLining; }
 }
 
 void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
