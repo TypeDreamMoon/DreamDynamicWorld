@@ -256,6 +256,9 @@ public:
 	/** Requests a sky light recapture (when real-time capture is off). */
 	void RecaptureSkyLight();
 
+	/** The dome's radius: DomeRadius, pushed beyond the traced clouds while the volumetric clouds are on. */
+	float GetEffectiveDomeRadius() const;
+
 	//~ AActor
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostRegisterAllComponents() override;
@@ -294,8 +297,6 @@ private:
 	/** Sets the lights' and the fog's ticked settings; bRestoreUnticked puts the unticked ones back to the sky's defaults. */
 	void ApplyComponentOverrides(bool bRestoreUnticked);
 	void ApplyDome();
-	/** The dome's radius: DomeRadius, pushed beyond the traced clouds while the volumetric clouds are on. */
-	float GetEffectiveDomeRadius() const;
 	void PushClockToWorld(bool bResetTime);
 	static void ApplyDirectional(UDirectionalLightComponent* Light, const FVector& Direction, const FLinearColor& Color, float Lux, float ThresholdDeg, bool bShadows, bool bSnap);
 };

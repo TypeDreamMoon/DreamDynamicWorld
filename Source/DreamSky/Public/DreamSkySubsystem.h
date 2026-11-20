@@ -10,6 +10,7 @@
 class ADreamSky;
 class UDreamSkyStyle;
 class UDreamWorldSubsystem;
+class FDreamSkyCloudViewExtension;
 
 /**
  * The lighting director of a world's sky.
@@ -72,6 +73,7 @@ private:
 	uint32 LastJumpSerial = 0;
 	FDelegateHandle TickHandle;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;
+	TSharedPtr<FDreamSkyCloudViewExtension, ESPMode::ThreadSafe> CloudViewExtension;
 
 	int32 RecaptureTask = 0;
 	FLinearColor CapturedZenith = FLinearColor::Transparent;
