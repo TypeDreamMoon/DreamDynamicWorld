@@ -82,12 +82,13 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// pixel, lit by wherever in its step the per-pixel jitter put it -- a standing grain over every cloud. Thinner,
 	// a pixel is the average of a few samples. (Toward the light, for the shading and the shadows, it stays as thick;
 	// so do the faint outer parts, the cloud in front of the sun's disk, and every cloud at night, or the sun and the
-	// stars would show through.)
+	// stars would show through. Far off, where a cloud is small and veiled, it stays as thick too: the rays would go
+	// deeper before the engine stops them, at a cost and nothing to see.)
 	float Distance = length(Rel);
 	float3 Ray = Rel / max(Distance, 1.0);
 	if (Detail > 0.5)
 	{
-		float Body = smoothstep(0.08, 0.3, S.Density) * (1.0 - Night);
+		float Body = smoothstep(0.08, 0.3, S.Density) * (1.0 - Night) * (1.0 - smoothstep(800000.0, 2000000.0, Distance));
 		Body *= 1.0 - smoothstep(0.995, 0.9995, dot(Ray, normalize(SunDir.xyz)));
 		E *= lerp(1.0, 0.35, Body);
 	}
