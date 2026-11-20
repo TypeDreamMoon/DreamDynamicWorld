@@ -17,7 +17,8 @@
 //     level, lifted here and there;
 //   - a closing cover first spreads its cumulus out flat into stratocumulus, then turns into a deck (DCS_Deck):
 //     stratocumulus cells, thick in their middles and thin between them, opened in a few winding rifts while the cover
-//     is short of full; toward rain and storms a deep deck with a low, ragged base;
+//     is short of full; toward rain and storms a deep deck with a low, ragged base, a thunderstorm's hanging in rolls
+//     with scud under it;
 //   - under storm darkness, storm cells raise cumulonimbus out of the deck (DCS_Cumulonimbus): a billowed column up to
 //     the tropopause, an anvil spread downwind there with mammatus under it, the overshooting top over the core;
 //   - billows (the noise's Worley octaves, warped and gathered into clumps by its Perlin-Worley channel) erode it --
@@ -218,11 +219,12 @@ struct FDCloudShape
 // holes are narrow and many (a few percent of the deck at an overcast) rather than one large blot. Cell = 0 between
 // the cells .. 1 in a cell's middle. Formed (0..1) = how far the deck has formed: its strongest cells condense first,
 // as rounded lenses (each thickening gradually from its rim to its middle, not a flat-topped slab), and spread until
-// it closes at 1. Returns (how far inside it the point is: 1 at 200 m in, below 0 outside; how near a crack or an
-// edge it is, 0..1; the deck's base and top here, both in the layer).
-float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, float H)
+// it closes at 1. Lift (in the layer) raises its base: a thunderstorm's, between the rolls it hangs in. Returns (how far
+// inside it the point is: 1 at 200 m in, below 0 outside; how near a crack or an edge it is, 0..1; the deck's base and
+// top here, both in the layer).
+float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, float Lift, float H)
 {
-	float Bottom = lerp(0.03 + 0.06 * pow(1.0 - Cell, 1.5), 0.004 + 0.06 * pow(1.0 - Cell, 1.5), Thick);
+	float Bottom = lerp(0.03 + 0.06 * pow(1.0 - Cell, 1.5), 0.004 + 0.06 * pow(1.0 - Cell, 1.5), Thick) + Lift;
 	float Top = lerp(0.13 + 0.19 * Cell, 0.5 + 0.25 * Cell, Thick);
 	float Open = 0.26 * (1.0 - Shut);
 	float Emerge = 1.45 * (1.0 - Formed);
@@ -345,8 +347,21 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		// stratocumulus' thickness, then cracks along its cells' borders and its cells shrink one by one, the way it
 		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
 		float Thick = Rainy;
-		float4 D = DCS_Deck(Cell, Gap, Shut, DeckW, Thick, H);
-		float CumulusU = BaseU - smoothstep(0.75, 1.0, DeckW);
+		// A thunderstorm's base is no flat ceiling (a deep deck hanging level reads as a thick overcast): it hangs low in
+		// rolls some 5.5 km apart, bent by the wide patches and broken into lengths kilometres long, each rounded under
+		// its middle and steeper on one face (a shelf's terraces), and in broad masses off the wide cells; between them
+		// it is lifted some 500 m, thinner there and so lighter from below. (No steeper: a ray grazing under a roll comes
+		// out of it into the open trough, the more often the steeper its faces. The rolls keep one direction in the
+		// drifting field, the default wind's: turned with the wind, they would sweep across the sky as it veered.)
+		float Tempest = Thick * smoothstep(0.5, 0.85, S.Dark);
+		float Along = dot(P, float2(0.866, 0.5)) / (550000.0 * Scale) + 2.5 * (Wide.r - 0.5) + 1.2 * (Wide.g - 0.5);
+		float Saw = frac(Along);
+		float Roll = smoothstep(0.0, 0.3, Saw) * (1.0 - smoothstep(0.45, 1.0, Saw));
+		float Hang = max(Roll * smoothstep(0.2, 0.45, 0.6 * Wide.b + 0.4 * C.r), 0.6 * smoothstep(0.45, 0.8, 0.6 * Wide.g + 0.4 * Wide.b));
+		float Raise = 0.12 * (1.0 - Hang) * Tempest;
+		float4 D = DCS_Deck(Cell, Gap, Shut, DeckW, Thick, Raise, H);
+		// (Under a storm none of the cumulus within the deck is left: its lifted base would bare them.)
+		float CumulusU = BaseU - smoothstep(0.75, 1.0, DeckW) - 2.0 * Tempest;
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
 		float DeckSolid = saturate(DeckU);
@@ -361,13 +376,35 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		float3 DeckProfile = float3(1.0, lerp(lerp(0.25, 0.5, Cell), 0.5, Thick),
 			max(max(lerp(lerp(0.75, 0.95, Thick), 0.3, Rise), 0.7 * D.y), 0.6 * (1.0 - DeckW)));
 		Profile = lerp(Profile, DeckProfile, W);
-		S.Height = lerp(S.Height, saturate((H - D.z) / max(D.w - D.z, 1.0e-3)), W);
+		// (A storm's height in it goes from where its rolls hang: its lifted base sits higher in the cloud, lighter.)
+		float Low = D.z - Raise;
+		S.Height = lerp(S.Height, saturate((H - Low) / max(D.w - Low, 1.0e-3)), W);
 		S.Column = lerp(S.Column, (D.w - D.z) * DCS_LAYER_TOP, W);
 		S.Deck = DeckW * W;
 		// (Up to a little above the deck's top it stays the deck, storm towers or not.)
 		DeckBand = DeckW * (1.0 - smoothstep(D.w, D.w + 0.08, H));
 		// (How much lighter a stratocumulus deck's thin gaps are: less dense as well as thinner.)
 		DeckThin = S.Deck * (1.0 - Thick) * (1.0 - Cell) * (1.0 - Cell);
+		// Scud: ragged scraps some 300 to 700 m across, a couple of hundred metres under a storm's lifted base (where it
+		// hangs low there is no room for them), each a rounded lump the billows tear up. They are drawn as the deck is,
+		// dark as the deck over them (as small clouds of their own, lit in a cumulus's tones, they broke into jagged
+		// steps), and come and go by their threshold as the storm does.
+		float ScudW = Thick * smoothstep(0.35, 0.8, S.Dark) * smoothstep(0.04, 0.09, D.z);
+		if (ScudW > 0.0)
+		{
+			float Frag = 0.75 * C.b + 0.25 * C.r;
+			float HalfT = 0.025 + 0.04 * saturate((Frag - 0.58) / 0.2);
+			float Mid = max(D.z * lerp(0.45, 0.7, C.g), HalfT + 0.004);
+			// (Rounded: tallest where a scrap is strongest, thinning to its edges -- a flat slab drew as a disc.)
+			float V = (H - Mid) / HalfT;
+			float ScudU = (Frag - lerp(1.0, 0.55, ScudW)) * 4.0 - 0.3 * V * V;
+			float Scud = saturate(ScudU);
+			float Own = saturate((Scud - Base) * 4.0);
+			Base = max(Base, Scud);
+			Signed = max(Signed, ScudU);
+			Profile = lerp(Profile, float3(1.0, 0.35, 1.0), Own);
+			S.Height = lerp(S.Height, saturate((H - Low) / max(D.w - Low, 1.0e-3)), Own);
+		}
 	}
 
 	// Storms: cells 16 km apart, each where the weather is storm-dark at its centre raising a cumulonimbus out of the
