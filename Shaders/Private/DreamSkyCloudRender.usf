@@ -63,6 +63,7 @@ SamplerState WeatherMapSampler;
 Texture3D CloudNoise;
 SamplerState CloudNoiseSampler;
 int MaxSamples;
+uint MarchDebug;     // 1: the rays that found no cloud red, the others green
 Texture3D<float> NearTau;
 Texture3D<float> FarTau;
 SamplerState TauSampler;
@@ -450,6 +451,10 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 		float Amount = Haze.a * lerp(exp(-saturate(V.z) * 8.0), 1.0, Haze.a * Haze.a);
 		Amount *= 1.0 - 0.5 * VC.a * smoothstep(0.2, 0.6, P_CloudLayer.y) * saturate(V.z * 4.0);
 		VC.rgb = lerp(VC.rgb, Haze.rgb * VC.a, saturate(Amount));
+	}
+	if (MarchDebug != 0)
+	{
+		VC = Depth < 0.0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 0.3, 0.0, 1.0);
 	}
 	OutColor[Ray] = float4(max(VC.rgb, 0.0) * View.PreExposure, 1.0 - saturate(VC.a));
 	OutDepth[Ray] = Depth;

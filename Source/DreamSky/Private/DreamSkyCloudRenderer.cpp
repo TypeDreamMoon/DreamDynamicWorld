@@ -23,7 +23,8 @@
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDebug(
 	TEXT("DreamSky.CloudRender.Debug"), 0,
 	TEXT("1 = multiply the sky pixels by a grid of view directions where the sky cloud renderer composites its clouds")
-	TEXT(" (right after the base pass: lighting, fog and translucency land on top of it). 0 = off."),
+	TEXT(" (right after the base pass: lighting, fog and translucency land on top of it); 2 = the clouds' rays that found")
+	TEXT(" no cloud red, the others green. 0 = off."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
@@ -80,6 +81,7 @@ class FDreamSkyCloudMarchCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, CloudNoise)
 		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
 		SHADER_PARAMETER(int32, MaxSamples)
+		SHADER_PARAMETER(uint32, MarchDebug)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, NearTau)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, FarTau)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
@@ -413,6 +415,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->CloudNoise = CloudNoise;
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
+			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : 0u;
 			Params->NearTau = SunMaps[0].Current;
 			Params->FarTau = SunMaps[1].Current;
 			Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
