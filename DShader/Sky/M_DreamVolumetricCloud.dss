@@ -41,6 +41,9 @@ uniform float DeckMottle = 0.45;
 /// @group Cloud   @sort 60   @desc Multiplies the style's shade colour in the glow: the shaded sides keep the sky's blue-grey even where the weather greys the style's colours
 uniform float4 ShadeTint = float4(0.86, 0.95, 1.14, 1.0);
 
+/// @group Cloud   @sort 70   @slider 0.1 1   @desc By day, how thick the body of a near cloud is to the eye (not to the light): lower = less grain, the inside seen a little deeper
+uniform float ViewThinning = 0.35;
+
 /// @group Scattering   @sort 10   @slider -0.9 0.9   @desc Forward scattering lobe (silver lining): stronger makes small lumps near the sun glow as white balls
 uniform float ScatterForward = 0.8;
 /// @group Scattering   @sort 20   @slider -0.9 0.9   @desc Backward scattering lobe (the sunlit faces seen with the sun behind the view)
@@ -59,7 +62,7 @@ uniform float MultiScatterEccentricity = 0.5;
 void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3,
 	float4 CloudLayer, float4 MapParams, float4 CloudShadow, float4 Flash, float4 Extra, float4 SunDir, float4 Zenith,
 	float4 Horizon, float4 Ground, float4 SunHalo, float Sigma, float Albedo, float Glow, float BaseShare, float Mottle,
-	float Occlusion, float4 ShadeMul, float Detail, Texture2D Map, VolumeTexture Noise,
+	float Occlusion, float4 ShadeMul, float Detail, float ViewThinning, Texture2D Map, VolumeTexture Noise,
 	out float3 OutExtinction, out float3 OutAlbedo, out float3 OutEmissive, out float OutConservative)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
@@ -81,16 +84,16 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	// many times a solid cloud's mean free path (some 12 m): the first sample that lands in it would take the whole
 	// pixel, lit by wherever in its step the per-pixel jitter put it -- a standing grain over every cloud. Thinner,
 	// a pixel is the average of a few samples. (Toward the light, for the shading and the shadows, it stays as thick;
-	// so do the faint outer parts, the cloud in front of the sun's disk, and every cloud at night, or the sun and the
-	// stars would show through. Far off, where a cloud is small and veiled, it stays as thick too: the rays would go
-	// deeper before the engine stops them, at a cost and nothing to see.)
+	// so do the faint outer parts and every cloud at night, or the sun and the stars would show through. Far off, where
+	// a cloud is small and veiled, it stays as thick too: the rays would go deeper before the engine stops them, at a
+	// cost and nothing to see. Not spared in front of the sun: spared there, the disk read through a storm's deck as a
+	// ring of other brightness.)
 	float Distance = length(Rel);
 	float3 Ray = Rel / max(Distance, 1.0);
 	if (Detail > 0.5)
 	{
 		float Body = smoothstep(0.08, 0.3, S.Density) * (1.0 - Night) * (1.0 - smoothstep(800000.0, 2000000.0, Distance));
-		Body *= 1.0 - smoothstep(0.995, 0.9995, dot(Ray, normalize(SunDir.xyz)));
-		E *= lerp(1.0, 0.35, Body);
+		E *= lerp(1.0, ViewThinning, Body);
 	}
 	OutExtinction = E.xxx;
 	OutAlbedo = (Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * S.Deck)).xxx;
@@ -155,7 +158,7 @@ export void M_DreamVolumetricCloud(inout material m)
 	float ShadowDetail = saturate(1.0 - UE.CloudSampleAttribute().ShadowSampleDistance);
 	DreamCloud_Sample(World - UE.CameraPositionWS(), World, UE.CloudSampleAttribute().AltitudeInLayer,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, CloudShadow, Flash, Extra, SunDir, Zenith, Horizon, Ground, SunHalo,
-		CloudExtinction, CloudAlbedo, CloudGlow, BaseGlow, DeckMottle, MultiScatterOcclusion, ShadeTint, ShadowDetail, WeatherMap, CloudNoise,
+		CloudExtinction, CloudAlbedo, CloudGlow, BaseGlow, DeckMottle, MultiScatterOcclusion, ShadeTint, ShadowDetail, ViewThinning, WeatherMap, CloudNoise,
 		SampleExtinction, SampleAlbedo, SampleEmissive, Conservative);
 
 	// Two octaves of multiple scattering carry the sunlight deeper into the sunlit faces (they cost arithmetic, not
