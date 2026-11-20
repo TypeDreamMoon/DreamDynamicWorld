@@ -22,6 +22,9 @@
 //               light), bilinear from the reduced resolution: the clouds stand behind everything the depth buffer holds,
 //               so every texel a sky pixel reads is a sky ray. DebugMode 1 instead multiplies the sky by a grid of view
 //               directions (15 degree lines, the horizon band red).
+//   CompositeBelowPS  with the view over the layer's base, the clouds between it and the scene, over the scene, before
+//               the post processing (after the fog and the translucency: a cloud then covers the rain, particles and glass in
+//               front of it). Upsampled taking only the rays whose clouds stand nearer than the pixel's scene.
 
 #include "/Engine/Private/Common.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
@@ -93,6 +96,7 @@ float2 HistoryInvExtent;
 float HistoryWeight;
 
 Texture2D<float4> CloudColor;
+Texture2D<float> CloudDepth;   // CompositeBelowPS: the clouds' depth along their rays (cm; < 0: none)
 SamplerState CloudSampler;
 float2 CloudInvExtent;
 uint DebugMode;
@@ -121,6 +125,13 @@ bool DSkyR_IsSky(int2 Pixel)
 {
 	float DeviceZ = SceneDepth.Load(int3(Pixel, 0)).r;
 	return DeviceZ <= 0.0 || ConvertFromDeviceZ(DeviceZ) >= SkyDepth;
+}
+
+// How far along V (from the view, cm) the scene stands at a pixel.
+float DSkyR_SceneDistance(int2 Pixel, float3 V)
+{
+	float DeviceZ = SceneDepth.Load(int3(Pixel, 0)).r;
+	return DeviceZ <= 0.0 ? 1.0e10 : ConvertFromDeviceZ(DeviceZ) / max(dot(V, View.ViewForward), 1.0e-3);
 }
 
 FDSkyCloudField DSkyR_Field()
@@ -225,7 +236,7 @@ float DSkyR_HeightAt(float3 World, FDSkyCloudField F)
 #if DSKY_LOOK == 0
 
 // Toon: the surface (the first crossing of the toon level, refined), then lit and painted as the dome's toon march does.
-float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
+float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 {
 	SurfaceDepth = -1.0;
 	if (P_Cloud0.x <= 0.0)
@@ -235,7 +246,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	FDSkyCloudField F = DSkyR_Field();
 	float T0;
 	float T1;
-	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, DSkyR_MaxDist, T0, T1);
+	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, min(DSkyR_MaxDist, SceneT), T0, T1);
 	if (T0 >= T1)
 	{
 		return float4(0, 0, 0, 0);
@@ -265,7 +276,11 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	}
 	float SurfaceT = S.bHit ? S.HitT : S.ClosestT;
 	float BestSigned = S.bHit ? F.Iso : S.Closest + F.Iso;
-	if (!S.bHit && BestSigned <= F.Iso - DSky_EdgeWidth(SurfaceT))
+	// A ray that only came near a cloud (some 80 m of a cumulus) searches the stretch round its nearest sample for the
+	// closest approach, as the dome's march does (the walk's phase 2): a cloud that barely reaches the toon level can lie
+	// between two samples.
+	bool bNear = !S.bHit && BestSigned > F.Iso - 0.025;
+	if (!S.bHit && !bNear)
 	{
 		return float4(0, 0, 0, 0);
 	}
@@ -280,12 +295,19 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	float Merging = smoothstep(0.55, 0.85, P_Cloud0.x);
 
 	FDSkySurfaceWalk W = (FDSkySurfaceWalk)0;
-	W.Phase = 3;
+	W.Phase = S.bHit ? 3 : 2;
+	if (bNear)
+	{
+		W.BestStep = 2.0 * clamp(SurfaceT * 0.006, 3000.0, 20000.0);
+		W.Lo = max(SurfaceT - W.BestStep, T0);
+		W.Hi = min(SurfaceT + W.BestStep, T1);
+	}
 	W.bHit = S.bHit;
 	W.BestSigned = BestSigned;
 	W.BestT = SurfaceT;
-	W.SurfaceT = SurfaceT;
-	W.Surface = V * SurfaceT;
+	// (No surface yet when the walk is to search for it: a search that finds none paints nothing.)
+	W.SurfaceT = S.bHit ? SurfaceT : 0.0;
+	W.Surface = V * W.SurfaceT;
 	W.E = max(30000.0, SurfaceT * 0.006);
 	W.Anchor = Anchor;
 	W.N = -V;
@@ -295,15 +317,15 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	// The shade a whole cloud casts on the surface, from the sun map (read 600 m toward the light, past the billow the
 	// surface is on) instead of looking toward the light from it: the map's optical depth in the walk's measure (cm of
 	// solid cloud).
-	float3 Toward = W.Surface + Ld * 60000.0;
+	float3 Toward = V * SurfaceT + Ld * 60000.0;
 	float TowardZ = DSkyR_HeightAt(CameraWorld + Toward, F);
 	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / 0.0008;
 	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler);
 	float Core;
 	float4 VC = DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, P_Cloud0, P_Cloud1, P_Cloud3, P_CloudLayer, CloudNoise,
-		CloudNoiseSampler, CameraWorld, Tone, Halo, SkyBehind, P_CloudLit, P_CloudShadow, P_Extra, Sun, P_MainLightColor, 1.0e10,
+		CloudNoiseSampler, CameraWorld, Tone, Halo, SkyBehind, P_CloudLit, P_CloudShadow, P_Extra, Sun, P_MainLightColor, SceneT,
 		DSkyR_MaxDist, Core);
-	SurfaceDepth = SurfaceT;
+	SurfaceDepth = VC.a > 0.0 ? W.SurfaceT : -1.0;
 	return VC * P_CloudShadow.a;
 }
 
@@ -316,7 +338,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 // Painted (DSKY_LOOK 2): the same march, twice as dense (the forms read whole), each sample painted in the style's three
 // tones by the light through the cloud toward the sun and its height in the cloud, the thin outside glowing against the
 // sun (the core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep).
-float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
+float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 {
 	SurfaceDepth = -1.0;
 	if (P_Cloud0.x <= 0.0)
@@ -326,7 +348,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 	FDSkyCloudField F = DSkyR_Field();
 	float T0;
 	float T1;
-	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, DSkyR_MaxDist, T0, T1);
+	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, min(DSkyR_MaxDist, SceneT), T0, T1);
 	if (T0 >= T1)
 	{
 		return float4(0, 0, 0, 0);
@@ -406,7 +428,13 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
 			float3 Paint = DCL_ShadePainted(Tau, Cos, C.Height, saturate(C.Signed * 4.0), Shade, lerp(Shade, PaintLit, 0.55), PaintLit, PP);
 			// Storm clouds are dark below, their lit tops much less so (as the engine's painted material has it).
-			Paint *= saturate(1.0 - P_CloudLayer.z * C.Dark * lerp(1.0, 0.3, saturate(C.Height)));
+			float Storm = P_CloudLayer.z * C.Dark;
+			Paint *= saturate(1.0 - Storm * lerp(1.0, 0.3, saturate(C.Height)));
+			// The sky's light on the cloud, as the realistic look's glow: no part of it goes darker than the shade tone lit by
+			// the sky (less of it low in the cloud and in a storm). Without it a storm's thick body went a flat grey where the
+			// engine's painted clouds keep their blue-lavender.
+			float FromBase = 1.0 - saturate(C.Height);
+			Paint = max(Paint, PaintShade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
 			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint, Dt);
 #else
 			float3 Sun = SunColor * DCL_SunScatter(Tau, Cos, L);
@@ -445,31 +473,39 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 		return;
 	}
 	float2 FullPixel = DSkyR_FullPixel(Ray);
-	// A ray no sky pixel's bilinear read reaches (all the pixels round its block are scene) is not marched.
+	float3 V = DSkyR_ViewDir(FullPixel);
+	// A ray a sky pixel's bilinear read reaches is marched all the way. Otherwise (all the pixels round its block are
+	// scene) only where clouds may stand between the view and the scene -- the view over the layer's base, looking down
+	// on clouds over the ground (CompositeBelowPS lays those over the scene) -- and only as far as the farthest scene in
+	// its block; with the view under the base, not at all.
 	int2 Lo = int2(View.ViewRectMin.xy);
 	int2 Hi = Lo + int2(View.ViewSizeAndInvSize.xy) - 1;
 	int2 Middle = int2(FullPixel);
 	bool bSky = false;
+	float SceneT = 0.0;
 	for (int y = -Downsample; y < Downsample && !bSky; ++y)
 	{
 		for (int x = -Downsample; x < Downsample && !bSky; ++x)
 		{
-			bSky = DSkyR_IsSky(clamp(Middle + int2(x, y), Lo, Hi));
+			int2 Pixel = clamp(Middle + int2(x, y), Lo, Hi);
+			bSky = DSkyR_IsSky(Pixel);
+			SceneT = max(SceneT, DSkyR_SceneDistance(Pixel, V));
 		}
 	}
-	if (!bSky)
+	FDSkyCloudField F0 = DSkyR_Field();
+	if (!bSky && DSkyR_HeightAt(CameraWorld, F0) < 0.0)
 	{
 		OutColor[Ray] = float4(0, 0, 0, 1);
 		OutDepth[Ray] = -2.0;
 		return;
 	}
+	SceneT = bSky ? 1.0e10 : SceneT;
 
-	float3 V = DSkyR_ViewDir(FullPixel);
 	float Depth;
 #if DSKY_LOOK != 0
-	float4 VC = DSkyR_Realistic(V, Ray, Depth);
+	float4 VC = DSkyR_Realistic(V, Ray, SceneT, Depth);
 #else
-	float4 VC = DSkyR_Toon(V, Ray, Depth);
+	float4 VC = DSkyR_Toon(V, Ray, SceneT, Depth);
 #endif
 	// The dome's weather haze, from the horizon up (it hazes the sky behind; the clouds take it here).
 	float4 Haze = P_Haze;
@@ -536,9 +572,9 @@ void PanoramaCS(uint3 Id : SV_DispatchThreadID)
 	float3 V = float3(cos(Latitude) * cos(Longitude), cos(Latitude) * sin(Longitude), sin(Latitude));
 	float Depth;
 #if DSKY_LOOK != 0
-	float4 VC = DSkyR_Realistic(V, int2(Id.xy), Depth);
+	float4 VC = DSkyR_Realistic(V, int2(Id.xy), 1.0e10, Depth);
 #else
-	float4 VC = DSkyR_Toon(V, int2(Id.xy), Depth);
+	float4 VC = DSkyR_Toon(V, int2(Id.xy), 1.0e10, Depth);
 #endif
 	OutPanorama[Id.xy] = float4(max(VC.rgb, 0.0), saturate(VC.a));
 }
@@ -658,4 +694,41 @@ void CompositePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		Out.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * 1.7 * Cover * lerp(0.6, 1.4, Cover)
 			* View.PreExposure * P_CloudShadow.a;
 	}
+}
+
+// With the view over the layer's base: the clouds below it, over the scene. Of the four rays round the pixel only those
+// whose clouds stand nearer than the pixel's scene count (a ray's block may reach past a near object's edge), weighted
+// as the bilinear read would weigh them.
+void CompositeBelowPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
+{
+	float2 Pixel = SvPosition.xy;
+	float2 Local = Pixel - View.ViewRectMin.xy;
+	if (any(Local < 0.0) || any(Local >= View.ViewSizeAndInvSize.xy) || DSkyR_IsSky(int2(Pixel)))
+	{
+		discard;
+	}
+	float3 V = DSkyR_ViewDir(Pixel);
+	float SceneT = DSkyR_SceneDistance(int2(Pixel), V);
+	float2 H = Local / float(Downsample) - 0.5;
+	int2 Base = int2(floor(H));
+	float2 Fr = H - float2(Base);
+	int2 Size = DSkyR_RaySize();
+	float4 Sum = 0.0;
+	float Weight = 0.0;
+	for (int k = 0; k < 4; ++k)
+	{
+		int2 Q = clamp(Base + int2(k & 1, k >> 1), 0, Size - 1);
+		float W = ((k & 1) ? Fr.x : 1.0 - Fr.x) * ((k >> 1) ? Fr.y : 1.0 - Fr.y);
+		float D = CloudDepth.Load(int3(Q, 0));
+		float4 C = CloudColor.Load(int3(Q, 0));
+		// (No cloud on the ray counts as clear air in front of the scene; a cloud behind the scene does not count.)
+		bool bCounts = D > -1.5 && (D < 0.0 || D < SceneT);
+		Sum += bCounts ? W * (D < 0.0 ? float4(0, 0, 0, 1) : C) : 0.0;
+		Weight += bCounts ? W : 0.0;
+	}
+	if (Weight < 1.0e-3)
+	{
+		discard;
+	}
+	Out = Sum / Weight;
 }

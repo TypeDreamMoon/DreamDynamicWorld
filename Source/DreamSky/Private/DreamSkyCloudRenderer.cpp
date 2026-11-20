@@ -12,6 +12,7 @@
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
 #include "PixelShaderUtils.h"
+#include "PostProcess/PostProcessMaterialInputs.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "SceneView.h"
@@ -250,6 +251,26 @@ class FDreamSkyCloudCompositePS : public FGlobalShader
 	}
 };
 
+class FDreamSkyCloudCompositeBelowPS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyCloudCompositeBelowPS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyCloudCompositeBelowPS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, CloudColor)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, CloudDepth)
+		RENDER_TARGET_BINDING_SLOTS()
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositeBelowPS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "CompositeBelowPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudMarchCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "MarchCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudSunMapCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "SunMapCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudShadowCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "ShadowCS", SF_Compute);
@@ -476,6 +497,22 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			History->LastFrame = GFrameCounterRenderThread;
 		}
 		Clouds = OutColor;
+
+		// Kept for the composite over the scene before the post processing, when the view looks down on clouds.
+		if (IsOverCloudBase(InView))
+		{
+			if (Below.Num() > 0 && Below.CreateConstIterator().Value().Frame != GFrameCounterRenderThread)
+			{
+				Below.Reset();
+			}
+			FBelow& Entry = Below.FindOrAdd(&InView);
+			Entry.Frame = GFrameCounterRenderThread;
+			Entry.Color = OutColor;
+			Entry.Depth = OutDepth;
+			Entry.SceneDepth = SceneDepth;
+			Entry.Downsample = Downsample;
+			FMemory::Memcpy(Entry.Parameters, Settings.Parameters, sizeof(Entry.Parameters));
+		}
 	}
 
 	FDreamSkyCloudCompositePS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudCompositePS::FParameters>();
@@ -592,4 +629,48 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 			FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudMarchCS::GroupSize));
 		GraphBuilder.SetTextureAccessFinal(Shadow, ERHIAccess::SRVMask);
 	}
+}
+
+bool FDreamSkyCloudViewExtension::IsOverCloudBase(const FSceneView& InView) const
+{
+	// (DDW_CloudLayer.x: the layer's base over the ground, cm; a little short of it already, as a rising view enters the
+	// layer.)
+	return RenderSettings.bClouds && InView.ViewLocation.Z > RenderSettings.Parameters[13].X - 20000.0f;
+}
+
+void FDreamSkyCloudViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
+{
+	if (Pass == EPostProcessingPass::BeforeDOF && IsOverCloudBase(InView))
+	{
+		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::CompositeBelow));
+	}
+}
+
+FScreenPassTexture FDreamSkyCloudViewExtension::CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)
+{
+	FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
+	const FBelow* Entry = Below.Find(&InView);
+	if (!Entry || Entry->Frame != GFrameCounterRenderThread || !Entry->Color || !SceneColor.IsValid())
+	{
+		return SceneColor;
+	}
+	RDG_EVENT_SCOPE(GraphBuilder, "DreamSky.CloudsBelow");
+	FDreamSkyCloudCompositeBelowPS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudCompositeBelowPS::FParameters>();
+	Params->Common.View = InView.ViewUniformBuffer;
+	for (int32 Index = 0; Index < NumParameters; ++Index)
+	{
+		Params->Common.Parameters[Index] = Entry->Parameters[Index];
+	}
+	Params->Common.CameraWorld = FVector3f(InView.ViewLocation);
+	Params->Common.SkyDepth = RenderSettings.SkyDepth;
+	Params->Common.Downsample = Entry->Downsample;
+	Params->SceneDepth = Entry->SceneDepth;
+	Params->CloudColor = Entry->Color;
+	Params->CloudDepth = Entry->Depth;
+	Params->RenderTargets[0] = FRenderTargetBinding(SceneColor.Texture, ERenderTargetLoadAction::ELoad);
+	TShaderMapRef<FDreamSkyCloudCompositeBelowPS> Shader(GetGlobalShaderMap(InView.GetFeatureLevel()));
+	// (Over the scene as over the sky: premultiplied, the scene times the clouds' transmittance plus their light.)
+	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, GetGlobalShaderMap(InView.GetFeatureLevel()), RDG_EVENT_NAME("Composite"), Shader, Params,
+		SceneColor.ViewRect, TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_SourceAlpha>::GetRHI());
+	return SceneColor;
 }

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "RenderGraphResources.h"
 #include "SceneViewExtension.h"
+#include "ScreenPass.h"
 
 class FTextureResource;
 class FGlobalShaderMap;
@@ -28,6 +29,7 @@ public:
 	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override {}
 	virtual void BeginRenderViewFamily(FSceneViewFamily& InViewFamily) override {}
 	virtual void PostRenderBasePassDeferred_RenderThread(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets, TRDGUniformBufferRef<FSceneTextureUniformParameters> SceneTextures) override;
+	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
 
 	void Detach() { Subsystem = nullptr; }
 
@@ -81,6 +83,26 @@ private:
 	};
 
 	void RenderClouds(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets);
+
+	/**
+	 * A view's clouds of this frame, kept from the base pass for the composite over the scene before the post processing
+	 * (the clouds below the view, when it is over the layer's base). Render thread, the frame's graph only.
+	 */
+	struct FBelow
+	{
+		uint64 Frame = ~uint64(0);
+		FRDGTextureRef Color = nullptr;
+		FRDGTextureRef Depth = nullptr;
+		FRDGTextureRef SceneDepth = nullptr;
+		int32 Downsample = 2;
+		FVector4f Parameters[NumParameters];
+	};
+	TMap<const FSceneView*, FBelow> Below;
+
+	/** True when the view stands over the cloud layer's base: clouds may stand between it and the scene. */
+	bool IsOverCloudBase(const FSceneView& InView) const;
+
+	FScreenPassTexture CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	void UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap, FRDGTextureRef WeatherMap,
 		FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon);
 
