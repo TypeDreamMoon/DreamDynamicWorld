@@ -371,6 +371,17 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetMaterial(Wanted);
 		}
+		// How much sun the clouds' shadows take off the ground: all of it under realistic clouds; under the painted ones
+		// (the material with a PaintGain) a little over half, so the shadows lie light and keep some of the sun's warmth,
+		// as in a painted background, instead of the sky light's dark blue alone.
+		float PaintGain = 0.0f;
+		const bool bPainted = Wanted && Wanted->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), PaintGain);
+		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? 0.55f : 1.0f), 0.0f, 1.0f);
+		if (SunLight && !FMath::IsNearlyEqual(SunLight->CloudShadowOnSurfaceStrength, GroundShadow, 1.0e-3f))
+		{
+			SunLight->CloudShadowOnSurfaceStrength = GroundShadow;
+			SunLight->MarkRenderStateDirty();
+		}
 		const float BottomKm = FMath::Max(0.0f, InStyle.CloudLayerHeight / 100000.0f);
 		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerBottomAltitude, BottomKm, 1.0e-3f))
 		{
@@ -438,19 +449,7 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
 			MoonLight->MarkRenderStateDirty();
 		}
-		// (The engine's default traces a quarter of the pixels each frame and rebuilds the rest from earlier frames: a
-		// dense cloud keeps a standing grain from where each ray first lands in it, which the history never averages.)
-		static IConsoleVariable* RenderTargetMode = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.Mode"));
-		if (RenderTargetMode)
-		{
-			const EConsoleVariableFlags SetBy = EConsoleVariableFlags(RenderTargetMode->GetFlags() & ECVF_SetByMask);
-			const int32 WantedMode = bVolumetricHalfResTracing ? 1 : 0;
-			if ((SetBy <= ECVF_SetByScalability || SetBy == ECVF_SetByCode) && RenderTargetMode->GetInt() != WantedMode)
-			{
-				RenderTargetMode->Set(WantedMode, ECVF_SetByCode);
-			}
-		}
-		HoldCloudHistoryThroughFlash();
+		UpdateCloudTracing(bPainted);
 	}
 	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
 	{
@@ -466,37 +465,56 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 	}
 }
 
-void ADreamSky::HoldCloudHistoryThroughFlash()
+void ADreamSky::UpdateCloudTracing(bool bPainted)
 {
-	// A lightning flash lights the whole cloud field from one frame to the next, while the engine traces only a quarter
-	// of the clouds' pixels each frame and takes the rest from the frames before: the frames of a flash came out as a
-	// checkerboard of lit and unlit pixels. On the frames a stroke flares up, and two after, the clouds are drawn from
-	// that frame's trace alone: a little noisier for those frames, never a checkerboard, at no extra cost. The rest of
-	// the flash -- its small steps and its fade -- keeps the history, which smooths the noise. (Left alone where a
-	// project or the console has set it.)
-	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
 	const UWorld* World = GetWorld();
 	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-	if (!Reprojection || !WorldClock)
-	{
-		return;
-	}
-	const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Reprojection->GetFlags() & ECVF_SetByMask);
-	if (SetBy > ECVF_SetByScalability && SetBy != ECVF_SetByCode)
-	{
-		return;
-	}
-	const float Flash = WorldClock->GetEnvironment().LightningFlash;
+	const float Flash = WorldClock ? WorldClock->GetEnvironment().LightningFlash : 0.0f;
+	const float Lightning = WorldClock ? WorldClock->GetEnvironment().Lightning : 0.0f;
 	if (Flash - LastCloudFlash > 0.1f)
 	{
 		CloudFlashJumpFrame = GFrameCounter;
 	}
-	LastCloudFlash = Flash;
-	const bool bHold = GFrameCounter - CloudFlashJumpFrame <= 2;
-	if (bHold != bHoldingCloudHistory)
+	if (Flash > 0.02f)
 	{
-		bHoldingCloudHistory = bHold;
-		Reprojection->Set(bHold ? 1.0e6f : 0.0f, ECVF_SetByCode);
+		CloudFlashLitFrame = GFrameCounter;
+	}
+	LastCloudFlash = Flash;
+	// (Between two thresholds, so a weather hovering at one does not switch the tracing back and forth.)
+	bCloudStorm = bCloudStorm ? Lightning > 0.05f : Lightning > 0.1f;
+	const bool bFlashing = CloudFlashLitFrame != 0 && GFrameCounter - CloudFlashLitFrame <= 8;
+
+	// The engine's default traces a quarter of the pixels each frame and rebuilds the rest from the frames before. Over
+	// the realistic clouds that keeps a standing grain (where each ray first lands in a dense cloud, never averaged),
+	// and a lightning flash, which relights the whole field from one frame to the next, is rebuilt over several frames
+	// in a checkerboard and then stripes: half resolution traced whole every frame has neither. In a storm, where it
+	// costs the most and the rain hides the grain, only while a flash lasts and a few frames after. (Each setting is
+	// left alone where a project or the console has set it.)
+	auto SetByUs = [](IConsoleVariable* Variable)
+	{
+		const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Variable->GetFlags() & ECVF_SetByMask);
+		return SetBy <= ECVF_SetByScalability || SetBy == ECVF_SetByCode;
+	};
+	static IConsoleVariable* RenderTargetMode = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.Mode"));
+	if (RenderTargetMode && SetByUs(RenderTargetMode))
+	{
+		const int32 WantedMode = bVolumetricHalfResTracing && !bPainted && (!bCloudStorm || bFlashing) ? 1 : 0;
+		if (RenderTargetMode->GetInt() != WantedMode)
+		{
+			RenderTargetMode->Set(WantedMode, ECVF_SetByCode);
+		}
+	}
+	// Traced the default way, the frames a stroke flares up, and two after, are drawn from that frame's trace alone (no
+	// checkerboard; a little noisier for those frames, at no extra cost). The rest of the flash keeps the history.
+	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
+	if (Reprojection && SetByUs(Reprojection))
+	{
+		const bool bHold = CloudFlashJumpFrame != 0 && GFrameCounter - CloudFlashJumpFrame <= 2;
+		if (bHold != bHoldingCloudHistory)
+		{
+			bHoldingCloudHistory = bHold;
+			Reprojection->Set(bHold ? 1.0e6f : 0.0f, ECVF_SetByCode);
+		}
 	}
 }
 

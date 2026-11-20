@@ -139,13 +139,15 @@ public:
 	float VolumetricSunScattering = 2.5f;
 
 	/**
-	 * Trace the volumetric clouds at half resolution every frame (r.VolumetricRenderTarget.Mode 1) instead of the
-	 * engine's default, a quarter of the pixels each frame rebuilt from the frames before. Dense clouds then show no
-	 * standing grain and painted outlines stay crisp, but the clouds cost up to twice as much (0.2 to 1.7 ms more at
-	 * 1080p, the most in storms). A project or console setting of the variable is left alone.
+	 * Trace the realistic volumetric clouds at half resolution every frame (r.VolumetricRenderTarget.Mode 1) instead of
+	 * the engine's default, a quarter of the pixels each frame rebuilt from the frames before, which keeps a standing
+	 * grain over dense clouds and comes out in stripes for some frames after a lightning flash. It costs the clouds
+	 * 0.2 to 0.9 ms more at 1080p, about 2 ms in a storm: in a storm they go back to the default (the rain hides the
+	 * grain) except through each lightning flash. The painted clouds need none of it and keep the default. Off: always
+	 * the default. A project or console setting of the variable is left alone.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
-	bool bVolumetricHalfResTracing = false;
+	bool bVolumetricHalfResTracing = true;
 
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
@@ -261,12 +263,16 @@ private:
 	/** Set when the material overrides changed: the instance takes them on its next ApplyClouds. */
 	bool bCloudMaterialDirty = true;
 
-	/** Draws the volumetric clouds without their frame history while a lightning flash lasts (no checkerboard). */
-	void HoldCloudHistoryThroughFlash();
-	/** The lightning flash at the last ApplyClouds, the frame its level last jumped, whether the history is held for it. */
+	/** Picks how the volumetric clouds are traced (half or quarter resolution; through a lightning flash, without the
+	 *  frame history) for the material in use and the weather. */
+	void UpdateCloudTracing(bool bPainted);
+	/** The lightning flash at the last ApplyClouds, the frame its level last jumped, the last frame it was lit, whether
+	 *  the history is held for it, whether the weather counts as a storm. */
 	float LastCloudFlash = 0.0f;
 	uint64 CloudFlashJumpFrame = 0;
+	uint64 CloudFlashLitFrame = 0;
 	bool bHoldingCloudHistory = false;
+	bool bCloudStorm = false;
 
 #if WITH_EDITOR
 	/** The style asset was edited: the overridden copy is rebuilt. */
