@@ -19,6 +19,11 @@
 //   N = DCL_TetraNormal(Signed at P + Scale * DCL_Tetra(0..3))   // Scale = the lobe size, not the noise's
 //   float Key = DCL_ToonKey(N, LightDir, Shadow, Params);        // 0 shade .. 1 lit, before the bands
 //   float3 C = DCL_ToonBands(Key, Shade, Half, Lit, Softness, Footprint) // smooth bands: no stair-step edges
+//
+// Painted clouds (soft volumes in the toon tones), per sample of a volume march like the realistic ones:
+//   FDCloudPaintedParams PP = DCL_DefaultPaintedParams();  // march with SigmaT * PP.DensityScale
+//   Scattered = SigmaT * PP.DensityScale * L.Albedo * DCL_ShadePainted(Tau, Cos, Height01, Depth01, Shade, Half, Lit, PP);
+//   (Shade, Half, Lit: the style's cloud tones; Tau toward the light as above, at the unscaled extinction)
 // ---------------------------------------------------------------------------------------------------------------------
 
 #ifndef DREAMCLOUD_LIGHT_USH
@@ -190,6 +195,49 @@ float3 DCL_ToonBands(float Key, float3 Shade, float3 Half, float3 Lit, float Sof
 	float ToHalf = smoothstep(0.33 - W, 0.33 + W, Key);
 	float ToLit = smoothstep(0.66 - W, 0.66 + W, Key);
 	return lerp(lerp(Shade, Half, ToHalf), Lit, ToLit);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Painted
+
+struct FDCloudPaintedParams
+{
+	float DensityScale;  // the march's extinction times this (its forms read whole, as painted clouds do); the light's
+	                     // optical depth stays as it is
+	float KeyFalloff;    // the key is exp(-KeyFalloff * Tau) ...
+	float KeyLow;        // ... times KeyLow at the cloud's base rising to KeyHigh at its top (lit higher up)
+	float KeyHigh;
+	float Softness;      // how soft the edges between the tones are (in key units)
+	float Rim;           // the silver lining: how much of the lit tone the thin outside adds against the sun,
+	float RimPower;      // how close to the sun (pow of the cosine),
+	float RimFalloff;    // and how fast it fades with the depth toward the light (exp(-RimFalloff * Tau))
+};
+
+FDCloudPaintedParams DCL_DefaultPaintedParams()
+{
+	FDCloudPaintedParams P;
+	P.DensityScale = 2.0;
+	P.KeyFalloff = 0.6;
+	P.KeyLow = 0.7;
+	P.KeyHigh = 1.05;
+	P.Softness = 0.12;
+	P.Rim = 0.8;
+	P.RimPower = 6.0;
+	P.RimFalloff = 0.3;
+	return P;
+}
+
+// The painted look, per sample of a volume march (the colour the sample scatters toward the view, in place of the
+// realistic look's Sun * DCL_SunScatter + DCL_Ambient; multiply by SigmaT and the albedo as there): the light through
+// the cloud (Tau, the optical depth toward the light) and the height in the cloud (Height01, 0 base .. 1 top) give a key
+// drawn in the three toon tones with soft bands, and the thin outside (Depth01 near 0) glows against the sun (Cos as
+// for DCL_SunScatter: 1 looking into it).
+float3 DCL_ShadePainted(float Tau, float Cos, float Height01, float Depth01, float3 Shade, float3 Half, float3 Lit, FDCloudPaintedParams P)
+{
+	float Key = saturate(exp(-P.KeyFalloff * Tau) * lerp(P.KeyLow, P.KeyHigh, saturate(Height01)));
+	float3 Color = DCL_ToonBands(Key, Shade, Half, Lit, P.Softness, 0.0);
+	Color += Lit * P.Rim * pow(saturate(Cos), P.RimPower) * (1.0 - saturate(Depth01)) * exp(-P.RimFalloff * Tau);
+	return Color;
 }
 
 #endif // DREAMCLOUD_LIGHT_USH

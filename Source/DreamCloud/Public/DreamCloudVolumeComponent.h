@@ -216,6 +216,9 @@ public:
 		float SigmaPerUnit = 0.0f;
 		float Inflate = 0.0f;
 		float Edge = 0.0f;
+		float ErodeDepth = 0.0f;
+		float InvNoise = 0.0f;
+		FVector3f Drift = FVector3f::ZeroVector;
 	};
 	FLightState GetLightState(const FVector& LightDirection) const;
 
@@ -235,6 +238,7 @@ public:
 	// UPrimitiveComponent
 	virtual FMatrix GetRenderMatrix() const override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
+	virtual void Serialize(FArchive& Ar) override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -271,6 +275,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTargetVolume> LightMap;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UVolumeTexture> NoiseTexture;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UVolumeTexture> FieldTexture;

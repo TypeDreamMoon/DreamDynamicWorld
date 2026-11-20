@@ -24,12 +24,17 @@ class FDreamCloudLightMapCS : public FGlobalShader
 		SHADER_PARAMETER(float, Edge)
 		SHADER_PARAMETER(float, SigmaPerUnit)
 		SHADER_PARAMETER(float, HolesValid)
+		SHADER_PARAMETER(float, ErodeDepth)
+		SHADER_PARAMETER(float, InvNoise)
+		SHADER_PARAMETER(FVector3f, Drift)
 		SHADER_PARAMETER(uint32, Steps)
 		SHADER_PARAMETER(FIntVector, Resolution)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, Field)
 		SHADER_PARAMETER_SAMPLER(SamplerState, FieldSampler)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, Holes)
 		SHADER_PARAMETER_SAMPLER(SamplerState, HolesSampler)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, Noise)
+		SHADER_PARAMETER_SAMPLER(SamplerState, NoiseSampler)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutLight)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -110,7 +115,9 @@ namespace DreamCloudLighting
 		{
 			const FVector Q = Point + L * ((i + 0.5) * Dt);
 			const float D = Field.Sample(Q + Field.Center) - Params.Inflate;
-			float Density = FMath::Clamp(-D / FMath::Max(Params.Edge, 1.0e-3f), 0.0f, 1.0f);
+			// The noise's erosion at its mean (the GPU reads the low-frequency channel there).
+			const float Erode = D < 0.0f ? 0.5f * Params.ErodeDepth : 0.0f;
+			float Density = FMath::Clamp((-D - Erode) / FMath::Max(Params.Edge, 1.0e-3f), 0.0f, 1.0f);
 			if (Holes.Num() > 0)
 			{
 				Density *= 1.0f - FMath::SmoothStep(0.35f, 0.65f, SampleGrid(Holes, HoleResolution, Field.Size, Q));
@@ -138,7 +145,7 @@ namespace DreamCloudLighting
 		}
 	}
 
-	void EnqueueLightMap(FTextureResource* Field, FTextureRenderTargetResource* Holes, FTextureRenderTargetResource* Target,
+	void EnqueueLightMap(FTextureResource* Field, FTextureResource* Noise, FTextureRenderTargetResource* Holes, FTextureRenderTargetResource* Target,
 		const FVector& BoxSize, const FLightMapParams& Params)
 	{
 		check(IsInGameThread());
@@ -148,7 +155,7 @@ namespace DreamCloudLighting
 		}
 		const FVector3f Box(BoxSize);
 		ENQUEUE_RENDER_COMMAND(DreamCloudLightMap)(
-			[Field, Holes, Target, Box, Params](FRHICommandListImmediate& RHICmdList)
+			[Field, Noise, Holes, Target, Box, Params](FRHICommandListImmediate& RHICmdList)
 			{
 				FRHITexture* FieldRHI = Field->TextureRHI;
 				FRHITexture* TargetRHI = Target->GetRenderTargetTexture();
@@ -160,6 +167,9 @@ namespace DreamCloudLighting
 				FRDGTextureRef Out = RegisterExternalTexture(GraphBuilder, TargetRHI, TEXT("DreamCloud.LightMap"));
 				FRDGTextureRef FieldRDG = RegisterExternalTexture(GraphBuilder, FieldRHI, TEXT("DreamCloud.Field"));
 				FRHITexture* HolesRHI = Holes ? Holes->GetRenderTargetTexture() : nullptr;
+				FRHITexture* NoiseRHI = Noise ? Noise->TextureRHI.GetReference() : nullptr;
+				FRDGTextureRef NoiseRDG = NoiseRHI ? RegisterExternalTexture(GraphBuilder, NoiseRHI, TEXT("DreamCloud.Noise"))
+					: GraphBuilder.RegisterExternalTexture(GSystemTextures.VolumetricBlackDummy);
 				FRDGTextureRef HolesRDG = HolesRHI ? RegisterExternalTexture(GraphBuilder, HolesRHI, TEXT("DreamCloud.Holes"))
 					: GraphBuilder.RegisterExternalTexture(GSystemTextures.VolumetricBlackDummy);
 
@@ -170,12 +180,17 @@ namespace DreamCloudLighting
 				P->Edge = Params.Edge;
 				P->SigmaPerUnit = Params.SigmaPerUnit;
 				P->HolesValid = HolesRHI ? 1.0f : 0.0f;
+				P->ErodeDepth = NoiseRHI ? Params.ErodeDepth : 0.0f;
+				P->InvNoise = Params.InvNoise;
+				P->Drift = Params.Drift;
 				P->Steps = uint32(FMath::Max(Params.Steps, 1));
 				P->Resolution = Params.Resolution;
 				P->Field = FieldRDG;
 				P->FieldSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 				P->Holes = HolesRDG;
 				P->HolesSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+				P->Noise = NoiseRDG;
+				P->NoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 				P->OutLight = GraphBuilder.CreateUAV(Out);
 
 				TShaderMapRef<FDreamCloudLightMapCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

@@ -1,8 +1,10 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
 // A cloud volume's light map: for each texel of a small grid over the field's box, the transmittance toward the light
-// (sun or moon) from the texel's centre to where the ray leaves the box, through the smooth shape (the field, grown by
-// Inflate, its density rising over Edge) less what has been carved out of it. The volume's material reads it instead of
+// (sun or moon) from the texel's centre to where the ray leaves the box, through the shape (the field, grown by Inflate,
+// eroded by the noise's low-frequency channel and the billows' mean, its density rising over Edge) less what has been
+// carved out of it. (The billows themselves are finer than the map's texels; their mean keeps a cloud's edge from
+// casting the shadow of the uneroded shape.) The volume's material reads it instead of
 // marching toward the light from every sample. All in the shape's space (cm, the box centred at its origin).
 // DreamCloudLighting.cpp computes the same on the CPU (ComputeTransmittance), and the tests hold the two formulas alike.
 
@@ -15,18 +17,30 @@ float3 LightDir;         // toward the light, unit, the shape's space
 float Edge;              // cm
 float SigmaPerUnit;      // extinction per cm of the shape's space toward the light
 float HolesValid;        // 1 when Holes holds carving
+float ErodeDepth;        // how deep the noise eats in (cm)
+float InvNoise;          // 1 / the noise's tile (1/cm)
+float3 Drift;            // the noise's drift so far (cm)
 uint Steps;
 int3 Resolution;
 Texture3D Field;
 SamplerState FieldSampler;
 Texture3D Holes;
 SamplerState HolesSampler;
+Texture3D Noise;
+SamplerState NoiseSampler;
 RWTexture3D<float> OutLight;
 
 float DensityAt(float3 P)
 {
 	float D = DCM_SampleDistance(Field, FieldSampler, P, BoxSize) - Inflate;
-	float Density = saturate(-D / max(Edge, 1.0e-3));
+	float Erode = 0.0;
+	if (ErodeDepth > 0.0 && D < 0.0)
+	{
+		// As the material erodes (DreamCloudVolume.ush), the billow value taken at its mean, 0.5.
+		float Low = Noise.SampleLevel(NoiseSampler, (P + Drift) * InvNoise, 0).r;
+		Erode = ErodeDepth * 0.5 * lerp(0.6, 1.4, 1.0 - Low);
+	}
+	float Density = saturate((-D - Erode) / max(Edge, 1.0e-3));
 	if (HolesValid > 0.5)
 	{
 		float Carve = Holes.SampleLevel(HolesSampler, saturate(P / BoxSize + 0.5), 0).r;
