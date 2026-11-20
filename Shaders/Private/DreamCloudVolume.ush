@@ -119,15 +119,7 @@ float4 DCV_Shade(FDCloudVolume V, FDCloudVolumeLook Look, float3 Cam, float3 Dir
 	P.MaxSkip = 48.0 * Fine;
 	float Reach = 0.5 * length(V.Box);
 	float Cos = dot(ViewW, LightW);
-	// The multiple scattering keeps its energy (a sunlit face stays white), but its octaves see more of the depth toward
-	// the light (b 0.5, three octaves: the deepest still sees a quarter of it), so the shaded side and the base go clearly
-	// darker instead of the light leaking through the whole cloud; the forward lobe weighs a little more (the thin rim
-	// glows against the sun).
 	FDCloudLightParams L = DCL_DefaultParams();
-	L.Blend = 0.4;
-	L.MsContribution = 0.8;
-	L.MsOcclusion = 0.5;
-	L.MsOctaves = 3;
 	float Billow;
 
 	if (Look.Mode < 0.5 || Look.Mode > 1.5)
