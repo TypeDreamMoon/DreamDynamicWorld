@@ -33,7 +33,7 @@ public:
 
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
-	static constexpr int32 NumParameters = 19;
+	static constexpr int32 NumParameters = 18;
 
 private:
 	/** What the game thread decided for the frame; copied to the render thread ahead of the family's rendering. */
@@ -50,6 +50,11 @@ private:
 		FVector4f Parameters[NumParameters];
 		FTextureResource* Noise = nullptr;
 		FTextureResource* Map = nullptr;
+		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */
+		FTextureResource* Shadow = nullptr;
+		/** The panorama the dome shows in the sky light capture (RT_DreamCloudPanorama); null: none. */
+		FTextureResource* Panorama = nullptr;
+		FVector4f ShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 	};
 
 	/** A view's clouds of the frame before (render thread only). */

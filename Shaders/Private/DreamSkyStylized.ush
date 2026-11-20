@@ -379,6 +379,7 @@ struct FDSkySurfaceWalk
 	float Behind;
 	float Within;
 	bool bHit;
+	float GivenDepth;   // >= 0: how much cloud stands toward the light (Depth's measure), given: the walk does not look
 };
 
 // The toon march's second loop: refines the surface (phases 1 and 2), then reads around it (3 to 6: the surface, its
@@ -557,6 +558,11 @@ void DSky_WalkSurface(inout FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, flo
 				// (A deck's underside takes its tones from its thickness and its lobes, and faces away from the light: no
 				// shadow to look for there, the heaviest samples of a storm saved.)
 				Phase = (Here.Deck > 0.95 && N.z < -0.3) ? 6 : 5;
+				if (Phase == 5 && W.GivenDepth >= 0.0)
+				{
+					Depth = W.GivenDepth;
+					Phase = (Here.Deck > 0.05 || Here.Column > 600000.0 || (Merging > 0.0 && N.z < -0.3)) ? 6 : 7;
+				}
 				Index = 0;
 			}
 		}
@@ -976,6 +982,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		}
 	}
 	FDSkySurfaceWalk W;
+	W.GivenDepth = -1.0;
 	W.Phase = Phase;
 	W.Index = Index;
 	W.Lo = Lo;
@@ -1104,7 +1111,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap, SamplerState WeatherMapSampler,
-	Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
+	Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama, SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV,
+	float Seconds, float Capture)
 {
 	V = normalize(V);
 	float3 Sun = normalize(SunDir.xyz);
@@ -1148,6 +1156,13 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, 1.0e10,
 			CloudCore);
 		VC *= CloudShadow.a;
+	}
+	// CloudLayer.w = 2: the sky cloud renderer draws the clouds into the view after the base pass, which the sky light
+	// capture never sees; there the dome shows the panorama of them it draws round the view.
+	else if (CloudLayer.w > 1.5 && Capture > 0.5)
+	{
+		float2 UV = float2(frac(atan2(V.y, V.x) / (2.0 * 3.14159265)), 0.5 - asin(clamp(V.z, -1.0, 1.0)) / 3.14159265);
+		VC = Panorama.SampleLevel(PanoramaSampler, UV, 0);
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
 	float4 Shafts = DSky_RainShafts(V, Camera, Cloud0, CloudLayer, Cloud3, MapParams, WeatherMap, WeatherMapSampler, Noise,

@@ -12,6 +12,10 @@
 //   SunMapCS    the optical depth toward the sun at every texel of a box round the view (two cascades, 10 km tall over
 //               the layer's base): what the realistic clouds are shadowed by, read once a sample instead of looking
 //               toward the light from each.
+//   PanoramaCS  the clouds round the view, longitude by latitude, every fourth frame: what the dome shows in the sky light
+//               capture (the capture renders no base pass and calls no view extension).
+//   ShadowCS    the clouds' shadow on the ground: the sun map's transmittance from the layer's base toward the sun, which
+//               the sun light's light function (M_DreamCloudShadow) reads.
 //   TemporalCS  the previous frames' clouds reprojected by the clouds' depth (the sky at infinity by the rotation alone),
 //               clamped to the new frame's neighbourhood, blended in.
 //   CompositePS the clouds over the sky pixels (premultiplied: the sky behind times their transmittance plus their
@@ -24,12 +28,13 @@
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudLight.ush"
 
-#ifndef DSKY_REALISTIC
-#define DSKY_REALISTIC 0
+// 0 toon, 1 realistic, 2 painted.
+#ifndef DSKY_LOOK
+#define DSKY_LOOK 0
 #endif
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames).
-float4 Parameters[19];
+float4 Parameters[18];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -47,8 +52,7 @@ float4 Parameters[19];
 #define P_MapParams    Parameters[14]
 #define P_Extra        Parameters[15]
 #define P_Haze         Parameters[16]
-#define P_AmbientSky   Parameters[17]
-#define P_AmbientGround Parameters[18]
+#define P_Flash        Parameters[17]
 
 float3 CameraWorld;   // the view in the world (cm)
 float SkyDepth;       // view depth (cm) beyond which a pixel is sky
@@ -60,11 +64,19 @@ SamplerState WeatherMapSampler;
 Texture3D CloudNoise;
 SamplerState CloudNoiseSampler;
 int MaxSamples;
+uint MarchDebug;     // 1: the rays that found no cloud red, the others green
 Texture3D<float> NearTau;
 Texture3D<float> FarTau;
 SamplerState TauSampler;
 float4 NearCenterExtent;  // the sun map cascades: centre x, y (world cm), half their width (cm)
 float4 FarCenterExtent;
+
+int2 PanoramaResolution;  // PanoramaCS: longitude across, latitude down (+90 at the top)
+RWTexture2D<float4> OutPanorama;
+
+float4 ShadowPlacement;   // ShadowCS: the ground shadow's middle x, y (world cm), half its width (cm)
+int2 ShadowResolution;
+RWTexture2D<float> OutShadow;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
@@ -204,7 +216,13 @@ float DSkyR_SunTau(float3 World, float Z)
 	return min(FarEdge.x, FarEdge.y) > 0.0 ? FarTau.SampleLevel(TauSampler, saturate(Far), 0) : 0.0;
 }
 
-#if !DSKY_REALISTIC
+// A point's height over the layer's base, over the planet's curve (cm), as the field measures it.
+float DSkyR_HeightAt(float3 World, FDSkyCloudField F)
+{
+	return World.z + dot(World.xy, World.xy) / (2.0 * DSky_PlanetRadius) - F.Base;
+}
+
+#if DSKY_LOOK == 0
 
 // Toon: the surface (the first crossing of the toon level, refined), then lit and painted as the dome's toon march does.
 float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
@@ -274,6 +292,12 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	W.NForm = -V;
 	W.Behind = 1.0;
 	W.Within = 1.0;
+	// The shade a whole cloud casts on the surface, from the sun map (read 600 m toward the light, past the billow the
+	// surface is on) instead of looking toward the light from it: the map's optical depth in the walk's measure (cm of
+	// solid cloud).
+	float3 Toward = W.Surface + Ld * 60000.0;
+	float TowardZ = DSkyR_HeightAt(CameraWorld + Toward, F);
+	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / 0.0008;
 	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler);
 	float Core;
 	float4 VC = DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, P_Cloud0, P_Cloud1, P_Cloud3, P_CloudLayer, CloudNoise,
@@ -286,8 +310,12 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 #else
 
 // Realistic: the shape's density integrated along the ray (extinction some 0.08 per metre in a full cloud, twice that
-// in a storm's darkest, as the engine's cloud material has it), the sunlight reaching each sample through three taps toward it, scattered by two lobes and a few
-// octaves of multiple scattering, the sky's light by the sample's height in its cloud.
+// in a storm's darkest, as the engine's cloud material has it), the sunlight reaching each sample through the cloud
+// toward the sun (three taps, then the sun map), scattered by two lobes and two octaves of multiple scattering, the sky's
+// light as the engine's cloud material's glow.
+// Painted (DSKY_LOOK 2): the same march, twice as dense (the forms read whole), each sample painted in the style's three
+// tones by the light through the cloud toward the sun and its height in the cloud, the thin outside glowing against the
+// sun (the core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep).
 float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 {
 	SurfaceDepth = -1.0;
@@ -308,19 +336,27 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 	float3 SkyBehind;
 	DSkyR_Sky(V, Halo, Tone, SkyBehind);
 	float3 LightDir = normalize(P_MainLight.xyz);
-	// Lit as the cloud volumes' realistic look is (DreamCloudVolume.ush, M_DreamCloudVolume's defaults): the main light
-	// at twice its illuminance, the sky's ambient from above and the ground's from below; the multiple scattering keeps
-	// its energy but its octaves see half the depth toward the light each (three of them), the forward lobe a little
-	// heavier.
+	// The sun as the cloud volumes' realistic look has it (M_DreamCloudVolume's defaults: the main light at twice its
+	// illuminance), the core's scattering but for its octaves: two, as the engine's cloud material has. (Clouds
+	// kilometres deep: a third octave, seeing a quarter of the depth toward the sun, lit a backlit storm tower through
+	// and through, one milky body.) The sky's light is the glow below; the style's ambient on top of it whitened the
+	// shaded sides further still.
 	float3 SunColor = P_MainLightColor.rgb * P_MainLight.w * 2.0;
-	float3 SkyTop = P_AmbientSky.rgb;
-	float3 SkyBottom = P_AmbientGround.rgb;
 	FDCloudLightParams L = DCL_DefaultParams();
-	L.Blend = 0.4;
-	L.MsContribution = 0.8;
-	L.MsOcclusion = 0.5;
-	L.MsOctaves = 3;
+	L.MsOctaves = 2;
 	float Cos = dot(V, LightDir);
+	float Day = smoothstep(-0.12, -0.02, normalize(P_SunDir.xyz).z);
+#if DSKY_LOOK == 2
+	// The tones as the engine's painted cloud material has them: the lit one warm near-white, the shade blue-lavender
+	// (lighter higher in the cloud, below), the half tone between; the lit one tinted by the sky behind as the toon clouds'
+	// is. (The core's falloffs suit volumes some hundreds of metres across; a sky cloud's optical depth runs some fifty
+	// times as deep: the key goes by the cloud some 0.2 to 1.5 km toward the sun, as the engine material's does.)
+	float3 PaintLit = P_CloudLit.rgb * float3(1.0, 0.975, 0.93) * lerp(1.0, Tone, P_Extra.x * 0.2) + Halo * P_Extra.y;
+	float3 PaintShade = P_CloudShadow.rgb * float3(0.86, 0.84, 1.02);
+	FDCloudPaintedParams PP = DCL_DefaultPaintedParams();
+	PP.KeyFalloff = 0.05;
+	PP.RimFalloff = 0.025;
+#endif
 
 	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
 	float SkipJitter = frac(Jitter + 0.618034 * float(View.StateFrameIndex % 97u) + 0.5);
@@ -340,15 +376,40 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 		float Dt = DCM_Advance(M, Fd, P);
 		if (Dt > 0.0 && C.Volume > 0.0)
 		{
-			float SigmaT = DSkyR_Extinction(C);
+			// By day a near cloud's body is a third as thick to the eye (not to the light), as the engine's cloud material
+			// has it: a solid cloud's mean free path (some 12 m) is far shorter than a step, and the pixel would take the
+			// light of wherever its first sample in the cloud fell.
+#if DSKY_LOOK == 2
+			float SigmaT = DSkyR_Extinction(C) * PP.DensityScale;
+#else
+			float Body = smoothstep(0.08, 0.3, C.Volume) * Day * (1.0 - smoothstep(800000.0, 2000000.0, T));
+			float SigmaT = DSkyR_Extinction(C) * lerp(1.0, 0.35, Body);
+#endif
 			float3 At = V * T;
-			// Toward the sun: the map (the cloud at large, from the map's texel on), and one tap 150 m off (the billow the
-			// sample sits in, which the map's texels are too coarse for).
-			FDSkyCloudSample Toward = DSky_CloudAt(At + LightDir * 15000.0, F, true, C.Anchor, P_MapParams, WeatherMap,
-				WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
-			float Tau = DSkyR_SunTau(CameraWorld + At, C.Z) + DSkyR_Extinction(Toward) * 30000.0;
+			// Toward the sun: the first 900 m in three taps (the billows round the sample; the map's texels, 500 m by some
+			// 400 m, are too coarse there: read at the sample, a sunlit face took the dark inside's depth and the tower came
+			// out flat, and its texels' planes drew contour lines across an underside), the map from there on.
+			float Tau = 0.0;
+			float Prev = 0.0;
+			[unroll]
+			for (int k = 1; k <= 3; ++k)
+			{
+				float Next = 90000.0 * DSky_Square(float(k) / 3.0);
+				FDSkyCloudSample Toward = DSky_CloudAt(At + LightDir * (0.5 * (Prev + Next)), F, true, C.Anchor, P_MapParams,
+					WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+				Tau += DSkyR_Extinction(Toward) * (Next - Prev);
+				Prev = Next;
+			}
+			float3 Beyond = CameraWorld + At + LightDir * 90000.0;
+			Tau += DSkyR_SunTau(Beyond, C.Z + LightDir.z * 90000.0);
+#if DSKY_LOOK == 2
+			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
+			float3 Paint = DCL_ShadePainted(Tau, Cos, C.Height, saturate(C.Signed * 4.0), Shade, lerp(Shade, PaintLit, 0.55), PaintLit, PP);
+			// Storm clouds are dark below, their lit tops much less so (as the engine's painted material has it).
+			Paint *= saturate(1.0 - P_CloudLayer.z * C.Dark * lerp(1.0, 0.3, saturate(C.Height)));
+			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint, Dt);
+#else
 			float3 Sun = SunColor * DCL_SunScatter(Tau, Cos, L);
-			float3 Sky = DCL_Ambient(SkyTop, SkyBottom, C.Height, saturate(C.Signed * 1.5), L);
 			// A storm's cloud absorbs (rain and graupel), its lit top less so: as the engine's cloud material has it.
 			float Storm = P_CloudLayer.z * C.Dark * lerp(1.0, 0.35, C.Height);
 			float Albedo = L.Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * C.Deck);
@@ -356,7 +417,8 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 			// blue-grey) at its top, 15 % of it at its base (the sky above hidden by the cloud).
 			float FromBase = 1.0 - saturate(C.Height);
 			float3 Glow = P_CloudShadow.rgb * float3(0.86, 0.95, 1.14) * 0.75 * lerp(1.0, 0.15, FromBase * FromBase * FromBase) * (1.0 - 0.8 * Storm);
-			DCM_Integrate(M, SigmaT, SigmaT * (Albedo * (Sun + Sky) + Glow), Dt);
+			DCM_Integrate(M, SigmaT, SigmaT * (Albedo * Sun + Glow), Dt);
+#endif
 		}
 		DCM_CheckDone(M, P);
 	}
@@ -404,7 +466,7 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 
 	float3 V = DSkyR_ViewDir(FullPixel);
 	float Depth;
-#if DSKY_REALISTIC
+#if DSKY_LOOK != 0
 	float4 VC = DSkyR_Realistic(V, Ray, Depth);
 #else
 	float4 VC = DSkyR_Toon(V, Ray, Depth);
@@ -416,6 +478,10 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 		float Amount = Haze.a * lerp(exp(-saturate(V.z) * 8.0), 1.0, Haze.a * Haze.a);
 		Amount *= 1.0 - 0.5 * VC.a * smoothstep(0.2, 0.6, P_CloudLayer.y) * saturate(V.z * 4.0);
 		VC.rgb = lerp(VC.rgb, Haze.rgb * VC.a, saturate(Amount));
+	}
+	if (MarchDebug != 0)
+	{
+		VC = Depth < 0.0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 0.3, 0.0, 1.0);
 	}
 	OutColor[Ray] = float4(max(VC.rgb, 0.0) * View.PreExposure, 1.0 - saturate(VC.a));
 	OutDepth[Ray] = Depth;
@@ -453,6 +519,43 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 		Prev = Next;
 	}
 	OutTau[Id] = Tau;
+}
+
+// One texel of the panorama: the clouds along its direction from the view, premultiplied, cover in alpha, without the
+// weather haze (the dome lays it over the clouds as it does over its own).
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void PanoramaCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= PanoramaResolution))
+	{
+		return;
+	}
+	float2 UV = (float2(Id.xy) + 0.5) / float2(PanoramaResolution);
+	float Longitude = UV.x * 2.0 * PI;
+	float Latitude = (0.5 - UV.y) * PI;
+	float3 V = float3(cos(Latitude) * cos(Longitude), cos(Latitude) * sin(Longitude), sin(Latitude));
+	float Depth;
+#if DSKY_LOOK != 0
+	float4 VC = DSkyR_Realistic(V, int2(Id.xy), Depth);
+#else
+	float4 VC = DSkyR_Toon(V, int2(Id.xy), Depth);
+#endif
+	OutPanorama[Id.xy] = float4(max(VC.rgb, 0.0), saturate(VC.a));
+}
+
+// The share of the sun the clouds let through to the layer's base (and below it) round the view. (A twentieth of the
+// optical depth: a kilometre of cumulus takes some nine tenths of the sun, as a cloud's shadow on the ground does, not
+// all of it.)
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void ShadowCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= ShadowResolution))
+	{
+		return;
+	}
+	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
+	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
+	OutShadow[Id.xy] = exp(-0.05 * DSkyR_SunTau(float3(XY, 0.0), 0.0));
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -540,4 +643,19 @@ void CompositePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		return;
 	}
 	Out = CloudColor.SampleLevel(CloudSampler, (Local / float(Downsample)) * CloudInvExtent, 0);
+	// Lightning lights the clouds toward the strike, their solid middles more than their edges, as the dome lights its
+	// own (its flash on the sky behind sees no clouds: theirs is added here), held back against a dark sky by the sky's
+	// own brightness so a night storm keeps its shapes. Here, after the frames are blended: a flash lasts a frame or two,
+	// and through the history it came out speckled.
+	float FlashNow = P_Flash.w * P_Extra.w;
+	float Cover = 1.0 - Out.a;
+	if (FlashNow > 0.0 && Cover > 0.0)
+	{
+		float3 V = DSkyR_ViewDir(Pixel);
+		float Toward = pow(saturate(dot(V, normalize(P_Flash.xyz))), 3.0);
+		float3 Mean = max(0.5 * (P_Zenith.rgb + P_Horizon.rgb), 1.0e-4);
+		float Level = saturate(0.3 + dot(Mean, float3(0.2126, 0.7152, 0.0722)) * 3.0);
+		Out.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * 1.7 * Cover * lerp(0.6, 1.4, Cover)
+			* View.PreExposure * P_CloudShadow.a;
+	}
 }

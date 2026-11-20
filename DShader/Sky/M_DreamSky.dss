@@ -19,19 +19,24 @@ static const Texture2D WeatherMap;
 /// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
 static const VolumeTexture CloudNoise;
 
+/// The sky cloud renderer's panorama of the clouds round the view: the dome shows it in the sky light capture while the
+/// renderer draws the clouds (the capture never sees what the renderer draws into the view).
+/// @default /DreamDynamicWorld/Sky/RT_DreamCloudPanorama
+static const Texture2D CloudPanorama;
+
 /// @custom
 /// @name Dream Sky
 float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams,
-	float4 Flash, float4 Extra, float4 Haze, Texture2D Map, VolumeTexture Noise, float3 Camera, float2 ScreenUV,
-	float Seconds, float Capture)
+	float4 Flash, float4 Extra, float4 Haze, Texture2D Map, VolumeTexture Noise, Texture2D Panorama, float3 Camera,
+	float2 ScreenUV, float Seconds, float Capture)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 	return DSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo, Stars,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, Map, MapSampler, Noise, NoiseSampler, Camera, ScreenUV, Seconds, Capture);
+		Haze, Map, MapSampler, Noise, NoiseSampler, Panorama, PanoramaSampler, Camera, ScreenUV, Seconds, Capture);
 }
 
 export void M_DreamSky(inout material m)
@@ -65,5 +70,5 @@ export void M_DreamSky(inout material m)
 	float Capture = UE.ReflectionCapturePassSwitch(Default = 0.0, Reflection = 1.0);
 	m.EmissiveColor = DreamSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo,
 		Stars, Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, WeatherMap, CloudNoise, UE.CameraPositionWS(), UE.ScreenPosition().ViewportUV, UE.Time(), Capture);
+		Haze, WeatherMap, CloudNoise, CloudPanorama, UE.CameraPositionWS(), UE.ScreenPosition().ViewportUV, UE.Time(), Capture);
 }

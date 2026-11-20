@@ -15,6 +15,8 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Misc/App.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -39,6 +41,10 @@ namespace DreamSky::Actor
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudsBelowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow");
+	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
+	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
+	static constexpr int32 CloudShadowResolution = 256;
+	static constexpr float CloudShadowHalfExtent = 2400000.0f;
 	/** cm: the sphere the clouds under the horizon are drawn on (anything nearer than this hides them, as it should). */
 	static constexpr float CloudsBelowRadius = 50000.0f;
 	static const TCHAR* DefaultCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud");
@@ -347,6 +353,71 @@ EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
 bool ADreamSky::CloudsShadowTheSun() const
 {
 	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric && SunLight && SunLight->bCastCloudShadows && SunLight->CloudShadowStrength > 0.0f;
+}
+
+void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
+{
+	using namespace DreamSky::Actor;
+	const bool bWanted = SunLight && GetEffectiveClouds() == EDreamSkyClouds::Rendered && FApp::CanEverRender();
+	if (!bWanted)
+	{
+		if (SunLight && CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
+		{
+			// (The engine's defaults back.)
+			SunLight->SetLightFunctionMaterial(nullptr);
+			SunLight->SetLightFunctionFadeDistance(100000.0f);
+			SunLight->SetLightFunctionDisabledBrightness(0.5f);
+		}
+		CloudShadowTarget = nullptr;
+		CloudShadowPlacement.W = 0.0f;
+		return;
+	}
+	if (!CloudShadowTarget)
+	{
+		CloudShadowTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("CloudShadow"), RF_Transient);
+		CloudShadowTarget->RenderTargetFormat = RTF_R16f;
+		CloudShadowTarget->bCanCreateUAV = true;
+		CloudShadowTarget->ClearColor = FLinearColor::White;
+		CloudShadowTarget->AddressX = TA_Clamp;
+		CloudShadowTarget->AddressY = TA_Clamp;
+		CloudShadowTarget->InitAutoFormat(CloudShadowResolution, CloudShadowResolution);
+		CloudShadowTarget->UpdateResourceImmediate(true);
+	}
+	if (!CloudShadowFunction)
+	{
+		if (UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, CloudShadowMaterialPath))
+		{
+			CloudShadowFunction = UMaterialInstanceDynamic::Create(Material, this);
+		}
+	}
+	if (!CloudShadowFunction)
+	{
+		return;
+	}
+	if (CloudShadowFunction->K2_GetTextureParameterValue(TEXT("CloudShadowMap")) != CloudShadowTarget)
+	{
+		CloudShadowFunction->SetTextureParameterValue(TEXT("CloudShadowMap"), CloudShadowTarget);
+	}
+	// Centred on the view, snapped to its texels (the shadows do not swim as the view moves); all the sun the clouds
+	// stand in front of is taken unless the overrides say otherwise.
+	const double Texel = 2.0 * CloudShadowHalfExtent / CloudShadowResolution;
+	const float X = float(FMath::RoundToDouble(ViewLocation.X / Texel) * Texel);
+	const float Y = float(FMath::RoundToDouble(ViewLocation.Y / Texel) * Texel);
+	const float Strength = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : 1.0f, 0.0f, 1.0f);
+	const FVector4f Placement(X, Y, CloudShadowHalfExtent, Strength);
+	if (Placement != CloudShadowPlacement)
+	{
+		CloudShadowPlacement = Placement;
+		CloudShadowFunction->SetVectorParameterValue(TEXT("ShadowMap"), FLinearColor(X, Y, 0.5f / CloudShadowHalfExtent, Strength));
+	}
+	if (SunLight->LightFunctionMaterial != CloudShadowFunction)
+	{
+		SunLight->SetLightFunctionMaterial(CloudShadowFunction);
+		// (Its own placement fades it out: the engine's fade, 1 km by default, would take the shadows off the far ground
+		// and leave it at half the sun.)
+		SunLight->SetLightFunctionFadeDistance(1.0e9f);
+		SunLight->SetLightFunctionDisabledBrightness(1.0f);
+	}
 }
 
 float ADreamSky::GetEffectiveDomeRadius() const
