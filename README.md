@@ -101,6 +101,23 @@ frame. Under the painted clouds the clouds' shadows take only 0.55 of the sun of
 a painted background's cloud shadows lie light and warm — rising to all of it as the cover closes (an overcast casts
 no sun shadows); under the realistic ones all of it (the `GroundShadow` override sets it for either).
 
+A third way, **Rendered** (`DreamSky.Clouds 2`), is the plugin's own cloud renderer (`Source/DreamSky/Private/
+DreamSkyCloudRenderer.*`, `Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute
+pass marches the field at reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march
+(`DreamCloudMarch.ush`) — skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer
+than a billow near a surface, each ray's steps offset per pixel and frame — a second pass blends the frames before,
+reprojected by the clouds' depth (`DreamSky.CloudRender.History`, 0.9), and the clouds are laid over the sky pixels
+behind the scene; the dome leaves its own out and the clouds take its weather haze and lightning. Three looks
+(`DreamSky.CloudRender.Look`): 0 toon (the surface, lit and painted as the dome's toon clouds are), 1 realistic (lit by
+scattering, as the engine's cloud material), 2 painted (the style's tones by the light through the cloud). A map of the
+optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function the
+sky puts on its sun, `M_DreamCloudShadow`); a panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what
+the dome shows in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base
+the clouds between the view and the ground are drawn over the scene too, just before the post processing: there they
+cover whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of
+nearer scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by).
+`DreamSky.CloudRender.Debug 1` shows where the clouds go into the sky pixels, `2` the rays that found no cloud.
+
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
 fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-frequency formation of Worley cells,
@@ -505,6 +522,7 @@ DreamDynamicWorld/
   Source/DreamWeatherFX     rain and snow around the view (Niagara; loads after DreamWeather)
   Shaders/Shared/DreamWeatherShared.h     zone falloff (HLSL + C++)
   Shaders/Private/DreamWeatherMap.usf     the weather map compute pass
+  Shaders/Private/DreamSkyCloudRender.usf the sky cloud renderer's passes
   Source/DreamWorldEditor   time-of-day toolbar slider, DreamDynamicWorldSetup commandlet
   Tools/TestHost/           the test host template, its generator and the test runner
   Source/DreamWind          wind runtime: subsystem, settings, source component, global actor, volume renderer,
@@ -513,12 +531,12 @@ DreamDynamicWorld/
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm, Sky/M_DreamSky.dss,
-                            Sky/M_DreamSkyBelow.dss, Sky/M_DreamVolumetricCloud(_Painted).dss,
+                            Sky/M_DreamSkyBelow.dss, Sky/M_DreamVolumetricCloud(_Painted).dss, Sky/M_DreamCloudShadow.dss,
                             Weather/M_DreamRainDrop.dss, Weather/M_DreamRainSplash.dss
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs,
                             Modules/DreamFallPath.dfm, Effects/NS_DreamRain.dfs
   Content/MPC_DreamDynamicWorld  the shared parameter collection
-  Content/Sky/                   M_DreamSky, M_DreamSkyBelow, M_DreamVolumetricCloud(_Painted), DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
+  Content/Sky/                   M_DreamSky, M_DreamSkyBelow, M_DreamVolumetricCloud(_Painted), M_DreamCloudShadow, RT_DreamCloudPanorama, DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
   Content/Wind/                  generated assets (RT, materials, Niagara) — regenerable
   Content/Wind/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
   Content/Wind/Maps/             Lvl_DreamWindTest + its baked wind terrain
