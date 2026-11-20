@@ -389,6 +389,12 @@ bool FDreamCloudLightMapTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("the map darkens inside"), Lowest < 0.05f);
 
+	// Eroded by the noise (its mean), the cloud lets more light through near its edge.
+	DreamCloudLighting::FLightMapParams Eroded = Params;
+	Eroded.ErodeDepth = 100.0f;
+	TestTrue(TEXT("an eroded edge is lighter"), DreamCloudLighting::TransmittanceAt(Field, NoHoles, FIntVector::ZeroValue, Eroded, FVector(0.0, 0.0, 400.0))
+		> At(FVector(0.0, 0.0, 400.0)) + 0.05f);
+
 	// A shaft carved down the middle lets the light in.
 	const FIntVector HoleSize(16, 16, 16);
 	TArray<float> Holes;

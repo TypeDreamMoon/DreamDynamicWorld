@@ -423,6 +423,11 @@ UDreamCloudVolumeComponent::FLightState UDreamCloudVolumeComponent::GetLightStat
 	State.SigmaPerUnit = Extinction * 0.01f / float(Length);
 	State.Inflate = Inflate / MeanScale();
 	State.Edge = FMath::Max(EdgeSoftness / MeanScale(), 1.0e-3f);
+	// The noise as the material erodes with it (DreamCloudVolume.ush): in the shape's space, drifting with the world's time.
+	State.ErodeDepth = NoiseErosion / MeanScale();
+	State.InvNoise = MeanScale() / FMath::Max(NoiseScale, 1.0f);
+	const UWorld* World = GetWorld();
+	State.Drift = FVector3f(NoiseDrift * (World ? World->GetTimeSeconds() : 0.0) / MeanScale());
 	return State;
 }
 
@@ -466,8 +471,12 @@ void UDreamCloudVolumeComponent::TickCloud(float DeltaTime, const FVector& Light
 	const float Turned = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Light.Direction, LastLight.Direction), -1.0f, 1.0f)));
 	const bool bSigma = FMath::Abs(Light.SigmaPerUnit - LastLight.SigmaPerUnit) > 0.01f * FMath::Max(LastLight.SigmaPerUnit, 1.0e-9f);
 	const bool bShape = !FMath::IsNearlyEqual(Light.Inflate, LastLight.Inflate, 0.01f) || !FMath::IsNearlyEqual(Light.Edge, LastLight.Edge, 0.01f);
+	// The noise drifts through the cloud: draw the map again once it moved half a texel of the map.
+	const float MapTexel = float(Field.Size.GetMax()) / FMath::Max(LightResolution, 1);
+	const bool bNoise = !FMath::IsNearlyEqual(Light.ErodeDepth, LastLight.ErodeDepth, 0.01f) || !FMath::IsNearlyEqual(Light.InvNoise, LastLight.InvNoise, 1.0e-7f)
+		|| FVector3f::Dist(Light.Drift, LastLight.Drift) > 0.5f * MapTexel;
 	const bool bHoles = bHolesUploaded && LightHoleWait <= 0.0f;
-	if (bLightStale || Turned > LightUpdateAngle || bSigma || bShape || bHoles || LightResolution != LastLightResolution)
+	if (bLightStale || Turned > LightUpdateAngle || bSigma || bShape || bNoise || bHoles || LightResolution != LastLightResolution)
 	{
 		LastLight = Light;
 		LastLightResolution = LightResolution;
@@ -484,6 +493,9 @@ void UDreamCloudVolumeComponent::TickCloud(float DeltaTime, const FVector& Light
 			Params.SigmaPerUnit = Light.SigmaPerUnit;
 			Params.Inflate = Light.Inflate;
 			Params.Edge = Light.Edge;
+			Params.ErodeDepth = Light.ErodeDepth;
+			Params.InvNoise = Light.InvNoise;
+			Params.Drift = Light.Drift;
 			Params.Resolution = DreamCloudLighting::ResolutionFor(Field.Size, LightResolution);
 			Params.Steps = Quality.LightMapSteps;
 			if (!LightMap || LightMap->SizeX != Params.Resolution.X || LightMap->SizeY != Params.Resolution.Y || LightMap->SizeZ != Params.Resolution.Z)
@@ -495,7 +507,11 @@ void UDreamCloudVolumeComponent::TickCloud(float DeltaTime, const FVector& Light
 				LightMap->UpdateResourceImmediate(true);
 				bLightMapDrawn = false;
 			}
-			DreamCloudLighting::EnqueueLightMap(FieldTexture->GetResource(), HoleTexture ? HoleTexture->GameThread_GetRenderTargetResource() : nullptr,
+			if (!NoiseTexture)
+			{
+				NoiseTexture = LoadObject<UVolumeTexture>(nullptr, DreamCloud::Names::NoisePath);
+			}
+			DreamCloudLighting::EnqueueLightMap(FieldTexture->GetResource(), NoiseTexture ? NoiseTexture->GetResource() : nullptr, HoleTexture ? HoleTexture->GameThread_GetRenderTargetResource() : nullptr,
 				LightMap->GameThread_GetRenderTargetResource(), Field.Size, Params);
 			if (!bLightMapDrawn)
 			{

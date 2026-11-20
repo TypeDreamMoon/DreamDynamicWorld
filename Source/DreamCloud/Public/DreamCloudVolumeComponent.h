@@ -216,6 +216,9 @@ public:
 		float SigmaPerUnit = 0.0f;
 		float Inflate = 0.0f;
 		float Edge = 0.0f;
+		float ErodeDepth = 0.0f;
+		float InvNoise = 0.0f;
+		FVector3f Drift = FVector3f::ZeroVector;
 	};
 	FLightState GetLightState(const FVector& LightDirection) const;
 
@@ -271,6 +274,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTargetVolume> LightMap;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UVolumeTexture> NoiseTexture;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UVolumeTexture> FieldTexture;
