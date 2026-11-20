@@ -149,8 +149,8 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
 	bool bOverride_GroundShadow = false;
 	/** Either material: how much of the sun the clouds' shadows take off the ground (unticked: all of it under the
-	 *  realistic clouds, 0.55 under the painted ones -- a painted background's cloud shadows are light and stay warm).
-	 *  Not a material parameter: it goes to the sun. */
+	 *  realistic clouds; under the painted ones 0.55 between broken clouds -- a painted background's cloud shadows are
+	 *  light and stay warm -- rising to all of it as the cover closes). Not a material parameter: it goes to the sun. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_GroundShadow", ClampMin = "0", ClampMax = "1"))
 	float GroundShadow = 1.0f;
 

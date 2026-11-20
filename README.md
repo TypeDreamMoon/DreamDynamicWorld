@@ -89,13 +89,15 @@ multiple-scattering approximation loses light; at 1 a sunlit cumulus comes out l
 shadows: `VolumetricShadowTracingDistance` (how far each sample looks toward the sun, km),
 `VolumetricShadowResolution` (the cloud shadow map and the sky light's cloud occlusion map, which cover the traced
 distance rather than the engine's 150 km) and `VolumetricShadowSamples` (the shadow map's march; storms cost the
-most). The realistic clouds are traced at half resolution every frame (`bVolumetricHalfResTracing`, on) instead of
-the engine's quarter of the pixels rebuilt from the frames before, which leaves a standing grain over dense clouds
-and stripes for some frames after a lightning flash. It costs the clouds 0.2–0.9 ms more at 1080p, about 2 ms in a
-storm, so in a storm they go back to the engine's way (the rain hides the grain) except through each flash; the
-painted clouds always keep the engine's way. Under the painted clouds the clouds' shadows take only 0.55 of the sun
-off the ground — a painted background's cloud shadows lie light and warm — and all of it under the realistic ones
-(the `GroundShadow` override sets it for either).
+most; the map fades out toward its edge, so its end does not show as a line on far ground). The engine traces a
+quarter of the clouds' pixels each frame and rebuilds the rest from the frames before; the sample count
+(`VolumetricSampleCountScale`, 2.75) keeps the grain over dense realistic clouds fine and still, and through a
+lightning flash, and a few frames after, the clouds are drawn from each frame's trace alone, so a flash never comes
+out as a checkerboard. `bVolumetricHalfResTracing` (off) traces the realistic clouds at half resolution every frame
+instead: finer, but 0.2–0.9 ms more at 1080p (about 2 ms in a storm), and what grain is left shimmers from frame to
+frame. Under the painted clouds the clouds' shadows take only 0.55 of the sun off the ground between broken clouds —
+a painted background's cloud shadows lie light and warm — rising to all of it as the cover closes (an overcast casts
+no sun shadows); under the realistic ones all of it (the `GroundShadow` override sets it for either).
 
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
@@ -111,7 +113,8 @@ finer octave frays the edges near the view (`CloudDetail`). The clouds grow and 
 the world clock, so a given moment always shows the same clouds. Fair-weather cumulus follow the hour
 (`CloudDiurnal`): fewer and flat in the morning, building into the tall cumulus of the mid-afternoon, sinking and
 fraying toward evening. Under storm darkness the strongest cells climb out of the deck into cumulonimbus, up to 10 km, and
-spread into anvils there; rain hangs under a distant storm in grey curtains. The air between veils far clouds in
+spread into anvils there, while the storm's base hangs low in broken rolls with ragged scud beneath; rain hangs
+under a distant storm in grey curtains. The air between veils far clouds in
 the sky's own colour behind them, thicker low down (`CloudVisibility`, `CloudHazeHeight`): a tower's base sinks into
 the horizon while its top stays clear. Above it all lie thin cirrus streaks along the wind (`CloudHighCover`,
 `CloudHighAltitude`). The toon clouds take the colour of the sky around them (`CloudSkyTint`: warm low in a sunset,
