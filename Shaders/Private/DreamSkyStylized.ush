@@ -829,7 +829,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		float Piece = smoothstep(Ragged - 0.03, Ragged + 0.03, 1.05 - 1.1 * Open);
 		Keep = lerp(SeeThrough, 0.65 * Piece, Lip);
 	}
-	Cover *= lerp(1.0, Keep, max(Here.Deck, Anvil));
+	// (Not in a storm's deck, which is closed: a ray grazing the bottom of one of its rolls into the trough under it read
+	// as a crack's lip and showed specks of blue sky.)
+	Cover *= lerp(1.0, Keep, max(Here.Deck * (1.0 - Deep), Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	// (A cloud just in front of the ground fades into it over the last few hundred metres, instead of a hard line where
 	// they cross.)
