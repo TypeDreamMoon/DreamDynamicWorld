@@ -89,7 +89,7 @@ struct DREAMCLOUD_API FDreamCloudPrimitiveShape
 namespace DreamCloudBake
 {
 	/** Bump when baking changes, so every field bakes again. */
-	inline constexpr uint32 Version = 2;
+	inline constexpr uint32 Version = 3;
 
 	struct FSettings
 	{
@@ -99,9 +99,10 @@ namespace DreamCloudBake
 		float Padding = 0.15f;
 	};
 
-	/** Bakes a triangle mesh (positions in the shape's space, three indices a triangle). Inside is where the surfaces wind
-	 *  around a point (so overlapping closed parts of a merged mesh count as one), decided by a vote of rays along the
-	 *  three axes (an open mesh gets the majority). False when there is nothing to bake. */
+	/** Bakes a triangle mesh (positions in the shape's space, three indices a triangle). A mesh merged from overlapping
+	 *  parts becomes their union (each part measured on its own, so the surfaces inside one another leave no seams);
+	 *  inside is where a part's surfaces wind around a point, decided by a vote of rays along the three axes (an open
+	 *  mesh gets the majority). False when there is nothing to bake. */
 	DREAMCLOUD_API bool FromTriangles(TConstArrayView<FVector3f> Positions, TConstArrayView<uint32> Indices, const FSettings& Settings, FDreamCloudField& Out);
 
 	/** Bakes primitives blended together: the union of the added ones less the subtracted ones, seams rounded over

@@ -257,6 +257,199 @@ namespace DreamCloudBake
 		}
 	}
 
+	namespace
+	{
+		/** The parts of a mesh: its triangles grouped by the corners they share (welded by position, so a part split at
+		 *  its UV seams stays one). */
+		TArray<TArray<int32>> FindParts(TConstArrayView<FVector3f> G, TConstArrayView<uint32> Indices)
+		{
+			const int32 NumTriangles = Indices.Num() / 3;
+			TMap<FIntVector, int32> Welded;
+			TArray<int32> Weld;
+			Weld.SetNumUninitialized(G.Num());
+			for (int32 i = 0; i < G.Num(); ++i)
+			{
+				const FIntVector Key(FMath::RoundToInt(G[i].X * 1024.0f), FMath::RoundToInt(G[i].Y * 1024.0f), FMath::RoundToInt(G[i].Z * 1024.0f));
+				Weld[i] = Welded.FindOrAdd(Key, Welded.Num());
+			}
+			TArray<int32> Parent;
+			Parent.SetNumUninitialized(Welded.Num());
+			for (int32 i = 0; i < Parent.Num(); ++i)
+			{
+				Parent[i] = i;
+			}
+			auto Find = [&Parent](int32 X)
+			{
+				while (Parent[X] != X)
+				{
+					Parent[X] = Parent[Parent[X]];
+					X = Parent[X];
+				}
+				return X;
+			};
+			for (int32 t = 0; t < NumTriangles; ++t)
+			{
+				const int32 A = Find(Weld[Indices[3 * t]]);
+				Parent[Find(Weld[Indices[3 * t + 1]])] = A;
+				Parent[Find(Weld[Indices[3 * t + 2]])] = A;
+			}
+			TMap<int32, int32> PartOfRoot;
+			TArray<TArray<int32>> Parts;
+			for (int32 t = 0; t < NumTriangles; ++t)
+			{
+				const int32 Root = Find(Weld[Indices[3 * t]]);
+				int32* Part = PartOfRoot.Find(Root);
+				if (!Part)
+				{
+					Part = &PartOfRoot.Add(Root, Parts.Num());
+					Parts.AddDefaulted();
+				}
+				Parts[*Part].Add(t);
+			}
+			return Parts;
+		}
+
+		/**
+		 * The signed distance (in texels, < 0 inside) from each texel centre to the surface of some triangles (grid
+		 * space: texel i's centre at i + 0.5). Exact within a band around each triangle, chamfer sweeps beyond. Inside or
+		 * out: rays along each axis through the texel centres (nudged off them, so a ray does not run along an edge of an
+		 * axis-aligned mesh) add up the surfaces they cross, +1 or -1 by which way each faces (times its Facing): inside
+		 * where that winding is not 0, a texel inside when two of three rays say so.
+		 */
+		void SignedDistances(TConstArrayView<FVector3f> G, TConstArrayView<uint32> Indices, TConstArrayView<int32> Triangles,
+			TConstArrayView<int8> Facing, const FIntVector& N, TArray<float>& Out)
+		{
+			const float Band = 2.5f;
+			TArray<TArray<int32>> SliceTriangles;
+			SliceTriangles.SetNum(N.Z);
+			for (int32 t : Triangles)
+			{
+				const FVector3f& A = G[Indices[3 * t]];
+				const FVector3f& B = G[Indices[3 * t + 1]];
+				const FVector3f& C = G[Indices[3 * t + 2]];
+				const FIntPoint Zs = TexelRange(FMath::Min3(A.Z, B.Z, C.Z) - Band, FMath::Max3(A.Z, B.Z, C.Z) + Band, N.Z);
+				for (int32 Z = Zs.X; Z <= Zs.Y; ++Z)
+				{
+					SliceTriangles[Z].Add(t);
+				}
+			}
+			TArray<float>& D = Out;
+			D.Init(UE_BIG_NUMBER, N.X * N.Y * N.Z);
+			ParallelFor(N.Z, [&](int32 Z)
+			{
+				for (int32 t : SliceTriangles[Z])
+				{
+					const FVector3f& A = G[Indices[3 * t]];
+					const FVector3f& B = G[Indices[3 * t + 1]];
+					const FVector3f& C = G[Indices[3 * t + 2]];
+					const FIntPoint Xs = TexelRange(FMath::Min3(A.X, B.X, C.X) - Band, FMath::Max3(A.X, B.X, C.X) + Band, N.X);
+					const FIntPoint Ys = TexelRange(FMath::Min3(A.Y, B.Y, C.Y) - Band, FMath::Max3(A.Y, B.Y, C.Y) + Band, N.Y);
+					for (int32 Y = Ys.X; Y <= Ys.Y; ++Y)
+					{
+						for (int32 X = Xs.X; X <= Xs.Y; ++X)
+						{
+							const FVector3f P(X + 0.5f, Y + 0.5f, Z + 0.5f);
+							float& Slot = D[X + N.X * (Y + N.Y * Z)];
+							Slot = FMath::Min(Slot, FMath::Sqrt(PointTriangleDistanceSquared(P, A, B, C)));
+						}
+					}
+				}
+			});
+			Sweep(D, N, 1.0f);
+
+			TArray<uint8> Votes;
+			Votes.SetNumZeroed(N.X * N.Y * N.Z);
+			for (int32 Axis = 0; Axis < 3; ++Axis)
+			{
+				const int32 AxU = (Axis + 1) % 3;
+				const int32 AxV = (Axis + 2) % 3;
+				const int32 NU = N[AxU];
+				const int32 NV = N[AxV];
+				const int32 NA = N[Axis];
+				const float NudgeU = 0.0131f;
+				const float NudgeV = 0.0247f;
+				TArray<TArray<int32>> Rows;
+				Rows.SetNum(NU * NV);
+				for (int32 t : Triangles)
+				{
+					const FVector3f& A = G[Indices[3 * t]];
+					const FVector3f& B = G[Indices[3 * t + 1]];
+					const FVector3f& C = G[Indices[3 * t + 2]];
+					const FIntPoint Us = TexelRange(FMath::Min3(A[AxU], B[AxU], C[AxU]) - NudgeU, FMath::Max3(A[AxU], B[AxU], C[AxU]) - NudgeU, NU);
+					const FIntPoint Vs = TexelRange(FMath::Min3(A[AxV], B[AxV], C[AxV]) - NudgeV, FMath::Max3(A[AxV], B[AxV], C[AxV]) - NudgeV, NV);
+					for (int32 V = Vs.X; V <= Vs.Y; ++V)
+					{
+						for (int32 U = Us.X; U <= Us.Y; ++U)
+						{
+							Rows[U + NU * V].Add(t);
+						}
+					}
+				}
+				ParallelFor(NU * NV, [&](int32 Row)
+				{
+					const TArray<int32>& Candidates = Rows[Row];
+					if (Candidates.Num() == 0)
+					{
+						return;
+					}
+					const int32 U = Row % NU;
+					const int32 V = Row / NU;
+					const float Pu = U + 0.5f + NudgeU;
+					const float Pv = V + 0.5f + NudgeV;
+					TArray<TPair<float, int32>, TInlineAllocator<16>> Hits;
+					for (int32 t : Candidates)
+					{
+						const FVector3f& A = G[Indices[3 * t]];
+						const FVector3f& B = G[Indices[3 * t + 1]];
+						const FVector3f& C = G[Indices[3 * t + 2]];
+						const float Area = (B[AxU] - A[AxU]) * (C[AxV] - A[AxV]) - (C[AxU] - A[AxU]) * (B[AxV] - A[AxV]);
+						if (FMath::Abs(Area) < 1.0e-9f)
+						{
+							continue;
+						}
+						const float W0 = ((B[AxU] - Pu) * (C[AxV] - Pv) - (C[AxU] - Pu) * (B[AxV] - Pv)) / Area;
+						const float W1 = ((C[AxU] - Pu) * (A[AxV] - Pv) - (A[AxU] - Pu) * (C[AxV] - Pv)) / Area;
+						const float W2 = 1.0f - W0 - W1;
+						if (W0 < 0.0f || W1 < 0.0f || W2 < 0.0f)
+						{
+							continue;
+						}
+						const int32 Face = Facing.Num() > 0 ? Facing[t] : 1;
+						Hits.Add({ W0 * A[Axis] + W1 * B[Axis] + W2 * C[Axis], Area > 0.0f ? Face : -Face });
+					}
+					if (Hits.Num() == 0)
+					{
+						return;
+					}
+					Hits.Sort([](const TPair<float, int32>& L, const TPair<float, int32>& R) { return L.Key < R.Key; });
+					int32 Crossed = 0;
+					int32 Winding = 0;
+					for (int32 Along = 0; Along < NA; ++Along)
+					{
+						const float Pa = Along + 0.5f;
+						while (Crossed < Hits.Num() && Hits[Crossed].Key < Pa)
+						{
+							Winding += Hits[Crossed].Value;
+							++Crossed;
+						}
+						if (Winding != 0)
+						{
+							FIntVector Cell;
+							Cell[Axis] = Along;
+							Cell[AxU] = U;
+							Cell[AxV] = V;
+							++Votes[Cell.X + N.X * (Cell.Y + N.Y * Cell.Z)];
+						}
+					}
+				});
+			}
+			for (int32 i = 0; i < D.Num(); ++i)
+			{
+				D[i] = Votes[i] >= 2 ? -D[i] : D[i];
+			}
+		}
+	}
+
 	bool FromTriangles(TConstArrayView<FVector3f> Positions, TConstArrayView<uint32> Indices, const FSettings& Settings, FDreamCloudField& Out)
 	{
 		const int32 NumTriangles = Indices.Num() / 3;
@@ -280,7 +473,6 @@ namespace DreamCloudBake
 		}
 		const FIntVector N = Field.Resolution;
 		const float Texel = Field.TexelSize();
-		// Grid space: texel i's centre at i + 0.5 along each axis.
 		const FVector3f Origin = FVector3f(Field.Center - 0.5 * Field.Size);
 		TArray<FVector3f> G;
 		G.SetNumUninitialized(Positions.Num());
@@ -289,141 +481,50 @@ namespace DreamCloudBake
 			G[i] = (Positions[i] - Origin) / Texel;
 		}
 
-		// Exact distances (in texels) within a band around each triangle, slice by slice.
-		const float Band = 2.5f;
-		TArray<TArray<int32>> SliceTriangles;
-		SliceTriangles.SetNum(N.Z);
-		for (int32 t = 0; t < NumTriangles; ++t)
-		{
-			const FVector3f& A = G[Indices[3 * t]];
-			const FVector3f& B = G[Indices[3 * t + 1]];
-			const FVector3f& C = G[Indices[3 * t + 2]];
-			const FIntPoint Zs = TexelRange(FMath::Min3(A.Z, B.Z, C.Z) - Band, FMath::Max3(A.Z, B.Z, C.Z) + Band, N.Z);
-			for (int32 Z = Zs.X; Z <= Zs.Y; ++Z)
-			{
-				SliceTriangles[Z].Add(t);
-			}
-		}
-		TArray<float> D;
-		D.Init(UE_BIG_NUMBER, N.X * N.Y * N.Z);
-		ParallelFor(N.Z, [&](int32 Z)
-		{
-			for (int32 t : SliceTriangles[Z])
-			{
-				const FVector3f& A = G[Indices[3 * t]];
-				const FVector3f& B = G[Indices[3 * t + 1]];
-				const FVector3f& C = G[Indices[3 * t + 2]];
-				const FIntPoint Xs = TexelRange(FMath::Min3(A.X, B.X, C.X) - Band, FMath::Max3(A.X, B.X, C.X) + Band, N.X);
-				const FIntPoint Ys = TexelRange(FMath::Min3(A.Y, B.Y, C.Y) - Band, FMath::Max3(A.Y, B.Y, C.Y) + Band, N.Y);
-				for (int32 Y = Ys.X; Y <= Ys.Y; ++Y)
-				{
-					for (int32 X = Xs.X; X <= Xs.Y; ++X)
-					{
-						const FVector3f P(X + 0.5f, Y + 0.5f, Z + 0.5f);
-						const float Dist = FMath::Sqrt(PointTriangleDistanceSquared(P, A, B, C));
-						float& Slot = D[X + N.X * (Y + N.Y * Z)];
-						Slot = FMath::Min(Slot, Dist);
-					}
-				}
-			}
-		});
-		Sweep(D, N, 1.0f);
-
-		// Inside or out: rays along each axis through the texel centres (nudged off them, so a ray does not run along an
-		// edge of an axis-aligned mesh) add up the surfaces they cross, +1 or -1 by which way each faces: a texel is inside
-		// where that winding is not 0 (inside overlapping parts too, which plain parity would call outside), and the texel
-		// is inside when two of three rays say so.
-		TArray<uint8> Votes;
-		Votes.SetNumZeroed(N.X * N.Y * N.Z);
-		for (int32 Axis = 0; Axis < 3; ++Axis)
-		{
-			const int32 AxU = (Axis + 1) % 3;
-			const int32 AxV = (Axis + 2) % 3;
-			const int32 NU = N[AxU];
-			const int32 NV = N[AxV];
-			const int32 NA = N[Axis];
-			const float NudgeU = 0.0131f;
-			const float NudgeV = 0.0247f;
-			TArray<TArray<int32>> Rows;
-			Rows.SetNum(NU * NV);
-			for (int32 t = 0; t < NumTriangles; ++t)
-			{
-				const FVector3f& A = G[Indices[3 * t]];
-				const FVector3f& B = G[Indices[3 * t + 1]];
-				const FVector3f& C = G[Indices[3 * t + 2]];
-				const FIntPoint Us = TexelRange(FMath::Min3(A[AxU], B[AxU], C[AxU]) - NudgeU, FMath::Max3(A[AxU], B[AxU], C[AxU]) - NudgeU, NU);
-				const FIntPoint Vs = TexelRange(FMath::Min3(A[AxV], B[AxV], C[AxV]) - NudgeV, FMath::Max3(A[AxV], B[AxV], C[AxV]) - NudgeV, NV);
-				for (int32 V = Vs.X; V <= Vs.Y; ++V)
-				{
-					for (int32 U = Us.X; U <= Us.Y; ++U)
-					{
-						Rows[U + NU * V].Add(t);
-					}
-				}
-			}
-			ParallelFor(NU * NV, [&](int32 Row)
-			{
-				const TArray<int32>& Candidates = Rows[Row];
-				if (Candidates.Num() == 0)
-				{
-					return;
-				}
-				const int32 U = Row % NU;
-				const int32 V = Row / NU;
-				const float Pu = U + 0.5f + NudgeU;
-				const float Pv = V + 0.5f + NudgeV;
-				TArray<TPair<float, int32>, TInlineAllocator<16>> Hits;
-				for (int32 t : Candidates)
-				{
-					const FVector3f& A = G[Indices[3 * t]];
-					const FVector3f& B = G[Indices[3 * t + 1]];
-					const FVector3f& C = G[Indices[3 * t + 2]];
-					const float Area = (B[AxU] - A[AxU]) * (C[AxV] - A[AxV]) - (C[AxU] - A[AxU]) * (B[AxV] - A[AxV]);
-					if (FMath::Abs(Area) < 1.0e-9f)
-					{
-						continue;
-					}
-					const float W0 = ((B[AxU] - Pu) * (C[AxV] - Pv) - (C[AxU] - Pu) * (B[AxV] - Pv)) / Area;
-					const float W1 = ((C[AxU] - Pu) * (A[AxV] - Pv) - (A[AxU] - Pu) * (C[AxV] - Pv)) / Area;
-					const float W2 = 1.0f - W0 - W1;
-					if (W0 < 0.0f || W1 < 0.0f || W2 < 0.0f)
-					{
-						continue;
-					}
-					Hits.Add({ W0 * A[Axis] + W1 * B[Axis] + W2 * C[Axis], Area > 0.0f ? 1 : -1 });
-				}
-				if (Hits.Num() == 0)
-				{
-					return;
-				}
-				Hits.Sort([](const TPair<float, int32>& L, const TPair<float, int32>& R) { return L.Key < R.Key; });
-				int32 Crossed = 0;
-				int32 Winding = 0;
-				for (int32 Along = 0; Along < NA; ++Along)
-				{
-					const float Pa = Along + 0.5f;
-					while (Crossed < Hits.Num() && Hits[Crossed].Key < Pa)
-					{
-						Winding += Hits[Crossed].Value;
-						++Crossed;
-					}
-					if (Winding != 0)
-					{
-						FIntVector Cell;
-						Cell[Axis] = Along;
-						Cell[AxU] = U;
-						Cell[AxV] = V;
-						++Votes[Cell.X + N.X * (Cell.Y + N.Y * Cell.Z)];
-					}
-				}
-			});
-		}
-
+		// A mesh merged from overlapping parts has their surfaces inside one another: the distance to those would hollow
+		// the cloud out along them. Each part is measured on its own and the cloud is their union (the least of the
+		// parts' distances). A mesh of very many parts (foliage, debris) is measured whole: then each part is turned to
+		// face outward by the sign of the volume it encloses, so overlaps at least count as inside.
+		const TArray<TArray<int32>> Parts = FindParts(G, Indices);
+		constexpr int32 MaxSeparateParts = 16;
 		TArray<float> Signed;
-		Signed.SetNumUninitialized(D.Num());
-		for (int32 i = 0; i < D.Num(); ++i)
+		if (Parts.Num() <= MaxSeparateParts)
 		{
-			Signed[i] = (Votes[i] >= 2 ? -D[i] : D[i]) * Texel;
+			Signed.Init(UE_BIG_NUMBER, N.X * N.Y * N.Z);
+			TArray<float> Part;
+			for (const TArray<int32>& Triangles : Parts)
+			{
+				SignedDistances(G, Indices, Triangles, {}, N, Part);
+				for (int32 i = 0; i < Signed.Num(); ++i)
+				{
+					Signed[i] = FMath::Min(Signed[i], Part[i]);
+				}
+			}
+		}
+		else
+		{
+			TArray<int8> Facing;
+			Facing.SetNumUninitialized(NumTriangles);
+			TArray<int32> All;
+			All.Reserve(NumTriangles);
+			for (const TArray<int32>& Triangles : Parts)
+			{
+				double Volume = 0.0;
+				for (int32 t : Triangles)
+				{
+					Volume += FVector::DotProduct(FVector(G[Indices[3 * t]]), FVector::CrossProduct(FVector(G[Indices[3 * t + 1]]), FVector(G[Indices[3 * t + 2]])));
+				}
+				for (int32 t : Triangles)
+				{
+					Facing[t] = Volume >= 0.0 ? 1 : -1;
+					All.Add(t);
+				}
+			}
+			SignedDistances(G, Indices, All, Facing, N, Signed);
+		}
+		for (float& S : Signed)
+		{
+			S *= Texel;
 		}
 		Store(Signed, Field);
 		Field.SourceHash = Out.SourceHash;
