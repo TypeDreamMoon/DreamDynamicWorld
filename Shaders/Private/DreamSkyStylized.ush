@@ -379,6 +379,7 @@ struct FDSkySurfaceWalk
 	float Behind;
 	float Within;
 	bool bHit;
+	float GivenDepth;   // >= 0: how much cloud stands toward the light (Depth's measure), given: the walk does not look
 };
 
 // The toon march's second loop: refines the surface (phases 1 and 2), then reads around it (3 to 6: the surface, its
@@ -557,6 +558,11 @@ void DSky_WalkSurface(inout FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, flo
 				// (A deck's underside takes its tones from its thickness and its lobes, and faces away from the light: no
 				// shadow to look for there, the heaviest samples of a storm saved.)
 				Phase = (Here.Deck > 0.95 && N.z < -0.3) ? 6 : 5;
+				if (Phase == 5 && W.GivenDepth >= 0.0)
+				{
+					Depth = W.GivenDepth;
+					Phase = (Here.Deck > 0.05 || Here.Column > 600000.0 || (Merging > 0.0 && N.z < -0.3)) ? 6 : 7;
+				}
 				Index = 0;
 			}
 		}
@@ -976,6 +982,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		}
 	}
 	FDSkySurfaceWalk W;
+	W.GivenDepth = -1.0;
 	W.Phase = Phase;
 	W.Index = Index;
 	W.Lo = Lo;

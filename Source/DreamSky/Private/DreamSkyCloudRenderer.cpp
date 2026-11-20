@@ -319,12 +319,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		FRDGTextureRef MarchDepth = GraphBuilder.CreateTexture(DepthDesc, TEXT("DreamSky.CloudMarchDepth"));
 		FRDGTextureRef WeatherMap = RegisterExternalTexture(GraphBuilder, Settings.Map->TextureRHI, TEXT("DreamSky.WeatherMap"));
 		FRDGTextureRef CloudNoise = RegisterExternalTexture(GraphBuilder, Settings.Noise->TextureRHI, TEXT("DreamSky.CloudNoise"));
-		// (The toon clouds find their shade by looking toward the light from their surface.)
-		const bool bSunMaps = Settings.Look == 1;
-		if (bSunMaps)
-		{
-			UpdateSunMaps(GraphBuilder, InView, ShaderMap, WeatherMap, CloudNoise, FillCommon);
-		}
+		UpdateSunMaps(GraphBuilder, InView, ShaderMap, WeatherMap, CloudNoise, FillCommon);
 
 		{
 			FDreamSkyCloudMarchCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudMarchCS::FParameters>();
@@ -335,8 +330,8 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->CloudNoise = CloudNoise;
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
-			Params->NearTau = bSunMaps ? SunMaps[0].Current : nullptr;
-			Params->FarTau = bSunMaps ? SunMaps[1].Current : nullptr;
+			Params->NearTau = SunMaps[0].Current;
+			Params->FarTau = SunMaps[1].Current;
 			Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 			Params->NearCenterExtent = SunMaps[0].CenterExtent;
 			Params->FarCenterExtent = SunMaps[1].CenterExtent;

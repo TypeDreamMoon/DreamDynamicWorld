@@ -202,6 +202,12 @@ float DSkyR_SunTau(float3 World, float Z)
 	return min(FarEdge.x, FarEdge.y) > 0.0 ? FarTau.SampleLevel(TauSampler, saturate(Far), 0) : 0.0;
 }
 
+// A point's height over the layer's base, over the planet's curve (cm), as the field measures it.
+float DSkyR_HeightAt(float3 World, FDSkyCloudField F)
+{
+	return World.z + dot(World.xy, World.xy) / (2.0 * DSky_PlanetRadius) - F.Base;
+}
+
 #if !DSKY_REALISTIC
 
 // Toon: the surface (the first crossing of the toon level, refined), then lit and painted as the dome's toon march does.
@@ -272,6 +278,12 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 	W.NForm = -V;
 	W.Behind = 1.0;
 	W.Within = 1.0;
+	// The shade a whole cloud casts on the surface, from the sun map (read 600 m toward the light, past the billow the
+	// surface is on) instead of looking toward the light from it: the map's optical depth in the walk's measure (cm of
+	// solid cloud).
+	float3 Toward = W.Surface + Ld * 60000.0;
+	float TowardZ = DSkyR_HeightAt(CameraWorld + Toward, F);
+	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / 0.0008;
 	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler);
 	float Core;
 	float4 VC = DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, P_Cloud0, P_Cloud1, P_Cloud3, P_CloudLayer, CloudNoise,
