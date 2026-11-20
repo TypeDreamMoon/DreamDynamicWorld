@@ -327,6 +327,13 @@ float DSky_MarchPace(bool bFine)
 	return bFine ? 0.45 : 0.9;
 }
 
+// The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
+// pixel some 0.0015 of the distance): mip 0 that far below its texels shimmers into moire.
+float DSky_NoiseLod(float T, float Scale)
+{
+	return max(log2(T * 0.0015 * 128.0 / Scale), 0.0);
+}
+
 // How far below the surface's level the signed shape of a ray's closest approach may be and still cover some of the
 // pixel (T cm along the ray): about a pixel's width at a cumulus's slope (0.1 of the shape per 300 m) -- the outline is
 // soft over a pixel instead of stepping where the samples happen to fall.
@@ -769,10 +776,27 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// in with distance: the veil eases in, the more slowly under a storm (its low dark base looms through the rain).
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
 	Color = lerp(Color, SkyBehind, pow(Veil, 1.6 + 1.4 * Deep));
-	// Where the ray only clips a thin sliver of a deck (the rim of a hole in it, the specks a breaking deck leaves) or of
-	// an anvil (its thinning rim) it is see-through: a hole's edge feathers into the sky instead of being cut out, the
-	// specks fade instead of sparkling, an anvil's edge thins out.
-	Cover *= lerp(1.0, lerp(0.3, 1.0, Sliver), max(Here.Deck, Anvil));
+	// Where the ray only clips a thin sliver of a deck (its thin gaps, the specks a breaking deck leaves) or of an anvil
+	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. The lip of a
+	// crack in a deck (the ray goes into a deck there, not thin, and straight out into the crack) breaks up instead, the
+	// way a painted overcast's cracks are drawn: into ragged pieces, hard-edged, the lip wider here and narrower there (a
+	// band of even see-through round a crack, its outline as smooth as the deck's cells, read as cut with a knife). The
+	// pieces drift with the clouds.
+	float SeeThrough = lerp(0.3, 1.0, Sliver);
+	float Keep = SeeThrough;
+	float Lip = smoothstep(12000.0, 18000.0, Here.Column) * Here.Deck;
+	if (Lip > 0.0 && Sliver < 0.35)
+	{
+		float3 Q = float3(Camera.xy + Surface.xy + Cloud1.xy * 220000.0 * max(Cloud0.z, 0.05), Here.Z);
+		float Big = Noise.SampleLevel(NoiseSampler, Q / 300000.0 + float3(0.17, 0.61, 0.29), DSky_NoiseLod(SurfaceT, 300000.0)).g;
+		float Mid = Noise.SampleLevel(NoiseSampler, Q / 110000.0 + float3(0.53, 0.07, 0.83), DSky_NoiseLod(SurfaceT, 110000.0)).r;
+		float Fine = Noise.SampleLevel(NoiseSampler, Q / 40000.0 + float3(0.91, 0.37, 0.13), DSky_NoiseLod(SurfaceT, 40000.0)).g;
+		float Ragged = saturate((0.45 * Big + 0.35 * Mid + 0.2 * Fine - 0.3) / 0.4);
+		// (Where the lip ends and the deck goes on, ragged as well.)
+		Lip *= 1.0 - smoothstep(0.05 + 0.2 * Ragged, 0.15 + 0.2 * Ragged, Sliver);
+		Keep = lerp(SeeThrough, smoothstep(Ragged - 0.03, Ragged + 0.03, 0.5), Lip);
+	}
+	Cover *= lerp(1.0, Keep, max(Here.Deck, Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
@@ -781,13 +805,6 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 // High cloud: thin cirrus veils on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
 // faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
 // under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
-// The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
-// pixel some 0.0015 of the distance): mip 0 that far below its texels shimmers into moire.
-float DSky_NoiseLod(float T, float Scale)
-{
-	return max(log2(T * 0.0015 * 128.0 / Scale), 0.0);
-}
-
 float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, float3 Camera, float3 SkyBehind, float4 CloudLit,
 	float3 Halo, Texture3D Noise, SamplerState NoiseSampler)
 {
