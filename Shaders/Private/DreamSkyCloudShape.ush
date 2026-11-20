@@ -385,19 +385,31 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		DeckBand = DeckW * (1.0 - smoothstep(D.w, D.w + 0.08, H));
 		// (How much lighter a stratocumulus deck's thin gaps are: less dense as well as thinner.)
 		DeckThin = S.Deck * (1.0 - Thick) * (1.0 - Cell) * (1.0 - Cell);
-		// Scud: ragged scraps some 300 to 700 m across, a couple of hundred metres under a storm's lifted base (where it
-		// hangs low there is no room for them), each a rounded lump the billows tear up. They are drawn as the deck is,
-		// dark as the deck over them (as small clouds of their own, lit in a cumulus's tones, they broke into jagged
-		// steps), and come and go by their threshold as the storm does.
+		// Scud: thin torn scraps a couple of hundred metres under a storm's lifted base (where it hangs low there is no
+		// room for them), drawn out along the rolls some three times as long as they are wide, in strings and clusters
+		// of all sizes -- a hundred metres to a kilometre or so long -- with frayed edges. Their own noise is read
+		// stretched along the rolls' direction (the same fixed one), its smooth channel leading (Worley cells cut by a
+		// threshold alone are round: they drew as discs), the field wandered off its grid by the deck's channels, the
+		// threshold varied by the wide patches (big scraps in some places, only shreds in others), and the two finer
+		// channels eating into their edges (with the finest alone the smallest scraps, seen from afar, were still smooth
+		// ovals); it changes with height, so their sides are ragged too. They are drawn as the deck is, dark as the deck
+		// over them (as small clouds of their own, lit in a cumulus's tones, they broke into jagged steps), and come and
+		// go by their threshold as the storm does.
 		float ScudW = Thick * smoothstep(0.35, 0.8, S.Dark) * smoothstep(0.04, 0.09, D.z);
-		if (ScudW > 0.0)
+		if (ScudW > 0.0 && H < D.z)
 		{
-			float Frag = 0.75 * C.b + 0.25 * C.r;
-			float HalfT = 0.025 + 0.04 * saturate((Frag - 0.58) / 0.2);
+			float2 Q = float2(dot(P, float2(0.866, 0.5)) / 3.0, dot(P, float2(-0.5, 0.866)))
+				+ (25000.0 * Scale) * float2(2.0 * C.r + C.g - 1.5, 2.0 * C.g + C.r - 1.5);
+			float4 R = Noise.SampleLevel(NoiseSampler, float3(Q / (180000.0 * Scale), 0.83 + Phase + 2.2 * H), 0);
+			float Torn = 0.45 * R.r + 0.35 * R.g + 0.2 * R.b;
+			float Cut = 0.55 - 0.24 * (Wide.g - 0.5) - 0.16 * (C.r - 0.5);
+			float Frag = (Torn - lerp(1.0, Cut, ScudW)) * 3.0;
+			Frag -= 2.6 * (1.0 - 0.5 * (R.b + R.a)) * (1.0 - smoothstep(0.0, 0.8, Frag));
+			float HalfT = 0.012 + 0.028 * saturate(Frag);
 			float Mid = max(D.z * lerp(0.45, 0.7, C.g), HalfT + 0.004);
-			// (Rounded: tallest where a scrap is strongest, thinning to its edges -- a flat slab drew as a disc.)
+			// (Tallest where a scrap is strongest, thinning to its edges -- a flat slab drew as a disc.)
 			float V = (H - Mid) / HalfT;
-			float ScudU = (Frag - lerp(1.0, 0.55, ScudW)) * 4.0 - 0.3 * V * V;
+			float ScudU = Frag - 0.3 * V * V;
 			float Scud = saturate(ScudU);
 			float Own = saturate((Scud - Base) * 4.0);
 			Base = max(Base, Scud);
