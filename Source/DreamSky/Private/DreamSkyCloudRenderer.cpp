@@ -28,13 +28,6 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDebug(
 	TEXT(" no cloud red, the others green. 0 = off."),
 	ECVF_RenderThreadSafe);
 
-static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
-	TEXT("DreamSky.CloudRender.Look"), 0,
-	TEXT("How the sky cloud renderer draws the clouds: 0 = toon (the surface, lit in the style's tones), 1 = realistic (the")
-	TEXT(" density integrated along the view, lit by scattering), 2 = painted (the density integrated, painted in the style's")
-	TEXT(" tones by the light through it)."),
-	ECVF_RenderThreadSafe);
-
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDownsample(
 	TEXT("DreamSky.CloudRender.Downsample"), 2,
 	TEXT("The sky cloud renderer marches one ray per this many pixels across and down (1..4)."),
@@ -56,6 +49,7 @@ namespace DreamSkyCloudRender
 	BEGIN_SHADER_PARAMETER_STRUCT(FCommonParameters, )
 		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
 		SHADER_PARAMETER_ARRAY(FVector4f, Parameters, [FDreamSkyCloudViewExtension::NumParameters])
+		SHADER_PARAMETER_ARRAY(FVector4f, LookParameters, [FDreamSkyCloudViewExtension::NumLookParameters])
 		SHADER_PARAMETER(FVector3f, CameraWorld)
 		SHADER_PARAMETER(float, SkyDepth)
 		SHADER_PARAMETER(int32, Downsample)
@@ -290,6 +284,19 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 	return Names;
 }
 
+void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
+{
+	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
+	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
+	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
+	Out[2] = FVector4f(L.MultiScatterOcclusion, L.MultiScatterEccentricity, L.ViewThinning, L.DeckMottle);
+	Out[3] = FVector4f(L.ShadeTint.R, L.ShadeTint.G, L.ShadeTint.B, L.SunScattering);
+	Out[4] = FVector4f(L.PaintLitTint.R, L.PaintLitTint.G, L.PaintLitTint.B, L.PaintGain);
+	Out[5] = FVector4f(L.PaintShadeTint.R, L.PaintShadeTint.G, L.PaintShadeTint.B, L.PaintExtinction * 0.01f);
+	Out[6] = FVector4f(L.EdgeSoftness, L.HalfToneAt, L.LitToneAt, L.ToneSoftness);
+	Out[7] = FVector4f(L.SilverLining, L.BillowShade, L.ShadowTracingDistance * 100000.0f, 0.0f);
+}
+
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
 	: FWorldSceneViewExtension(AutoRegister, InWorld)
 	, Subsystem(InSubsystem)
@@ -353,7 +360,10 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.Parameters[Index] = FVector4f(Value.R, Value.G, Value.B, Value.A);
 		}
 		Settings.bClouds = Settings.Noise && Settings.Map;
-		Settings.Look = FMath::Clamp(CVarDreamSkyCloudRenderLook.GetValueOnGameThread(), 0, 2);
+		Settings.Look = int32(Actor->GetEffectiveCloudLook());
+		FDreamSkyCloudLookParameters Look;
+		Actor->GetCloudLookParameters(Look);
+		PackLookParameters(Look, Settings.LookParameters);
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
@@ -411,6 +421,10 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		for (int32 Index = 0; Index < NumParameters; ++Index)
 		{
 			Common.Parameters[Index] = Settings.Parameters[Index];
+		}
+		for (int32 Index = 0; Index < NumLookParameters; ++Index)
+		{
+			Common.LookParameters[Index] = Settings.LookParameters[Index];
 		}
 		Common.CameraWorld = FVector3f(InView.ViewLocation);
 		Common.SkyDepth = Settings.SkyDepth;
@@ -512,6 +526,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Entry.SceneDepth = SceneDepth;
 			Entry.Downsample = Downsample;
 			FMemory::Memcpy(Entry.Parameters, Settings.Parameters, sizeof(Entry.Parameters));
+			FMemory::Memcpy(Entry.LookParameters, Settings.LookParameters, sizeof(Entry.LookParameters));
 		}
 	}
 
@@ -660,6 +675,10 @@ FScreenPassTexture FDreamSkyCloudViewExtension::CompositeBelow(FRDGBuilder& Grap
 	for (int32 Index = 0; Index < NumParameters; ++Index)
 	{
 		Params->Common.Parameters[Index] = Entry->Parameters[Index];
+	}
+	for (int32 Index = 0; Index < NumLookParameters; ++Index)
+	{
+		Params->Common.LookParameters[Index] = Entry->LookParameters[Index];
 	}
 	Params->Common.CameraWorld = FVector3f(InView.ViewLocation);
 	Params->Common.SkyDepth = RenderSettings.SkyDepth;

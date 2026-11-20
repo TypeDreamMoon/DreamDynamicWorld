@@ -580,6 +580,62 @@ bool FDreamSkyParametersTest::RunTest(const FString& Parameters)
 
 #endif // WITH_DEV_AUTOMATION_TESTS
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudLookParametersTest, "DreamSky.Clouds.LookParameters", DreamSky::Tests::Flags)
+bool FDreamSkyCloudLookParametersTest::RunTest(const FString& Parameters)
+{
+	// The rendered clouds' realistic and painted looks go by the volumetric cloud materials' own parameters, the level's
+	// overrides over them: a level set up for the volumetric clouds looks the same drawn by the renderer.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	const UMaterialInterface* Realistic = Sky.VolumetricCloudMaterial.LoadSynchronous();
+	const UMaterialInterface* Painted = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted"));
+	if (!TestNotNull(TEXT("the realistic material"), Realistic) || !TestNotNull(TEXT("the painted material"), Painted))
+	{
+		return false;
+	}
+	auto Scalar = [](const UMaterialInterface* Material, const TCHAR* Name)
+	{
+		float Value = -1.0f;
+		Material->GetScalarParameterValue(FHashedMaterialParameterInfo(Name), Value);
+		return Value;
+	};
+
+	Sky.CloudLook = EDreamSkyCloudLook::Realistic;
+	TestTrue(TEXT("the actor's look (the console's left alone)"), Sky.GetEffectiveCloudLook() == EDreamSkyCloudLook::Realistic);
+	FDreamSkyCloudLookParameters P;
+	Sky.GetCloudLookParameters(P);
+	TestNearlyEqual(TEXT("realistic: the material's extinction"), P.Extinction, Scalar(Realistic, TEXT("CloudExtinction")), 1e-5f);
+	TestNearlyEqual(TEXT("its glow"), P.Glow, Scalar(Realistic, TEXT("CloudGlow")), 1e-5f);
+	TestNearlyEqual(TEXT("its multiple scattering"), P.MultiScatter, Scalar(Realistic, TEXT("MultiScatter")), 1e-5f);
+	TestNearlyEqual(TEXT("painted: that material's extinction"), P.PaintExtinction, Scalar(Painted, TEXT("CloudExtinction")), 1e-5f);
+	TestNearlyEqual(TEXT("its edge softness"), P.EdgeSoftness, Scalar(Painted, TEXT("EdgeSoftness")), 1e-5f);
+	TestNearlyEqual(TEXT("its silver lining"), P.SilverLining, Scalar(Painted, TEXT("SilverLining")), 1e-5f);
+	TestNearlyEqual(TEXT("the sun's scattering as the volumetric layer has it"), P.SunScattering, Sky.VolumetricSunScattering, 1e-5f);
+	const float RealisticExtinction = P.Extinction;
+	const float PaintedExtinction = P.PaintExtinction;
+
+	Sky.CloudOverrides.bOverride_Extinction = true;
+	Sky.CloudOverrides.Extinction = 0.2f;
+	Sky.CloudOverrides.bOverride_Glow = true;
+	Sky.CloudOverrides.Glow = 1.7f;
+	Sky.CloudOverrides.bOverride_SilverLining = true;
+	Sky.CloudOverrides.SilverLining = 3.0f;
+	Sky.GetCloudLookParameters(P);
+	TestNearlyEqual(TEXT("overridden extinction: the look in use takes it"), P.Extinction, 0.2f, 1e-5f);
+	TestNearlyEqual(TEXT("the other keeps its own"), P.PaintExtinction, PaintedExtinction, 1e-5f);
+	TestNearlyEqual(TEXT("overridden glow"), P.Glow, 1.7f, 1e-5f);
+	TestNearlyEqual(TEXT("overridden silver lining"), P.SilverLining, 3.0f, 1e-5f);
+	Sky.CloudLook = EDreamSkyCloudLook::Painted;
+	Sky.GetCloudLookParameters(P);
+	TestNearlyEqual(TEXT("painted in use: it takes the extinction"), P.PaintExtinction, 0.2f, 1e-5f);
+	TestNearlyEqual(TEXT("and the realistic keeps its own"), P.Extinction, RealisticExtinction, 1e-5f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyStormExposureTest, "DreamSky.Clouds.StormStaysDarkerThanOvercast", DreamSky::Tests::Flags)
 bool FDreamSkyStormExposureTest::RunTest(const FString& Parameters)
 {

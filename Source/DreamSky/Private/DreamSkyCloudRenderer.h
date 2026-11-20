@@ -8,6 +8,7 @@
 #include "ScreenPass.h"
 
 class FTextureResource;
+struct FDreamSkyCloudLookParameters;
 class FGlobalShaderMap;
 namespace DreamSkyCloudRender { class FCommonParameters; }
 class UDreamSkySubsystem;
@@ -36,6 +37,9 @@ public:
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
 	static constexpr int32 NumParameters = 18;
+	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
+	static constexpr int32 NumLookParameters = 8;
+	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:
 	/** What the game thread decided for the frame; copied to the render thread ahead of the family's rendering. */
@@ -50,6 +54,7 @@ private:
 		int32 MaxSamples = 160;
 		float HistoryWeight = 0.9f;
 		FVector4f Parameters[NumParameters];
+		FVector4f LookParameters[NumLookParameters];
 		FTextureResource* Noise = nullptr;
 		FTextureResource* Map = nullptr;
 		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */
@@ -96,6 +101,7 @@ private:
 		FRDGTextureRef SceneDepth = nullptr;
 		int32 Downsample = 2;
 		FVector4f Parameters[NumParameters];
+		FVector4f LookParameters[NumLookParameters];
 	};
 	TMap<const FSceneView*, FBelow> Below;
 
