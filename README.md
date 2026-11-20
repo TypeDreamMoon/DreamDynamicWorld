@@ -77,7 +77,9 @@ moon light takes over; when the moon is down a stand-in opposite the sun keeps a
 default, `bNightLightAlwaysUp`).
 
 The clouds are one density field drawn either of two ways (`ADreamSky.Clouds`, or the console variable
-`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints their surface in the style's few tones;
+`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints their surface in the style's few tones (the
+dome stands 1000 km out, `DomeRadius`, beyond any terrain; the clouds below the horizon, seen from among or above
+them, are drawn over the ground by `M_DreamSkyBelow` on a small sphere round the view, only as far as the ground);
 **Volumetric**, the engine's volumetric cloud layer renders them (`VolumetricLayerThickness`,
 `VolumetricTracingDistance`, `VolumetricSampleCountScale`) with one of two materials over the same clouds —
 `M_DreamVolumetricCloud`, realistic (soft, lit by scattering), or `M_DreamVolumetricCloud_Painted`, an anime
@@ -511,11 +513,12 @@ DreamDynamicWorld/
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm, Sky/M_DreamSky.dss,
+                            Sky/M_DreamSkyBelow.dss, Sky/M_DreamVolumetricCloud(_Painted).dss,
                             Weather/M_DreamRainDrop.dss, Weather/M_DreamRainSplash.dss
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs,
                             Modules/DreamFallPath.dfm, Effects/NS_DreamRain.dfs
   Content/MPC_DreamDynamicWorld  the shared parameter collection
-  Content/Sky/                   M_DreamSky, M_DreamVolumetricCloud(_Painted), DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
+  Content/Sky/                   M_DreamSky, M_DreamSkyBelow, M_DreamVolumetricCloud(_Painted), DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
   Content/Wind/                  generated assets (RT, materials, Niagara) — regenerable
   Content/Wind/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
   Content/Wind/Maps/             Lvl_DreamWindTest + its baked wind terrain
