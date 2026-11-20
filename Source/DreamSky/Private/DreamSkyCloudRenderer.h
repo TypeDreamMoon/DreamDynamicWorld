@@ -52,6 +52,8 @@ private:
 		FTextureResource* Map = nullptr;
 		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */
 		FTextureResource* Shadow = nullptr;
+		/** The panorama the dome shows in the sky light capture (RT_DreamCloudPanorama); null: none. */
+		FTextureResource* Panorama = nullptr;
 		FVector4f ShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 	};
 

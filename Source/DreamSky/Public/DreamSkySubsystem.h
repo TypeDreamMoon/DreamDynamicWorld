@@ -9,6 +9,7 @@
 
 class ADreamSky;
 class UTexture;
+class UTextureRenderTarget2D;
 class UDreamSkyStyle;
 class UDreamWorldSubsystem;
 class FDreamSkyCloudViewExtension;
@@ -65,8 +66,8 @@ private:
 	friend class FDreamSkyCloudViewExtension;
 
 	void Update(UDreamWorldSubsystem& Clock, float DeltaTime);
-	/** bCloudsElsewhere: something other than the dome draws the clouds (the dome leaves its own out). */
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bCloudsElsewhere);
+	/** Clouds: what draws the clouds (anything but toon: the dome leaves its own out). */
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, EDreamSkyClouds Clouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 
@@ -83,6 +84,9 @@ private:
 	TObjectPtr<UTexture> CloudNoise;
 	UPROPERTY(Transient)
 	TObjectPtr<UTexture> WeatherMap;
+	/** The panorama of the clouds the renderer draws for the dome's sky light capture (RT_DreamCloudPanorama). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> CloudPanorama;
 
 	int32 RecaptureTask = 0;
 	FLinearColor CapturedZenith = FLinearColor::Transparent;

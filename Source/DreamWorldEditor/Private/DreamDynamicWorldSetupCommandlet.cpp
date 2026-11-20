@@ -92,6 +92,40 @@ namespace DreamWorld::Setup
 		return Save(Package, Style, FPackageName::GetAssetPackageExtension()) ? Style : nullptr;
 	}
 
+	/**
+	 * The sky cloud renderer's panorama of the clouds round the view, which the dome shows in the sky light capture
+	 * (RGBA16F, UAV, 256 x 128, longitude by latitude).
+	 */
+	static bool EnsureCloudPanorama()
+	{
+		const FString PackageName = TEXT("/DreamDynamicWorld/Sky/RT_DreamCloudPanorama");
+		UTextureRenderTarget2D* RT = LoadObject<UTextureRenderTarget2D>(nullptr, *(PackageName + TEXT(".RT_DreamCloudPanorama")), nullptr, LOAD_NoWarn | LOAD_Quiet);
+		const bool bCreated = RT == nullptr;
+		if (!RT)
+		{
+			UPackage* Package = CreatePackage(*PackageName);
+			Package->FullyLoad();
+			RT = NewObject<UTextureRenderTarget2D>(Package, TEXT("RT_DreamCloudPanorama"), RF_Public | RF_Standalone);
+		}
+		if (bCreated || RT->SizeX != 256 || RT->SizeY != 128 || !RT->bSupportsUAV || RT->GetFormat() != PF_FloatRGBA)
+		{
+			RT->PreEditChange(nullptr);
+			RT->ClearColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			RT->AddressX = TA_Wrap;
+			RT->AddressY = TA_Clamp;
+			RT->bSupportsUAV = true;
+			RT->InitCustomFormat(256, 128, PF_FloatRGBA, true);
+			RT->PostEditChange();
+			if (bCreated)
+			{
+				FAssetRegistryModule::AssetCreated(RT);
+			}
+			return Save(RT->GetOutermost(), RT, FPackageName::GetAssetPackageExtension());
+		}
+		UE_LOG(LogDreamWorld, Display, TEXT("Cloud panorama %s: up to date"), *RT->GetPathName());
+		return true;
+	}
+
 	/** The weather map render target the weather draws and the sky reads (RGBA16F, UAV). */
 	static bool EnsureWeatherMap()
 	{
@@ -379,6 +413,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	UDreamSkyStyle* Style = EnsureDefaultStyle(FParse::Param(*Params, TEXT("ForceStyle")));
 	bOk &= Style != nullptr;
 	bOk &= EnsureWeatherMap();
+	bOk &= EnsureCloudPanorama();
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
