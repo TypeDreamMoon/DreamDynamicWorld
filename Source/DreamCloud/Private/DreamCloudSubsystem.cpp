@@ -15,12 +15,18 @@ namespace DreamCloud
 	static TAutoConsoleVariable<int32> CVarUseLightMap(
 		TEXT("DreamCloud.UseLightMap"),
 		1,
-		TEXT("1: cloud volumes read their light map (drawn by a compute shader); 0: they march a few taps toward the light from every sample instead (to compare)."),
+		TEXT("1: cloud volumes read their light map (drawn by a compute shader); 0: they march a few taps toward the light from every sample instead (to compare); 2, 3, 4: debug views (the march's segment; the toon surface's hit in the box; the toon march's steps used, whether it reached the segment's end, whether it hit)."),
 		ECVF_Default);
 
 	bool UseLightMap()
 	{
-		return CVarUseLightMap.GetValueOnGameThread() != 0;
+		return CVarUseLightMap.GetValueOnGameThread() == 1;
+	}
+
+	int32 DebugView()
+	{
+		const int32 Value = CVarUseLightMap.GetValueOnGameThread();
+		return Value >= 2 ? Value : 0;
 	}
 
 	static TAutoConsoleVariable<int32> CVarQuality(

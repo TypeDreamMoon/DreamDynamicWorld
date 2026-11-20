@@ -264,6 +264,7 @@ private:
 	float CoverageStepScale = 1.0f;
 	float LastQualityStep = -1.0f;
 	bool bUsedLightMap = true;
+	int32 UsedDebugView = 0;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTargetVolume> HoleTexture;

@@ -106,6 +106,13 @@ float4 DCV_Shade(FDCloudVolume V, FDCloudVolumeLook Look, float3 Cam, float3 Dir
 	Texture3D Field, SamplerState FieldSampler, Texture3D Noise, SamplerState NoiseSampler,
 	Texture3D Holes, SamplerState HolesSampler, Texture3D LightMap, SamplerState LightMapSampler)
 {
+	// Debug views (DreamCloud.UseLightMap 2, 3, 4): the march's segment; the toon surface's hit in the box; the toon
+	// march's steps used (r), whether it reached the segment's end (g), whether it hit (b).
+	int DebugView = LightMapValid > 1.5 ? int(LightMapValid + 0.5) : 0;
+	if (DebugView == 2)
+	{
+		return float4(saturate(T0 / length(V.Box)), saturate(T1 / length(V.Box)), 0.0, 1.0);
+	}
 	float Fine = 0.5 * V.Texel * max(StepScale, 0.1);
 	FDCloudMarchParams P = DCM_DefaultParams(Fine);
 	P.SkipScale = 0.8;                                  // the field's far part is a chamfer estimate, up to some 15 % long
@@ -178,12 +185,22 @@ float4 DCV_Shade(FDCloudVolume V, FDCloudVolumeLook Look, float3 Cam, float3 Dir
 		TStart = min(T, T1);
 	}
 	FDCloudSurface S = DCM_SurfaceBegin(TStart, T1, 6);
+	int Used = 0;
 	for (int j = 0; j < 192 && DCM_SurfaceRunning(S); ++j)
 	{
 		float3 X = Cam + Dir * S.M.T;
 		DCM_SurfaceAdvance(S, DCV_Field(V, X, S.M.T, Fine, Field, FieldSampler, Noise, NoiseSampler, Holes, HolesSampler, Billow), P);
+		Used = j + 1;
+	}
+	if (DebugView == 4)
+	{
+		return float4(float(Used) / 192.0, S.M.T >= T1 ? 1.0 : 0.0, S.bHit ? 1.0 : 0.0, 1.0);
 	}
 	float3 Hit = Cam + Dir * S.HitT;
+	if (DebugView == 3)
+	{
+		return float4(S.bHit ? saturate(Hit / V.Box + 0.5) : float3(0.0, 0.0, 0.0), 1.0);
+	}
 	// The normal at the lobes' scale: the smooth field with only the coarse noise (and the carving), around the hit.
 	float H = max(Look.Lobe, V.Texel);
 	float4 Taps;

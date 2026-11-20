@@ -212,7 +212,7 @@ void UDreamCloudVolumeComponent::UpdateCloudMaterial()
 	CloudMaterial->SetScalarParameterValue(DreamCloud::Params::NoiseErosion, NoiseErosion);
 	CloudMaterial->SetVectorParameterValue(DreamCloud::Params::NoiseDrift, FLinearColor(float(NoiseDrift.X), float(NoiseDrift.Y), float(NoiseDrift.Z), 0.0f));
 	CloudMaterial->SetScalarParameterValue(DreamCloud::Params::StepScale, StepScale * DreamCloud::GetQuality().StepScale * CoverageStepScale);
-	CloudMaterial->SetScalarParameterValue(DreamCloud::Params::LightMapValid, LightMap && bLightMapDrawn && DreamCloud::UseLightMap() ? 1.0f : 0.0f);
+	CloudMaterial->SetScalarParameterValue(DreamCloud::Params::LightMapValid, DreamCloud::DebugView() > 0 ? float(DreamCloud::DebugView()) : LightMap && bLightMapDrawn && DreamCloud::UseLightMap() ? 1.0f : 0.0f);
 	if (LightMap)
 	{
 		CloudMaterial->SetTextureParameterValue(DreamCloud::Params::LightMap, LightMap);
@@ -514,11 +514,12 @@ void UDreamCloudVolumeComponent::TickCloud(float DeltaTime, const FVector& Light
 		Coverage = Distance <= Radius ? 1.0f : FMath::Clamp(float(FMath::Asin(Radius / Distance) / (0.25 * UE_PI)), 0.0f, 1.0f);
 	}
 	const float WantedCoverage = FMath::Lerp(1.0f, 1.75f, FMath::SmoothStep(0.35f, 1.0f, Coverage));
-	if (FMath::Abs(WantedCoverage - CoverageStepScale) > 0.05f || Quality.StepScale != LastQualityStep || DreamCloud::UseLightMap() != bUsedLightMap)
+	if (FMath::Abs(WantedCoverage - CoverageStepScale) > 0.05f || Quality.StepScale != LastQualityStep || DreamCloud::UseLightMap() != bUsedLightMap || DreamCloud::DebugView() != UsedDebugView)
 	{
 		CoverageStepScale = WantedCoverage;
 		LastQualityStep = Quality.StepScale;
 		bUsedLightMap = DreamCloud::UseLightMap();
+		UsedDebugView = DreamCloud::DebugView();
 		UpdateCloudMaterial();
 	}
 }

@@ -27,6 +27,9 @@ namespace DreamCloud
 
 	/** DreamCloud.UseLightMap: whether volumes read their light map (1) or march toward the light (0). */
 	DREAMCLOUD_API bool UseLightMap();
+
+	/** DreamCloud.UseLightMap 2, 3 or 4: a debug view (see the variable's help), else 0. */
+	DREAMCLOUD_API int32 DebugView();
 }
 
 /**
