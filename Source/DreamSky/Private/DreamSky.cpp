@@ -359,6 +359,8 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			{
 				CloudMaterialInstance->ClearParameterValues();
 				CloudOverrides.ApplyTo(*CloudMaterialInstance);
+				// (The clouds' shadows fade out short of the shadow map's edge: the map reaches the traced distance.)
+				CloudMaterialInstance->SetScalarParameterValue(TEXT("ShadowReach"), FMath::Max(VolumetricTracingDistance, 10.0f) * 100000.0f);
 				bCloudMaterialDirty = false;
 			}
 			Wanted = CloudMaterialInstance;
@@ -372,11 +374,16 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 			VolumetricClouds->SetMaterial(Wanted);
 		}
 		// How much sun the clouds' shadows take off the ground: all of it under realistic clouds; under the painted ones
-		// (the material with a PaintGain) a little over half, so the shadows lie light and keep some of the sun's warmth,
-		// as in a painted background, instead of the sky light's dark blue alone.
+		// (the material with a PaintGain), between broken clouds, a little over half, so the shadows lie light and keep
+		// some of the sun's warmth, as in a painted background, instead of the sky light's dark blue alone. Under a
+		// closing cover it goes back to all of it: an overcast or a storm lets no sun through to cast shadows. (Stepped,
+		// so the sun is not re-made every frame while the weather turns.)
 		float PaintGain = 0.0f;
 		const bool bPainted = Wanted && Wanted->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), PaintGain);
-		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? 0.55f : 1.0f), 0.0f, 1.0f);
+		const UDreamWorldSubsystem* Weather = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const float Cover = Weather && Weather->GetEnvironment().bActive ? Weather->GetEnvironment().CloudCoverage : 0.0f;
+		const float PaintedShadow = FMath::RoundToFloat(FMath::Lerp(0.55f, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
+		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? PaintedShadow : 1.0f), 0.0f, 1.0f);
 		if (SunLight && !FMath::IsNearlyEqual(SunLight->CloudShadowOnSurfaceStrength, GroundShadow, 1.0e-3f))
 		{
 			SunLight->CloudShadowOnSurfaceStrength = GroundShadow;
@@ -470,46 +477,37 @@ void ADreamSky::UpdateCloudTracing(bool bPainted)
 	const UWorld* World = GetWorld();
 	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
 	const float Flash = WorldClock ? WorldClock->GetEnvironment().LightningFlash : 0.0f;
-	const float Lightning = WorldClock ? WorldClock->GetEnvironment().Lightning : 0.0f;
-	if (Flash - LastCloudFlash > 0.1f)
-	{
-		CloudFlashJumpFrame = GFrameCounter;
-	}
 	if (Flash > 0.02f)
 	{
 		CloudFlashLitFrame = GFrameCounter;
 	}
-	LastCloudFlash = Flash;
-	// (Between two thresholds, so a weather hovering at one does not switch the tracing back and forth.)
-	bCloudStorm = bCloudStorm ? Lightning > 0.05f : Lightning > 0.1f;
-	const bool bFlashing = CloudFlashLitFrame != 0 && GFrameCounter - CloudFlashLitFrame <= 8;
 
-	// The engine's default traces a quarter of the pixels each frame and rebuilds the rest from the frames before. Over
-	// the realistic clouds that keeps a standing grain (where each ray first lands in a dense cloud, never averaged),
-	// and a lightning flash, which relights the whole field from one frame to the next, is rebuilt over several frames
-	// in a checkerboard and then stripes: half resolution traced whole every frame has neither. In a storm, where it
-	// costs the most and the rain hides the grain, only while a flash lasts and a few frames after. (Each setting is
-	// left alone where a project or the console has set it.)
+	// (Each setting is left alone where a project or the console has set it.)
 	auto SetByUs = [](IConsoleVariable* Variable)
 	{
 		const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Variable->GetFlags() & ECVF_SetByMask);
 		return SetBy <= ECVF_SetByScalability || SetBy == ECVF_SetByCode;
 	};
+	// Half resolution traced whole every frame, if asked, for the realistic clouds. (Never switched while running: the
+	// renderer rebuilds its targets on a switch, a hitch of tens of milliseconds.)
 	static IConsoleVariable* RenderTargetMode = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.Mode"));
 	if (RenderTargetMode && SetByUs(RenderTargetMode))
 	{
-		const int32 WantedMode = bVolumetricHalfResTracing && !bPainted && (!bCloudStorm || bFlashing) ? 1 : 0;
+		const int32 WantedMode = bVolumetricHalfResTracing && !bPainted ? 1 : 0;
 		if (RenderTargetMode->GetInt() != WantedMode)
 		{
 			RenderTargetMode->Set(WantedMode, ECVF_SetByCode);
 		}
 	}
-	// Traced the default way, the frames a stroke flares up, and two after, are drawn from that frame's trace alone (no
-	// checkerboard; a little noisier for those frames, at no extra cost). The rest of the flash keeps the history.
+	// A lightning flash relights the whole field from one frame to the next, while the default tracing rebuilds three
+	// quarters of the pixels from the frames before: a flash came out as a checkerboard, and the frames after it, as
+	// the history caught up with the fading light, as stripes. While a flash lasts, and a few frames after it is out,
+	// the clouds are drawn from each frame's own trace alone (a little softer and noisier for that half second, at no
+	// cost); once the light holds still the history takes over again.
 	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
 	if (Reprojection && SetByUs(Reprojection))
 	{
-		const bool bHold = CloudFlashJumpFrame != 0 && GFrameCounter - CloudFlashJumpFrame <= 2;
+		const bool bHold = CloudFlashLitFrame != 0 && GFrameCounter - CloudFlashLitFrame <= 4;
 		if (bHold != bHoldingCloudHistory)
 		{
 			bHoldingCloudHistory = bHold;
@@ -619,6 +617,7 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance))
 	{
 		ApplyDome();
+		bCloudMaterialDirty = true;
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Style) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudOverrides)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, LightOverrides) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, AmbientOverrides)

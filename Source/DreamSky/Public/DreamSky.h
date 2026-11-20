@@ -87,16 +87,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "1", UIMax = "15"))
 	float VolumetricLayerThickness = 10.0f;
 
-	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it). */
+	/** How far the volumetric clouds are traced, km. The dome is pushed out beyond it (it would hide clouds behind it),
+	 *  and the clouds' shadow map reaches as far (the plugin's cloud materials fade their shadows out short of it:
+	 *  their ShadowReach parameter, set from this when the material overrides make an instance of them). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "5", UIMax = "200"))
 	float VolumetricTracingDistance = 60.0f;
 
 	/**
 	 * Samples along each view ray of the volumetric clouds, relative to the engine's default: more keeps small
-	 * far clouds from being sliced into layers near the horizon, at a cost.
+	 * far clouds from being sliced into layers near the horizon and the grain over dense clouds finer (2.75 against 2:
+	 * about a fifth less, some 0.3 to 0.4 ms more at 1080p), at a cost.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.25", UIMax = "8"))
-	float VolumetricSampleCountScale = 2.0f;
+	float VolumetricSampleCountScale = 2.75f;
 
 	/**
 	 * How much of the sky light the volumetric clouds' bases are shut off from (the cloud above hides the sky):
@@ -140,14 +143,13 @@ public:
 
 	/**
 	 * Trace the realistic volumetric clouds at half resolution every frame (r.VolumetricRenderTarget.Mode 1) instead of
-	 * the engine's default, a quarter of the pixels each frame rebuilt from the frames before, which keeps a standing
-	 * grain over dense clouds and comes out in stripes for some frames after a lightning flash. It costs the clouds
-	 * 0.2 to 0.9 ms more at 1080p, about 2 ms in a storm: in a storm they go back to the default (the rain hides the
-	 * grain) except through each lightning flash. The painted clouds need none of it and keep the default. Off: always
-	 * the default. A project or console setting of the variable is left alone.
+	 * the engine's default, a quarter of the pixels each frame rebuilt from the frames before. Finer, but the clouds
+	 * cost 0.2 to 0.9 ms more at 1080p (about 2 ms in a storm), and with nothing averaged between frames what grain is
+	 * left shimmers from frame to frame instead of standing still. The painted clouds always keep the default. A
+	 * project or console setting of the variable is left alone.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
-	bool bVolumetricHalfResTracing = true;
+	bool bVolumetricHalfResTracing = false;
 
 	/** This level's cloud settings over the style's (tick one to use it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (ShowOnlyInnerProperties))
@@ -266,13 +268,9 @@ private:
 	/** Picks how the volumetric clouds are traced (half or quarter resolution; through a lightning flash, without the
 	 *  frame history) for the material in use and the weather. */
 	void UpdateCloudTracing(bool bPainted);
-	/** The lightning flash at the last ApplyClouds, the frame its level last jumped, the last frame it was lit, whether
-	 *  the history is held for it, whether the weather counts as a storm. */
-	float LastCloudFlash = 0.0f;
-	uint64 CloudFlashJumpFrame = 0;
+	/** The last frame a lightning flash was lit, whether the clouds' history is held for it. */
 	uint64 CloudFlashLitFrame = 0;
 	bool bHoldingCloudHistory = false;
-	bool bCloudStorm = false;
 
 #if WITH_EDITOR
 	/** The style asset was edited: the overridden copy is rebuilt. */
