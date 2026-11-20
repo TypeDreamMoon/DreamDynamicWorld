@@ -371,6 +371,17 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetMaterial(Wanted);
 		}
+		// How much sun the clouds' shadows take off the ground: all of it under realistic clouds; under the painted ones
+		// (the material with a PaintGain) a little over half, so the shadows lie light and keep some of the sun's warmth,
+		// as in a painted background, instead of the sky light's dark blue alone.
+		float PaintGain = 0.0f;
+		const bool bPainted = Wanted && Wanted->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), PaintGain);
+		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? 0.55f : 1.0f), 0.0f, 1.0f);
+		if (SunLight && !FMath::IsNearlyEqual(SunLight->CloudShadowOnSurfaceStrength, GroundShadow, 1.0e-3f))
+		{
+			SunLight->CloudShadowOnSurfaceStrength = GroundShadow;
+			SunLight->MarkRenderStateDirty();
+		}
 		const float BottomKm = FMath::Max(0.0f, InStyle.CloudLayerHeight / 100000.0f);
 		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerBottomAltitude, BottomKm, 1.0e-3f))
 		{

@@ -146,6 +146,14 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_SilverLining", ClampMin = "0", UIMax = "4"))
 	float SilverLining = 1.5f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	bool bOverride_GroundShadow = false;
+	/** Either material: how much of the sun the clouds' shadows take off the ground (unticked: all of it under the
+	 *  realistic clouds, 0.55 under the painted ones -- a painted background's cloud shadows are light and stay warm).
+	 *  Not a material parameter: it goes to the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_GroundShadow", ClampMin = "0", ClampMax = "1"))
+	float GroundShadow = 1.0f;
+
 	/** Writes the ticked style settings into Style. */
 	void ApplyTo(UDreamSkyStyle& Style) const;
 	/** Whether any style setting is ticked. */
