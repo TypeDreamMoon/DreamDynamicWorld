@@ -7,12 +7,14 @@
 #include "DreamCloudVolume.h"
 #include "DreamCloudVolumeComponent.h"
 
+#include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/AutomationTest.h"
+#include "UObject/Package.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -320,9 +322,12 @@ bool FDreamCloudBakeCarvedAndMergedTest::RunTest(const FString& Parameters)
 	{
 		Positions.Add(Positions[i] + FVector3f(60.0f, 0.0f, 0.0f));
 	}
-	for (int32 i = 0; i < NumIndices; ++i)
+	// The second cube wound the other way round, as a part of a merged mesh may be.
+	for (int32 i = 0; i < NumIndices; i += 3)
 	{
 		Indices.Add(Indices[i] + NumPositions);
+		Indices.Add(Indices[i + 2] + NumPositions);
+		Indices.Add(Indices[i + 1] + NumPositions);
 	}
 	FDreamCloudField Merged;
 	Settings.Resolution = 80;
@@ -331,6 +336,20 @@ bool FDreamCloudBakeCarvedAndMergedTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("only the first cube"), Merged.Sample(FVector(-30.0, 0.0, 0.0)) < -10.0f);
 	TestTrue(TEXT("only the second cube"), Merged.Sample(FVector(90.0, 0.0, 0.0)) < -10.0f);
 	TestTrue(TEXT("beyond both"), Merged.Sample(FVector(30.0, 0.0, 70.0)) > 10.0f);
+
+	// The merged sculpt of the test level: every part solid, their overlaps too.
+	if (const UStaticMesh* Sculpt = LoadObject<UStaticMesh>(nullptr, TEXT("/DreamDynamicWorld/Cloud/SM_DreamCloudSculpt.SM_DreamCloudSculpt")))
+	{
+		FDreamCloudField Field2;
+		Settings.Resolution = 96;
+		TestTrue(TEXT("sculpt read"), DreamCloudBake::GatherMesh(Sculpt, Positions, Indices));
+		TestTrue(TEXT("sculpt baked"), DreamCloudBake::FromTriangles(Positions, Indices, Settings, Field2));
+		const FVector Inside[] = { FVector(0.0, 0.0, 0.0), FVector(55.0, 10.0, 55.0), FVector(-70.0, -10.0, 60.0), FVector(-70.0, -10.0, 140.0), FVector(-70.0, -10.0, 10.0) };
+		for (const FVector& P : Inside)
+		{
+			TestTrue(*FString::Printf(TEXT("the sculpt is solid at %s"), *P.ToString()), Field2.Sample(P) < -5.0f);
+		}
+	}
 	return true;
 }
 
@@ -495,6 +514,41 @@ bool FDreamCloudLightFollowsTest::RunTest(const FString& Parameters)
 		Cloud->GetCloudMaterial()->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("StepScale")), Step);
 		TestNearlyEqual(TEXT("back"), Step, DreamCloud::GetQuality().StepScale * Cloud->StepScale, 1.0e-4f);
 	}
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamCloudTestLevelTest, "DreamCloud.Assets.TestLevel", DreamCloud::Tests::Flags)
+bool FDreamCloudTestLevelTest::RunTest(const FString& Parameters)
+{
+	UPackage* Package = LoadPackage(nullptr, TEXT("/DreamDynamicWorld/Cloud/Maps/Lvl_DreamCloudVolumeTest"), LOAD_None);
+	UWorld* World = Package ? UWorld::FindWorldInPackage(Package) : nullptr;
+	if (!TestNotNull(TEXT("the cloud volume test level loads"), World))
+	{
+		return false;
+	}
+	TSet<EDreamCloudLook> Looks;
+	int32 Volumes = 0;
+	int32 Meshes = 0;
+	int32 Tunnels = 0;
+	for (AActor* Actor : World->PersistentLevel->Actors)
+	{
+		const ADreamCloudVolume* Volume = Cast<ADreamCloudVolume>(Actor);
+		if (!Volume)
+		{
+			continue;
+		}
+		const UDreamCloudVolumeComponent* Cloud = Volume->GetCloud();
+		++Volumes;
+		Looks.Add(Cloud->Look);
+		Meshes += Cloud->ShapeSource == EDreamCloudShapeSource::Mesh && Cloud->ShapeMesh ? 1 : 0;
+		Tunnels += Cloud->Primitives.ContainsByPredicate([](const FDreamCloudPrimitiveShape& S) { return S.bSubtract; }) ? 1 : 0;
+		TestTrue(*FString::Printf(TEXT("%s is baked and saved with its field"), *Volume->GetName()), Cloud->Field.IsValid());
+	}
+	TestTrue(TEXT("nine cloud volumes"), Volumes >= 9);
+	TestEqual(TEXT("all three looks"), Looks.Num(), 3);
+	TestEqual(TEXT("three meshes"), Meshes, 3);
+	TestEqual(TEXT("a tunnel"), Tunnels, 1);
 	return true;
 }
 
