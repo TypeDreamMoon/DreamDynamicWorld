@@ -59,9 +59,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dome")
 	TSoftObjectPtr<UMaterialInterface> SkyMaterial;
 
-	/** Radius of the dome around the camera, cm. Everything that should be seen must be nearer than this. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dome", meta = (ClampMin = "10000", UIMax = "5000000"))
-	float DomeRadius = 500000.0f;
+	/**
+	 * Radius of the dome around the camera, cm. Everything that should be seen must be nearer than this: the dome is
+	 * drawn into the depth buffer like any mesh and hides what stands behind it. The sky it shows depends only on the
+	 * view direction, so it can stand as far off as the terrain reaches and further (by default 1000 km).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dome", meta = (ClampMin = "10000", UIMax = "200000000"))
+	float DomeRadius = 100000000.0f;
 
 	/** The sky light recaptures the dome continuously (time-sliced by the engine). Off = recaptured when the sky changed enough. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
@@ -169,6 +173,14 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SkyDome;
+
+	/**
+	 * The toon clouds under the horizon: a small translucent sphere round the view that draws them over the scene, each
+	 * only as far as the scene reaches (the dome stands behind everything, so clouds it drew there were hidden by the
+	 * ground they hang over). Shown with the toon clouds.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> CloudsBelow;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UDirectionalLightComponent> SunLight;

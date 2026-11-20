@@ -346,10 +346,13 @@ float DSky_EdgeWidth(float T)
 // then lit once, the way painted cumulus are: by its own normal (each billow on its own), shaded where a whole cloud
 // stands between it and the light, then the style's few tones. Returns the clouds' colour (over their own
 // transparency) and their cover; Core = how deep the cloud is (for the lightning). SkyBehind = the sky's colour along V:
-// the air between the view and a cloud veils it in that colour.
+// the air between the view and a cloud veils it in that colour. SceneReach: cm along V to whatever stands in front of the
+// clouds there (the clouds behind it are not drawn; the march itself does not change with it, or its samples would move
+// with the scene's depth from pixel to pixel and frame to frame).
 float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLayer,
 	float4 MapParams, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float3 Tone,
-	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float3 Sun, float4 LightColor, out float Core)
+	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float3 Sun, float4 LightColor, float SceneReach,
+	out float Core)
 {
 	Core = 0.0;
 	if (Cloud0.x <= 0.0)
@@ -367,7 +370,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 
 	const float MaxDist = 9000000.0;
 	const float DetailEnd = 6000000.0;
-	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 21 more), and
+	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 27 more), and
 	// how long its schedule is: half as long, so that where cloud may be it can take its fine steps all the way.
 	const int Steps = 80;
 	const float Schedule = 36.0;
@@ -407,6 +410,8 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	//              of the cloud the ray goes through there
 	//   7 done
 	const float3 Ld = normalize(LightDir + float3(0.0, 0.0, 0.08));
+	// A cover closing into a deck: its cumulus spread and merge, one flat base seen from below.
+	const float Merging = smoothstep(0.55, 0.85, Cloud0.x);
 	int Phase = 0;
 	int Index = 0;
 	float Next = T0;
@@ -439,6 +444,8 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Depth = 0.0;
 	float Travelled = 0.0;
 	float Sliver = 0.0;
+	float Behind = 1.0;   // the signed shape at the first of those samples: how far the cloud goes on behind its surface
+	float Within = 1.0;   // and at the second, further in
 	[loop]
 	for (int It = 0; It < Steps + Skims && Phase == 0; ++It)
 	{
@@ -516,8 +523,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			}
 		}
 	}
+	// (As many as the longest way through takes -- refined, the closest approach searched, refined again, the normal, the
+	// shadow and the two samples behind the surface: 27. With fewer, the rays that needed the most steps to find their
+	// surface lost the last samples, in bands across the sky that followed how many each took.)
 	[loop]
-	for (int It2 = 0; It2 < 24 && Phase < 7; ++It2)
+	for (int It2 = 0; It2 < 28 && Phase < 7; ++It2)
 	{
 		// Where to look.
 		float3 P;
@@ -545,6 +555,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		else
 		{
 			P = Surface + V * (max(30000.0, SurfaceT * 0.01) * float(1 + 2 * Index));
+			// (Under merging cumulus, straight up from the surface to 250 and 500 m over the layer's base: how solid the
+			// cloud is there goes by where it stands, not by the few metres the surface's refining is off by -- along
+			// the ray, where it also goes by the height, those came out as fine diagonal stripes.)
+			if (Here.Deck <= 0.05 && Here.Column <= 600000.0)
+			{
+				P = float3(Surface.xy, Surface.z + 25000.0 * float(1 + Index) - Here.Z);
+			}
 		}
 
 		FDSkyCloudSample S = DSky_CloudAt(P, F, true, Anchor, MapParams, Map, MapSampler, Noise, NoiseSampler, 0.0);
@@ -660,13 +677,17 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			Travelled = Along;
 			if (++Index >= 4)
 			{
-				Phase = (Here.Deck > 0.05 || Here.Column > 600000.0) ? 6 : 7;
+				// (And under the merging cumulus of a closing cover: how solid the cloud is just over its flat base tells
+				// its thick parts from its thin ones, below.)
+				Phase = (Here.Deck > 0.05 || Here.Column > 600000.0 || (Merging > 0.0 && N.z < -0.3)) ? 6 : 7;
 				Index = 0;
 			}
 		}
 		else
 		{
 			Sliver += 0.5 * smoothstep(F.Iso - 0.08, F.Iso + 0.08, S.Signed);
+			Behind = Index == 0 ? S.Signed : Behind;
+			Within = Index == 1 ? S.Signed : Within;
 			if (++Index >= 2)
 			{
 				Phase = 7;
@@ -753,11 +774,17 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// anvil's underside feathers out instead of ending in a hard arc across the sky.
 	float Anvil = smoothstep(500000.0, 900000.0, Here.Column) * smoothstep(0.55, 0.75, Here.Height) * smoothstep(-0.2, -0.5, NForm.z);
 	float Flank = smoothstep(0.05, 0.4, 1.0 + NForm.z);
+	// The merging cumulus of a closing cover are one flat base from below, as thick as their type everywhere: there the
+	// thin is where the cloud is weak over the base (how solid it is some way in), lighter in patches -- the
+	// stratocumulus' thick and thin cells -- not one flat grey. (Laid on the tone after the steps below: put into their
+	// input, it lifted the underside onto a step's slope, where any slight unevenness is sharpened.)
+	float Weak = Merging * (1.0 - Here.Deck) * (1.0 - smoothstep(F.Iso, 0.6, Within));
 	// (A storm's underside is heavy: its lightest is well short of the half tone.)
 	float Glow = saturate((0.45 * Gap + 0.45 * Flank + 0.3 * saturate((dot(NForm, Ld) + 0.45) / 0.6) * SunLit) * lerp(1.0, 0.65, Deep)
 		+ 0.5 * (1.0 - Sliver) * Anvil);
 	float3 Underside = lerp(Shadow * float3(0.62, 0.64, 0.7), Shadow, smoothstep(0.05, 0.35, Glow));
 	Underside = lerp(Underside, Half, smoothstep(0.45, 0.8, Glow));
+	Underside = lerp(Underside, max(Underside, Shadow), Weak);
 	Color = lerp(Color, Underside, smoothstep(-0.25, -0.65, NForm.z) * (1.0 - smoothstep(0.35, 0.6, Light)));
 	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. Its upper side, seen from above, is
 	// a sea of cloud in the sun, from the half tone to the lit white -- only from above: from below, the walls of a hole
@@ -777,27 +804,38 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
 	Color = lerp(Color, SkyBehind, pow(Veil, 1.6 + 1.4 * Deep));
 	// Where the ray only clips a thin sliver of a deck (its thin gaps, the specks a breaking deck leaves) or of an anvil
-	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. The lip of a
-	// crack in a deck (the ray goes into a deck there, not thin, and straight out into the crack) breaks up instead, the
-	// way a painted overcast's cracks are drawn: into ragged pieces, hard-edged, the lip wider here and narrower there (a
-	// band of even see-through round a crack, its outline as smooth as the deck's cells, read as cut with a knife). The
+	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. Round a crack
+	// in a deck (the ray goes into a deck there, not thin, and straight out into the crack) the deck tears instead, the
+	// way a painted overcast's cracks are drawn: holes open in it, hard-edged and ragged, the more and the larger the
+	// further it has thinned toward the crack (how far the deck goes on behind its surface), until it is open; between
+	// them pieces of the deck, as see-through as the deck round them. (Drawn whole up to the edge of where it thins, a
+	// crack's outline was a contour of the deck's smooth rifts: a long straight edge cut into the soft deck. The edge is
+	// torn too: the thinning is read through a noise of its own, so the first holes do not all open along one line.) The
 	// pieces drift with the clouds.
 	float SeeThrough = lerp(0.3, 1.0, Sliver);
 	float Keep = SeeThrough;
 	float Lip = smoothstep(12000.0, 18000.0, Here.Column) * Here.Deck;
-	if (Lip > 0.0 && Sliver < 0.35)
+	if (Lip > 0.0 && Sliver < 0.5)
 	{
 		float3 Q = float3(Camera.xy + Surface.xy + Cloud1.xy * 220000.0 * max(Cloud0.z, 0.05), Here.Z);
 		float Big = Noise.SampleLevel(NoiseSampler, Q / 300000.0 + float3(0.17, 0.61, 0.29), DSky_NoiseLod(SurfaceT, 300000.0)).g;
 		float Mid = Noise.SampleLevel(NoiseSampler, Q / 110000.0 + float3(0.53, 0.07, 0.83), DSky_NoiseLod(SurfaceT, 110000.0)).r;
 		float Fine = Noise.SampleLevel(NoiseSampler, Q / 40000.0 + float3(0.91, 0.37, 0.13), DSky_NoiseLod(SurfaceT, 40000.0)).g;
 		float Ragged = saturate((0.45 * Big + 0.35 * Mid + 0.2 * Fine - 0.3) / 0.4);
-		// (Where the lip ends and the deck goes on, ragged as well.)
-		Lip *= 1.0 - smoothstep(0.05 + 0.2 * Ragged, 0.15 + 0.2 * Ragged, Sliver);
-		Keep = lerp(SeeThrough, smoothstep(Ragged - 0.03, Ragged + 0.03, 0.5), Lip);
+		// (Ragged: which pieces hold longest; Tear: where the deck reads as more or less thinned than it is.)
+		float Tear = Noise.SampleLevel(NoiseSampler, Q / 70000.0 + float3(0.29, 0.83, 0.47), DSky_NoiseLod(SurfaceT, 70000.0)).g;
+		float Thinned = F.Iso - Behind + 0.8 * (Tear - 0.5);
+		float Open = 0.5 * saturate(Thinned / 0.4) + 0.5 * saturate((Thinned - 0.4) / 0.6);
+		float Piece = smoothstep(Ragged - 0.03, Ragged + 0.03, 1.05 - 1.1 * Open);
+		Keep = lerp(SeeThrough, 0.65 * Piece, Lip);
 	}
-	Cover *= lerp(1.0, Keep, max(Here.Deck, Anvil));
+	// (Not in a storm's deck, which is closed: a ray grazing the bottom of one of its rolls into the trough under it read
+	// as a crack's lip and showed specks of blue sky.)
+	Cover *= lerp(1.0, Keep, max(Here.Deck * (1.0 - Deep), Anvil));
 	Cover *= 1.0 - smoothstep(0.85 * MaxDist, MaxDist, SurfaceT);
+	// (A cloud just in front of the ground fades into it over the last few hundred metres, instead of a hard line where
+	// they cross.)
+	Cover *= saturate((SceneReach - SurfaceT) / max(0.05 * SceneReach, 20000.0));
 	Core = Cover * saturate(Here.Column / 300000.0) * (1.0 - Veil);
 	return float4(Color * Cover, Cover);
 }
@@ -931,13 +969,16 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	// CloudLayer.w = 1: the engine's volumetric cloud layer draws the clouds over the dome; the dome leaves its own out.
 	float CloudCore = 0.0;
 	float4 VC = float4(0, 0, 0, 0);
-	if (CloudLayer.w < 0.5)
+	// Under the horizon the clouds are drawn over the scene instead (DSky_ShadeBelow): the dome is behind the ground. Not in
+	// the sky light, which sees no ground: there the dome still draws them.
+	if (CloudLayer.w < 0.5 && (V.z >= 0.0 || Capture > 0.5))
 	{
 		// Looking down on clouds, the air between takes the low sky's colour, not the ground's.
 		float3 HazeHalo = Halo;
 		float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
 		VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, CloudCore);
+			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, 1.0e10,
+			CloudCore);
 		VC *= CloudShadow.a;
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
@@ -984,6 +1025,47 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);
+}
+
+// The toon clouds under the horizon, drawn over the scene (M_DreamSkyBelow, translucent on a small sphere round the view):
+// the dome stands behind everything and leaves them out, or the ground they hang over would hide them. The same drawing
+// as the dome's, its weather fog and lightning on the clouds alone (the scene behind them has its own); only as far as
+// the scene reaches along V (Reach, cm). Returns the colour, premultiplied, and the cover.
+float4 DSky_ShadeBelow(float3 V, float4 SunDir, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo, float4 Cloud0,
+	float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor,
+	float4 CloudLayer, float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap,
+	SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float Reach)
+{
+	V = normalize(V);
+	if (V.z >= 0.0 || CloudLayer.w >= 0.5)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float3 Sun = normalize(SunDir.xyz);
+	float3 LightDir = normalize(MainLight.xyz);
+	float3 Halo;
+	float3 Base = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
+	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
+	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
+	float3 HazeHalo = Halo;
+	float3 HazeColor = DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
+	float CloudCore = 0.0;
+	float4 VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
+		Noise, NoiseSampler, Camera, Tone, Halo, HazeColor + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, Reach,
+		CloudCore);
+	VC *= CloudShadow.a;
+	// (The dome's weather fog under the horizon, where it hides all of it: the clouds fade into it, the fogged scene shows.)
+	VC *= 1.0 - saturate(Haze.a);
+	float FlashNow = Flash.w * Extra.w;
+	if (FlashNow > 0.0 && VC.a > 0.0)
+	{
+		float Toward = pow(saturate(dot(V, normalize(Flash.xyz))), 3.0);
+		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
+		float Level = saturate(0.3 + SkyLevel * 3.0);
+		float Body = lerp(0.6, 1.4, saturate(CloudCore));
+		VC.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * VC.a) * Body * VC.a;
+	}
+	return float4(max(VC.rgb, 0.0), VC.a);
 }
 
 #endif // DREAMSKY_STYLIZED_USH

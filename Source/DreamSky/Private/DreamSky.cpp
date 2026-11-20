@@ -37,6 +37,9 @@ namespace DreamSky::Actor
 	/** The engine's sky sphere: a unit-ish sphere whose normals face inward. */
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
+	static const TCHAR* CloudsBelowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow");
+	/** cm: the sphere the clouds under the horizon are drawn on (anything nearer than this hides them, as it should). */
+	static constexpr float CloudsBelowRadius = 50000.0f;
 	static const TCHAR* DefaultCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud");
 
 	static bool Differs(float A, float B, float Relative, float Absolute)
@@ -79,6 +82,30 @@ ADreamSky::ADreamSky()
 	SkyDome->bVisibleInRealTimeSkyCaptures = true;
 	SkyDome->bSelectable = false;
 	SkyDome->SetCanEverAffectNavigation(false);
+
+	CloudsBelow = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CloudsBelow"));
+	CloudsBelow->SetupAttachment(SceneRoot);
+	CloudsBelow->SetMobility(EComponentMobility::Movable);
+	CloudsBelow->SetUsingAbsoluteLocation(true);
+	CloudsBelow->SetUsingAbsoluteRotation(true);
+	CloudsBelow->SetUsingAbsoluteScale(true);
+	CloudsBelow->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	CloudsBelow->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+	CloudsBelow->SetCastShadow(false);
+	CloudsBelow->bCastDynamicShadow = false;
+	CloudsBelow->bAffectDynamicIndirectLighting = false;
+	CloudsBelow->bAffectDistanceFieldLighting = false;
+	CloudsBelow->bReceivesDecals = false;
+	CloudsBelow->bUseAsOccluder = false;
+	CloudsBelow->bNeverDistanceCull = true;
+	CloudsBelow->bAllowCullDistanceVolume = false;
+	CloudsBelow->bVisibleInRayTracing = false;
+	CloudsBelow->bVisibleInReflectionCaptures = false;
+	CloudsBelow->bVisibleInRealTimeSkyCaptures = false;
+	CloudsBelow->bSelectable = false;
+	CloudsBelow->SetCanEverAffectNavigation(false);
+	// Drawn before any other translucency (rain, particles), which stands in front of it.
+	CloudsBelow->SetTranslucentSortPriority(-1000);
 
 	SunLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("SunLight"));
 	SunLight->SetupAttachment(SceneRoot);
@@ -668,6 +695,30 @@ void ADreamSky::ApplyDome()
 		const float MeshRadius = FMath::Max(1.0f, float(Mesh->GetBounds().SphereRadius));
 		SkyDome->SetWorldScale3D(FVector(GetEffectiveDomeRadius() / MeshRadius));
 	}
+	if (CloudsBelow)
+	{
+		if (!CloudsBelow->GetStaticMesh())
+		{
+			CloudsBelow->SetStaticMesh(SkyDome->GetStaticMesh());
+		}
+		if (!CloudsBelow->GetMaterial(0) || CloudsBelow->GetMaterial(0)->GetPathName() != DreamSky::Actor::CloudsBelowMaterialPath)
+		{
+			CloudsBelow->SetMaterial(0, LoadObject<UMaterialInterface>(nullptr, DreamSky::Actor::CloudsBelowMaterialPath));
+		}
+		if (const UStaticMesh* Mesh = CloudsBelow->GetStaticMesh())
+		{
+			CloudsBelow->SetWorldScale3D(FVector(DreamSky::Actor::CloudsBelowRadius / FMath::Max(1.0f, float(Mesh->GetBounds().SphereRadius))));
+		}
+		// The engine's volumetric clouds draw their own, in front of the ground as they should. (Without its material it
+		// would show the sphere mesh's own material round the view.)
+		const UMaterialInterface* BelowMaterial = CloudsBelow->GetMaterial(0);
+		const bool bToon = GetEffectiveClouds() == EDreamSkyClouds::Toon && BelowMaterial
+			&& BelowMaterial->GetPathName() == DreamSky::Actor::CloudsBelowMaterialPath;
+		if (CloudsBelow->GetVisibleFlag() != bToon)
+		{
+			CloudsBelow->SetVisibility(bToon);
+		}
+	}
 	if (HeightFog)
 	{
 		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient. The
@@ -687,6 +738,11 @@ void ADreamSky::UpdateDome(const FVector& ViewLocation, bool bHasView)
 	if (FVector::DistSquared(SkyDome->GetComponentLocation(), ViewLocation) > FMath::Square(GetEffectiveDomeRadius() * 0.02f))
 	{
 		SkyDome->SetWorldLocation(ViewLocation);
+	}
+	// (Its drawing goes by the view direction alone; it only has to stay round the view, and is small.)
+	if (CloudsBelow && FVector::DistSquared(CloudsBelow->GetComponentLocation(), ViewLocation) > FMath::Square(DreamSky::Actor::CloudsBelowRadius * 0.01f))
+	{
+		CloudsBelow->SetWorldLocation(ViewLocation);
 	}
 }
 
