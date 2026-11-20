@@ -42,7 +42,7 @@ uniform float DeckMottle = 0.45;
 uniform float4 ShadeTint = float4(0.86, 0.95, 1.14, 1.0);
 
 /// @group Scattering   @sort 10   @slider -0.9 0.9   @desc Forward scattering lobe (silver lining): stronger makes small lumps near the sun glow as white balls
-uniform float ScatterForward = 0.6;
+uniform float ScatterForward = 0.8;
 /// @group Scattering   @sort 20   @slider -0.9 0.9   @desc Backward scattering lobe (the sunlit faces seen with the sun behind the view)
 uniform float ScatterBackward = -0.3;
 /// @group Scattering   @sort 30   @slider 0 1   @desc Blend between the forward and the backward lobe
@@ -70,10 +70,12 @@ void DreamCloud_Sample(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 	float Storm = CloudLayer.z * S.Dark * lerp(1.0, 0.35, S.Height);
 	// The density's faint fringe is drawn in a little (1 - (1 - d)^2): the outline reads clear instead of a smoky
 	// skirt, yet stays soft (drawn in harder, small cumulus turned to hard white balls and the billows to grapes).
-	// The core, where a small cumulus is still thin by the shape's measure, is thickened instead: a real cumulus is
-	// optically thick, and the stars must not show through it at night.
+	// At night the core, where a small cumulus is still thin by the shape's measure, is thickened: the stars must not
+	// show through it. (Not by day: thickened, every narrow crevice between the cores of a big cloud drew as a thin
+	// dark line.)
 	float Fringe = 1.0 - (1.0 - S.Density) * (1.0 - S.Density);
-	float Core = smoothstep(0.08, 0.3, S.Density);
+	float Night = 1.0 - smoothstep(-0.12, -0.02, SunDir.z);
+	float Core = smoothstep(0.08, 0.3, S.Density) * Night;
 	float E = (Fringe + 2.0 * Core) * Sigma * (1.0 + S.Dark);
 	OutExtinction = E.xxx;
 	OutAlbedo = (Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * S.Deck)).xxx;
