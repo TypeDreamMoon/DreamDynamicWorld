@@ -129,18 +129,22 @@ FDCloudMarchParams DSkyR_Params(float T, float T1, int Left, float Jitter)
 
 // How far the march may skip from a sample: over the layer only cumulonimbus stand, and the shape gives a true bound of
 // the distance to them (and to the layer's top); in the layer, the shape's bound says only whether cloud may be here, so
-// the march walks fine where it may and takes a step of some 1.2 % of the distance where it may not (backing off to walk
-// fine if that step lands where cloud may be).
-float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P)
+// the march walks fine where it may and takes a step of some 1.2 % of the distance where it may not, no longer than 800 m
+// (a small cumulus' formation), backing off to walk fine if that step lands where cloud may be. SkipJitter (0..1, per
+// pixel and frame) varies every skip's length -- the step 0.6 to 1.4 times, the bound 0.7 to 1 times, never past it: with
+// lengths fixed by the distance alone, neighbouring rays' samples fell in step with one another, and where they skimmed a
+// thin cloud they drew moire, hatched patches and horizontal bands that no history averages away.
+float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter)
 {
-	float LayerStep = max(clamp(T * 0.012, 20000.0, 150000.0), 2.0 * P.FineStep);
+	float LayerStep = max(clamp(T * 0.012, 20000.0, 80000.0) * (0.6 + 0.8 * SkipJitter), 2.0 * P.FineStep);
+	float Bound = 0.7 + 0.3 * SkipJitter;
 	if (C.Z >= DCS_LAYER_TOP)
 	{
-		return min(C.StormDistance, max(C.Z - DCS_LAYER_TOP, LayerStep));
+		return min(C.StormDistance * Bound, max(C.Z - DCS_LAYER_TOP, LayerStep));
 	}
 	if (C.Z <= 0.0)
 	{
-		return C.StormDistance;
+		return C.StormDistance * Bound;
 	}
 	return C.Form > 0.0 ? 0.0 : LayerStep;
 }
@@ -183,6 +187,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 		return float4(0, 0, 0, 0);
 	}
 	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
+	float SkipJitter = frac(Jitter + 0.618034 * float(View.StateFrameIndex % 97u) + 0.5);
 	FDCloudSurface S = DCM_SurfaceBegin(T0, T1, 5);
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
 	float AnchorSigned = -1.0e9;
@@ -201,7 +206,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, out float SurfaceDepth)
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
-		Fd.Distance = DSkyR_Distance(C, T, P);
+		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter);
 		DCM_SurfaceAdvance(S, Fd, P);
 	}
 	float SurfaceT = S.bHit ? S.HitT : S.ClosestT;
@@ -274,6 +279,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 	float Cos = dot(V, LightDir);
 
 	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
+	float SkipJitter = frac(Jitter + 0.618034 * float(View.StateFrameIndex % 97u) + 0.5);
 	FDCloudMarchParams P0 = DSkyR_Params(T0, T1, MaxSamples, Jitter);
 	FDCloudMarch M = DCM_Begin(T0, T1, P0);
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
@@ -286,7 +292,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, out float SurfaceDepth)
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
-		Fd.Distance = DSkyR_Distance(C, T, P);
+		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter);
 		float Dt = DCM_Advance(M, Fd, P);
 		if (Dt > 0.0 && C.Volume > 0.0)
 		{
