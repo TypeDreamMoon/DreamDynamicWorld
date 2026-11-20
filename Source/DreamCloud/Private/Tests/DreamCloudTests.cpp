@@ -13,7 +13,9 @@
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
+#include "Misc/PackageName.h"
 #include "UObject/Package.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -134,6 +136,16 @@ bool FDreamCloudBakeCubeTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("the middle is 50 cm inside"), Field.Sample(FVector::ZeroVector), -50.0f, Texel);
 	TestNearlyEqual(TEXT("10 cm off a face"), Field.Sample(FVector(60.0, 0.0, 0.0)), 10.0f, 0.5f * Texel);
 	TestNearlyEqual(TEXT("off an edge"), Field.Sample(FVector(55.0, 55.0, 0.0)), FMath::Sqrt(50.0f), 0.5f * Texel);
+
+	// Packed as it is saved and unpacked again: within a sixteenth of a texel near the surface.
+	Field.Pack();
+	FDreamCloudField Loaded = Field;
+	Loaded.Distances.Reset();
+	TestTrue(TEXT("unpacks"), Loaded.Unpack() && Loaded.IsValid());
+	AddInfo(FString::Printf(TEXT("packed %d bytes for %d texels"), Field.Packed.Num(), Field.Distances.Num()));
+	TestTrue(TEXT("packed small"), Field.Packed.Num() < Field.Distances.Num() / 2);
+	TestNearlyEqual(TEXT("unpacked, 10 cm off a face"), Loaded.Sample(FVector(60.0, 0.0, 0.0)), 10.0f, 0.5f * Texel);
+	TestNearlyEqual(TEXT("unpacked, inside clamped to 8 texels"), Loaded.Sample(FVector::ZeroVector), -8.0f * Texel, 0.1f * Texel);
 	return true;
 }
 
@@ -389,6 +401,12 @@ bool FDreamCloudLightMapTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("the map darkens inside"), Lowest < 0.05f);
 
+	// Eroded by the noise (its mean), the cloud lets more light through near its edge.
+	DreamCloudLighting::FLightMapParams Eroded = Params;
+	Eroded.ErodeDepth = 100.0f;
+	TestTrue(TEXT("an eroded edge is lighter"), DreamCloudLighting::TransmittanceAt(Field, NoHoles, FIntVector::ZeroValue, Eroded, FVector(0.0, 0.0, 400.0))
+		> At(FVector(0.0, 0.0, 400.0)) + 0.05f);
+
 	// A shaft carved down the middle lets the light in.
 	const FIntVector HoleSize(16, 16, 16);
 	TArray<float> Holes;
@@ -543,12 +561,22 @@ bool FDreamCloudTestLevelTest::RunTest(const FString& Parameters)
 		Looks.Add(Cloud->Look);
 		Meshes += Cloud->ShapeSource == EDreamCloudShapeSource::Mesh && Cloud->ShapeMesh ? 1 : 0;
 		Tunnels += Cloud->Primitives.ContainsByPredicate([](const FDreamCloudPrimitiveShape& S) { return S.bSubtract; }) ? 1 : 0;
-		TestTrue(*FString::Printf(TEXT("%s is baked and saved with its field"), *Volume->GetName()), Cloud->Field.IsValid());
+		if (Cloud->ShapeSource == EDreamCloudShapeSource::Mesh)
+		{
+			TestTrue(*FString::Printf(TEXT("%s, a mesh, is saved with its field, packed"), *Volume->GetName()), Cloud->Field.IsValid() && Cloud->Field.Packed.Num() > 0);
+		}
+		else
+		{
+			TestEqual(*FString::Printf(TEXT("%s, primitives, saves no field"), *Volume->GetName()), Cloud->Field.Packed.Num(), 0);
+		}
 	}
 	TestTrue(TEXT("nine cloud volumes"), Volumes >= 9);
 	TestEqual(TEXT("all three looks"), Looks.Num(), 3);
 	TestEqual(TEXT("three meshes"), Meshes, 3);
 	TestEqual(TEXT("a tunnel"), Tunnels, 1);
+	const int64 Bytes = IFileManager::Get().FileSize(*FPackageName::LongPackageNameToFilename(TEXT("/DreamDynamicWorld/Cloud/Maps/Lvl_DreamCloudVolumeTest"), FPackageName::GetMapPackageExtension()));
+	AddInfo(FString::Printf(TEXT("the level is %.0f KB"), Bytes / 1024.0));
+	TestTrue(TEXT("the level stays small"), Bytes > 0 && Bytes < 1024 * 1024);
 	return true;
 }
 

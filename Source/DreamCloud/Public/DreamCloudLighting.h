@@ -25,6 +25,11 @@ namespace DreamCloudLighting
 		/** The shape grown by Inflate cm, its density rising over Edge cm (the shape's space). */
 		float Inflate = 0.0f;
 		float Edge = 50.0f;
+		/** The noise's erosion (the shape's space): depth (cm), 1 / its tile (1/cm), how far it drifted (cm). The map takes the
+		 *  noise's low-frequency channel and the billows' mean (the CPU version the low channel's mean too). */
+		float ErodeDepth = 0.0f;
+		float InvNoise = 0.0f;
+		FVector3f Drift = FVector3f::ZeroVector;
 		FIntVector Resolution = FIntVector(32);
 		int32 Steps = 48;
 	};
@@ -45,7 +50,7 @@ namespace DreamCloudLighting
 	DREAMCLOUD_API float SampleGrid(TConstArrayView<float> Grid, const FIntVector& Resolution, const FVector& BoxSize, const FVector& Point);
 
 	/** Game thread: draws the light map into Target (a UAV volume render target of Params.Resolution) on the GPU. */
-	DREAMCLOUD_API void EnqueueLightMap(FTextureResource* Field, FTextureRenderTargetResource* Holes, FTextureRenderTargetResource* Target,
+	DREAMCLOUD_API void EnqueueLightMap(FTextureResource* Field, FTextureResource* Noise, FTextureRenderTargetResource* Holes, FTextureRenderTargetResource* Target,
 		const FVector& BoxSize, const FLightMapParams& Params);
 
 	/** Game thread: copies carving (0..1, x fastest) into a volume render target of that size (8 bits a texel). */
