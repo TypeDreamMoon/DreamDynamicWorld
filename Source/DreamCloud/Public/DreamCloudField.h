@@ -76,6 +76,10 @@ struct DREAMCLOUD_API FDreamCloudPrimitiveShape
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cloud", meta = (ClampMin = "0"))
 	float Rounding = 100.0f;
 
+	/** Carves this primitive out of the others (a tunnel, a hollow) instead of adding it, its seams rounded by the same blend. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cloud")
+	bool bSubtract = false;
+
 	/** The signed distance to it from a point in the volume's space. */
 	float Distance(const FVector& Point) const;
 	/** The box it fills in the volume's space. */
@@ -85,7 +89,7 @@ struct DREAMCLOUD_API FDreamCloudPrimitiveShape
 namespace DreamCloudBake
 {
 	/** Bump when baking changes, so every field bakes again. */
-	inline constexpr uint32 Version = 1;
+	inline constexpr uint32 Version = 2;
 
 	struct FSettings
 	{
@@ -95,11 +99,13 @@ namespace DreamCloudBake
 		float Padding = 0.15f;
 	};
 
-	/** Bakes a triangle mesh (positions in the shape's space, three indices a triangle). Closed meshes give a clean
-	 *  inside; open ones are decided by a vote of rays along the three axes. False when there is nothing to bake. */
+	/** Bakes a triangle mesh (positions in the shape's space, three indices a triangle). Inside is where the surfaces wind
+	 *  around a point (so overlapping closed parts of a merged mesh count as one), decided by a vote of rays along the
+	 *  three axes (an open mesh gets the majority). False when there is nothing to bake. */
 	DREAMCLOUD_API bool FromTriangles(TConstArrayView<FVector3f> Positions, TConstArrayView<uint32> Indices, const FSettings& Settings, FDreamCloudField& Out);
 
-	/** Bakes primitives blended together: their union with seams rounded over Blend cm (0 = a hard union). */
+	/** Bakes primitives blended together: the union of the added ones less the subtracted ones, seams rounded over
+	 *  Blend cm (0 = hard). */
 	DREAMCLOUD_API bool FromPrimitives(TConstArrayView<FDreamCloudPrimitiveShape> Shapes, float Blend, const FSettings& Settings, FDreamCloudField& Out);
 
 	/** The triangles of a static mesh's first LOD: its source in the editor, its CPU copy in a game (the mesh must

@@ -330,7 +330,9 @@ namespace DreamCloudBake
 		Sweep(D, N, 1.0f);
 
 		// Inside or out: rays along each axis through the texel centres (nudged off them, so a ray does not run along an
-		// edge of an axis-aligned mesh) count the surfaces they cross; a texel is inside when two of three rays say so.
+		// edge of an axis-aligned mesh) add up the surfaces they cross, +1 or -1 by which way each faces: a texel is inside
+		// where that winding is not 0 (inside overlapping parts too, which plain parity would call outside), and the texel
+		// is inside when two of three rays say so.
 		TArray<uint8> Votes;
 		Votes.SetNumZeroed(N.X * N.Y * N.Z);
 		for (int32 Axis = 0; Axis < 3; ++Axis)
@@ -370,7 +372,7 @@ namespace DreamCloudBake
 				const int32 V = Row / NU;
 				const float Pu = U + 0.5f + NudgeU;
 				const float Pv = V + 0.5f + NudgeV;
-				TArray<float, TInlineAllocator<16>> Hits;
+				TArray<TPair<float, int32>, TInlineAllocator<16>> Hits;
 				for (int32 t : Candidates)
 				{
 					const FVector3f& A = G[Indices[3 * t]];
@@ -388,22 +390,24 @@ namespace DreamCloudBake
 					{
 						continue;
 					}
-					Hits.Add(W0 * A[Axis] + W1 * B[Axis] + W2 * C[Axis]);
+					Hits.Add({ W0 * A[Axis] + W1 * B[Axis] + W2 * C[Axis], Area > 0.0f ? 1 : -1 });
 				}
 				if (Hits.Num() == 0)
 				{
 					return;
 				}
-				Hits.Sort();
+				Hits.Sort([](const TPair<float, int32>& L, const TPair<float, int32>& R) { return L.Key < R.Key; });
 				int32 Crossed = 0;
+				int32 Winding = 0;
 				for (int32 Along = 0; Along < NA; ++Along)
 				{
 					const float Pa = Along + 0.5f;
-					while (Crossed < Hits.Num() && Hits[Crossed] < Pa)
+					while (Crossed < Hits.Num() && Hits[Crossed].Key < Pa)
 					{
+						Winding += Hits[Crossed].Value;
 						++Crossed;
 					}
-					if (Crossed & 1)
+					if (Winding != 0)
 					{
 						FIntVector Cell;
 						Cell[Axis] = Along;
@@ -436,7 +440,10 @@ namespace DreamCloudBake
 		FBox Shape(ForceInit);
 		for (const FDreamCloudPrimitiveShape& S : Shapes)
 		{
-			Shape += S.Bounds();
+			if (!S.bSubtract)
+			{
+				Shape += S.Bounds();
+			}
 		}
 		FDreamCloudField Field;
 		if (!SetupGrid(Shape, Settings, Field))
@@ -454,13 +461,26 @@ namespace DreamCloudBake
 				for (int32 X = 0; X < N.X; ++X)
 				{
 					const FVector P = Field.TexelCenter(X, Y, Z);
-					float D = Shapes[0].Distance(P);
-					for (int32 s = 1; s < Shapes.Num(); ++s)
+					// Polynomial smooth minimum and maximum (Quilez): the seams between primitives rounded over K cm. The added
+					// ones first, then each subtracted one carved out of their union.
+					float D = UE_BIG_NUMBER;
+					for (int32 Pass = 0; Pass < 2; ++Pass)
 					{
-						const float E = Shapes[s].Distance(P);
-						// Polynomial smooth minimum (Quilez): the seams between primitives rounded over K cm.
-						const float H = K > 0.0f ? FMath::Max(K - FMath::Abs(D - E), 0.0f) / K : 0.0f;
-						D = FMath::Min(D, E) - H * H * K * 0.25f;
+						for (const FDreamCloudPrimitiveShape& S : Shapes)
+						{
+							if (S.bSubtract != (Pass == 1))
+							{
+								continue;
+							}
+							const float E = Pass == 0 ? S.Distance(P) : -S.Distance(P);
+							if (D >= UE_BIG_NUMBER)
+							{
+								D = E;
+								continue;
+							}
+							const float H = K > 0.0f ? FMath::Max(K - FMath::Abs(D - E), 0.0f) / K : 0.0f;
+							D = Pass == 0 ? FMath::Min(D, E) - H * H * K * 0.25f : FMath::Max(D, E) + H * H * K * 0.25f;
+						}
 					}
 					Signed[X + N.X * (Y + N.Y * Z)] = D;
 				}
