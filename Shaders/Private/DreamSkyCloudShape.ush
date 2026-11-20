@@ -15,8 +15,9 @@
 //   - the cloud type's vertical profile (DCS_Profile, drawn after UDS's Cloud_Profile) tapers the formation with
 //     height: small cumulus stay in the lowest fifth of the layer, towering cumulus climb it narrowing. The base is
 //     level, lifted here and there;
-//   - a closing cover turns into a deck (DCS_Deck): stratocumulus cells, thick in their middles and thin between them,
-//     cracked open while the cover is short of full; toward rain and storms a deep deck with a low, ragged base;
+//   - a closing cover first spreads its cumulus out flat into stratocumulus, then turns into a deck (DCS_Deck):
+//     stratocumulus cells, thick in their middles and thin between them, opened in a few winding rifts while the cover
+//     is short of full; toward rain and storms a deep deck with a low, ragged base;
 //   - under storm darkness, storm cells raise cumulonimbus out of the deck (DCS_Cumulonimbus): a billowed column up to
 //     the tropopause, an anvil spread downwind there with mammatus under it, the overshooting top over the core;
 //   - billows (the noise's Worley octaves, warped and gathered into clumps by its Perlin-Worley channel) erode it --
@@ -225,7 +226,7 @@ float4 DCS_Deck(float Cell, float Gap, float Shut, float Formed, float Thick, fl
 	float Top = lerp(0.13 + 0.19 * Cell, 0.5 + 0.25 * Cell, Thick);
 	float Open = 0.26 * (1.0 - Shut);
 	float Emerge = 1.45 * (1.0 - Formed);
-	float Crack = max(1.0 - smoothstep(Open - 0.06, Open + 0.16, Gap), 1.0 - smoothstep(Emerge - 0.35, Emerge + 0.1, Cell));
+	float Crack = max(1.0 - smoothstep(Open - 0.05, Open + 0.09, Gap), 1.0 - smoothstep(Emerge - 0.35, Emerge + 0.1, Cell));
 	float Half = 0.5 * (Top - Bottom) * (1.0 - Crack);
 	float Inside = (Half - abs(H - 0.5 * (Top + Bottom))) / 0.05;
 	return float4(Inside, Crack, Bottom, Top);
@@ -259,7 +260,8 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	float Cover = saturate(Weather.x);
 	float Closing = smoothstep(0.7, 0.95, Cover);
 	Cover *= lerp(lerp(0.6, 1.0, saturate(Cloud2.x)), 1.0, Closing);
-	float Patches = (Noise.SampleLevel(NoiseSampler, float3(P / (6000000.0 * Scale), 0.37 + Phase), 0).r - 0.5) * (1.0 - Closing);
+	float4 Wide = Noise.SampleLevel(NoiseSampler, float3(P / (6000000.0 * Scale), 0.37 + Phase), 0);
+	float Patches = (Wide.r - 0.5) * (1.0 - Closing);
 	float Coverage = clamp(3.0 * Cover * Cover + Patches * 0.5, 0.0, 3.0);
 	float X = Coverage / 3.0;
 	// How many of them stand is the formation's coverage: more than the type's for a thin cover (a clear sky still
@@ -289,19 +291,32 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	// fraying again toward evening. They are pressed down to a third of their height at the least; a closing cover is
 	// not touched.
 	float Grow = lerp(lerp(0.3, 1.0, smoothstep(0.5, 1.0, saturate(Cloud2.x))), 1.0, Closing);
-	float Hs = H / Grow;
+	// A cover closing into a deck spreads its cumulus out into stratocumulus as they merge: they sink to a deck's
+	// thickness (a rain deck's deeper), each a little more than its cell is strong, so their clumps stay in its top
+	// and, thick against thin, in its underside -- not one slab filling the layer, flat grey from below, until the deck
+	// forms within it. (Never thinner than some 150 m where they stand, or the sun broke through a closing sky.)
+	float Rainy = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
+	float Spreading = smoothstep(0.4, 0.7, X);
+	float Flat = lerp(1.0, lerp(0.4, 0.8, Rainy), Spreading);
+	float Hs = H / (Grow * Flat);
 	float Hf = saturate(Hs - Lift * (1.0 - Hs));
 	// (A cumulus is no dome: its top swells unevenly, a turret here climbing a quarter higher, a shoulder there lower,
 	// as the formation's finer channel says, over a flat base.)
-	float3 Profile = DCS_Profile(X, saturate(Hf / lerp(0.75, 1.25, F.b)));
+	float Uneven = lerp(0.75, 1.25, F.b);
+	float Hu = saturate(Hf / Uneven);
+	float3 Profile = DCS_Profile(X, Hu);
+	Profile.x = lerp(Profile.x, smoothstep(0.0, 0.04, Hu) * (1.0 - smoothstep(0.96, 1.0, Hu)) * (1.0 - max(Hu - 0.08, 0.0)), Spreading);
 	Profile.z *= lerp(1.3, 1.0, Grow);
 	float Threshold = pow(1.0 - Spread / 6.5, 3.0) - 0.25;
-	float BaseU = (Form - Threshold) / (1.0 - Threshold) - (1.0 - Profile.x);
+	float Strength = (Form - Threshold) / (1.0 - Threshold);
+	float BaseU = Strength - (1.0 - Profile.x);
 	float Base = saturate(BaseU);
 	float Signed = BaseU;
 	float Top = DCS_ProfileTop(X);
-	S.Height = saturate(Hf / Top);
-	S.Column = Top * Grow * DCS_LAYER_TOP;
+	// (A stratocumulus' height and depth are its own where it stands: the drawing sees its thick and thin parts.)
+	float Local = min(0.08 + max(Strength, 0.0), 1.0);
+	S.Height = lerp(saturate(Hf / Top), saturate(Hu / Local), Spreading);
+	S.Column = lerp(Top, Local * Uneven, Spreading) * Grow * Flat * DCS_LAYER_TOP;
 
 	// A closing cover turns into a deck (DCS_Deck) out of its own cells, some 1.5 km across, that grow and dissolve
 	// with the phase as the cumulus do. Its height and thickness are its own, so the drawing sees thick cells and thin
@@ -319,11 +334,18 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 		// (Where it cracks: along the cells' borders, wandered off them by the smooth and the fine channel -- a Worley
 		// border alone runs in straight lines between corners, and a crack along it read as cut with a knife.)
 		float Gap = C.g + 0.18 * (C.r - 0.5) + 0.12 * (C.b - 0.5);
+		// It opens mostly in rifts: a few winding ones kilometres long (along the middle line of the wide patches'
+		// smooth channel), broken where they cross a cell's thick middle and ragged along the fine channel. Along the
+		// cells' borders alone it opens only at their corners -- a lone lens-shaped hole in a wide thinned halo, an eye
+		// in the sky -- so those open later, once the deck is breaking up. (Never in a deck that has closed.)
+		float Shut = smoothstep(0.75, 0.93, X);
+		float Rift = 0.02 + 0.25 * smoothstep(0.6, 1.0, Shut) + 4.8 * abs(Wide.r - 0.5) + 0.4 * (C.b - 0.5) + 0.15 * (C.r - 0.5) + 1.1 * (C.g - 0.45);
+		Gap = min(Gap + 0.06, Rift);
 		// (A rain deck is deep only while it is closed: as it opens -- a storm clearing -- it first sinks back to a
 		// stratocumulus' thickness, then cracks along its cells' borders and its cells shrink one by one, the way it
 		// formed in reverse; a deep deck cracking open would stand in kilometre-high walls.)
-		float Thick = smoothstep(0.15, 0.6, S.Dark) * smoothstep(0.8, 0.95, X);
-		float4 D = DCS_Deck(Cell, Gap, smoothstep(0.75, 0.93, X), DeckW, Thick, H);
+		float Thick = Rainy;
+		float4 D = DCS_Deck(Cell, Gap, Shut, DeckW, Thick, H);
 		float CumulusU = BaseU - smoothstep(0.75, 1.0, DeckW);
 		float DeckU = min(D.x, 1.0);
 		float Cumulus = saturate(CumulusU);
