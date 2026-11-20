@@ -327,6 +327,7 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[5] = FVector4f(L.PaintShadeTint.R, L.PaintShadeTint.G, L.PaintShadeTint.B, L.PaintExtinction * 0.01f);
 	Out[6] = FVector4f(L.EdgeSoftness, L.HalfToneAt, L.LitToneAt, L.ToneSoftness);
 	Out[7] = FVector4f(L.SilverLining, L.BillowShade, L.ShadowTracingDistance * 100000.0f, 0.0f);
+	Out[8] = FVector4f(L.LightIlluminance.R, L.LightIlluminance.G, L.LightIlluminance.B, L.ShadowReach);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)

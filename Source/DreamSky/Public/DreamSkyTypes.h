@@ -68,6 +68,7 @@ struct FDreamSkyCloudLookParameters
 	float MultiScatterEccentricity = 0.5f;
 	float SunScattering = 2.5f;        // ADreamSky::VolumetricSunScattering
 	float ShadowTracingDistance = 6.0f; // ADreamSky::VolumetricShadowTracingDistance, km: how far toward the sun a sample's shadow looks
+	float ShadowReach = 6000000.0f;    // cm: the clouds' shading toward the light fades out by where their shadow lands, from a quarter of this on
 	// Painted (M_DreamVolumetricCloud_Painted).
 	float PaintExtinction = 0.3f;      // per metre
 	float PaintGain = 1.0f;
@@ -79,6 +80,9 @@ struct FDreamSkyCloudLookParameters
 	float BillowShade = 0.3f;
 	FLinearColor PaintLitTint = FLinearColor(1.0f, 0.975f, 0.93f, 1.0f);
 	FLinearColor PaintShadeTint = FLinearColor(0.86f, 0.84f, 1.02f, 1.0f);
+	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
+	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
+	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
 /**

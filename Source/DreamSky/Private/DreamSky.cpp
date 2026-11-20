@@ -420,8 +420,14 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 	Scalar(Realistic, TEXT("MultiScatter"), Out.MultiScatter);
 	Scalar(Realistic, TEXT("MultiScatterOcclusion"), Out.MultiScatterOcclusion);
 	Scalar(Realistic, TEXT("MultiScatterEccentricity"), Out.MultiScatterEccentricity);
+	Scalar(Realistic, TEXT("ShadowReach"), Out.ShadowReach);
 	Out.SunScattering = VolumetricSunScattering;
 	Out.ShadowTracingDistance = VolumetricShadowTracingDistance;
+	// (The same light the main light parameters point at: the moon while it is the brighter.)
+	const float SunLux = SunLight ? SunLight->Intensity : 0.0f;
+	const float MoonLux = MoonLight ? MoonLight->Intensity : 0.0f;
+	const UDirectionalLightComponent* Light = MoonLux > SunLux ? MoonLight.Get() : SunLight.Get();
+	Out.LightIlluminance = Light ? Light->GetLightColor() * Light->Intensity : FLinearColor::Black;
 	const UMaterialInterface* Painted = GetCloudLookMaterial(true);
 	Scalar(Painted, TEXT("CloudExtinction"), Out.PaintExtinction);
 	Scalar(Painted, TEXT("PaintGain"), Out.PaintGain);

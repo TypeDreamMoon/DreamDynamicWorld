@@ -38,7 +38,7 @@ public:
 	static const TArray<FName>& GetParameterNames();
 	static constexpr int32 NumParameters = 18;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
-	static constexpr int32 NumLookParameters = 8;
+	static constexpr int32 NumLookParameters = 9;
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:
