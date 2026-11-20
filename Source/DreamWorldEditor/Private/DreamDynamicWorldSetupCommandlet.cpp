@@ -2,6 +2,7 @@
 
 #include "DreamDynamicWorldSetupCommandlet.h"
 #include "DreamCloudNoise.h"
+#include "DreamCloudTestMap.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
@@ -371,6 +372,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	using namespace DreamWorld::Setup;
 	const bool bTestMap = FParse::Param(*Params, TEXT("TestMap"));
 	const bool bForce = FParse::Param(*Params, TEXT("Force"));
+	const bool bCloudTestMap = FParse::Param(*Params, TEXT("CloudTestMap"));
 
 	bool bOk = FDreamWorldParameters::EnsureParameterCollection(true) != nullptr;
 	bOk &= UDreamWindEditorLibrary::EnsureAssets(true);
@@ -390,6 +392,17 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 		else
 		{
 			bOk &= BuildTestMap(Style, Presets);
+		}
+	}
+	if (bCloudTestMap)
+	{
+		if (FPackageName::DoesPackageExist(CloudTestMapPackage) && !bForce)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("%s exists; pass -Force to write it again."), CloudTestMapPackage);
+		}
+		else
+		{
+			bOk &= BuildCloudTestMap(Style, Presets.FindRef(TEXT("WP_Clear")));
 		}
 	}
 	UE_LOG(LogDreamWorld, Display, TEXT("DreamDynamicWorldSetup: %s"), bOk ? TEXT("done") : TEXT("FAILED"));

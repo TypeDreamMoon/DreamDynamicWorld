@@ -4,7 +4,7 @@ using UnrealBuildTool;
 
 /*
  * Editor side of the world clock and the sky: the time-of-day slider in the level editor toolbar, and the
- * DreamDynamicWorldSetup commandlet that creates the plugin's shared assets and its sky test level.
+ * DreamDynamicWorldSetup commandlet that creates the plugin's shared assets and its sky and cloud volume test levels.
  */
 public class DreamWorldEditor : ModuleRules
 {
@@ -33,6 +33,9 @@ public class DreamWorldEditor : ModuleRules
 			"AssetRegistry",
 			"DreamWind",
 			"DreamWindEditor",
+			"DreamCloud",
+			"MeshDescription",
+			"StaticMeshDescription",
 		});
 	}
 }
