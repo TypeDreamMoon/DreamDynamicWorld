@@ -24,7 +24,8 @@
 
 static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
 	TEXT("DreamSky.Clouds"), -1,
-	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 1 = volumetric (the engine's cloud layer)."),
+	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 1 = volumetric (the engine's cloud layer),")
+	TEXT(" 2 = the plugin's sky cloud renderer."),
 	ECVF_Default);
 
 static TAutoConsoleVariable<FString> CVarDreamSkyCloudMaterial(
@@ -335,6 +336,10 @@ EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
 	if (Override == 1)
 	{
 		return EDreamSkyClouds::Volumetric;
+	}
+	if (Override == 2)
+	{
+		return EDreamSkyClouds::Rendered;
 	}
 	return Clouds;
 }

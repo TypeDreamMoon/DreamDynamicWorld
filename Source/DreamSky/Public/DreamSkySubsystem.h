@@ -8,6 +8,7 @@
 #include "DreamSkySubsystem.generated.h"
 
 class ADreamSky;
+class UTexture;
 class UDreamSkyStyle;
 class UDreamWorldSubsystem;
 class FDreamSkyCloudViewExtension;
@@ -61,8 +62,11 @@ public:
 	static FDreamSkyLighting BlendLighting(const FDreamSkyLighting& From, const FDreamSkyLighting& To, float Alpha);
 
 private:
+	friend class FDreamSkyCloudViewExtension;
+
 	void Update(UDreamWorldSubsystem& Clock, float DeltaTime);
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bVolumetricClouds);
+	/** bCloudsElsewhere: something other than the dome draws the clouds (the dome leaves its own out). */
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bCloudsElsewhere);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 
@@ -74,6 +78,11 @@ private:
 	FDelegateHandle TickHandle;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;
 	TSharedPtr<FDreamSkyCloudViewExtension, ESPMode::ThreadSafe> CloudViewExtension;
+	/** What the sky cloud renderer reads: the clouds' noise and the weather map (loaded when it first draws). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture> CloudNoise;
+	UPROPERTY(Transient)
+	TObjectPtr<UTexture> WeatherMap;
 
 	int32 RecaptureTask = 0;
 	FLinearColor CapturedZenith = FLinearColor::Transparent;

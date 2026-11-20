@@ -11,12 +11,14 @@
       Frame       the whole frame on the graphics queue (busy + wait)
       Dome        the sky dome's draws (SM_SkySphere, found by r.ShowMaterialDrawEvents), outside the sky capture
       Capture     CaptureConvolveSkyEnvMap: the real-time sky light capture (draws the dome and the clouds again)
-      Clouds      VolumetricCloud: the engine's cloud layer for the view (all queues)
+      Clouds      VolumetricCloud: the engine's cloud layer for the view (all queues), or DreamSky.Clouds: the sky cloud
+                  renderer's passes for the view
       Shadow      VolumetricCloudShadow: its shadow map
       Sky         Dome + Capture + Clouds + Shadow
 
     Modes: Toon (the dome draws the clouds; DreamSky.Clouds 0), Realistic (M_DreamVolumetricCloud) and Painted
-    (M_DreamVolumetricCloud_Painted), both with DreamSky.Clouds 1. Views are Name=pitch[/yaw] (degrees; the level
+    (M_DreamVolumetricCloud_Painted), both with DreamSky.Clouds 1, RenderedToon and RenderedRealistic (the sky cloud
+    renderer, DreamSky.Clouds 2, DreamSky.CloudRender.Look 0 and 1). Views are Name=pitch[/yaw] (degrees; the level
     camera's yaw when left out). The volumetric render target mode is the engine's default unless -CloudRenderMode.
 
     The numbers are only as quiet as the GPU: other work on it (another editor, a game, a build that compiles shaders)
@@ -54,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 # pwsh -File passes a list argument as one comma-joined string.
 foreach ($ListName in 'Modes', 'Weathers', 'Views') { Set-Variable -Name $ListName -Value @((Get-Variable -Name $ListName -ValueOnly) | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) }
-$Unknown = @($Modes | Where-Object { $_ -notin 'Toon', 'Realistic', 'Painted' }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
+$Unknown = @($Modes | Where-Object { $_ -notin 'Toon', 'Realistic', 'Painted', 'RenderedToon', 'RenderedRealistic' }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
 $Invariant = [System.Globalization.CultureInfo]::InvariantCulture
 
 $MaterialOf = @{
@@ -76,6 +78,7 @@ if (-not $Log)
     foreach ($Mode in $Modes)
     {
         if ($Mode -eq 'Toon') { $Lines += 'DreamSky.Clouds 0' }
+        elseif ($Mode -like 'Rendered*') { $Lines += 'DreamSky.Clouds 2', "DreamSky.CloudRender.Look $(if ($Mode -eq 'RenderedToon') { 0 } else { 1 })", 'settle', "wait $CompileHold" }
         else { $Lines += 'DreamSky.Clouds 1', "DreamSky.CloudMaterial $($MaterialOf[$Mode])", 'settle', "wait $CompileHold" }
         foreach ($Weather in $Weathers)
         {
@@ -141,7 +144,7 @@ foreach ($Line in [System.IO.File]::ReadLines($Log))
     $Path = $Stack -join ' / '
     $InCapture = $Path -match 'CaptureConvolveSkyEnvMap'
     if ($Name -eq 'CaptureConvolveSkyEnvMap') { $Current.Capture += $Ms }
-    elseif ($Name -eq 'VolumetricCloud') { $Current.Clouds += $Ms }
+    elseif ($Name -eq 'VolumetricCloud' -or $Name -eq 'DreamSky.Clouds') { $Current.Clouds += $Ms }
     elseif ($Name -eq 'VolumetricCloudShadow') { $Current.Shadow += $Ms }
     elseif ($Name -match 'SM_SkySphere' -and -not $InCapture) { $Current.Dome += $Ms }
 }

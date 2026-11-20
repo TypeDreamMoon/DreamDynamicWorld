@@ -26,6 +26,11 @@ enum class EDreamSkyClouds : uint8
 	Toon UMETA(DisplayName = "Toon (sky dome)"),
 	/** The engine's volumetric cloud layer with the plugin's cloud material: soft, lit by scattering, casting shadows. */
 	Volumetric UMETA(DisplayName = "Volumetric (engine)"),
+	/**
+	 * The plugin's own cloud renderer: a compute pass per view marches the cloud layer at reduced resolution, filters it
+	 * over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
+	 */
+	Rendered UMETA(DisplayName = "Rendered (sky cloud renderer)"),
 };
 
 /**

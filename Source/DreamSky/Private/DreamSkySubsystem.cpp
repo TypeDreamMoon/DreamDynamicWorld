@@ -171,12 +171,12 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->ApplyLighting(Applied, *Style, bSnap);
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->ApplyClouds(*Style);
-	WriteParameters(Clock, *Style, Sky->GetEffectiveClouds() == EDreamSkyClouds::Volumetric);
+	WriteParameters(Clock, *Style, Sky->GetEffectiveClouds() != EDreamSkyClouds::Toon);
 	LogLighting(Clock);
 	Applied = Eased;
 }
 
-void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bVolumetricClouds)
+void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bCloudsElsewhere)
 {
 	using namespace DreamSky::Names;
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
@@ -204,7 +204,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));
 	// w: 1 while the engine's volumetric clouds draw the clouds (the dome then leaves its own out).
-	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, bVolumetricClouds ? 1.0f : 0.0f));
+	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, bCloudsElsewhere ? 1.0f : 0.0f));
 	Clock.SetVectorParameter(MPC_SkyExtra, FLinearColor(Style.CloudSkyTint, Style.CloudSunGlow, Style.SunDiskInSkyLight, Applied.FlashGain));
 	Clock.SetVectorParameter(MPC_SkyHaze, Look.Haze);
 
