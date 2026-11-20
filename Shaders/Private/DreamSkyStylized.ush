@@ -370,7 +370,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 
 	const float MaxDist = 9000000.0;
 	const float DetailEnd = 6000000.0;
-	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 21 more), and
+	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 27 more), and
 	// how long its schedule is: half as long, so that where cloud may be it can take its fine steps all the way.
 	const int Steps = 80;
 	const float Schedule = 36.0;
@@ -410,6 +410,8 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	//              of the cloud the ray goes through there
 	//   7 done
 	const float3 Ld = normalize(LightDir + float3(0.0, 0.0, 0.08));
+	// A cover closing into a deck: its cumulus spread and merge, one flat base seen from below.
+	const float Merging = smoothstep(0.55, 0.85, Cloud0.x);
 	int Phase = 0;
 	int Index = 0;
 	float Next = T0;
@@ -443,6 +445,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	float Travelled = 0.0;
 	float Sliver = 0.0;
 	float Behind = 1.0;   // the signed shape at the first of those samples: how far the cloud goes on behind its surface
+	float Within = 1.0;   // and at the second, further in
 	[loop]
 	for (int It = 0; It < Steps + Skims && Phase == 0; ++It)
 	{
@@ -520,8 +523,11 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			}
 		}
 	}
+	// (As many as the longest way through takes -- refined, the closest approach searched, refined again, the normal, the
+	// shadow and the two samples behind the surface: 27. With fewer, the rays that needed the most steps to find their
+	// surface lost the last samples, in bands across the sky that followed how many each took.)
 	[loop]
-	for (int It2 = 0; It2 < 24 && Phase < 7; ++It2)
+	for (int It2 = 0; It2 < 28 && Phase < 7; ++It2)
 	{
 		// Where to look.
 		float3 P;
@@ -549,6 +555,13 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		else
 		{
 			P = Surface + V * (max(30000.0, SurfaceT * 0.01) * float(1 + 2 * Index));
+			// (Under merging cumulus, straight up from the surface to 250 and 500 m over the layer's base: how solid the
+			// cloud is there goes by where it stands, not by the few metres the surface's refining is off by -- along
+			// the ray, where it also goes by the height, those came out as fine diagonal stripes.)
+			if (Here.Deck <= 0.05 && Here.Column <= 600000.0)
+			{
+				P = float3(Surface.xy, Surface.z + 25000.0 * float(1 + Index) - Here.Z);
+			}
 		}
 
 		FDSkyCloudSample S = DSky_CloudAt(P, F, true, Anchor, MapParams, Map, MapSampler, Noise, NoiseSampler, 0.0);
@@ -664,7 +677,9 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 			Travelled = Along;
 			if (++Index >= 4)
 			{
-				Phase = (Here.Deck > 0.05 || Here.Column > 600000.0) ? 6 : 7;
+				// (And under the merging cumulus of a closing cover: how solid the cloud is just over its flat base tells
+				// its thick parts from its thin ones, below.)
+				Phase = (Here.Deck > 0.05 || Here.Column > 600000.0 || (Merging > 0.0 && N.z < -0.3)) ? 6 : 7;
 				Index = 0;
 			}
 		}
@@ -672,6 +687,7 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 		{
 			Sliver += 0.5 * smoothstep(F.Iso - 0.08, F.Iso + 0.08, S.Signed);
 			Behind = Index == 0 ? S.Signed : Behind;
+			Within = Index == 1 ? S.Signed : Within;
 			if (++Index >= 2)
 			{
 				Phase = 7;
@@ -758,11 +774,17 @@ float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1
 	// anvil's underside feathers out instead of ending in a hard arc across the sky.
 	float Anvil = smoothstep(500000.0, 900000.0, Here.Column) * smoothstep(0.55, 0.75, Here.Height) * smoothstep(-0.2, -0.5, NForm.z);
 	float Flank = smoothstep(0.05, 0.4, 1.0 + NForm.z);
+	// The merging cumulus of a closing cover are one flat base from below, as thick as their type everywhere: there the
+	// thin is where the cloud is weak over the base (how solid it is some way in), lighter in patches -- the
+	// stratocumulus' thick and thin cells -- not one flat grey. (Laid on the tone after the steps below: put into their
+	// input, it lifted the underside onto a step's slope, where any slight unevenness is sharpened.)
+	float Weak = Merging * (1.0 - Here.Deck) * (1.0 - smoothstep(F.Iso, 0.6, Within));
 	// (A storm's underside is heavy: its lightest is well short of the half tone.)
 	float Glow = saturate((0.45 * Gap + 0.45 * Flank + 0.3 * saturate((dot(NForm, Ld) + 0.45) / 0.6) * SunLit) * lerp(1.0, 0.65, Deep)
 		+ 0.5 * (1.0 - Sliver) * Anvil);
 	float3 Underside = lerp(Shadow * float3(0.62, 0.64, 0.7), Shadow, smoothstep(0.05, 0.35, Glow));
 	Underside = lerp(Underside, Half, smoothstep(0.45, 0.8, Glow));
+	Underside = lerp(Underside, max(Underside, Shadow), Weak);
 	Color = lerp(Color, Underside, smoothstep(-0.25, -0.65, NForm.z) * (1.0 - smoothstep(0.35, 0.6, Light)));
 	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. Its upper side, seen from above, is
 	// a sea of cloud in the sun, from the half tone to the lit white -- only from above: from below, the walls of a hole
