@@ -27,6 +27,7 @@ public class DreamCloud : ModuleRules
 			"StaticMeshDescription",
 			"RenderCore",
 			"RHI",
+			"Renderer",
 		});
 	}
 }

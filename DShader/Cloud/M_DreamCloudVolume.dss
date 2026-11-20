@@ -4,15 +4,18 @@
 // The volume draws the engine's unit cube stretched over the field's box; only its back faces draw (the front ones
 // return nothing), with the depth test off, so the cloud shows whether the view is outside the box or in it, and scene
 // geometry inside the box cuts the march where the scene depth says (the cloud thins out over SoftContact before it).
-// The march is DreamCloudMarch.ush (big skips through clear air by the field's distance, fine steps where there may be
-// cloud); the light DreamCloudLight.ush. The sun, the sky light and the toon colours come from the plugin's shared
-// parameter collection, like the sky's, so a cloud volume is lit as the sky's clouds are. The component sets the
-// field and its box (FieldBox = size in cm, texel size) and its appearance per volume.
+// The drawing is /Plugin/DreamDynamicWorld/Private/DreamCloudVolume.ush, on the shared march (DreamCloudMarch.ush: big
+// skips through clear air by the field's distance, fine steps where there may be cloud) and light (DreamCloudLight.ush).
+// The sun, the sky light and the toon colours come from the plugin's shared parameter collection, like the sky's, so a
+// cloud volume is lit as the sky's clouds are. The component sets the field and its box (FieldBox = size in cm, texel
+// size), its light map (the transmittance toward the light, drawn by a compute shader), what carvers cut out of it, and
+// its appearance.
 //
-// Looks: 0 realistic (a participating medium: the sunlight through the cloud's own shadow toward the sun, scattered
-// forward and back, several times inside; the sky light falling off toward the base), 1 toon (the field's surface,
-// refined, painted in three tones by a normal taken at the lobes' scale, the silhouette antialiased by how near the ray
-// passed), 2 painted (the realistic volume with its light put in the toon tones).
+// Looks: 0 realistic (a participating medium: the sunlight through the cloud's own shadow, scattered forward and back,
+// several times inside; the sky light falling off toward the base), 1 toon (the field's surface, refined, painted in
+// three tones by a normal taken at the lobes' scale, the silhouette antialiased by how near the ray passed; a view
+// inside the cloud sees it as a fog), 2 painted (a denser volume with its light put in the toon tones and a silver
+// lining against the sun).
 #pragma material(ShadingModel = Unlit, BlendMode = AlphaComposite, TwoSided = true, bDisableDepthTest = true, bUseTranslucencyVertexFog = false, bComputeFogPerPixel = true, TranslucencyPass = BeforeDOF)
 
 /// The volume's baked field (the component sets it).
@@ -32,11 +35,11 @@ uniform float EdgeSoftness = 50.0;
 /// @group Appearance   @sort 10   @slider 0 2   @desc 0 realistic, 1 toon, 2 painted
 uniform float Look = 0.0;
 
-/// @group Appearance   @sort 20   @slider 0.001 2   @desc Extinction at full density, per metre
-uniform float Extinction = 0.5;
+/// @group Appearance   @sort 20   @slider 0.01 5   @desc Extinction at full density, per metre
+uniform float Extinction = 1.5;
 
 /// @group Appearance   @sort 30   @slider 0 4   @desc Multiplies the sunlight scattered
-uniform float SunStrength = 1.5;
+uniform float SunStrength = 2.0;
 
 /// @group Appearance   @sort 40   @slider 0 4   @desc Multiplies the sky light scattered
 uniform float AmbientStrength = 1.0;
@@ -57,7 +60,7 @@ uniform float ToneSoftness = 0.03;
 uniform float SoftContact = 150.0;
 
 /// @group Noise   @sort 10   @slider 10 20000   @desc The size of the eroding noise (cm a tile)
-uniform float NoiseScale = 3000.0;
+uniform float NoiseScale = 1500.0;
 
 /// @group Noise   @sort 20   @slider 0 2000   @desc How deep the noise eats into the cloud (cm)
 uniform float NoiseErosion = 250.0;
@@ -67,6 +70,28 @@ uniform float4 NoiseDrift = float4(20.0, 0.0, 5.0, 0.0);
 
 /// @group Quality   @sort 10   @slider 0.25 4   @desc Multiplies the fine step (half a texel at 1)
 uniform float StepScale = 1.0;
+
+/// @group Quality   @sort 20   @slider 0 1   @desc 1 once the volume's light map has been drawn (the component sets it)
+uniform float LightMapValid = 0.0;
+
+/// The transmittance toward the light over the field's box (the component draws it).
+/// @group Quality   @sort 30
+/// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
+uniform VolumeTexture LightMap;
+
+/// @group Carving   @sort 10   @slider 0 1   @desc 1 while carvers have cut into the volume (the component sets it)
+uniform float HolesValid = 0.0;
+
+/// What carvers cut out over the field's box (the component sets it).
+/// @group Carving   @sort 20
+/// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
+uniform VolumeTexture Holes;
+
+/// @group Carving   @sort 30   @slider 0 1   @desc How ragged the passages' walls are
+uniform float HoleEdgeNoise = 0.35;
+
+/// @group Appearance   @sort 100   @slider 50 5000   @desc Toon: how far into the cloud a view inside it sees (cm)
+uniform float InsideFog = 600.0;
 
 /// The 3D noise the edges are eroded with (the sky's clouds' noise).
 /// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
@@ -79,35 +104,26 @@ float4 DreamCloudVolume_Shade(float3 CamL, float3 PixL, float WorldLen, float Pi
 	float4 MainLight, float4 MainLightColor, float4 AmbientSky, float4 AmbientGround, float4 CloudLit, float4 CloudShadow,
 	float4 Box, float InflateW, float EdgeW, float LookMode, float Sigma, float SunMul, float AmbMul, float4 LitMul,
 	float4 ShadeMul, float LobeW, float Softness, float Contact, float NoiseW, float ErodeW, float4 Drift, float StepMul,
-	VolumeTexture Field, VolumeTexture Noise)
+	float LightValid, float HolesOn, float HoleNoise, float FogW,
+	VolumeTexture Field, VolumeTexture Noise, VolumeTexture LightMap, VolumeTexture Holes)
 {
-	#include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
-	#include "/Plugin/DreamDynamicWorld/Private/DreamCloudLight.ush"
+	#include "/Plugin/DreamDynamicWorld/Private/DreamCloudVolume.ush"
 
 	// The shape's space (cm, the field's box centred at its origin): the cube's local space (-50..50) stretched by the box.
 	float3 K = Box.xyz / 100.0;
-	float3 Half = 0.5 * Box.xyz;
 	float3 Cam = CamL * K;
 	float3 Through = PixL * K - Cam;
 	float LenM = max(length(Through), 1.0e-3);
 	float3 Dir = Through / LenM;
 	float CmPerUnit = WorldLen / LenM;                  // world cm per cm of the shape's space along the view ray
 	float PixelAngle = length(fwidth(Dir));             // (before any branch: derivatives)
-	// The lengths the component gives in world cm, in the shape's space (the box's mean scale: a volume scaled up keeps
-	// its noise, edges and lobes the same size in the world, and gains more of them).
-	float ScaleW = max((length(AxisX) / K.x + length(AxisY) / K.y + length(AxisZ) / K.z) / 3.0, 1.0e-4);
-	float InflateM = InflateW / ScaleW;
-	float Edge = max(EdgeW / ScaleW, 1.0e-3);
-	float ErodeDepth = ErodeW / ScaleW;
-	float Lobe = LobeW / ScaleW;
-	float NoiseSize = max(NoiseW / ScaleW, 1.0e-3);
 
 	// Only the back faces draw: the front ones would draw the cloud a second time.
 	if (Face > 0.0)
 	{
 		return float4(0.0, 0.0, 0.0, 0.0);
 	}
-	float2 Seg = DCM_BoxSegment(Cam, Dir, Half);
+	float2 Seg = DCM_BoxSegment(Cam, Dir, 0.5 * Box.xyz);
 	float T0 = max(Seg.x, 0.0);
 	float TScene = LenM * SceneDepth / max(PixelDepth, 1.0e-3);
 	float T1 = min(Seg.y, TScene);
@@ -116,131 +132,41 @@ float4 DreamCloudVolume_Shade(float3 CamL, float3 PixL, float WorldLen, float Pi
 		return float4(0.0, 0.0, 0.0, 0.0);
 	}
 
-	float Texel = max(Box.w, 1.0e-3);
-	float Fine = 0.5 * Texel * max(StepMul, 0.1);
-	FDCloudMarchParams P = DCM_DefaultParams(Fine);
-	P.SkipScale = 0.8;                                  // the field's far part is a chamfer estimate, up to some 10 % long
-	P.MaxSkip = 48.0 * Fine;
-	P.Jitter = DCM_InterleavedGradientNoise(Pixel, View.StateFrameIndex);
-	P.ExitDistance = 2.0 * Fine;
+	// The lengths the component gives in world cm, in the shape's space (the box's mean scale: a volume scaled up keeps
+	// its noise, edges and lobes the same size in the world, and gains more of them).
+	float ScaleW = max((length(AxisX) / K.x + length(AxisY) / K.y + length(AxisZ) / K.z) / 3.0, 1.0e-4);
+	FDCloudVolume V;
+	V.Box = Box.xyz;
+	V.Texel = max(Box.w, 1.0e-3);
+	V.Inflate = InflateW / ScaleW;
+	V.Edge = max(EdgeW / ScaleW, 1.0e-3);
+	V.ErodeDepth = ErodeW / ScaleW;
+	V.InvNoise = ScaleW / max(NoiseW, 1.0);
+	V.Drift = Drift.xyz * Seconds / ScaleW;
+	V.HolesOn = HolesOn;
+	V.HoleNoise = HoleNoise;
+	V.DetailNear = 4000.0 / ScaleW;
 
 	float3 LightM = LightL * K;                         // the light's direction in the shape's space
 	float LightLen = max(length(LightM), 1.0e-6);
-	float3 LDir = LightM / LightLen;
-	float CmPerUnitL = 1.0 / LightLen;
-	float3 Sun = MainLightColor.rgb * MainLight.w * SunMul;
-	float3 SkyTop = AmbientSky.rgb * AmbMul;
-	float3 SkyBottom = AmbientGround.rgb * AmbMul;
-	float3 DriftNow = Drift.xyz * Seconds / ScaleW;
-	float InvNoise = 1.0 / NoiseSize;
-	float SigmaPerUnit = Sigma * 0.01 * CmPerUnit;      // per cm of the shape's space along the view
-	float SigmaPerUnitL = Sigma * 0.01 * CmPerUnitL;    // the same toward the light
-	float Reach = 0.5 * length(Box.xyz);
-	float Cos = dot(ViewW, LightW);
-	FDCloudLightParams L = DCL_DefaultParams();
 
-	float3 LitC = CloudLit.rgb * LitMul.rgb;
-	float3 ShadeC = CloudShadow.rgb * ShadeMul.rgb;
-	float3 HalfC = lerp(ShadeC, LitC, 0.55);
+	FDCloudVolumeLook Look;
+	Look.Mode = LookMode;
+	Look.Sun = MainLightColor.rgb * MainLight.w * SunMul * LitMul.rgb;
+	Look.SkyTop = AmbientSky.rgb * AmbMul * ShadeMul.rgb;
+	Look.SkyBottom = AmbientGround.rgb * AmbMul * ShadeMul.rgb;
+	Look.Lit = CloudLit.rgb * LitMul.rgb;
+	Look.Shade = CloudShadow.rgb * ShadeMul.rgb;
+	Look.Half = lerp(Look.Shade, Look.Lit, 0.55);
+	Look.Softness = Softness;
+	Look.Lobe = LobeW / ScaleW;
+	Look.InsideFog = FogW / ScaleW;
+	Look.Contact = Contact;
 
-	if (LookMode < 0.5 || LookMode > 1.5)
-	{
-		// Realistic / painted: integrate the medium.
-		FDCloudMarch M = DCM_Begin(T0, T1, P);
-		for (int i = 0; i < 256 && DCM_Running(M); ++i)
-		{
-			float3 X = Cam + Dir * M.T;
-			float D = DCM_SampleDistance(Field, FieldSampler, X, Box.xyz);
-			float Erode = 0.0;
-			float Billow = 1.0;
-			if (D - InflateM < 2.0 * Fine)
-			{
-				float4 N = Noise.SampleLevel(NoiseSampler, (X + DriftNow) * InvNoise, 0);
-				Billow = saturate(0.55 * N.g + 0.3 * N.b + 0.15 * N.a);
-				Erode = ErodeDepth * (1.0 - Billow) * lerp(0.6, 1.4, 1.0 - N.r);
-			}
-			FDCloudField F = DCM_FieldFromDistance(D, InflateM, Edge, Erode);
-			float Dt = DCM_Advance(M, F, P);
-			if (Dt > 0.0 && F.Density > 0.0)
-			{
-				// Soft contact with scene geometry inside the cloud.
-				float Density = F.Density * saturate((TScene - M.T) * CmPerUnit / max(Contact, 1.0));
-				// The light toward the sun: a few taps of the smooth field (no noise), dense near the sample.
-				float Tau = 0.0;
-				for (int s = 0; s < 6; ++s)
-				{
-					float3 Y = X + LDir * (Reach * DCL_ShadowTapT(s, 6));
-					float Ds = DCM_SampleDistance(Field, FieldSampler, Y, Box.xyz) - InflateM;
-					Tau += saturate(-Ds / max(Edge, 1.0e-3)) * Reach * DCL_ShadowTapLength(s, 6);
-				}
-				Tau *= SigmaPerUnitL;
-				float Height01 = saturate((X.z + Half.z) / Box.z);
-				float Depth01 = saturate(F.Signed / (4.0 * Edge));
-				float3 Light;
-				if (LookMode < 0.5)
-				{
-					Light = Sun * DCL_SunScatter(Tau, Cos, L) + DCL_Ambient(SkyTop, SkyBottom, Height01, Depth01, L);
-				}
-				else
-				{
-					// Painted: the light through the cloud as the key of the toon tones.
-					float Key = saturate(exp(-0.7 * Tau) * lerp(0.75, 1.0, Height01));
-					Light = DCL_ToonBands(Key, ShadeC, HalfC, LitC, 0.08, 0.0);
-				}
-				DCM_Integrate(M, Density * SigmaPerUnit, Density * SigmaPerUnit * L.Albedo * Light, Dt);
-			}
-			DCM_CheckDone(M, P);
-		}
-		return float4(M.Luminance, 1.0 - M.Transmittance);
-	}
-
-	// Toon: find the surface and paint it.
-	P.Jitter = 0.0;
-	FDCloudSurface S = DCM_SurfaceBegin(T0, T1, 6);
-	for (int j = 0; j < 192 && DCM_SurfaceRunning(S); ++j)
-	{
-		float3 X = Cam + Dir * S.M.T;
-		float D = DCM_SampleDistance(Field, FieldSampler, X, Box.xyz);
-		float Erode = 0.0;
-		if (D - InflateM < 2.0 * Fine)
-		{
-			float4 N = Noise.SampleLevel(NoiseSampler, (X + DriftNow) * InvNoise, 0);
-			Erode = ErodeDepth * (1.0 - saturate(0.55 * N.g + 0.3 * N.b + 0.15 * N.a)) * lerp(0.6, 1.4, 1.0 - N.r);
-		}
-		DCM_SurfaceAdvance(S, DCM_FieldFromDistance(D, InflateM, Edge, Erode), P);
-	}
-	float3 Hit = Cam + Dir * S.HitT;
-	// The normal at the lobes' scale: the smooth field with only the coarse noise, sampled LobeScale around the hit.
-	float H = max(Lobe, Texel);
-	float4 Taps;
-	for (int t = 0; t < 4; ++t)
-	{
-		float3 Y = Hit + DCL_Tetra(t) * (0.577 * H);
-		float Dtap = DCM_SampleDistance(Field, FieldSampler, Y, Box.xyz);
-		float Coarse = Noise.SampleLevel(NoiseSampler, (Y + DriftNow) * (0.25 * InvNoise), 0).r;
-		Taps[t] = -(Dtap - InflateM) - ErodeDepth * (1.0 - Coarse);
-	}
-	float3 Nm = DCL_TetraNormal(Taps);
-	// To the world: the gradient goes through the inverse transpose of the box-to-world transform (no shear).
-	float3 Gk = Nm * K;
-	float3 Nw = normalize(AxisX * (Gk.x / max(dot(AxisX, AxisX), 1.0e-8)) + AxisY * (Gk.y / max(dot(AxisY, AxisY), 1.0e-8)) + AxisZ * (Gk.z / max(dot(AxisZ, AxisZ), 1.0e-8)));
-	// Its own shadow: how much cloud lies toward the light beyond a lobe.
-	float Occlusion = 0.0;
-	for (int u = 0; u < 4; ++u)
-	{
-		float3 Y = Hit + LDir * (H * (1.0 + 2.0 * float(u)));
-		float Du = DCM_SampleDistance(Field, FieldSampler, Y, Box.xyz) - InflateM;
-		Occlusion += saturate(-Du / max(H, 1.0e-3)) * 0.4;
-	}
-	FDCloudToonParams TP = DCL_DefaultToonParams();
-	float Key = DCL_ToonKey(Nw, LightW, 1.0 - saturate(Occlusion), TP);
-	// How far the key changes over a pixel: about once over a lobe.
-	float Footprint = PixelAngle * S.HitT / H;
-	float3 Color = DCL_ToonBands(Key, ShadeC, HalfC, LitC, Softness, 0.5 * Footprint);
-	float Coverage = S.bHit ? 1.0 : DCM_EdgeCoverage(S.Closest, PixelAngle * S.ClosestT + 1.0e-3);
-	// A grazing miss draws the rim of the lit tone (it is the cloud's outline).
-	Color = S.bHit ? Color : lerp(HalfC, LitC, 0.5);
-	return float4(Color * Coverage, Coverage);
+	float Jitter = DCM_InterleavedGradientNoise(Pixel, View.StateFrameIndex);
+	return DCV_Shade(V, Look, Cam, Dir, T0, T1, TScene, CmPerUnit, LightM / LightLen, 1.0 / LightLen, LightW, ViewW,
+		AxisX, AxisY, AxisZ, K, Sigma, StepMul, Jitter, PixelAngle, LightValid,
+		Field, FieldSampler, Noise, NoiseSampler, Holes, HolesSampler, LightMap, LightMapSampler);
 }
 
 export void M_DreamCloudVolume(inout material m)
@@ -266,7 +192,8 @@ export void M_DreamCloudVolume(inout material m)
 		UE.ScreenPosition().PixelPosition, UE.Time(), -UE.CameraVectorWS(), LightW, LightL, AxisX, AxisY, AxisZ,
 		MainLight, MainLightColor, AmbientSky, AmbientGround, CloudLit, CloudShadow,
 		FieldBox, Inflate, EdgeSoftness, Look, Extinction, SunStrength, AmbientStrength, LitTint, ShadeTint,
-		LobeScale, ToneSoftness, SoftContact, NoiseScale, NoiseErosion, NoiseDrift, StepScale, Field, CloudNoise);
+		LobeScale, ToneSoftness, SoftContact, NoiseScale, NoiseErosion, NoiseDrift, StepScale,
+		LightMapValid, HolesValid, HoleEdgeNoise, InsideFog, Field, CloudNoise, LightMap, Holes);
 	m.EmissiveColor = C.rgb;
 	m.Opacity = C.a;
 }

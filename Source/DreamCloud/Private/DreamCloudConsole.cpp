@@ -1,11 +1,15 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// Console commands for trying cloud volumes out in a running game (and from DreamWorld.Script files):
+// Console commands for trying cloud volumes out in a running game (and from DreamWorld.Script files); the quality
+// level is DreamCloud.Quality (DreamCloudSubsystem.cpp):
 //   DreamCloud.Spawn <look> <shape> <x> <y> <z> [size cm]
 //   DreamCloud.Set <property> <value> [name filter]
-//   DreamCloud.Clear
+//   DreamCloud.Clear, DreamCloud.Dump, DreamCloud.CarveView <radius>
 
+#include "DreamCloudCarverComponent.h"
 #include "DreamCloudModule.h"
+#include "DreamCloudSubsystem.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "DreamCloudVolume.h"
 #include "DreamCloudVolumeComponent.h"
 
@@ -117,9 +121,21 @@ namespace DreamCloud::Console
 			UE_LOG(LogDreamCloud, Display, TEXT("DreamCloud.Spawn: %s %s at %s, field %s"), *Args[0], *Shape, *At.ToString(), *Cloud->Field.Resolution.ToString());
 		}));
 
+	/** Whether an actor's name (or, in the editor, its label) contains the filter. */
+	static bool NameMatches(const AActor& Actor, const FString& Filter)
+	{
+#if WITH_EDITOR
+		if (Actor.GetActorLabel().Contains(Filter))
+		{
+			return true;
+		}
+#endif
+		return Actor.GetName().Contains(Filter);
+	}
+
 	static FAutoConsoleCommandWithWorldAndArgs SetCommand(
 		TEXT("DreamCloud.Set"),
-		TEXT("DreamCloud.Set <property> <value> [name filter]: sets a property of every cloud volume (or those whose actor name contains the filter),")
+		TEXT("DreamCloud.Set <property> <value> [name filter]: sets a property of every cloud volume (or those whose actor name or label contains the filter),")
 		TEXT(" as the editor would (text form: 0.1, (R=1,G=0.5,B=0.5,A=1), Toon), and bakes again when the shape changed."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
@@ -137,7 +153,7 @@ namespace DreamCloud::Console
 			int32 Count = 0;
 			for (TActorIterator<ADreamCloudVolume> It(World); It; ++It)
 			{
-				if (Args.IsValidIndex(2) && !It->GetName().Contains(Args[2]))
+				if (Args.IsValidIndex(2) && !NameMatches(**It, Args[2]))
 				{
 					continue;
 				}
@@ -151,6 +167,7 @@ namespace DreamCloud::Console
 				{
 					Cloud->Rebake();
 				}
+				Cloud->MarkRenderStateDirty();
 				Cloud->UpdateCloudMaterial();
 				++Count;
 			}
@@ -170,6 +187,39 @@ namespace DreamCloud::Console
 			{
 				It->Destroy();
 			}
+		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs CarveViewCommand(
+		TEXT("DreamCloud.CarveView"),
+		TEXT("DreamCloud.CarveView <radius cm, 0 = stop>: the view (the player's pawn, or the camera it looks through) carves the clouds it passes through."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+			// The actor the view moves with: what the player controller looks through (a camera actor, its pawn).
+			AActor* Carrier = PC ? (PC->GetViewTarget() ? PC->GetViewTarget() : static_cast<AActor*>(PC->GetPawn())) : nullptr;
+			if (!Carrier)
+			{
+				UE_LOG(LogDreamCloud, Warning, TEXT("DreamCloud.CarveView: no view"));
+				return;
+			}
+			const float Radius = Args.IsValidIndex(0) ? FCString::Atof(*Args[0]) : 200.0f;
+			UDreamCloudCarverComponent* Carver = Carrier->FindComponentByClass<UDreamCloudCarverComponent>();
+			if (Radius <= 0.0f)
+			{
+				if (Carver)
+				{
+					Carver->DestroyComponent();
+				}
+				return;
+			}
+			if (!Carver)
+			{
+				Carver = NewObject<UDreamCloudCarverComponent>(Carrier, TEXT("ViewCarver"), RF_Transient);
+				Carver->SetupAttachment(Carrier->GetRootComponent());
+				Carver->RegisterComponent();
+			}
+			Carver->Radius = Radius;
+			UE_LOG(LogDreamCloud, Display, TEXT("DreamCloud.CarveView: %s carves %.0f cm"), *Carrier->GetName(), Radius);
 		}));
 }
 
@@ -197,6 +247,19 @@ namespace DreamCloud::Console
 					*It->GetName(), *Cloud->GetComponentScale().ToString(), *Cloud->Field.Resolution.ToString(), *Cloud->Field.Center.ToString(),
 					*Cloud->Field.Size.ToString(), *Render.GetOrigin().ToString(), *Render.GetScaleVector().ToString(), *Cloud->Bounds.BoxExtent.ToString(),
 					*Box.ToString(), Cloud->GetMaterial(0) ? *Cloud->GetMaterial(0)->GetName() : TEXT("none"));
+				const UDreamCloudSubsystem* Clouds = World->GetSubsystem<UDreamCloudSubsystem>();
+				const FVector LightW = Clouds ? Clouds->GetLightDirection() : FVector::UpVector;
+				const UDreamCloudVolumeComponent::FLightState Light = Cloud->GetLightState(LightW);
+				float Valid = -1.0f;
+				if (UMaterialInstanceDynamic* Material = Cloud->GetCloudMaterial())
+				{
+					Material->GetScalarParameterValue(FHashedMaterialParameterInfo(TEXT("LightMapValid")), Valid);
+				}
+				const UTextureRenderTargetVolume* Map = Cloud->GetLightMap();
+				UE_LOG(LogDreamCloud, Display, TEXT("%s: light %s (in the shape %s, sigma %.6f/cm), light map %s %dx%dx%d after %d updates, valid %.0f; carving %.3f at its middle"),
+					*It->GetName(), *LightW.ToString(), *Light.Direction.ToString(), Light.SigmaPerUnit, Map ? *Map->GetName() : TEXT("none"),
+					Map ? Map->SizeX : 0, Map ? Map->SizeY : 0, Map ? Map->SizeZ : 0, Cloud->GetLightMapUpdates(), Valid,
+					Cloud->GetCarving(Cloud->Bounds.Origin));
 			}
 		}));
 }

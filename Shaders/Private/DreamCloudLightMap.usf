@@ -1,0 +1,54 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// A cloud volume's light map: for each texel of a small grid over the field's box, the transmittance toward the light
+// (sun or moon) from the texel's centre to where the ray leaves the box, through the smooth shape (the field, grown by
+// Inflate, its density rising over Edge) less what has been carved out of it. The volume's material reads it instead of
+// marching toward the light from every sample. All in the shape's space (cm, the box centred at its origin).
+// DreamCloudLighting.cpp computes the same on the CPU (ComputeTransmittance), and the tests hold the two formulas alike.
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
+
+float3 BoxSize;          // the field's box (cm)
+float Inflate;           // cm
+float3 LightDir;         // toward the light, unit, the shape's space
+float Edge;              // cm
+float SigmaPerUnit;      // extinction per cm of the shape's space toward the light
+float HolesValid;        // 1 when Holes holds carving
+uint Steps;
+int3 Resolution;
+Texture3D Field;
+SamplerState FieldSampler;
+Texture3D Holes;
+SamplerState HolesSampler;
+RWTexture3D<float> OutLight;
+
+float DensityAt(float3 P)
+{
+	float D = DCM_SampleDistance(Field, FieldSampler, P, BoxSize) - Inflate;
+	float Density = saturate(-D / max(Edge, 1.0e-3));
+	if (HolesValid > 0.5)
+	{
+		float Carve = Holes.SampleLevel(HolesSampler, saturate(P / BoxSize + 0.5), 0).r;
+		Density *= 1.0 - smoothstep(0.35, 0.65, Carve);
+	}
+	return Density;
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void MainCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(Id >= uint3(Resolution)))
+	{
+		return;
+	}
+	float3 P = (float3(Id) + 0.5) / float3(Resolution) * BoxSize - 0.5 * BoxSize;
+	float Exit = max(DCM_BoxSegment(P, LightDir, 0.5 * BoxSize).y, 0.0);
+	float Dt = Exit / float(max(Steps, 1u));
+	float Tau = 0.0;
+	for (uint i = 0; i < Steps; ++i)
+	{
+		Tau += DensityAt(P + LightDir * ((float(i) + 0.5) * Dt));
+	}
+	OutLight[Id] = exp(-Tau * Dt * SigmaPerUnit);
+}
