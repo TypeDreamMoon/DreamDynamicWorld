@@ -27,7 +27,9 @@
 //   SkipScale        how much of the bound a skip trusts: 1 for an exact distance, ~0.8 for a trilinear one
 //   ExitDistance     a fine walk returns to skipping when Distance exceeds this (> FineStep: hysteresis)
 //   BackOff          1: on entering, go back to the last clear sample and walk fine from there (bounds that may
-//                    have been overstepped); 0: go back at most one fine step
+//                    have been overstepped; a long way back is halved first, to within two fine steps of where cloud
+//                    may begin); 0: go back at most one fine step. Either way the walk does not return to skipping
+//                    before it has passed the sample that made it enter.
 //   Jitter           0..1, the per-pixel offset of the fine samples within a step (DCM_InterleavedGradientNoise or
 //                    a blue noise texture, varied per frame for a temporal filter); 0 = the same samples every frame
 //   MinTransmittance a volume march stops when the view sees less than this through it
@@ -98,6 +100,7 @@ FDCloudMarchParams DCM_DefaultParams(float FineStep)
 #define DCM_MODE_SKIP 0
 #define DCM_MODE_FINE 1
 #define DCM_MODE_DONE 2
+#define DCM_MODE_SEEK 3  // backing off: halving LastEmpty..Entered toward where cloud may begin
 
 struct FDCloudMarch
 {
@@ -105,6 +108,7 @@ struct FDCloudMarch
 	float T0;            // the segment marched
 	float T1;
 	float LastEmpty;     // the last sample that was clear
+	float Entered;       // the first sample known to be where cloud may be: a fine walk does not leave before passing it
 	int Mode;            // DCM_MODE_*
 	float Transmittance; // how much of what is behind the view still sees
 	float3 Luminance;    // what the cloud adds in front of it (premultiplied)
@@ -121,6 +125,7 @@ FDCloudMarch DCM_Begin(float T0, float T1, FDCloudMarchParams P)
 	M.T0 = T0;
 	M.T1 = T1;
 	M.LastEmpty = T0;
+	M.Entered = T0;
 	M.Mode = T1 > T0 ? DCM_MODE_SKIP : DCM_MODE_DONE;
 	M.Transmittance = 1.0;
 	M.Luminance = 0.0;
@@ -136,13 +141,41 @@ bool DCM_Running(FDCloudMarch M)
 	return M.Mode != DCM_MODE_DONE;
 }
 
+// Starts the fine walk from Back (clear air), offset by the jitter so the fine samples do not stand where the skips or
+// the halvings happened to land.
+void DCM_WalkFrom(inout FDCloudMarch M, float Back, FDCloudMarchParams P)
+{
+	M.Mode = DCM_MODE_FINE;
+	M.T = max(Back, M.T0) + P.Jitter * P.FineStep;
+}
+
 // Moves the march past the sample just taken at M.T, whose field was F. Returns the length of the ray the sample
-// stands for (a fine sample: its step, the last one cut at T1), or 0 when it does not count (clear air skipped, or the
-// sample thrown away on entering because the walk restarts behind it).
+// stands for (a fine sample: its step, the last one cut at T1), or 0 when it does not count (clear air skipped, a
+// back-off halving, or the sample thrown away on entering because the walk restarts behind it).
 float DCM_Advance(inout FDCloudMarch M, FDCloudField F, FDCloudMarchParams P)
 {
 	if (M.Mode == DCM_MODE_DONE)
 	{
+		return 0.0;
+	}
+	if (M.Mode == DCM_MODE_SEEK)
+	{
+		if (F.Distance > P.FineStep)
+		{
+			M.LastEmpty = M.T;
+		}
+		else
+		{
+			M.Entered = M.T;
+		}
+		if (M.Entered - M.LastEmpty > 2.0 * P.FineStep)
+		{
+			M.T = 0.5 * (M.LastEmpty + M.Entered);
+		}
+		else
+		{
+			DCM_WalkFrom(M, M.LastEmpty, P);
+		}
 		return 0.0;
 	}
 	if (M.Mode == DCM_MODE_SKIP)
@@ -157,17 +190,28 @@ float DCM_Advance(inout FDCloudMarch M, FDCloudField F, FDCloudMarchParams P)
 			}
 			return 0.0;
 		}
-		// There may be cloud here: walk fine from behind this sample (the last clear one, or one step back), offset by the
-		// jitter, so the fine samples do not stand where the skips happened to land.
-		float Back = P.BackOff > 0.5 ? M.LastEmpty : max(M.T - P.FineStep, M.T0);
-		M.Mode = DCM_MODE_FINE;
-		M.T = max(Back, M.T0) + P.Jitter * P.FineStep;
+		// There may be cloud here: walk fine from behind this sample. Backing off, from the last clear one; when that lies
+		// more than two steps back, halve the way first toward where cloud may begin (to within two steps), rather than
+		// walk all of a long skip fine again -- the samples that cost came off the rest of the ray.
+		M.Entered = M.T;
+		if (P.BackOff > 0.5 && M.T - M.LastEmpty > 2.0 * P.FineStep)
+		{
+			M.Mode = DCM_MODE_SEEK;
+			M.T = 0.5 * (M.LastEmpty + M.Entered);
+			return 0.0;
+		}
+		DCM_WalkFrom(M, P.BackOff > 0.5 ? M.LastEmpty : M.T - P.FineStep, P);
 		return 0.0;
 	}
 	// Fine: this sample stands for one step (centred on it), the last cut at the segment's end.
 	float Dt = min(P.FineStep, M.T1 - M.T + 0.5 * P.FineStep);
 	M.Samples += 1;
-	if (F.Distance > P.ExitDistance)
+	// Back to skipping once out of the cloud, but not before passing the sample that started the walk: the walk
+	// restarts behind it, where the air was clear, and leaving there would skip back to it, restart behind it again and
+	// creep toward the cloud a jitter's fraction of a step at a time. That spent the samples, and it pinned the fine
+	// samples to where "may be cloud" begins instead of to the jitter: a cloud's base came out terraced in bands one
+	// step apart, parallel to its edge.
+	if (F.Distance > P.ExitDistance && M.T > M.Entered)
 	{
 		M.Mode = DCM_MODE_SKIP;
 		M.LastEmpty = M.T;
@@ -327,7 +371,8 @@ void DCM_SurfaceAdvance(inout FDCloudSurface S, FDCloudField F, FDCloudMarchPara
 		S.ClosestT = Here;
 	}
 	DCM_Advance(S.M, F, P);
-	// Only samples the walk keeps count as the last outside one (a thrown-away entry sample lies ahead of the restart).
+	// Only samples the walk keeps count as the last outside one (a thrown-away entry sample lies ahead of the restart, and
+	// a back-off halving may too).
 	if (bWasFine || S.M.Mode == DCM_MODE_SKIP)
 	{
 		S.LastT = Here;
@@ -335,7 +380,8 @@ void DCM_SurfaceAdvance(inout FDCloudSurface S, FDCloudField F, FDCloudMarchPara
 	}
 	else
 	{
-		// Entering fine: the restart point is outside (it is behind a clear sample at most one step).
+		// Entering fine (or halving toward it): the restart point is outside (it is behind a clear sample at most one
+		// step).
 		S.LastT = S.M.T;
 		S.LastSigned = min(S.LastSigned, -1.0e-6);
 	}
