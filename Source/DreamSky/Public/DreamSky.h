@@ -78,8 +78,8 @@ public:
 
 	/**
 	 * How the sky cloud renderer draws the clouds (Clouds = Rendered). The realistic and painted looks take their
-	 * settings from the volumetric cloud material below when it is of that look (else from the plugin's material of
-	 * it), with the cloud overrides over them. The console variable DreamSky.CloudRender.Look overrides it.
+	 * settings from the style (its RealisticClouds and PaintedClouds), with the cloud overrides over them. The console
+	 * variable DreamSky.CloudRender.Look overrides it.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	EDreamSkyCloudLook CloudLook = EDreamSkyCloudLook::Toon;
@@ -122,12 +122,12 @@ public:
 	float VolumetricBaseSkyOcclusion = 0.85f;
 
 	/**
-	 * How far each sample of the volumetric clouds looks toward the sun for its shadow, km (the engine's march, for a
-	 * material that marches it). Its samples crowd toward the start: shorter = finer near the cloud's surface, so the
-	 * sunlit faces stay lit; a tower's shadow on clouds further than this is left out.
+	 * How far each sample of the realistic and painted clouds looks toward the sun for its shadow, km. Its samples crowd
+	 * toward the start: shorter = finer near the cloud's surface, so the sunlit faces stay lit; a tower's shadow on
+	 * clouds further than this is left out.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.5", UIMax = "15"))
-	float VolumetricShadowTracingDistance = 6.0f;
+	float CloudShadowTracingDistance = 6.0f;
 
 	/**
 	 * Resolution of the maps the volumetric clouds are shadowed through -- the sun's cloud shadow map (their shadows
@@ -146,13 +146,12 @@ public:
 	float VolumetricShadowSamples = 0.5f;
 
 	/**
-	 * How strongly the sun's and the moon's light scatters in the volumetric clouds, relative to the engine's. Its
-	 * multiple scattering is an approximation that loses light: at 1 sunlit cloud faces come out light grey where a
-	 * real cumulus is near white. (The moon is left out of the clouds' tracing while it is dark: a second light costs a
-	 * second march toward it at every lit sample.)
+	 * How strongly the sun's and the moon's light scatters in the realistic and painted clouds. Their multiple
+	 * scattering is an approximation that loses light: at 1 sunlit cloud faces come out light grey where a real cumulus
+	 * is near white.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "5"))
-	float VolumetricSunScattering = 2.5f;
+	float CloudSunScattering = 2.5f;
 
 	/**
 	 * Trace the realistic volumetric clouds at half resolution every frame (r.VolumetricRenderTarget.Mode 1) instead of
@@ -304,14 +303,6 @@ private:
 	/** The volumetric cloud material with the material overrides set on it (null while none is ticked). */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudMaterialInstance;
-
-	/** The plugin's realistic and painted cloud materials, for the renderer's looks when VolumetricCloudMaterial is not of them. */
-	UPROPERTY(Transient)
-	mutable TObjectPtr<UMaterialInterface> RealisticCloudMaterial;
-	UPROPERTY(Transient)
-	mutable TObjectPtr<UMaterialInterface> PaintedCloudMaterial;
-	/** The material the renderer's look reads its settings from. */
-	const UMaterialInterface* GetCloudLookMaterial(bool bPainted) const;
 
 	/** The sky cloud renderer's shadow on the ground (UpdateCloudShadow). */
 	UPROPERTY(Transient)

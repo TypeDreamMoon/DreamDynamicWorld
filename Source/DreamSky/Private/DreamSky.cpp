@@ -369,60 +369,41 @@ EDreamSkyCloudLook ADreamSky::GetEffectiveCloudLook() const
 	return Override >= 0 ? EDreamSkyCloudLook(FMath::Min(Override, 2)) : CloudLook;
 }
 
-const UMaterialInterface* ADreamSky::GetCloudLookMaterial(bool bPainted) const
-{
-	using namespace DreamSky::Actor;
-	// The level's volumetric cloud material (its overrides' instance while the engine's clouds draw), when it is of
-	// this look (the painted material has a PaintGain), else the plugin's material of it.
-	const UMaterialInterface* Mine = CloudMaterialInstance ? CloudMaterialInstance.Get()
-		: (VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous());
-	float Unused = 0.0f;
-	if (Mine && Mine->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), Unused) == bPainted)
-	{
-		return Mine;
-	}
-	TObjectPtr<UMaterialInterface>& Default = bPainted ? PaintedCloudMaterial : RealisticCloudMaterial;
-	if (!Default)
-	{
-		Default = LoadObject<UMaterialInterface>(nullptr, bPainted ? PaintedCloudMaterialPath : DefaultCloudMaterialPath);
-	}
-	return Default;
-}
-
 void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 {
 	Out = FDreamSkyCloudLookParameters();
-	auto Scalar = [](const UMaterialInterface* Material, const TCHAR* Name, float& Value)
+	// The style's (with the style overrides written over it), then the level's cloud overrides below.
+	if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
 	{
-		if (Material)
-		{
-			Material->GetScalarParameterValue(FMaterialParameterInfo(Name), Value);
-		}
-	};
-	auto Vector = [](const UMaterialInterface* Material, const TCHAR* Name, FLinearColor& Value)
-	{
-		if (Material)
-		{
-			Material->GetVectorParameterValue(FMaterialParameterInfo(Name), Value);
-		}
-	};
-	const UMaterialInterface* Realistic = GetCloudLookMaterial(false);
-	Scalar(Realistic, TEXT("CloudExtinction"), Out.Extinction);
-	Scalar(Realistic, TEXT("CloudAlbedo"), Out.Albedo);
-	Scalar(Realistic, TEXT("CloudGlow"), Out.Glow);
-	Scalar(Realistic, TEXT("BaseGlow"), Out.BaseGlow);
-	Scalar(Realistic, TEXT("DeckMottle"), Out.DeckMottle);
-	Vector(Realistic, TEXT("ShadeTint"), Out.ShadeTint);
-	Scalar(Realistic, TEXT("ViewThinning"), Out.ViewThinning);
-	Scalar(Realistic, TEXT("ScatterForward"), Out.ScatterForward);
-	Scalar(Realistic, TEXT("ScatterBackward"), Out.ScatterBackward);
-	Scalar(Realistic, TEXT("ScatterBlend"), Out.ScatterBlend);
-	Scalar(Realistic, TEXT("MultiScatter"), Out.MultiScatter);
-	Scalar(Realistic, TEXT("MultiScatterOcclusion"), Out.MultiScatterOcclusion);
-	Scalar(Realistic, TEXT("MultiScatterEccentricity"), Out.MultiScatterEccentricity);
-	Scalar(Realistic, TEXT("ShadowReach"), Out.ShadowReach);
-	Out.SunScattering = VolumetricSunScattering;
-	Out.ShadowTracingDistance = VolumetricShadowTracingDistance;
+		const FDreamSkyRealisticClouds& R = Effective->RealisticClouds;
+		Out.Extinction = R.Extinction;
+		Out.Albedo = R.Albedo;
+		Out.Glow = R.Glow;
+		Out.BaseGlow = R.BaseGlow;
+		Out.DeckMottle = R.DeckMottle;
+		Out.ShadeTint = R.ShadeTint;
+		Out.ViewThinning = R.ViewThinning;
+		Out.ScatterForward = R.ScatterForward;
+		Out.ScatterBackward = R.ScatterBackward;
+		Out.ScatterBlend = R.ScatterBlend;
+		Out.MultiScatter = R.MultiScatter;
+		Out.MultiScatterOcclusion = R.MultiScatterOcclusion;
+		Out.MultiScatterEccentricity = R.MultiScatterEccentricity;
+		const FDreamSkyPaintedClouds& P = Effective->PaintedClouds;
+		Out.PaintExtinction = P.Extinction;
+		Out.PaintGain = P.PaintGain;
+		Out.EdgeSoftness = P.EdgeSoftness;
+		Out.HalfToneAt = P.HalfToneAt;
+		Out.LitToneAt = P.LitToneAt;
+		Out.ToneSoftness = P.ToneSoftness;
+		Out.SilverLining = P.SilverLining;
+		Out.BillowShade = P.BillowShade;
+		Out.PaintLitTint = P.LitTint;
+		Out.PaintShadeTint = P.ShadeTint;
+		Out.ShadowReach = Effective->CloudShadowReach;
+	}
+	Out.SunScattering = CloudSunScattering;
+	Out.ShadowTracingDistance = CloudShadowTracingDistance;
 	// (The same light the main light parameters point at: the moon while it is the brighter.)
 	const float SunLux = SunLight ? SunLight->Intensity : 0.0f;
 	const float MoonLux = MoonLight ? MoonLight->Intensity : 0.0f;
@@ -441,19 +422,7 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 	{
 		Out.FogDensity = 0.0f;
 	}
-	const UMaterialInterface* Painted = GetCloudLookMaterial(true);
-	Scalar(Painted, TEXT("CloudExtinction"), Out.PaintExtinction);
-	Scalar(Painted, TEXT("PaintGain"), Out.PaintGain);
-	Scalar(Painted, TEXT("EdgeSoftness"), Out.EdgeSoftness);
-	Scalar(Painted, TEXT("HalfToneAt"), Out.HalfToneAt);
-	Scalar(Painted, TEXT("LitToneAt"), Out.LitToneAt);
-	Scalar(Painted, TEXT("ToneSoftness"), Out.ToneSoftness);
-	Scalar(Painted, TEXT("SilverLining"), Out.SilverLining);
-	Scalar(Painted, TEXT("BillowShade"), Out.BillowShade);
-	Vector(Painted, TEXT("LitTint"), Out.PaintLitTint);
-	Vector(Painted, TEXT("ShadeTint"), Out.PaintShadeTint);
-	// The overrides, as they go on either material (FDreamSkyCloudOverrides::ApplyTo): the extinction is the one of the
-	// look in use.
+	// The level's cloud overrides: the extinction is the one of the look in use.
 	const FDreamSkyCloudOverrides& O = CloudOverrides;
 	if (O.bOverride_Extinction)
 	{
@@ -631,9 +600,9 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		{
 			VolumetricClouds->SetViewSampleCountScale(VolumetricSampleCountScale);
 		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->ShadowTracingDistance, VolumetricShadowTracingDistance, 1.0e-3f))
+		if (!FMath::IsNearlyEqual(VolumetricClouds->ShadowTracingDistance, CloudShadowTracingDistance, 1.0e-3f))
 		{
-			VolumetricClouds->SetShadowTracingDistance(VolumetricShadowTracingDistance);
+			VolumetricClouds->SetShadowTracingDistance(CloudShadowTracingDistance);
 		}
 		if (!FMath::IsNearlyEqual(VolumetricClouds->SkyLightCloudBottomOcclusion, VolumetricBaseSkyOcclusion, 1.0e-3f))
 		{
@@ -667,9 +636,9 @@ void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 		// two degrees down. Stepped, so the light is not re-made every frame through the dusk.)
 		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
 		const float SunUp = WorldClock ? FMath::SmoothStep(-2.5f, 0.5f, WorldClock->GetCelestial().SunElevation) : 1.0f;
-		const float SunScale = VolumetricSunScattering * FMath::RoundToFloat(SunUp * 20.0f) / 20.0f;
+		const float SunScale = CloudSunScattering * FMath::RoundToFloat(SunUp * 20.0f) / 20.0f;
 		const FLinearColor SunScatter(SunScale, SunScale, SunScale);
-		const FLinearColor MoonScale(VolumetricSunScattering, VolumetricSunScattering, VolumetricSunScattering);
+		const FLinearColor MoonScale(CloudSunScattering, CloudSunScattering, CloudSunScattering);
 		if (SunLight && SunLight->CloudScatteredLuminanceScale != SunScatter)
 		{
 			SunLight->CloudScatteredLuminanceScale = SunScatter;
@@ -853,8 +822,8 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricLayerThickness)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowTracingDistance)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSunScattering)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudShadowTracingDistance)
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudSunScattering)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, bVolumetricHalfResTracing))
 	{
 		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())

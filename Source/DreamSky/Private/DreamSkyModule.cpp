@@ -2,11 +2,19 @@
 
 #include "DreamSkyModule.h"
 #include "DreamWorldParameters.h"
+#include "UObject/CoreRedirects.h"
 
 DEFINE_LOG_CATEGORY(LogDreamSky);
 
 void FDreamSkyModule::StartupModule()
 {
+	// Dream Sky's settings that were named for the engine's volumetric clouds, kept by the sky cloud renderer: a level
+	// saved with the old names reads them into the new.
+	TArray<FCoreRedirect> Redirects;
+	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering"), TEXT("/Script/DreamSky.DreamSky.CloudSunScattering"));
+	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance"), TEXT("/Script/DreamSky.DreamSky.CloudShadowTracingDistance"));
+	FCoreRedirects::AddRedirectList(Redirects, TEXT("DreamSky"));
+
 	using namespace DreamSky::Names;
 	const FName Owner(TEXT("DreamSky"));
 	const FLinearColor Black(0.0f, 0.0f, 0.0f, 0.0f);

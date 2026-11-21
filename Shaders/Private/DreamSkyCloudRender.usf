@@ -88,7 +88,7 @@ float4 LookParameters[11];
 #define LP_ShadowReach          LookParameters[8].w    // cm (the realistic material's ShadowReach)
 #define LP_Fog                  LookParameters[9]      // the height fog: density, falloff (per cm), height, start distance (cm)
 #define LP_FogColor             LookParameters[10]     // its inscattering colour, its least transmittance (1 - max opacity)
-#define LP_ShadowTracing        LookParameters[7].z   // cm toward the sun a sample's shadow looks (VolumetricShadowTracingDistance)
+#define LP_ShadowTracing        LookParameters[7].z   // cm toward the sun a sample's shadow looks (CloudShadowTracingDistance)
 
 float3 CameraWorld;   // the view in the world (cm)
 float SkyDepth;       // view depth (cm) beyond which a pixel is sky
@@ -415,7 +415,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 // it, with that material's settings (LP_*: the level's material or the plugin's, the sky's overrides over them): its
 // extinction, a storm's cloud up to twice as dense; near clouds by day thinner to the eye (ViewThinning); the sunlight
 // reaching each sample through the cloud toward the sun (three taps, then the sun map), scattered by its two lobes and
-// two octaves of multiple scattering, at VolumetricSunScattering; the sky's light as its glow (CloudGlow, BaseGlow, its
+// two octaves of multiple scattering, at CloudSunScattering; the sky's light as its glow (CloudGlow, BaseGlow, its
 // shade tint, an overcast deck mottled, DeckMottle); a storm absorbing; the earth's shadow at dusk.
 // Painted (DSKY_LOOK 2): the same march at the painted material's extinction through its soft outer skin
 // (EdgeSoftness), each sample painted in the style's three tones by the light through the cloud toward the sun (the
@@ -446,7 +446,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	float Day = smoothstep(-0.12, -0.02, normalize(P_SunDir.xyz).z);
 	float Scale = max(P_Cloud0.z, 0.05);
 	// The light as the engine's clouds take it -- the light component's colour (a low sun's deep red) and illuminance --
-	// times VolumetricSunScattering; the engine material's lobes, and its multiple scattering: the single scattering and
+	// times CloudSunScattering; the engine material's lobes, and its multiple scattering: the single scattering and
 	// two octaves over it, as the engine's (with one octave the body of a cloud kilometres deep went grey: a backlit
 	// tower flat, a moonlit one dark but for its top).
 	float3 SunColor = LP_LightIlluminance * LP_SunScattering;
@@ -700,7 +700,7 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 }
 
 // One texel of a sun map cascade: from its middle toward the sun (kept 3 degrees over the horizon) to the top of the
-// tallest towers, no further than a sample's shadow looks (VolumetricShadowTracingDistance), in 16 steps growing with the
+// tallest towers, no further than a sample's shadow looks (CloudShadowTracingDistance), in 16 steps growing with the
 // distance.
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
 void SunMapCS(uint3 Id : SV_DispatchThreadID)

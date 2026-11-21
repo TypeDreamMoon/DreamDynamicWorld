@@ -262,6 +262,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float StormCloudDarkening = 0.6f;
 
+	/** The sky cloud renderer's realistic look (ADreamSky::CloudLook = Realistic). The level's cloud overrides go over it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Realistic", meta = (ShowOnlyInnerProperties))
+	FDreamSkyRealisticClouds RealisticClouds;
+
+	/** The sky cloud renderer's painted look (ADreamSky::CloudLook = Painted). The level's cloud overrides go over it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Painted", meta = (ShowOnlyInnerProperties))
+	FDreamSkyPaintedClouds PaintedClouds;
+
+	/**
+	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
+	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
+	 * out the clouds beyond it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "500000", UIMax = "20000000"))
+	float CloudShadowReach = 6000000.0f;
+
 	// ---- Scene lighting -----------------------------------------------------------------------
 
 	/** Ambient gradient = the dome's zenith / horizon / ground colours times this. */
