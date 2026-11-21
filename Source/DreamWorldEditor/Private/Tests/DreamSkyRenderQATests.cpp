@@ -378,8 +378,9 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 		const FStats B = Measure(RR, Sky);
 		const float Corr = Correlation(RT, RR, Sky);
 		AddInfo(FString::Printf(TEXT("PIE: toon vs realistic correlation %.3f"), Corr));
-		TestTrue(TEXT("PIE: the toon clouds of a cloudy sky are there, with sky between them"), A.Coverage > 0.05f && A.Coverage < 0.95f);
-		TestTrue(TEXT("PIE: the realistic clouds stand where the toon ones do"), Corr > 0.3f);
+		// (Measured: cover 0.61, correlation 0.75.)
+		TestTrue(TEXT("PIE: the toon clouds of a cloudy sky are there, with sky between them"), A.Coverage > 0.2f && A.Coverage < 0.95f);
+		TestTrue(TEXT("PIE: the realistic clouds stand where the toon ones do"), Corr > 0.5f);
 		TestTrue(TEXT("PIE: the realistic look is not noisier than the toon look by much"), B.Noise < 2.0f * A.Noise + 1.0f);
 	});
 
@@ -438,8 +439,9 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 		const FStats B = Measure(RR, R);
 		const float Corr = Correlation(RT, RR, R);
 		AddInfo(FString::Printf(TEXT("mirror: toon vs realistic correlation %.3f"), Corr));
-		TestTrue(TEXT("mirror: the reflection varies (clouds in it, not a flat sky colour)"), A.Deviation > 2.0f && B.Deviation > 2.0f);
-		TestTrue(TEXT("mirror: the same clouds in either look"), Corr > 0.3f);
+		// (Measured: deviation 25 and 21, correlation 0.83.)
+		TestTrue(TEXT("mirror: the reflection varies (clouds in it, not a flat sky colour)"), A.Deviation > 8.0f && B.Deviation > 8.0f);
+		TestTrue(TEXT("mirror: the same clouds in either look"), Corr > 0.5f);
 		if (State->Sphere.IsValid())
 		{
 			State->Sphere->Destroy();
@@ -484,7 +486,8 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 			const FIntRect Sky = SkyOf(RT, View * Half, Half);
 			const FStats A = Measure(RT, Sky);
 			AddInfo(FString::Printf(TEXT("split view %d: %s | the single view: %s"), View, *Describe(A), *Describe(Whole)));
-			TestTrue(FString::Printf(TEXT("split view %d: the clouds are there"), View), A.Coverage > 0.02f);
+			// (Measured: cover 0.60 and 0.44.)
+			TestTrue(FString::Printf(TEXT("split view %d: the clouds are there"), View), A.Coverage > 0.2f);
 			TestTrue(FString::Printf(TEXT("split view %d: not noisier than the single view by much"), View), A.Noise < 2.0f * Whole.Noise + 1.0f);
 		}
 		if (UWorld* W = PlayWorld())
@@ -582,7 +585,8 @@ bool FDreamQASkyRenderEditorViewportTest::RunTest(const FString& Parameters)
 			AddInfo(FString::Printf(TEXT("editor viewport %s %dx%d: %s, change to the next frame %.2f"), Name, A.Size.X, A.Size.Y, *Describe(Measure(A, Sky)), Change(A, B, Sky)));
 		}
 		const FStats Realistic = Measure(State->Pictures[TEXT("Editor_RR_a")], Sky);
-		TestTrue(TEXT("editor viewport: the toon clouds are there"), Toon.Coverage > 0.02f);
+		// (Measured: cover 0.55.)
+		TestTrue(TEXT("editor viewport: the toon clouds are there"), Toon.Coverage > 0.2f);
 		TestTrue(TEXT("editor viewport: the realistic look is not noisier than the toon look by much (its history accumulates)"), Realistic.Noise < 2.0f * Toon.Noise + 1.0f);
 		SetLook(-1);
 	});
@@ -720,8 +724,9 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 			const FStats Sb = Measure(B, R);
 			const float Corr = Correlation(A, B, R);
 			AddInfo(FString::Printf(TEXT("%s toon: %s | realistic: %s | correlation %.3f"), Kind, *Describe(Sa), *Describe(Sb), Corr));
-			TestTrue(FString::Printf(TEXT("%s: the renderer's clouds are in the capture"), Kind), Sa.Coverage > 0.01f && Sb.Deviation > 2.0f);
-			TestTrue(FString::Printf(TEXT("%s: the same clouds in either look"), Kind), Corr > 0.3f);
+			// (Measured: cover 0.81, 0.027 looking straight up, 0.54 to the side; deviation 19 to 46; correlation 0.90 to 1.00.)
+			TestTrue(FString::Printf(TEXT("%s: the renderer's clouds are in the capture"), Kind), Sa.Coverage > 0.01f && Sb.Deviation > 8.0f);
+			TestTrue(FString::Printf(TEXT("%s: the same clouds in either look"), Kind), Corr > 0.5f);
 		}
 		State->Target->RemoveFromRoot();
 		State->CubeTarget->RemoveFromRoot();
