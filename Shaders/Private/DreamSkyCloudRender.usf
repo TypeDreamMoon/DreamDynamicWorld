@@ -537,14 +537,27 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// texels some 3 km wide, and its faces took one flat light.
 			float TapReach = lerp(90000.0, 360000.0, smoothstep(1200000.0, 3000000.0, T));
 #if DSKY_LOOK == 2
-			// Painted: the key goes by the cloud's own envelope toward the light, 1.5 km of it, as the engine's painted
-			// material's does -- not by every cloud on the way: with the sun on the horizon the path ran through the whole
-			// layer, and the clouds of a sunset came out all shade, where the engine's are lit orange.
-			TapReach = max(TapReach, 150000.0);
-#endif
+			// Painted: the key goes by the cloud's own envelope toward the light, as the engine's painted material's did --
+			// how far each of three points 0.2, 0.6 and 1.5 km on stands inside it (the envelope stands a little proud of the
+			// eroded surface) -- not by the optical depth on the way: through a low sun's long path in a cloud that came out
+			// all shade, and a sunset's clouds went the lavender of their shade where the engine's were lit orange.
+			float Depth = 0.0;
+			[unroll]
+			for (int k = 0; k < 3; ++k)
+			{
+				float Reach = k == 0 ? 20000.0 : (k == 1 ? 60000.0 : 150000.0);
+				float Weight = k == 0 ? 0.4 : (k == 1 ? 0.35 : 0.25);
+				FDSkyCloudSample Tap = DSky_CloudAt(At + LightDir * Reach, F, true, C.Anchor, P_MapParams, WeatherMap,
+					WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+				Depth += saturate((Tap.Form - 0.15) * 4.0) * saturate(Tap.Signed * 2.0 + 1.0) * Weight;
+			}
+			// The billows: the full shape some 60 m on (a turret's own sunlit side).
+			FDSkyCloudSample Billow = DSky_CloudAt(At + LightDir * 6000.0, F, true, C.Anchor, P_MapParams, WeatherMap,
+				WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			float Turret = 1.0 - saturate(Billow.Solid * 6.0);
+#else
 			float Tau = 0.0;
 			float Prev = 0.0;
-			float NearSolid = 0.0;
 			[unroll]
 			for (int k = 1; k <= 3; ++k)
 			{
@@ -552,9 +565,9 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 				FDSkyCloudSample Tap = DSky_CloudAt(At + LightDir * (0.5 * (Prev + Next)), F, true, C.Anchor, P_MapParams,
 					WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
 				Tau += DSkyR_Extinction(Tap) * (Next - Prev);
-				NearSolid = k == 1 ? Tap.Solid : NearSolid;
 				Prev = Next;
 			}
+#endif
 			// (Read at a height dithered over one of the map's slices: interpolated between its slices, piecewise straight in
 			// height, its depth drew level stripes across a far cloud's faces; the history averages the dither out.)
 			float3 Beyond = World + LightDir * TapReach;
@@ -579,10 +592,10 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			float Dip = sqrt(2.0 * max(World.z, 0.0) / DSky_PlanetRadius);
 			float EarthLit = smoothstep(-Dip - 0.008, -Dip + 0.004, LightDir.z);
 #if DSKY_LOOK == 2
-			// The key: the light through the cloud, lit higher up (as the core's), a turret's own sunlit side kept from the
-			// cloud 50 m on (BillowShade), the earth's shadow. (The core bands it at the material's thresholds.)
-			float Key = exp(-KeyFalloff * Tau) * lerp(0.7, 1.05, saturate(C.Height));
-			Key *= lerp(1.0, 1.0 - saturate(NearSolid * 6.0), LP_BillowShade) * EarthLit;
+			// The key: out of the envelope toward the light, a turret's own sunlit side (BillowShade), the bottom of a cloud a
+			// little darker (in its own shade, seeing little of the sky), the earth's shadow. (The core bands it at the
+			// look's thresholds.)
+			float Key = (1.0 - Depth) * lerp(1.0, Turret, LP_BillowShade) * lerp(0.7, 1.0, saturate(C.Height * 2.0)) * EarthLit;
 			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
 			float3 Lit = PaintLit + Halo * P_Extra.y * saturate(Key);
 			float3 Half = lerp(Shade, Lit, 0.55) * float3(0.97, 0.97, 1.02);
