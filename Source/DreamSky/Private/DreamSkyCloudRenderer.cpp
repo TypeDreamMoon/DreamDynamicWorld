@@ -26,7 +26,9 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDebug(
 	TEXT("DreamSky.CloudRender.Debug"), 0,
 	TEXT("1 = multiply the sky pixels by a grid of view directions where the sky cloud renderer composites its clouds")
 	TEXT(" (right after the base pass: lighting, fog and translucency land on top of it); 2 = the clouds' rays that found")
-	TEXT(" no cloud red, the others green. 0 = off."),
+	TEXT(" no cloud red, the others green; 3 = how each ray took the frames before: green its history, yellow none this frame")
+	TEXT(" (a cut, a view first drawn: its neighbours' mean), red its history off screen or not drawn (the mean), blue this frame")
+	TEXT(" alone (brighter where the clouds cover more). 0 = off."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDownsample(
@@ -223,6 +225,7 @@ class FDreamSkyCloudTemporalCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, HistorySampler)
 		SHADER_PARAMETER(FVector2f, HistoryInvExtent)
 		SHADER_PARAMETER(float, HistoryWeight)
+		SHADER_PARAMETER(uint32, TemporalDebug)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, HistoryRaySize)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutDepth)
@@ -567,6 +570,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->OutRaySize = GraphBuilder.CreateUAV(OutRaySize);
 			// (Without one, the temporal pass puts out the neighbourhood's mean: a smooth frame, not one march's grain.)
 			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f);
+			Params->TemporalDebug = Settings.DebugMode == 3 ? 1u : 0u;
 			Params->OutColor = GraphBuilder.CreateUAV(OutColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(OutDepth);
 			TShaderMapRef<FDreamSkyCloudTemporalCS> Shader(ShaderMap);
@@ -604,7 +608,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 	Params->CloudColor = Clouds ? Clouds : GSystemTextures.GetBlackDummy(GraphBuilder);
 	Params->CloudSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	Params->CloudInvExtent = FVector2f(1.0f / Half.X, 1.0f / Half.Y);
-	Params->DebugMode = Clouds ? 0u : uint32(Settings.DebugMode);
+	Params->DebugMode = Clouds || Settings.DebugMode == 3 ? 0u : uint32(Settings.DebugMode);
 	Params->RenderTargets[0] = FRenderTargetBinding(SceneColor, ERenderTargetLoadAction::ELoad);
 	const FIntRect Whole(FIntPoint::ZeroValue, Extent);
 	TShaderMapRef<FDreamSkyCloudCompositePS> Shader(ShaderMap);

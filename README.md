@@ -97,7 +97,9 @@ between the view and the ground are drawn over the scene too, just before the po
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
 scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome
 stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
-the sky pixels, `2` the rays that found no cloud.
+the sky pixels, `2` the rays that found no cloud, `3` how each ray took the frames before (green its history, yellow
+none this frame, red its history off screen, blue this frame alone); `DreamSky.CloudRender.GroundShadowReference <steps>`
+works the ground shadow out by an even march per texel, a reference for the sun map's ground maps.
 
 The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
 editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as
