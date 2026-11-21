@@ -93,6 +93,8 @@ class FDreamSkyCloudMarchCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
 		SHADER_PARAMETER(FVector4f, NearCenterExtent)
 		SHADER_PARAMETER(FVector4f, FarCenterExtent)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, StormProximity)
+		SHADER_PARAMETER(int32, ProximityResolution)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutDepth)
 	END_SHADER_PARAMETER_STRUCT()
@@ -139,6 +141,82 @@ class FDreamSkyCloudSunMapCS : public FGlobalShader
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), GroupSize);
+	}
+};
+
+/** The storm proximity map's cells from which a sample may search for storms. */
+class FDreamSkyStormSeedCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyStormSeedCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyStormSeedCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WeatherMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, WeatherMapSampler)
+		SHADER_PARAMETER(int32, ProximityResolution)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float2>, OutSeed)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), FDreamSkyCloudMarchCS::GroupSize);
+	}
+};
+
+/** A round of the jump flood that spreads the nearest of those cells over the map. */
+class FDreamSkyStormJumpCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyStormJumpCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyStormJumpCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER(int32, ProximityResolution)
+		SHADER_PARAMETER(int32, JumpStep)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float2>, InSeed)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float2>, OutSeed)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), FDreamSkyCloudMarchCS::GroupSize);
+	}
+};
+
+/** The distance to the nearest of them, the march reads. */
+class FDreamSkyStormProximityCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyStormProximityCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyStormProximityCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER(int32, ProximityResolution)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float2>, InSeed)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutProximity)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), FDreamSkyCloudMarchCS::GroupSize);
 	}
 };
 
@@ -195,6 +273,8 @@ class FDreamSkyCloudPanoramaCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
 		SHADER_PARAMETER(FVector4f, NearCenterExtent)
 		SHADER_PARAMETER(FVector4f, FarCenterExtent)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, StormProximity)
+		SHADER_PARAMETER(int32, ProximityResolution)
 		SHADER_PARAMETER(FIntPoint, PanoramaResolution)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutPanorama)
 	END_SHADER_PARAMETER_STRUCT()
@@ -288,6 +368,9 @@ IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositeBelowPS, "/Plugin/DreamDynamicWor
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudMarchCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "MarchCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudSunMapCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "SunMapCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudShadowCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "ShadowCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyStormSeedCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "StormSeedCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyStormJumpCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "StormJumpCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyStormProximityCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "StormProximityCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudPanoramaCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "PanoramaCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudTemporalCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "TemporalCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositePS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "CompositePS", SF_Pixel);
@@ -316,11 +399,18 @@ namespace DreamSkyCloudRender
 	{
 		FRDGTextureRef SunMaps[2] = {nullptr, nullptr};
 		FRDGTextureRef GroundMaps[2] = {nullptr, nullptr};
+		FRDGTextureRef StormProximity = nullptr;
 		bool bSunMaps = false;
 		TMap<const FSceneView*, FBelow> Below;
 	};
 }
 RDG_REGISTER_BLACKBOARD_STRUCT(DreamSkyCloudRender::FGraphClouds);
+
+namespace DreamSkyCloudRender
+{
+	/** The storm proximity map's cells across the weather map (four of its texels each). */
+	constexpr int32 ProximityResolution = 128;
+}
 
 const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 {
@@ -514,6 +604,8 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 			Params->NearCenterExtent = SunMaps[0].CenterExtent;
 			Params->FarCenterExtent = SunMaps[1].CenterExtent;
+			Params->StormProximity = Graph.StormProximity;
+			Params->ProximityResolution = DreamSkyCloudRender::ProximityResolution;
 			Params->OutColor = GraphBuilder.CreateUAV(MarchColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(MarchDepth);
 			FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
@@ -672,6 +764,55 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Graph.SunMaps[Cascade] = Tau;
 		Graph.GroundMaps[Cascade] = Ground;
 	}
+
+	// The storm proximity map: the cells a sample may search for storms from, then the nearest of them spread over the
+	// map in a jump flood (64 cells, 32, ... 1), then how far that is. Once a frame (the weather map moves with the view).
+	if (!StormProximity.IsValid() || bFirstThisFrame)
+	{
+		const int32 Resolution = DreamSkyCloudRender::ProximityResolution;
+		const FIntPoint Size(Resolution, Resolution);
+		const FIntVector Groups = FComputeShaderUtils::GetGroupCount(Size, FDreamSkyCloudMarchCS::GroupSize);
+		const FRDGTextureDesc SeedDesc = FRDGTextureDesc::Create2D(Size, PF_G16R16F, FClearValueBinding::None, TexCreate_ShaderResource | TexCreate_UAV);
+		FRDGTextureRef Seeds[2] = {GraphBuilder.CreateTexture(SeedDesc, TEXT("DreamSky.StormSeed")), GraphBuilder.CreateTexture(SeedDesc, TEXT("DreamSky.StormSeed"))};
+		{
+			FDreamSkyStormSeedCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyStormSeedCS::FParameters>();
+			FillCommon(Params->Common);
+			Params->WeatherMap = WeatherMap;
+			Params->WeatherMapSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+			Params->ProximityResolution = Resolution;
+			Params->OutSeed = GraphBuilder.CreateUAV(Seeds[0]);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("StormSeed %dx%d", Resolution, Resolution),
+				TShaderMapRef<FDreamSkyStormSeedCS>(ShaderMap), Params, Groups);
+		}
+		int32 Current = 0;
+		for (int32 Step = Resolution / 2; Step >= 1; Step /= 2)
+		{
+			FDreamSkyStormJumpCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyStormJumpCS::FParameters>();
+			Params->ProximityResolution = Resolution;
+			Params->JumpStep = Step;
+			Params->InSeed = Seeds[Current];
+			Params->OutSeed = GraphBuilder.CreateUAV(Seeds[1 - Current]);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("StormJump %d", Step), TShaderMapRef<FDreamSkyStormJumpCS>(ShaderMap), Params, Groups);
+			Current = 1 - Current;
+		}
+		FRDGTextureRef Proximity = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Size, PF_R32_FLOAT, FClearValueBinding::None,
+			TexCreate_ShaderResource | TexCreate_UAV), TEXT("DreamSky.StormProximity"));
+		{
+			FDreamSkyStormProximityCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyStormProximityCS::FParameters>();
+			FillCommon(Params->Common);
+			Params->ProximityResolution = Resolution;
+			Params->InSeed = Seeds[Current];
+			Params->OutProximity = GraphBuilder.CreateUAV(Proximity);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("StormProximity %dx%d", Resolution, Resolution),
+				TShaderMapRef<FDreamSkyStormProximityCS>(ShaderMap), Params, Groups);
+		}
+		GraphBuilder.QueueTextureExtraction(Proximity, &StormProximity);
+		Graph.StormProximity = Proximity;
+	}
+	else
+	{
+		Graph.StormProximity = GraphBuilder.RegisterExternalTexture(StormProximity);
+	}
 	// (The panorama and the ground shadow: once a frame too.)
 	if (!bFirstThisFrame)
 	{
@@ -698,6 +839,8 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 		Params->NearCenterExtent = SunMaps[0].CenterExtent;
 		Params->FarCenterExtent = SunMaps[1].CenterExtent;
+		Params->StormProximity = Graph.StormProximity;
+		Params->ProximityResolution = DreamSkyCloudRender::ProximityResolution;
 		Params->PanoramaResolution = Resolution;
 		Params->OutPanorama = GraphBuilder.CreateUAV(Panorama);
 		FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
