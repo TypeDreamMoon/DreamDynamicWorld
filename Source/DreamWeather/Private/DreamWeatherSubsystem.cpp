@@ -543,6 +543,41 @@ void UDreamWeatherSubsystem::SetModifierWeight(FDreamWeatherModifierHandle Handl
 	}
 }
 
+bool UDreamWeatherSubsystem::UpdateModifier(FDreamWeatherModifierHandle Handle, const FDreamWeatherModifierDesc& Desc)
+{
+	const int32 Index = Modifiers.IndexOfByPredicate([&Handle](const FModifier& M) { return M.Id == Handle.Id && !M.bRemoving; });
+	if (Index == INDEX_NONE)
+	{
+		return false;
+	}
+	FModifier M = Modifiers[Index];
+	const float Weight = M.Desc.Weight;
+	const float BlendIn = M.Desc.BlendInSeconds;
+	M.Desc = Desc;
+	M.Desc.Weight = Weight;
+	M.Desc.BlendInSeconds = BlendIn;
+	if (M.Desc.Priority == Modifiers[Index].Desc.Priority)
+	{
+		Modifiers[Index] = MoveTemp(M);
+		return true;
+	}
+	// A new priority: back into the sorted order (after the others of its priority, by id).
+	Modifiers.RemoveAt(Index);
+	int32 Insert = Modifiers.Num();
+	while (Insert > 0 && (Modifiers[Insert - 1].Desc.Priority > M.Desc.Priority
+		|| (Modifiers[Insert - 1].Desc.Priority == M.Desc.Priority && Modifiers[Insert - 1].Id > M.Id)))
+	{
+		--Insert;
+	}
+	Modifiers.Insert(MoveTemp(M), Insert);
+	return true;
+}
+
+bool UDreamWeatherSubsystem::HasModifier(FDreamWeatherModifierHandle Handle) const
+{
+	return Modifiers.ContainsByPredicate([&Handle](const FModifier& M) { return M.Id == Handle.Id && !M.bRemoving; });
+}
+
 FDreamWeatherModifierHandle UDreamWeatherSubsystem::ForceWeather(UDreamWeatherPreset* Preset, float TransitionSeconds)
 {
 	// Fading the old forcing out while the new one fades in would let the schedule show through halfway (a scheduled
