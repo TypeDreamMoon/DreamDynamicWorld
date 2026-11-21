@@ -94,6 +94,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	FDreamWeatherSample SampleWeather(FVector Position) const;
 
+	/**
+	 * The weather at a point for given weather everywhere at a given world time: the influences there and the cloud
+	 * gates applied to Global, the temperature of that hour and season. SampleWeather is this for now; what integrates
+	 * the weather over time (the surfaces) asks it of the past.
+	 */
+	FDreamWeatherSample SampleWeatherAt(FVector Position, const FDreamWeatherValues& Global, double WorldSeconds) const;
+
 	/** One channel at a point. */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	float GetChannelAt(FVector Position, FGameplayTag Channel) const;
@@ -235,9 +242,9 @@ private:
 	void PreTick(UDreamWorldSubsystem& Clock, float DeltaTime);
 	void AdvanceModifiers(float DeltaTime);
 	void ApplyModifiers(FDreamWeatherValues& InOut) const;
-	void ApplyInfluences(const FVector& Position, FDreamWeatherValues& InOut) const;
-	FDreamWeatherSample MakeSample(const FVector& Position, const FDreamWeatherValues& Values) const;
-	float TemperatureFor(const FVector& Position, float Offset, float Coverage) const;
+	void ApplyInfluences(const FVector& Position, FDreamWeatherValues& InOut, double WorldSeconds) const;
+	FDreamWeatherSample MakeSample(const FVector& Position, const FDreamWeatherValues& Values, double WorldSeconds) const;
+	float TemperatureFor(const FVector& Position, float Offset, float Coverage, double WorldSeconds) const;
 	void UpdateWind(const FDreamWeatherSample& View);
 	void UpdateWeatherMap(UDreamWorldSubsystem& Clock);
 	void FireEvents(const FDreamWeatherSample& View);

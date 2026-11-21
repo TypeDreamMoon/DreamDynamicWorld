@@ -51,6 +51,11 @@
 			"LoadingPhase": "PostConfigInit"
 		},
 		{
+			"Name": "DreamSurface",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
 			"Name": "DreamWindEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
