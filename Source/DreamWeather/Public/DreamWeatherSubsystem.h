@@ -150,6 +150,17 @@ public:
 	void SetModifierWeight(FDreamWeatherModifierHandle Handle, float Weight, float Seconds = 2.0f);
 
 	/**
+	 * Change what a modifier applies (channels, preset, blend, priority) in place; its strength and fades carry on
+	 * (Desc's Weight and BlendInSeconds are not used). False when the handle is gone or fading out.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
+	bool UpdateModifier(FDreamWeatherModifierHandle Handle, const FDreamWeatherModifierDesc& Desc);
+
+	/** Whether a modifier is alive (and not fading out). */
+	UFUNCTION(BlueprintPure, Category = "Dream Weather")
+	bool HasModifier(FDreamWeatherModifierHandle Handle) const;
+
+	/**
 	 * Make the weather a preset, everywhere the zones allow, until ClearForcedWeather. Replaces an earlier forcing:
 	 * the new weather blends in over the old one, which holds until then (the schedule never shows through between).
 	 */

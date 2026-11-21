@@ -56,6 +56,16 @@
 			"LoadingPhase": "PostConfigInit"
 		},
 		{
+			"Name": "DreamWeatherAudio",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DreamWorldSequencer",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DreamWindEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
@@ -64,11 +74,20 @@
 			"Name": "DreamWorldEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DreamWorldPlayEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
 		{
 			"Name": "Niagara",
+			"Enabled": true
+		},
+		{
+			"Name": "Metasound",
 			"Enabled": true
 		}
 	]

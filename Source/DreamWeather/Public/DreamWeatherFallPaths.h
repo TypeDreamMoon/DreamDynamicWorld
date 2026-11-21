@@ -21,6 +21,28 @@ class UWorld;
 class DREAMWEATHER_API FDreamWeatherFallPaths
 {
 public:
+	/**
+	 * What a path ended on, for sounds that depend on it (rain on leaves, on a roof, on the ground). A hit on a
+	 * component or actor tagged DreamWeather.Leaves, or on foliage painted with the foliage tool, is Leaves; one
+	 * tagged DreamWeather.Roof, a shelter without geometry, or any surface more than RoofHeight above the view, is
+	 * a Roof; anything else it lands on is Ground.
+	 */
+	enum class ESurface : uint8
+	{
+		Air,
+		Ground,
+		Roof,
+		Leaves,
+		Num
+	};
+
+	/** The tags that classify what a path lands on. */
+	static const FName LeavesTag;
+	static const FName RoofTag;
+
+	/** A surface this far above the view (cm) counts as a roof. */
+	static constexpr double RoofHeight = 100.0;
+
 	struct FParams
 	{
 		/** How many paths the buffer holds. */
@@ -58,8 +80,17 @@ public:
 	/** Per path: the normal of what it landed on (zero when it ended in the air). */
 	const TArray<FVector>& GetNormals() const { return Normals; }
 
+	/** Per path: what it ended on (ESurface). */
+	const TArray<uint8>& GetSurfaces() const { return Surfaces; }
+
 	/** Paths that ended on something (rather than in the air): the share where splashes belong. */
 	int32 CountLanded() const;
+
+	/**
+	 * How the paths ending near a point split between what they landed on: each path weighs 1 / (1 + d^2 / R^2)
+	 * by its horizontal distance d to Location. OutShares[ESurface] sums to 1 (all Air when the buffer is empty).
+	 */
+	void GetSurfaceShares(const FVector& Location, double Radius, float OutShares[(int32)ESurface::Num]) const;
 
 	/** Bumped whenever paths changed (the effects re-upload only then). */
 	uint32 GetGeneration() const { return Generation; }
@@ -73,6 +104,7 @@ private:
 	TArray<FVector4> Ends;
 	TArray<FVector> Normals;
 	TArray<uint8> Landed;
+	TArray<uint8> Surfaces;
 	int32 Next = 0;
 	float Budget = 0.0f;
 	uint32 Generation = 0;

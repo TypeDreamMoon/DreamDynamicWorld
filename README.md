@@ -269,6 +269,74 @@ precipitation falls. The weather hands every frame to listeners through `UDreamW
 Console: `DreamWeather.Set <preset> [seconds]`, `DreamWeather.Clear`, `DreamWeather.Forecast [hours] [step]`,
 `DreamWeather.Dump`.
 
+### Sound
+
+Module `DreamWeatherAudio` (needs the engine's MetaSound plugin). `UDreamWeatherAudioSubsystem` plays the weather at
+the listener — the view the world is looked at from — every frame the weather runs:
+
+* **Voices.** Wind (the wind field's speed at the listener), whistling gusts (a strong, gusty wind), light and heavy
+  rain (crossfading with the amount), rain on a roof, rain on leaves, falling snow, blowing dust. What the rain
+  lands on comes from the rain's fall paths ending near the listener (`FDreamWeatherFallPaths::GetSurfaceShares`):
+  a hit on something tagged `DreamWeather.Leaves` (or painted foliage) is leaves, one tagged `DreamWeather.Roof`, a
+  shelter box, or any surface a metre above the view is a roof, the rest is ground.
+* **Thunder.** Every `OnLightningStrike` is heard after its `ThunderDelay`: a clap (`ThunderNear`) closer than
+  `ThunderNearDistance` (3 km), a rumble (`ThunderFar`, or the clap low-passed) out to `ThunderMaxDistance` (15 km),
+  quieter and duller with distance, from the side it struck on.
+* **Walls and roofs.** The view probe (`GetViewOcclusion`: how enclosed, a roof overhead, how closed each side is)
+  muffles outdoor sound (a low-pass from 20 kHz down to `MinCutoffHz` in a closed room), quietens it (to
+  `InteriorMinVolume`) and moves it toward the open sides: inside the hut the rain is dull, in its doorway it comes
+  from the door. The roof over the listener is not outside — it drums at full loudness — and a canopy is not a roof.
+  **Your own outdoor sounds** (traffic, a river) get the same: give them the sound class `SC_DreamOutdoor` (or a
+  child of it); the subsystem pushes a sound mix that sets the class's volume and low-pass. Everything the weather
+  plays is in `SC_DreamWeather`; parent it under your SFX class.
+* **Ambience.** A `UDreamAmbiencePreset` points at a MetaSound that makes a place out of the hour, the weather, the
+  wind and the season; the subsystem gives it, all 0..1, `TimeOfDay`, `Day` / `Twilight` / `Night`, `Spring` /
+  `Summer` / `Autumn` / `Winter` (blending across the turn of a season; the southern hemisphere from the clock's
+  latitude), `Year`, `Cloud`, `Rain`, `Snow`, `Fog`, `Dust`, `Lightning`, `Wind`, `Gust`, `Interior`, and the
+  occlusion `Left` / `Right` / `Muffle`. `SetAmbience(Preset, FadeSeconds)` crossfades; *Default Ambience* plays
+  otherwise. The plugin ships `MS_DreamAmbienceForest` / `DAP_DreamForest`: a random bird every couple of seconds
+  by day, insects at night, wind in the trees, all quieter in the rain.
+
+**Sounds are slots.** *Project Settings ▸ Dream Weather Audio ▸ Sounds* has one slot per voice (`Wind`, `WindGust`,
+`RainLight`, `RainHeavy`, `RainOnRoof`, `RainOnLeaves`, `Snow`, `Dust`, `ThunderNear`, `ThunderFar`) and a map of the
+ambiences' named inputs (`Birds`, `Insects`, `TreeWindLight`, `TreeWindHeavy`); a `UDreamWeatherSoundSet` asset
+(*Sound Set*, or `SetSoundSet` at run time) overrides the slots it fills. **The plugin ships no recordings**: every
+slot is empty until the project fills it. A slot takes several sounds (a loop keeps the one the world seed picks,
+thunder draws one per strike) and a volume. A sound wave is played through `MS_DreamWeatherVoice` (loops it, eases
+the gains, low-passes it); a MetaSound source of your own is played as it is and receives, all 0..1, `Left`,
+`Right` (gains after walls and placement), `Muffle`, `Intensity` (before walls), `Gust`, `Distance` (thunder) and
+`MinCutoff` (Hz); any other sound gets the component's volume and low-pass.
+
+The numbers are worked out without an audio device too (a server, `-nosound`): `GetVoiceMix`, `GetOutdoorOcclusion`,
+`GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
+`DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
+
+### Sequencer
+
+Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
+
+* **Time of Day** — the section's `Hours` curve (0–24, beyond into the next days, from the clock's start date or the
+  section's own `Date`) sets the world clock while it is active. The clock does not run on its own meanwhile
+  (`BeginExternalDrive`); playing runs it there, so the hour's events fire; scrubbing or a cut jumps it.
+* **Weather** — sections of three kinds: a **preset** (forced while active at its weight; the section's easing is the
+  transition, overlap two to crossfade, the lower row first), **channels** (curves per weather channel; only keyed
+  ones apply), **lightning** (every key a strike, its value the intensity, at `Location` relative to the view or in
+  the world, scattered the same way on every play). They go through the weather's modifier stack
+  (`UpdateModifier` keeps one modifier per section per sequence instance): the tracks keep no weather of their own.
+* **Offline renders.** `DreamWorld.CinematicMode` (-1 by default: on while a Movie Render Queue render drives the
+  frames; 1 always, 0 never; `SetCinematicModeOverride`): every frame a full update with no easing anywhere — the
+  sky's lighting snaps, the view probe casts its whole round — so each rendered frame stands on its own.
+
+Multiplayer is not done yet; the clock's drive and the modifiers are the one place the state lives, ready for it.
+
+### Gameplay showcase
+
+`UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
+`/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
+in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round) and a grove (leaves), under
+weather that runs clear → rain → storm → cloudy every three hours. `-ForceAudio` builds the graphs again, `-Force`
+the level.
+
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1

@@ -124,6 +124,37 @@ public:
 	/** Increases every time the clock jumps (set, snapshot, editor scrub) rather than runs; consumers snap instead of easing. */
 	uint32 GetTimeJumpSerial() const { return TimeJumpSerial; }
 
+	// ---- Driven from outside ------------------------------------------------------------------
+
+	/**
+	 * Something else drives the time from now on (a Sequencer time track): the clock stops running on its own and
+	 * follows DriveWorldSeconds until every driver has ended. Drivers count by object; the same one twice is one.
+	 */
+	void BeginExternalDrive(const UObject* Driver);
+	void EndExternalDrive(const UObject* Driver);
+
+	/** A driver holds the clock. */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	bool IsDrivenExternally() const { return ExternalDrivers.Num() > 0; }
+
+	/**
+	 * Move the clock as its driver says. A small step forward (under MaxRunSeconds of world time) runs the clock
+	 * there, so the hour's events fire as if it had run; anything else is a jump (a scrub, a cut).
+	 */
+	void DriveWorldSeconds(double Seconds, double MaxRunSeconds = 3600.0);
+
+	/**
+	 * Cinematic updates: every frame a full update with no easing anywhere (the sky's lighting snaps, the view probe
+	 * casts its whole round), so every frame of an offline render stands on its own. DreamWorld.CinematicMode -1 (the
+	 * default) turns it on while a Movie Render Queue render drives the engine's frames, 1 always, 0 never.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	bool IsCinematicMode() const;
+
+	/** Force cinematic updates on (or let the console variable decide again with false). */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Clock")
+	void SetCinematicModeOverride(bool bCinematic) { bCinematicOverride = bCinematic; }
+
 	// ---- Sun and moon -------------------------------------------------------------------------
 
 	UFUNCTION(BlueprintCallable, Category = "Dream World|Celestial")
@@ -261,6 +292,9 @@ private:
 	uint32 TimeJumpSerial = 0;
 
 	FDreamWorldScheduler Scheduler;
+
+	TArray<TWeakObjectPtr<const UObject>> ExternalDrivers;
+	bool bCinematicOverride = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialParameterCollection> ParameterCollection;
