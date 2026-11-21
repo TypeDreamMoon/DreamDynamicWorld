@@ -33,6 +33,14 @@ public class DreamWorldPlayEditor : ModuleRules
 			"MetasoundEngine",
 			"MetasoundFrontend",
 			"MetasoundEditor",
+			"DreamWorldSequencer",
+			"MovieScene",
+			"MovieSceneTracks",
+			"MovieSceneTools",
+			"Sequencer",
+			"SequencerCore",
+			"Slate",
+			"SlateCore",
 		});
 	}
 }
