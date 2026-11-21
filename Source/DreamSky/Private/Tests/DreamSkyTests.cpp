@@ -24,7 +24,9 @@
 #include "Engine/World.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/App.h"
 #include "Misc/AutomationTest.h"
+#include "UObject/CoreRedirects.h"
 #include "UObject/Package.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -300,19 +302,68 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	FDreamWorldClockConfig Config;
 	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
 	W.Clock->ApplyClockConfig(Config, true);
-	// Whatever a level saved, the sky cloud renderer draws the clouds and the dome leaves its own out.
-	for (const EDreamSkyClouds Saved : { EDreamSkyClouds::Toon, EDreamSkyClouds::Volumetric, EDreamSkyClouds::Rendered })
-	{
-		W.Sky->Clouds = Saved;
-		W.Clock->Tick(0.016f);
-		TestTrue(FString::Printf(TEXT("saved as %d: the renderer draws the clouds"), int32(Saved)), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
-		TestTrue(FString::Printf(TEXT("saved as %d: the dome leaves its own out"), int32(Saved)), DomeLeavesCloudsOut());
-	}
+	W.Clock->Tick(0.016f);
+	// The sky cloud renderer draws the clouds (where there is a renderer) and the dome's sky light capture shows its panorama.
+	TestTrue(TEXT("the renderer draws the clouds where there is one"), W.Sky->DrawsClouds() == FApp::CanEverRender());
+	TestTrue(TEXT("and the dome knows it"), DomeLeavesCloudsOut() == W.Sky->DrawsClouds());
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
 	// horizon. Its sky goes by the view direction alone, so it stands far beyond any terrain.)
 	TestTrue(FString::Printf(TEXT("the dome stands beyond far terrain (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= 50000000.0);
 	TestTrue(TEXT("the moon is the second atmosphere light"),
 		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudMigrationTest, "DreamSky.Clouds.Migration", DreamSky::Tests::Flags)
+bool FDreamSkyCloudMigrationTest::RunTest(const FString& Parameters)
+{
+	// A level saved before the renderer drew every sky's clouds: what drew them picks the look that draws them now.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	const UDreamSkyStyle* Style = Sky.GetEffectiveStyle();
+	const float StyleExtinction = Style ? Style->PaintedClouds.Extinction : 0.0f;
+	struct FCase
+	{
+		EDreamSkyClouds Saved;
+		const TCHAR* Material;
+		EDreamSkyCloudLook Had;
+		EDreamSkyCloudLook Wanted;
+	};
+	const FCase Cases[] = {
+		{ EDreamSkyClouds::Toon, nullptr, EDreamSkyCloudLook::Realistic, EDreamSkyCloudLook::Toon },
+		{ EDreamSkyClouds::Rendered, nullptr, EDreamSkyCloudLook::Painted, EDreamSkyCloudLook::Painted },
+		{ EDreamSkyClouds::Volumetric, nullptr, EDreamSkyCloudLook::Toon, EDreamSkyCloudLook::Realistic },
+		{ EDreamSkyClouds::Volumetric, TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud"), EDreamSkyCloudLook::Toon, EDreamSkyCloudLook::Realistic },
+		{ EDreamSkyClouds::Volumetric, TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted"), EDreamSkyCloudLook::Toon, EDreamSkyCloudLook::Painted },
+		{ EDreamSkyClouds::Volumetric, TEXT("/Game/Sky/MI_MyPaintedClouds.MI_MyPaintedClouds"), EDreamSkyCloudLook::Toon, EDreamSkyCloudLook::Painted },
+		{ EDreamSkyClouds::Volumetric, TEXT("/Game/Sky/MI_StormClouds.MI_StormClouds"), EDreamSkyCloudLook::Toon, EDreamSkyCloudLook::Realistic },
+	};
+	// (A material of the level's own is not drawn any more: a warning says so, each time.)
+	AddExpectedMessagePlain(TEXT("which is not drawn any more"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 2);
+	for (const FCase& Case : Cases)
+	{
+		Sky.Clouds_DEPRECATED = Case.Saved;
+		Sky.VolumetricCloudMaterial_DEPRECATED = Case.Material ? TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(Case.Material)) : TSoftObjectPtr<UMaterialInterface>();
+		Sky.CloudLook = Case.Had;
+		Sky.MigrateSavedClouds();
+		TestEqual(FString::Printf(TEXT("saved as %d with %s: the look"), int32(Case.Saved), Case.Material ? Case.Material : TEXT("no material")),
+			int32(Sky.CloudLook), int32(Case.Wanted));
+	}
+	TestNearlyEqual(TEXT("the shared style is left as it is"), Style ? Style->PaintedClouds.Extinction : 0.0f, StyleExtinction, 1e-6f);
+
+	// The old names are read into the new ones.
+	auto Redirected = [](const TCHAR* Old)
+	{
+		return FCoreRedirects::GetRedirectedName(ECoreRedirectFlags::Type_Property, FCoreRedirectObjectName(FString(Old))).ToString();
+	};
+	TestEqual(TEXT("Clouds"), Redirected(TEXT("/Script/DreamSky.DreamSky.Clouds")), FString(TEXT("/Script/DreamSky.DreamSky.Clouds_DEPRECATED")));
+	TestEqual(TEXT("VolumetricCloudMaterial"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial")), FString(TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial_DEPRECATED")));
+	TestEqual(TEXT("VolumetricSunScattering"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering")), FString(TEXT("/Script/DreamSky.DreamSky.CloudSunScattering")));
+	TestEqual(TEXT("VolumetricShadowTracingDistance"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance")), FString(TEXT("/Script/DreamSky.DreamSky.CloudShadowTracingDistance")));
 	return true;
 }
 

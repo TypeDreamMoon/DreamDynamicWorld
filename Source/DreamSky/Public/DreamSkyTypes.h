@@ -18,22 +18,25 @@ enum class EDreamSkyExposureMode : uint8
 	Auto,
 };
 
-/** What draws the clouds. */
-UENUM(BlueprintType)
+/**
+ * What drew the clouds in a level saved before the sky cloud renderer drew them all: kept only so such a level loads
+ * (ADreamSky picks its CloudLook from it, once).
+ */
+UENUM()
 enum class EDreamSkyClouds : uint8
 {
-	/** Painted volumes the sky dome ray marches itself: the style's toon tones, crisp edges. */
-	Toon UMETA(DisplayName = "Toon (sky dome)"),
-	/** The engine's volumetric cloud layer, as it was: a level saved with it is drawn by the sky cloud renderer. */
-	Volumetric UMETA(Hidden),
-	/**
-	 * The plugin's own cloud renderer: a compute pass per view marches the cloud layer at reduced resolution, filters it
-	 * over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
-	 */
-	Rendered UMETA(DisplayName = "Rendered (sky cloud renderer)"),
+	/** The sky dome's own toon clouds. */
+	Toon,
+	/** The engine's volumetric cloud layer with the plugin's cloud material. */
+	Volumetric,
+	/** The sky cloud renderer. */
+	Rendered,
 };
 
-/** How the sky cloud renderer (EDreamSkyClouds::Rendered) draws the clouds. */
+/**
+ * How the sky cloud renderer draws the clouds: a compute pass per view marches the cloud layer at reduced resolution,
+ * filters it over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
+ */
 UENUM(BlueprintType)
 enum class EDreamSkyCloudLook : uint8
 {

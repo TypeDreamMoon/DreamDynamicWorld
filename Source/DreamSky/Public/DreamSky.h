@@ -24,7 +24,7 @@ class UDreamSkyStyle;
  *
  * It owns the lights the sky drives -- the sun and the moon (two directional lights; the atmosphere lights 0 and
  * 1), a sky light that captures the dome, a height fog and an unbound post process for exposure -- a dome drawn by
- * the DreamShader sky material, and the clouds (see Clouds). It also carries the level's clock:
+ * the DreamShader sky material, and the clouds, which the sky cloud renderer draws (see CloudLook). It also carries the level's clock:
  * the date and hour the level starts at, how long a day lasts, and how the sun and moon move.
  *
  * The lighting itself is decided every frame by UDreamSkySubsystem from the world clock and Style. The panel shows
@@ -70,12 +70,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
 	bool bRealTimeSkyCapture = true;
 
-	/** What drew the clouds in a level saved before: the sky cloud renderer draws them, whatever it says. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
-	EDreamSkyClouds Clouds = EDreamSkyClouds::Toon;
-
 	/**
-	 * How the sky cloud renderer draws the clouds (Clouds = Rendered). The realistic and painted looks take their
+	 * How the sky cloud renderer draws the clouds: toon (the surface, in the style's few tones), realistic or painted
+	 * (the density, lit by scattering or painted in the style's tones). The realistic and painted looks take their
 	 * settings from the style (its RealisticClouds and PaintedClouds), with the cloud overrides over them. The console
 	 * variable DreamSky.CloudRender.Look overrides it.
 	 */
@@ -150,9 +147,9 @@ public:
 	/** Scales the style's lighting by this level's overrides (sun, moon, sky light, fog, exposure compensation). */
 	void ApplyLightingOverrides(FDreamSkyLighting& Lighting) const;
 
-	/** The clouds in effect: Clouds, or the console variable DreamSky.Clouds when it is set. */
+	/** Whether the sky cloud renderer draws this sky's clouds (it needs a renderer: not under -nullrhi). */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
-	EDreamSkyClouds GetEffectiveClouds() const;
+	bool DrawsClouds() const;
 
 	/** The clock this level starts with. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
@@ -174,7 +171,7 @@ public:
 	void RecaptureSkyLight();
 
 	/**
-	 * The sky cloud renderer's clouds on the ground: while it draws the clouds (EDreamSkyClouds::Rendered) the sun light
+	 * The sky cloud renderer's clouds on the ground: while it draws the clouds (DrawsClouds) the sun light
 	 * takes a light function (M_DreamCloudShadow) that reads the clouds' transmittance toward the sun from a texture the
 	 * renderer writes round the view; otherwise the light function is taken off again. Game thread, each frame.
 	 */
@@ -197,21 +194,29 @@ public:
 	virtual void PostRegisterAllComponents() override;
 	virtual void PostUnregisterAllComponents() override;
 	virtual void BeginPlay() override;
+	//~ UObject
+	virtual void Serialize(FArchive& Ar) override;
+	virtual void PostLoad() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
 private:
+	friend class FDreamSkyCloudMigrationTest;
 	/** The style with the overrides written over it (null while no style override is ticked). */
 	UPROPERTY(Transient)
 	TObjectPtr<UDreamSkyStyle> OverriddenStyle;
 
-	/**
-	 * The engine's volumetric cloud material a level saved before chose: read once on load, to pick the renderer's look
-	 * that draws its clouds (CloudLook).
-	 */
+	/** What drew the clouds in a level saved before the sky cloud renderer drew them all: read once on load (CloudLook). */
+	UPROPERTY()
+	EDreamSkyClouds Clouds_DEPRECATED = EDreamSkyClouds::Toon;
+
+	/** The engine's volumetric cloud material such a level chose: read with it, to pick the renderer's look. */
 	UPROPERTY()
 	TSoftObjectPtr<UMaterialInterface> VolumetricCloudMaterial_DEPRECATED;
+
+	/** A level saved before: its clouds as it chose them, in the look of the sky cloud renderer's that draws them. */
+	void MigrateSavedClouds();
 
 	/** The sky cloud renderer's shadow on the ground (UpdateCloudShadow). */
 	UPROPERTY(Transient)

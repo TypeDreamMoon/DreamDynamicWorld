@@ -16,17 +16,14 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Misc/App.h"
+#include "Serialization/CustomVersion.h"
+#include "UObject/Package.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/UObjectGlobals.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSky)
-
-static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
-	TEXT("DreamSky.Clouds"), -1,
-	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 2 = the plugin's sky cloud renderer."),
-	ECVF_Default);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT("DreamSky.CloudRender.Look"), -1,
@@ -37,6 +34,25 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 
 namespace DreamSky::Actor
 {
+	/** How a sky was saved (its custom version). */
+	struct FVersion
+	{
+		enum Type : int32
+		{
+			Initial = 0,
+			/** The sky cloud renderer draws every sky's clouds: Clouds and VolumetricCloudMaterial are read into CloudLook once. */
+			CloudsAlwaysRendered = 1,
+			Latest = CloudsAlwaysRendered,
+		};
+		static const FGuid Key;
+	};
+	const FGuid FVersion::Key(0x6D2B8F41, 0x3C7A4E19, 0x9B05D2E8, 0x47A1C3F6);
+	static FCustomVersionRegistration GRegisterSkyVersion(FVersion::Key, FVersion::Latest, TEXT("DreamSkyActor"));
+
+	/** The engine's volumetric cloud materials the plugin had (a level saved with them takes the look they were). */
+	static const TCHAR* RealisticCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud");
+	static const TCHAR* PaintedCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted");
+
 	/** The engine's sky sphere: a unit-ish sphere whose normals face inward. */
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
@@ -291,11 +307,9 @@ void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
 	}
 }
 
-EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
+bool ADreamSky::DrawsClouds() const
 {
-	// (The dome's own clouds and the engine's volumetric ones were: the renderer draws whatever a level chose, and
-	// whatever DreamSky.Clouds says.)
-	return EDreamSkyClouds::Rendered;
+	return FApp::CanEverRender();
 }
 
 EDreamSkyCloudLook ADreamSky::GetEffectiveCloudLook() const
@@ -376,7 +390,7 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 {
 	using namespace DreamSky::Actor;
-	const bool bWanted = SunLight && GetEffectiveClouds() == EDreamSkyClouds::Rendered && FApp::CanEverRender();
+	const bool bWanted = SunLight && DrawsClouds();
 	if (!bWanted)
 	{
 		if (SunLight && CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
@@ -511,6 +525,73 @@ void ADreamSky::BeginPlay()
 	PushClockToWorld(true);
 }
 
+void ADreamSky::Serialize(FArchive& Ar)
+{
+	Ar.UsingCustomVersion(DreamSky::Actor::FVersion::Key);
+	Super::Serialize(Ar);
+}
+
+void ADreamSky::PostLoad()
+{
+	Super::PostLoad();
+	using namespace DreamSky::Actor;
+	// (A play in editor copy is made from the editor's sky, which has taken its saved choice in already.)
+	const UPackage* Package = GetOutermost();
+	if ((Package && Package->HasAnyPackageFlags(PKG_PlayInEditor)) || GetLinkerCustomVersion(FVersion::Key) >= FVersion::CloudsAlwaysRendered)
+	{
+		return;
+	}
+	MigrateSavedClouds();
+}
+
+void ADreamSky::MigrateSavedClouds()
+{
+	using namespace DreamSky::Actor;
+	FString Lost;
+	switch (Clouds_DEPRECATED)
+	{
+	case EDreamSkyClouds::Toon:
+		// The dome's own toon clouds: the toon look draws the same.
+		CloudLook = EDreamSkyCloudLook::Toon;
+		break;
+	case EDreamSkyClouds::Volumetric:
+	{
+		// The look of the material it drew them with (none saved: the plugin's realistic one, the default it had).
+		const FSoftObjectPath Material = VolumetricCloudMaterial_DEPRECATED.ToSoftObjectPath();
+		const FString Path = Material.ToString();
+		if (Material.IsNull() || Path == RealisticCloudMaterialPath)
+		{
+			CloudLook = EDreamSkyCloudLook::Realistic;
+		}
+		else if (Path == PaintedCloudMaterialPath)
+		{
+			CloudLook = EDreamSkyCloudLook::Painted;
+		}
+		else
+		{
+			// A material of the level's own: its name says which of the two it was made from; its values are not taken.
+			CloudLook = Material.GetAssetName().Contains(TEXT("Paint")) ? EDreamSkyCloudLook::Painted : EDreamSkyCloudLook::Realistic;
+			Lost = Path;
+		}
+		break;
+	}
+	default:
+		// The renderer: the look it had.
+		break;
+	}
+	const FString Look = StaticEnum<EDreamSkyCloudLook>()->GetNameStringByValue(int64(CloudLook));
+	if (Lost.IsEmpty())
+	{
+		UE_LOG(LogDreamSky, Display, TEXT("%s was saved by an older Dream Sky (clouds: %s): the sky cloud renderer draws its clouds now, in the %s look. Save the level to keep it so."),
+			*GetPathName(), *StaticEnum<EDreamSkyClouds>()->GetNameStringByValue(int64(Clouds_DEPRECATED)), *Look);
+	}
+	else
+	{
+		UE_LOG(LogDreamSky, Warning, TEXT("%s was saved by an older Dream Sky with the volumetric cloud material %s, which is not drawn any more: the sky cloud renderer draws its clouds in the %s look, with the style's %sClouds settings. The material's values were not carried over: set them in the style asset (or the level's cloud overrides), then save the level."),
+			*GetPathName(), *Lost, *Look, *Look);
+	}
+}
+
 void ADreamSky::PushClockToWorld(bool bResetTime)
 {
 	if (UDreamWorldSubsystem* WorldClock = UDreamWorldSubsystem::Get(this))
@@ -542,8 +623,7 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 	{
 		PushClockToWorld(true);
 	}
-	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, SkyMaterial) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, DomeRadius)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds))
+	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, SkyMaterial) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, DomeRadius))
 	{
 		ApplyDome();
 	}

@@ -352,7 +352,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 	const UDreamWorldSubsystem* Clock = Sky ? Sky->ClockSubsystem.Get() : nullptr;
 	UWorld* ViewWorld = GetWorld();
 	UMaterialParameterCollection* Collection = Clock ? Clock->GetParameterCollection() : nullptr;
-	if (Actor && Collection && ViewWorld && Actor->GetEffectiveClouds() == EDreamSkyClouds::Rendered)
+	if (Actor && Collection && ViewWorld && Actor->DrawsClouds())
 	{
 		if (!Sky->CloudNoise)
 		{

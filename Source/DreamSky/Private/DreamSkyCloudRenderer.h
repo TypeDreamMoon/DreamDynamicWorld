@@ -14,7 +14,7 @@ namespace DreamSkyCloudRender { class FCommonParameters; }
 class UDreamSkySubsystem;
 
 /**
- * The sky cloud renderer (EDreamSkyClouds::Rendered): per view, right after the base pass (before lighting, fog and
+ * The sky cloud renderer (ADreamSky::DrawsClouds): per view, right after the base pass (before lighting, fog and
  * translucency), a compute pass marches the cloud layer at reduced resolution (DreamSkyCloudRender.usf), a second one
  * blends it with the previous frames reprojected by the clouds' depth, and a full-screen pass composites it into the sky
  * pixels -- the far plane and whatever lies beyond the dome's depth -- so the engine's fog, aerial perspective and
