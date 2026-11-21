@@ -115,6 +115,7 @@ int2 ShadowResolution;
 RWTexture2D<float> OutShadow;
 Texture2D<float> NearGround; // the sun map cascades' optical depth from the layer's base the whole way up to the storm top
 Texture2D<float> FarGround;
+int ReferenceSteps;          // ShadowCS: > 0, its own march of so many even steps instead (DreamSky.CloudRender.GroundShadowReference)
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
@@ -808,6 +809,25 @@ void ShadowCS(uint3 Id : SV_DispatchThreadID)
 	}
 	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
 	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
+	// (Debug: the reference, the same way up through the field in even steps from this very point.)
+	if (ReferenceSteps > 0)
+	{
+		float3 L = normalize(P_MainLight.xyz);
+		L = normalize(float3(L.xy, max(L.z, 0.05)));
+		FDSkyCloudField F = DSkyR_Field();
+		float3 Base = float3(XY, F.Base - dot(XY, XY) / (2.0 * DSky_PlanetRadius)) - CameraWorld;
+		float Whole = DCS_STORM_TOP / L.z;
+		FDCloudAnchor Anchor = (FDCloudAnchor)0;
+		float RefTau = 0.0;
+		for (int r = 0; r < ReferenceSteps; ++r)
+		{
+			FDSkyCloudSample C = DSky_CloudAt(Base + L * (Whole * (float(r) + 0.5) / float(ReferenceSteps)), F, false, Anchor,
+				P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			RefTau += DSkyR_Extinction(C);
+		}
+		OutShadow[Id.xy] = exp(-RefTau * Whole / float(ReferenceSteps));
+		return;
+	}
 	// (The cascades' ground maps: the near one where it reaches, the far one beyond, the whole sun past both.)
 	float2 Near = (XY - NearCenterExtent.xy) / (2.0 * NearCenterExtent.z) + 0.5;
 	float2 Far = (XY - FarCenterExtent.xy) / (2.0 * FarCenterExtent.z) + 0.5;

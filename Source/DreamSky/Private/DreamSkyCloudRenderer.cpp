@@ -39,6 +39,13 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderSamples(
 	TEXT("The most samples of the cloud field a ray of the sky cloud renderer takes (16..512)."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderGroundReference(
+	TEXT("DreamSky.CloudRender.GroundShadowReference"), 0,
+	TEXT("Debug: the clouds' shadow on the ground worked out for each of its texels by a march of this many even steps from")
+	TEXT(" the layer's base up through the cloud field toward the sun (a reference for the sun map's ground maps it is")
+	TEXT(" otherwise read from: the two should agree within their texels). 0 = off (the ground maps)."),
+	ECVF_RenderThreadSafe);
+
 static TAutoConsoleVariable<float> CVarDreamSkyCloudRenderHistory(
 	TEXT("DreamSky.CloudRender.History"), 0.9f,
 	TEXT("How much of the previous frames the sky cloud renderer keeps (0 = none: every frame stands alone, its jittered")
@@ -139,6 +146,12 @@ class FDreamSkyCloudShadowCS : public FGlobalShader
 	SHADER_USE_PARAMETER_STRUCT(FDreamSkyCloudShadowCS, FGlobalShader);
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WeatherMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, WeatherMapSampler)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, CloudNoise)
+		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
+		SHADER_PARAMETER(int32, ReferenceSteps)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, NearGround)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, FarGround)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
@@ -700,6 +713,12 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		FRDGTextureRef Shadow = RegisterExternalTexture(GraphBuilder, ShadowRHI, TEXT("DreamSky.CloudShadow"));
 		const FIntPoint Resolution(ShadowRHI->GetSizeXYZ().X, ShadowRHI->GetSizeXYZ().Y);
 		FDreamSkyCloudShadowCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudShadowCS::FParameters>();
+		FillCommon(Params->Common);
+		Params->WeatherMap = WeatherMap;
+		Params->WeatherMapSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Params->CloudNoise = CloudNoise;
+		Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+		Params->ReferenceSteps = FMath::Clamp(CVarDreamSkyCloudRenderGroundReference.GetValueOnRenderThread(), 0, 4096);
 		Params->NearGround = Graph.GroundMaps[0];
 		Params->FarGround = Graph.GroundMaps[1];
 		Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
