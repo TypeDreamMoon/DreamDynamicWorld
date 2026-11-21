@@ -32,16 +32,11 @@ public:
 
 	/**
 	 * What the weather does to both (when Environment.bActive): clouds, a dimmer and greyer sky, more fog.
-	 * bCloudsShadowTheSun: the clouds cast their own shadow from the sun (ADreamSky::CloudsShadowTheSun), so an overcast
-	 * sky does not dim the sun as well (OvercastLightDimming still dims the moon).
+	 * bCloudsShadowTheSun: the clouds cast their own shadow from the sun (a cloud layer that hides the sun itself, as the
+	 * engine's volumetric clouds do), so an overcast sky does not dim the sun as well (OvercastLightDimming still dims the
+	 * moon). The sky's own clouds do not: Dream Sky leaves it false.
 	 */
 	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
-
-	/**
-	 * How far, EV, the eye may brighten under clouds that shadow the sun (see CloudShadowExposureLift): grows as the
-	 * cover closes, and fades out as the clouds turn storm-dark, so a storm stays darker than an overcast day.
-	 */
-	float CloudShadowExposureLiftFor(float Cover, float Darkness) const;
 
 	/** What being indoors does to the lighting (FDreamViewOcclusion from the view probe). */
 	void ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamSkyLighting& Lighting) const;
@@ -262,6 +257,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
 	float StormCloudDarkening = 0.6f;
 
+	/** The sky cloud renderer's realistic look (ADreamSky::CloudLook = Realistic). The level's cloud overrides go over it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Realistic", meta = (ShowOnlyInnerProperties))
+	FDreamSkyRealisticClouds RealisticClouds;
+
+	/** The sky cloud renderer's painted look (ADreamSky::CloudLook = Painted). The level's cloud overrides go over it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Painted", meta = (ShowOnlyInnerProperties))
+	FDreamSkyPaintedClouds PaintedClouds;
+
+	/**
+	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
+	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
+	 * out the clouds beyond it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "500000", UIMax = "20000000"))
+	float CloudShadowReach = 6000000.0f;
+
 	// ---- Scene lighting -----------------------------------------------------------------------
 
 	/** Ambient gradient = the dome's zenith / horizon / ground colours times this. */
@@ -295,14 +306,6 @@ public:
 	/** Exposure (EV100) through the day: fixed in Manual mode, the middle of the eye's range in Auto. Lower = brighter picture. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (XAxisName = "Sun elevation", YAxisName = "EV100"))
 	FRuntimeFloatCurve ExposureEV100;
-
-	/**
-	 * Manual mode with clouds that shadow the sun (the volumetric clouds): how far, EV, the eye may brighten by what it
-	 * sees under a closed cover (less as the cover opens, and less as the clouds turn storm-dark; never darker than
-	 * the curve). Whether the view stands in a cloud's shadow is something no curve can know. 0 = keep the curve.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0", UIMax = "4"))
-	float CloudShadowExposureLift = 2.0f;
 
 	/** Auto mode: how far, EV, the eye may adapt either side of the curve. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Exposure", meta = (ClampMin = "0", UIMax = "8"))

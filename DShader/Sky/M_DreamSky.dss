@@ -1,8 +1,7 @@
 // M_DreamSky.dss -- the stylized sky dome of ADreamSky.
 //
-// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, thin high cloud, and (unless the
-// engine's volumetric clouds draw them) toon clouds: the cloud layer shaped in DreamSkyCloudShape.ush, marched to its
-// surface and painted in a few tones.
+// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, thin high cloud and rain shafts; the
+// cumulus are the sky cloud renderer's (in the sky light capture, the panorama of them it draws).
 // It has no parameters of its own: everything comes from the plugin's shared parameter collection, which
 // the world clock (sun, moon, time), the weather (cloud cover, the weather map's placement) and the sky
 // subsystem (colours, clouds, lighting, the main light's colour) write every frame, so the dome always shows what the
@@ -15,7 +14,7 @@
 /// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
 static const Texture2D WeatherMap;
 
-/// The 3D noise the clouds are shaped from (Setup generates it; the engine's volumetric clouds use the same).
+/// The 3D noise the high cloud and rain shafts are shaped from (Setup generates it; the sky cloud renderer uses the same).
 /// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
 static const VolumeTexture CloudNoise;
 

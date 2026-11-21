@@ -59,7 +59,7 @@ float4 Parameters[18];
 
 // The realistic and painted looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them.
-float4 LookParameters[9];
+float4 LookParameters[11];
 #define LP_Extinction           LookParameters[0].x   // per cm
 #define LP_Albedo               LookParameters[0].y
 #define LP_Glow                 LookParameters[0].z
@@ -86,7 +86,9 @@ float4 LookParameters[9];
 #define LP_BillowShade          LookParameters[7].y
 #define LP_LightIlluminance     LookParameters[8].rgb  // the sun's (or the moon's) light component: colour x lux
 #define LP_ShadowReach          LookParameters[8].w    // cm (the realistic material's ShadowReach)
-#define LP_ShadowTracing        LookParameters[7].z   // cm toward the sun a sample's shadow looks (VolumetricShadowTracingDistance)
+#define LP_Fog                  LookParameters[9]      // the height fog: density, falloff (per cm), height, start distance (cm)
+#define LP_FogColor             LookParameters[10]     // its inscattering colour, its least transmittance (1 - max opacity)
+#define LP_ShadowTracing        LookParameters[7].z   // cm toward the sun a sample's shadow looks (CloudShadowTracingDistance)
 
 float3 CameraWorld;   // the view in the world (cm)
 float SkyDepth;       // view depth (cm) beyond which a pixel is sky
@@ -283,6 +285,28 @@ float3 DSkyR_AirTransmittance(float Height, float LightZ)
 	return exp(-(Rayleigh + Mie + Ozone) * Air);
 }
 
+// The sky's height fog over a cloud Distance along V, as the engine's renderer lays it over its own clouds (its
+// exponential height fog, one term, the start distance, the max opacity; no directional inscattering, which the sky does
+// not use): rgb the fog's light, a what of the cloud still shows.
+float4 DSkyR_HeightFog(float3 V, float Distance)
+{
+	float Density = LP_Fog.x;
+	if (Density <= 0.0 || Distance <= 0.0)
+	{
+		return float4(0, 0, 0, 1);
+	}
+	float Falloff = LP_Fog.y;
+	float Start = min(LP_Fog.w, Distance);
+	float RayLength = Distance - Start;
+	float StartZ = CameraWorld.z + V.z * Start;
+	float RayZ = V.z * RayLength;
+	float OriginTerms = Density * exp2(-max(-127.0, Falloff * (StartZ - LP_Fog.z)));
+	float F = max(-127.0, Falloff * RayZ);
+	float LineIntegral = abs(F) > 1.0e-4 ? (1.0 - exp2(-F)) / F : log(2.0) - 0.5 * log(2.0) * log(2.0) * F;
+	float Through = max(saturate(exp2(-OriginTerms * LineIntegral * RayLength)), LP_FogColor.a);
+	return float4(LP_FogColor.rgb * (1.0 - Through), Through);
+}
+
 // A point's height over the layer's base, over the planet's curve (cm), as the field measures it.
 float DSkyR_HeightAt(float3 World, FDSkyCloudField F)
 {
@@ -387,15 +411,15 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 
 #else
 
-// Realistic: the shape's density integrated along the ray, as the engine's cloud material (M_DreamVolumetricCloud) has
-// it, with that material's settings (LP_*: the level's material or the plugin's, the sky's overrides over them): its
+// Realistic: the shape's density integrated along the ray, as the engine's cloud material it took over from had
+// it, with its settings (LP_*: the style's RealisticClouds, the level's cloud overrides over them): its
 // extinction, a storm's cloud up to twice as dense; near clouds by day thinner to the eye (ViewThinning); the sunlight
 // reaching each sample through the cloud toward the sun (three taps, then the sun map), scattered by its two lobes and
-// two octaves of multiple scattering, at VolumetricSunScattering; the sky's light as its glow (CloudGlow, BaseGlow, its
+// two octaves of multiple scattering, at CloudSunScattering; the sky's light as its glow (CloudGlow, BaseGlow, its
 // shade tint, an overcast deck mottled, DeckMottle); a storm absorbing; the earth's shadow at dusk.
-// Painted (DSKY_LOOK 2): the same march at the painted material's extinction through its soft outer skin
+// Painted (DSKY_LOOK 2): the same march at the painted look's extinction (the style's PaintedClouds) through its soft outer skin
 // (EdgeSoftness), each sample painted in the style's three tones by the light through the cloud toward the sun (the
-// core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep), the painted material's tone thresholds
+// core's DCL_ShadePainted, its falloffs at the scale of clouds kilometres deep), the painted look's tone thresholds
 // (HalfToneAt, LitToneAt, ToneSoftness), tints, billows (BillowShade), silver lining (SilverLining), gain (PaintGain), a
 // low sun warming the lit side, an overcast deck painted soft by its thickness, a storm dark below.
 float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
@@ -422,7 +446,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	float Day = smoothstep(-0.12, -0.02, normalize(P_SunDir.xyz).z);
 	float Scale = max(P_Cloud0.z, 0.05);
 	// The light as the engine's clouds take it -- the light component's colour (a low sun's deep red) and illuminance --
-	// times VolumetricSunScattering; the engine material's lobes, and its multiple scattering: the single scattering and
+	// times CloudSunScattering; the engine material's lobes, and its multiple scattering: the single scattering and
 	// two octaves over it, as the engine's (with one octave the body of a cloud kilometres deep went grey: a backlit
 	// tower flat, a moonlit one dark but for its top).
 	float3 SunColor = LP_LightIlluminance * LP_SunScattering;
@@ -436,7 +460,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	L.MsEccentricity = LP_MultiScatterEccentricity;
 	L.MsOctaves = 3;
 #if DSKY_LOOK == 2
-	// The tones as the engine's painted material makes them: the lit one in its tint, by the sky behind (as the toon
+	// The tones as the engine's painted material made them: the lit one in its tint, by the sky behind (as the toon
 	// clouds' are) and the halo round the sun; a low sun warms it, the more on the side toward the sun; the shade in its
 	// tint and the hue of the sky above, which lights it; the half tone between.
 	float3 PaintLit = P_CloudLit.rgb * LP_PaintLitTint * lerp(1.0, Tone, P_Extra.x * 0.2);
@@ -607,6 +631,10 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	// the sun) by the veil itself.
 	float Veil = DCS_AirVeil(SurfaceDepth, V.z, CameraWorld.z, P_Cloud0.x, P_Cloud3);
 	float3 Light = lerp(M.Luminance, SkyBehind * Cover, Veil);
+	// The height fog in front of it, as the engine fogs its clouds: in a sunset's warm fog a low deck's underside goes
+	// the warm brown of the old volumetric clouds, where without it it stayed the blue-lavender of its glow.
+	float4 Fog = DSkyR_HeightFog(V, SurfaceDepth);
+	Light = Light * Fog.a + Fog.rgb * Cover;
 	return float4(Light, Cover) * P_CloudShadow.a;
 }
 
@@ -672,7 +700,7 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 }
 
 // One texel of a sun map cascade: from its middle toward the sun (kept 3 degrees over the horizon) to the top of the
-// tallest towers, no further than a sample's shadow looks (VolumetricShadowTracingDistance), in 16 steps growing with the
+// tallest towers, no further than a sample's shadow looks (CloudShadowTracingDistance), in 16 steps growing with the
 // distance.
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
 void SunMapCS(uint3 Id : SV_DispatchThreadID)

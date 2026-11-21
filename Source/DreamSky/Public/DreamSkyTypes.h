@@ -18,41 +18,152 @@ enum class EDreamSkyExposureMode : uint8
 	Auto,
 };
 
-/** What draws the clouds. */
-UENUM(BlueprintType)
+/**
+ * What drew the clouds in a level saved before the sky cloud renderer drew them all: kept only so such a level loads
+ * (ADreamSky picks its CloudLook from it, once).
+ */
+UENUM()
 enum class EDreamSkyClouds : uint8
 {
-	/** Painted volumes the sky dome ray marches itself: the style's toon tones, crisp edges. */
-	Toon UMETA(DisplayName = "Toon (sky dome)"),
-	/** The engine's volumetric cloud layer with the plugin's cloud material: soft, lit by scattering, casting shadows. */
-	Volumetric UMETA(DisplayName = "Volumetric (engine)"),
-	/**
-	 * The plugin's own cloud renderer: a compute pass per view marches the cloud layer at reduced resolution, filters it
-	 * over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
-	 */
-	Rendered UMETA(DisplayName = "Rendered (sky cloud renderer)"),
+	/** The sky dome's own toon clouds. */
+	Toon,
+	/** The engine's volumetric cloud layer with the plugin's cloud material. */
+	Volumetric,
+	/** The sky cloud renderer. */
+	Rendered,
 };
 
-/** How the sky cloud renderer (EDreamSkyClouds::Rendered) draws the clouds. */
+/**
+ * How the sky cloud renderer draws the clouds: a compute pass per view marches the cloud layer at reduced resolution,
+ * filters it over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
+ */
 UENUM(BlueprintType)
 enum class EDreamSkyCloudLook : uint8
 {
 	/** The clouds' surface, lit and painted in the style's few tones (as the dome's toon clouds). */
 	Toon,
-	/** The density integrated along the view, lit by scattering (as M_DreamVolumetricCloud). */
+	/** The density integrated along the view, lit by scattering (the style's RealisticClouds). */
 	Realistic,
-	/** The density integrated, painted in the style's tones by the light through it (as M_DreamVolumetricCloud_Painted). */
+	/** The density integrated, painted in the style's tones by the light through it (the style's PaintedClouds). */
 	Painted,
 };
 
+/** The sky cloud renderer's realistic look (ADreamSky::CloudLook = Realistic): the clouds' density lit by scattering. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyRealisticClouds
+{
+	GENERATED_BODY()
+
+	/** Extinction of a solid cloud, per metre (a real cumulus is about 0.04 to 0.2): higher = harder, the inside unseen. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.001", UIMin = "0.01", UIMax = "0.3"))
+	float Extinction = 0.08f;
+
+	/** How much of the light a cloud scatters rather than absorbs (a real cloud: nearly all of it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1", UIMin = "0.5"))
+	float Albedo = 0.98f;
+
+	/** How much of the style's shade colour the clouds glow with at their tops (the sky light falling on them). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMax = "4"))
+	float Glow = 0.75f;
+
+	/** How much of that glow reaches a cloud's base (the sky above it is hidden by the cloud): lower = darker, flatter bases. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float BaseGlow = 0.15f;
+
+	/** How mottled an overcast deck is from below (darker where it is thicker). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckMottle = 0.45f;
+
+	/** Multiplies the style's shade colour in the glow: the shaded sides keep the sky's blue-grey even where the weather greys the style's colours. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	FLinearColor ShadeTint = FLinearColor(0.86f, 0.95f, 1.14f, 1.0f);
+
+	/** By day, how thick the body of a near cloud is to the eye (not to the light): lower = less grain, the inside seen a little deeper. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float ViewThinning = 0.35f;
+
+	/** Forward scattering lobe (silver lining): stronger makes small lumps near the sun glow as white balls. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "-0.95", ClampMax = "0.95"))
+	float ScatterForward = 0.8f;
+
+	/** Backward scattering lobe (the sunlit faces seen with the sun behind the view). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "-0.95", ClampMax = "0.95"))
+	float ScatterBackward = -0.3f;
+
+	/** Blend between the forward and the backward lobe. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "0", ClampMax = "1"))
+	float ScatterBlend = 0.5f;
+
+	/** Multiple scattering: how much light keeps scattering inside. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "0", ClampMax = "1"))
+	float MultiScatter = 0.85f;
+
+	/** How much the cloud occludes its own multiple scattering: higher = the light spreads less deep, the bases darker. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "0", ClampMax = "1"))
+	float MultiScatterOcclusion = 0.5f;
+
+	/** How directional multiple scattering stays. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scattering", meta = (ClampMin = "0", ClampMax = "1"))
+	float MultiScatterEccentricity = 0.5f;
+};
+
 /**
- * What the sky cloud renderer's realistic and painted looks are drawn with: the parameters of the volumetric cloud
- * materials (read from the material in use, the sky's overrides over them), so a level set up for those materials
- * looks the same drawn by the renderer.
+ * The sky cloud renderer's painted look (ADreamSky::CloudLook = Painted): the clouds' density painted in the style's
+ * three tones by the light through it, hard-edged, as an anime background's.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyPaintedClouds
+{
+	GENERATED_BODY()
+
+	/** Extinction of a solid cloud, per metre: high, so the inside is unseen. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.001", UIMin = "0.05", UIMax = "1"))
+	float Extinction = 0.3f;
+
+	/** Brightness of the painted tones. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", UIMin = "0.5", UIMax = "2"))
+	float PaintGain = 1.0f;
+
+	/** How wide the soft outer skin of a cloud is (in the shape's own measure): wider = softer, cleaner outlines. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0.005", UIMin = "0.02", UIMax = "0.3"))
+	float EdgeSoftness = 0.06f;
+
+	/** Where the half tone starts (light reaching the cloud, 0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float HalfToneAt = 0.32f;
+
+	/** Where the lit tone starts. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float LitToneAt = 0.62f;
+
+	/** How soft the edges between the tones are. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0.001", UIMin = "0.005", UIMax = "0.2"))
+	float ToneSoftness = 0.06f;
+
+	/** Silver lining on the edges near the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", UIMax = "4"))
+	float SilverLining = 1.5f;
+
+	/** How much the billows shade themselves (0 = only the big forms are shaded). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float BillowShade = 0.3f;
+
+	/** Multiplies the style's lit cloud colour (warm near-white). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones")
+	FLinearColor LitTint = FLinearColor(1.0f, 0.975f, 0.93f, 1.0f);
+
+	/** Multiplies the style's shade colour: blue-lavender, which it keeps where the weather greys the style's colours. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones")
+	FLinearColor ShadeTint = FLinearColor(0.86f, 0.84f, 1.02f, 1.0f);
+};
+
+/**
+ * What the sky cloud renderer's realistic and painted looks are drawn with this frame: the style's realistic and painted
+ * clouds with the level's cloud overrides over them, and the light and the fog as the sky's components have them.
  */
 struct FDreamSkyCloudLookParameters
 {
-	// Realistic (M_DreamVolumetricCloud).
+	// Realistic (FDreamSkyRealisticClouds).
 	float Extinction = 0.08f;          // per metre
 	float Albedo = 0.98f;
 	float Glow = 0.75f;
@@ -66,10 +177,10 @@ struct FDreamSkyCloudLookParameters
 	float MultiScatter = 0.85f;
 	float MultiScatterOcclusion = 0.5f;
 	float MultiScatterEccentricity = 0.5f;
-	float SunScattering = 2.5f;        // ADreamSky::VolumetricSunScattering
-	float ShadowTracingDistance = 6.0f; // ADreamSky::VolumetricShadowTracingDistance, km: how far toward the sun a sample's shadow looks
-	float ShadowReach = 6000000.0f;    // cm: the clouds' shading toward the light fades out by where their shadow lands, from a quarter of this on
-	// Painted (M_DreamVolumetricCloud_Painted).
+	float SunScattering = 2.5f;        // ADreamSky::CloudSunScattering
+	float ShadowTracingDistance = 6.0f; // ADreamSky::CloudShadowTracingDistance, km: how far toward the sun a sample's shadow looks
+	float ShadowReach = 6000000.0f;    // UDreamSkyStyle::CloudShadowReach, cm: the clouds' shading toward the light fades out by where their shadow lands, from a quarter of this on
+	// Painted (FDreamSkyPaintedClouds).
 	float PaintExtinction = 0.3f;      // per metre
 	float PaintGain = 1.0f;
 	float EdgeSoftness = 0.06f;
@@ -83,6 +194,14 @@ struct FDreamSkyCloudLookParameters
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	// The sky's height fog, which the engine lays over its clouds at their depth (its cut-off is at the dome while the
+	// renderer draws them, so the renderer lays it on itself): the component's own settings.
+	float FogDensity = 0.0f;           // as the component has it (per 1000 cm)
+	float FogHeightFalloff = 0.2f;     // per 1000 cm
+	float FogHeight = 0.0f;            // cm, the component's height
+	float FogStartDistance = 0.0f;     // cm
+	float FogMaxOpacity = 1.0f;
+	FLinearColor FogColor = FLinearColor::Black;
 };
 
 /**

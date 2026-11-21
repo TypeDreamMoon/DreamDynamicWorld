@@ -59,15 +59,11 @@ work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
-`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars and, unless the
-engine's volumetric clouds draw them, the clouds. A `UDreamSkyStyle` (default `DS_DreamSkyStylized`) says how
-everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day length or
-latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time jumps) or
-with eye adaptation held around it. When the volumetric clouds shadow the sun themselves, the weather does not dim
-the sun as well (the moon still dims under cloud), and the fixed exposure may brighten by up to
-`CloudShadowExposureLift` EV (2) under a closed grey cover — less as it opens, hardly any under a storm, which is
-meant to look dark, and never darker than the curve — since no curve can know whether the view stands in a cloud's
-shadow.
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, high cloud and rain
+shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
+length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
+jumps) or with eye adaptation held around it. An overcast dims the sun and the moon (`OvercastLightDimming`).
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
@@ -76,47 +72,37 @@ hidden, at night, so it costs nothing and anything that asks "where is the sun" 
 moon light takes over; when the moon is down a stand-in opposite the sun keeps a main light (stylized
 default, `bNightLightAlwaysUp`).
 
-The clouds are one density field drawn either of two ways (`ADreamSky.Clouds`, or the console variable
-`DreamSky.Clouds`): **Toon**, the dome marches them itself and paints their surface in the style's few tones (the
-dome stands 1000 km out, `DomeRadius`, beyond any terrain; the clouds below the horizon, seen from among or above
-them, are drawn over the ground by `M_DreamSkyBelow` on a small sphere round the view, only as far as the ground);
-**Volumetric**, the engine's volumetric cloud layer renders them (`VolumetricLayerThickness`,
-`VolumetricTracingDistance`, `VolumetricSampleCountScale`) with one of two materials over the same clouds —
-`M_DreamVolumetricCloud`, realistic (soft, lit by scattering), or `M_DreamVolumetricCloud_Painted`, an anime
-background's (hard-edged, opaque, in the style's lit, half and shade tones with a silver lining near the sun), set as
-`VolumetricCloudMaterial` or from the console (`DreamSky.CloudMaterial <object path>`). The volumetric clouds'
-light: `VolumetricSunScattering` (2.5) brightens the sun's and the moon's scattering in them (the engine's
-multiple-scattering approximation loses light; at 1 a sunlit cumulus comes out light grey);
-`VolumetricBaseSkyOcclusion` shuts their bases off from the sky light (higher = darker, flatter bases). Their
-shadows: `VolumetricShadowTracingDistance` (how far each sample looks toward the sun, km),
-`VolumetricShadowResolution` (the cloud shadow map and the sky light's cloud occlusion map, which cover the traced
-distance rather than the engine's 150 km) and `VolumetricShadowSamples` (the shadow map's march; storms cost the
-most; the map fades out toward its edge, so its end does not show as a line on far ground). The engine traces a
-quarter of the clouds' pixels each frame and rebuilds the rest from the frames before; the sample count
-(`VolumetricSampleCountScale`, 2.75) keeps the grain over dense realistic clouds fine and still, and through a
-lightning flash, and a few frames after, the clouds are drawn from each frame's trace alone, so a flash never comes
-out as a checkerboard. `bVolumetricHalfResTracing` (off) traces the realistic clouds at half resolution every frame
-instead: finer, but 0.2–0.9 ms more at 1080p (about 2 ms in a storm), and what grain is left shimmers from frame to
-frame. Under the painted clouds the clouds' shadows take only 0.55 of the sun off the ground between broken clouds —
-a painted background's cloud shadows lie light and warm — rising to all of it as the cover closes (an overcast casts
-no sun shadows); under the realistic ones all of it (the `GroundShadow` override sets it for either).
+The clouds are drawn by the plugin's own cloud renderer (`Source/DreamSky/Private/DreamSkyCloudRenderer.*`,
+`Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute pass marches the field at
+reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march (`DreamCloudMarch.ush`) —
+skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer than a billow near a
+surface, each ray's steps offset per pixel and frame — a second pass blends the frames before, reprojected by the
+clouds' depth (`DreamSky.CloudRender.History`, 0.9), and the clouds are laid over the sky pixels behind the scene,
+under the sky's height fog as the engine fogs its own clouds; they take the dome's weather haze and lightning. Three
+looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
+normal and its shadow toward the light and painted in the style's few tones), **realistic** (the density lit by
+scattering: soft) and **painted** (the density painted in the style's lit, half and shade tones by the light through
+it: hard-edged, opaque, with a silver lining near the sun, an anime background's clouds). The realistic and painted
+looks take their settings from the style (`RealisticClouds`, `PaintedClouds`, and `CloudShadowReach`, how far their
+shading toward the light reaches), the level's cloud overrides over them; on the actor, `CloudSunScattering` (2.5)
+brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
+comes out light grey) and `CloudShadowTracingDistance` (6 km) is how far each sample looks toward the sun. A map of
+the optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function
+the sky puts on its sun, `M_DreamCloudShadow`): under the toon and painted clouds the shadows take only 0.55 of the
+sun off the ground between broken clouds — a painted background's cloud shadows lie light and warm — rising to all
+of it as the cover closes (an overcast casts no sun shadows); under the realistic ones all of it (the `GroundShadow`
+override sets it for any look). A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
+in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
+between the view and the ground are drawn over the scene too, just before the post processing: there they cover
+whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
+scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome
+stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
+the sky pixels, `2` the rays that found no cloud.
 
-A third way, **Rendered** (`DreamSky.Clouds 2`), is the plugin's own cloud renderer (`Source/DreamSky/Private/
-DreamSkyCloudRenderer.*`, `Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute
-pass marches the field at reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march
-(`DreamCloudMarch.ush`) — skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer
-than a billow near a surface, each ray's steps offset per pixel and frame — a second pass blends the frames before,
-reprojected by the clouds' depth (`DreamSky.CloudRender.History`, 0.9), and the clouds are laid over the sky pixels
-behind the scene; the dome leaves its own out and the clouds take its weather haze and lightning. Three looks
-(`DreamSky.CloudRender.Look`): 0 toon (the surface, lit and painted as the dome's toon clouds are), 1 realistic (lit by
-scattering, as the engine's cloud material), 2 painted (the style's tones by the light through the cloud). A map of the
-optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function the
-sky puts on its sun, `M_DreamCloudShadow`); a panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what
-the dome shows in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base
-the clouds between the view and the ground are drawn over the scene too, just before the post processing: there they
-cover whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of
-nearer scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by).
-`DreamSky.CloudRender.Debug 1` shows where the clouds go into the sky pixels, `2` the rays that found no cloud.
+The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
+editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as
+ever — and the log and the editor say so once. `DreamSky.CloudRender.Enable 0` leaves them out the same way: set it in
+a device profile to have no clouds on a platform.
 
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
@@ -143,13 +129,30 @@ captured light has no hot spot.
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
-effect, erosion, detail, cirrus, storm darkening, visibility, and the volumetric materials' extinction, glow, base
-glow, painted tones, edge softness and ground shadow), Sun
-and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, cloud
-shadows, the disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
+effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,
+base glow, painted tones, edge softness and ground shadow), Sun
+and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, the
+disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
 Exposure (mode, compensation, the eye's range and speed). Tick a setting to use it; the style stays the preset
 other levels share. The components the sky drives are still in the component tree, though it rewrites most of
 what they hold every frame.
+
+**Levels saved with the older clouds.** The sky cloud renderer now draws every sky's clouds: the dome's own toon
+clouds and the engine's volumetric cloud layer are gone, and with them `ADreamSky.Clouds`, `DreamSky.Clouds`,
+`VolumetricCloudMaterial`, `DreamSky.CloudMaterial`, `VolumetricLayerThickness`, `VolumetricTracingDistance`,
+`VolumetricSampleCountScale`, `VolumetricBaseSkyOcclusion`, `VolumetricShadowResolution`, `VolumetricShadowSamples`,
+`bVolumetricHalfResTracing`, the `VolumetricClouds` and `CloudsBelow` components, `M_DreamVolumetricCloud`,
+`M_DreamVolumetricCloud_Painted` and `M_DreamSkyBelow`. A level saved before is read once as it loads, and the log says
+so: toon clouds become the toon look; volumetric clouds the realistic or the painted look, after the material they had.
+A material of the level's own becomes the look its name suggests (painted if "Paint" is in it), with a warning that its
+values were not carried over: set them in the style's `RealisticClouds` or `PaintedClouds` (or the level's cloud
+overrides). The painted material's `EngineLight` (how much of the engine's own lighting showed under its tones) has no
+counterpart: the renderer lights the painted clouds by its own march alone. `VolumetricSunScattering` and
+`VolumetricShadowTracingDistance` are now `CloudSunScattering` and `CloudShadowTracingDistance`, and a saved value is
+read into them; the materials' `ShadowReach` is the style's `CloudShadowReach` (60 km). The sun override
+`CloudShadowStrength` and the style's `CloudShadowExposureLift` went with the engine's clouds: a level that adds an
+engine cloud layer of its own sets its shadow on the sun light itself. Save the level once to keep it in the new form. Console lines or device profiles that set `DreamSky.Clouds` or `DreamSky.CloudMaterial` do nothing
+any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
@@ -531,12 +534,11 @@ DreamDynamicWorld/
   Source/DreamWindNiagara   UNiagaraDataInterfaceDreamWind
   Source/DreamWindEditor    Tools menu, asset setup, DreamWindSetup commandlet
   DShader/                  MF_DreamWindSample.dsf, M_DreamWindGrass.dsm, M_DreamWindDebug.dsm, Sky/M_DreamSky.dss,
-                            Sky/M_DreamSkyBelow.dss, Sky/M_DreamVolumetricCloud(_Painted).dss, Sky/M_DreamCloudShadow.dss,
-                            Weather/M_DreamRainDrop.dss, Weather/M_DreamRainSplash.dss
+                            Sky/M_DreamCloudShadow.dss, Weather/M_DreamRainDrop.dss, Weather/M_DreamRainSplash.dss
   DFX/                      DreamWindForce.dfm, NS_DreamWindLeaves.dfs, NS_DreamWindDebug.dfs,
                             Modules/DreamFallPath.dfm, Effects/NS_DreamRain.dfs
   Content/MPC_DreamDynamicWorld  the shared parameter collection
-  Content/Sky/                   M_DreamSky, M_DreamSkyBelow, M_DreamVolumetricCloud(_Painted), M_DreamCloudShadow, RT_DreamCloudPanorama, DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
+  Content/Sky/                   M_DreamSky, M_DreamCloudShadow, RT_DreamCloudPanorama, DS_DreamSkyStylized, T_DreamCloudNoise, Maps/Lvl_DreamSkyTest
   Content/Wind/                  generated assets (RT, materials, Niagara) — regenerable
   Content/Wind/Presets/          DWP_Calm / DWP_Breeze / DWP_Storm (UDreamWindPreset)
   Content/Wind/Maps/             Lvl_DreamWindTest + its baked wind terrain

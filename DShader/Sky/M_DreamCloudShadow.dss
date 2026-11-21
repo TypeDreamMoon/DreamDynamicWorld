@@ -1,5 +1,5 @@
 // M_DreamCloudShadow.dss -- the sky cloud renderer's clouds on the ground: the light function ADreamSky puts on its sun
-// while the renderer draws the clouds (EDreamSkyClouds::Rendered).
+// while the renderer draws the clouds (ADreamSky::DrawsClouds).
 //
 // From the lit point it goes up toward the sun to the cloud layer's base and reads there how much of the sun the clouds
 // let through, from the texture the renderer writes round the view (FDreamSkyCloudViewExtension, ShadowCS). Past the

@@ -7,14 +7,13 @@
 #include "DreamSkyOverrides.generated.h"
 
 class UDreamSkyStyle;
-class UMaterialInstanceDynamic;
 
 /*
  * A Dream Sky's own settings over its style, for this level only (the style stays the preset): tick a setting to use
  * it, untick it to go back to the style's (or, for the lights' and the fog's own settings, the sky's defaults).
  */
 
-/** The clouds: their shape, their drift and the volumetric materials' looks. */
+/** The clouds: their shape, their drift and the sky cloud renderer's realistic and painted looks. */
 USTRUCT(BlueprintType)
 struct DREAMSKY_API FDreamSkyCloudOverrides
 {
@@ -92,76 +91,72 @@ struct DREAMSKY_API FDreamSkyCloudOverrides
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_Visibility", ClampMin = "100000", UIMax = "20000000", Units = "cm"))
 	float Visibility = 5000000.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_Extinction = false;
-	/** Extinction of a solid cloud, per metre (either material; realistic 0.08, painted 0.3): higher = harder edges, the inside unseen. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_Extinction", ClampMin = "0.005", UIMax = "1"))
+	/** Extinction of a solid cloud, per metre (the look in use; realistic 0.08, painted 0.3): higher = harder edges, the inside unseen. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_Extinction", ClampMin = "0.005", UIMax = "1"))
 	float Extinction = 0.08f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_Glow = false;
-	/** Realistic material: how much the clouds' tops glow with the style's shade colour (the sky light falling on them). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_Glow", ClampMin = "0", UIMax = "4"))
+	/** Realistic look: how much the clouds' tops glow with the style's shade colour (the sky light falling on them). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_Glow", ClampMin = "0", UIMax = "4"))
 	float Glow = 0.75f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_BaseGlow = false;
-	/** Realistic material: how much of that glow reaches a cloud's base: lower = darker, flatter bases. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_BaseGlow", ClampMin = "0", ClampMax = "1"))
+	/** Realistic look: how much of that glow reaches a cloud's base: lower = darker, flatter bases. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_BaseGlow", ClampMin = "0", ClampMax = "1"))
 	float BaseGlow = 0.15f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_PaintGain = false;
-	/** Painted material: brightness of the painted tones. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_PaintGain", ClampMin = "0", UIMax = "2"))
+	/** Painted look: brightness of the painted tones. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_PaintGain", ClampMin = "0", UIMax = "2"))
 	float PaintGain = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_EdgeSoftness = false;
-	/** Painted material: how wide the soft outer skin of a cloud is: wider = softer, cleaner outlines. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_EdgeSoftness", ClampMin = "0.02", UIMax = "0.3"))
+	/** Painted look: how wide the soft outer skin of a cloud is: wider = softer, cleaner outlines. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_EdgeSoftness", ClampMin = "0.02", UIMax = "0.3"))
 	float EdgeSoftness = 0.06f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_HalfToneAt = false;
-	/** Painted material: where the half tone starts (light reaching the cloud, 0..1). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_HalfToneAt", ClampMin = "0", ClampMax = "1"))
+	/** Painted look: where the half tone starts (light reaching the cloud, 0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_HalfToneAt", ClampMin = "0", ClampMax = "1"))
 	float HalfToneAt = 0.32f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_LitToneAt = false;
-	/** Painted material: where the lit tone starts. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_LitToneAt", ClampMin = "0", ClampMax = "1"))
+	/** Painted look: where the lit tone starts. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_LitToneAt", ClampMin = "0", ClampMax = "1"))
 	float LitToneAt = 0.62f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_ToneSoftness = false;
-	/** Painted material: how soft the edges between the tones are. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_ToneSoftness", ClampMin = "0.005", UIMax = "0.2"))
+	/** Painted look: how soft the edges between the tones are. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_ToneSoftness", ClampMin = "0.005", UIMax = "0.2"))
 	float ToneSoftness = 0.06f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_SilverLining = false;
-	/** Painted material: the silver lining on edges near the sun. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_SilverLining", ClampMin = "0", UIMax = "4"))
+	/** Painted look: the silver lining on edges near the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_SilverLining", ClampMin = "0", UIMax = "4"))
 	float SilverLining = 1.5f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (InlineEditConditionToggle))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (InlineEditConditionToggle))
 	bool bOverride_GroundShadow = false;
-	/** Either material: how much of the sun the clouds' shadows take off the ground (unticked: all of it under the
+	/** Either look: how much of the sun the clouds' shadows take off the ground (unticked: all of it under the
 	 *  realistic clouds; under the painted ones 0.55 between broken clouds -- a painted background's cloud shadows are
-	 *  light and stay warm -- rising to all of it as the cover closes). Not a material parameter: it goes to the sun. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Volumetric Material", meta = (EditCondition = "bOverride_GroundShadow", ClampMin = "0", ClampMax = "1"))
+	 *  light and stay warm -- rising to all of it as the cover closes). It goes to the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds|Look", meta = (EditCondition = "bOverride_GroundShadow", ClampMin = "0", ClampMax = "1"))
 	float GroundShadow = 1.0f;
 
 	/** Writes the ticked style settings into Style. */
 	void ApplyTo(UDreamSkyStyle& Style) const;
 	/** Whether any style setting is ticked. */
 	bool TouchesStyle() const;
-	/** Whether any material setting is ticked. */
-	bool TouchesMaterial() const;
-	/** Sets the ticked material settings on Material (by parameter name; a material without one ignores it). */
-	void ApplyTo(UMaterialInstanceDynamic& Material) const;
 };
 
 /** The sun and the moon: their strength, their shadows. */
@@ -217,12 +212,6 @@ struct DREAMSKY_API FDreamSkyLightOverrides
 	/** How strongly the sun and moon light volumetric fog (light shafts through it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_VolumetricScattering", ClampMin = "0", UIMax = "4"))
 	float VolumetricScattering = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
-	bool bOverride_CloudShadowStrength = false;
-	/** How dark the volumetric clouds' shadows on the ground are. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_CloudShadowStrength", ClampMin = "0", ClampMax = "1"))
-	float CloudShadowStrength = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
 	bool bOverride_MoonCastsShadows = false;

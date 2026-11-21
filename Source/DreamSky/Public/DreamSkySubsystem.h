@@ -66,8 +66,8 @@ private:
 	friend class FDreamSkyCloudViewExtension;
 
 	void Update(UDreamWorldSubsystem& Clock, float DeltaTime);
-	/** Clouds: what draws the clouds (anything but toon: the dome leaves its own out). */
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, EDreamSkyClouds Clouds);
+	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds). */
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 

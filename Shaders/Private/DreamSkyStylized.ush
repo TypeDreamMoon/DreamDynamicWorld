@@ -1,10 +1,11 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// The stylized sky dome: a gradient sky, the sun with its halo, the moon with its phase, stars, thin high cloud
-// and (unless the engine's volumetric clouds draw them) the cumulus: the clouds of DreamSkyCloudShape.ush, marched
-// to their surface and painted the way anime backgrounds paint them, each lobe lit on its own in a few tones, the
-// air between veiling the far ones in the sky's colour. Everything comes in as the vectors the sky subsystem writes
-// to the shared parameter collection (see DreamSkyModule.h for the layout); this file only draws.
+// The stylized sky dome: a gradient sky, the sun with its halo, the moon with its phase, stars, thin high cloud and
+// rain shafts; in the sky light capture, the panorama of the clouds the sky cloud renderer draws. And the toon cumulus
+// the renderer's toon look draws (DreamSkyCloudRender.usf): the clouds of DreamSkyCloudShape.ush, walked to their
+// surface and painted the way anime backgrounds paint them, each lobe lit on its own in a few tones, the air between
+// veiling the far ones in the sky's colour. Everything comes in as the vectors the sky subsystem writes to the shared
+// parameter collection (see DreamSkyModule.h for the layout); this file only draws.
 //
 // Directions are world space unit vectors: V from the camera through the pixel, SunDir / MoonDir / LightDir
 // from the ground toward the body.
@@ -150,9 +151,9 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Volumetric clouds, toon: the cloud layer (shaped in DreamSkyCloudShape.ush, the same clouds the engine's
-// volumetric layer draws) ray marched to its surface, which is then lit once, by its normal and its own shadow
-// toward the main light, and banded into the style's few tones: volumes with a painted look.
+// Volumetric clouds, toon: the cloud layer (shaped in DreamSkyCloudShape.ush) walked to its surface, which is then lit
+// once, by its normal and its own shadow toward the main light, and banded into the style's few tones: volumes with a
+// painted look. The sky cloud renderer's toon look marches to the surface and draws it with these.
 
 // The cloud field for one frame, as the toon march sees it.
 struct FDSkyCloudField
@@ -322,15 +323,6 @@ float DSky_Square(float X)
 	return X * X;
 }
 
-// The march's pace, in steps of its schedule (a step there is a Schedule-th of the way in X, T growing with X squared:
-// samples crowd near the view and spread far off, over the storm band most): half steps where cloud may be, whole
-// ones through air the shape's bound says is empty. (Not coarser above the cumulus layer: the bound of a cumulonimbus's
-// anvil is the anvil itself, a plate a kilometre or two thick, and longer steps there cut its far rim off.)
-float DSky_MarchPace(bool bFine)
-{
-	return bFine ? 0.45 : 0.9;
-}
-
 // The noise level that fits a pattern Scale cm per texture unit seen T cm off (the texture is some 128 texels a side; a
 // pixel some 0.0015 of the distance): mip 0 that far below its texels shimmers into moire.
 float DSky_NoiseLod(float T, float Scale)
@@ -347,9 +339,8 @@ float DSky_EdgeWidth(float T)
 }
 
 // What a march found of the clouds' surface along a ray, and what the walk around it then reads (DSky_WalkSurface): the
-// state of the toon march's second loop, so a march of another kind (the sky cloud renderer's) can hand its hit over and
-// the surface is lit the same way. Phase: 1 refine between Lo and Hi, 2 search the closest approach, 3 the surface at
-// SurfaceT, 7 done (see DSky_VolumeClouds).
+// sky cloud renderer's toon march hands its hit over in this, and the surface is lit from it (DSky_PaintSurface).
+// Phase: 1 refine between Lo and Hi, 2 search the closest approach, 3 the surface at SurfaceT, 7 done.
 struct FDSkySurfaceWalk
 {
 	int Phase;
@@ -800,221 +791,6 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	return float4(Color * Cover, Cover);
 }
 
-// The march finds the clouds' surface along V (refined between the two samples that straddle it); the surface is
-// then lit once, the way painted cumulus are: by its own normal (each billow on its own), shaded where a whole cloud
-// stands between it and the light, then the style's few tones. Returns the clouds' colour (over their own
-// transparency) and their cover; Core = how deep the cloud is (for the lightning). SkyBehind = the sky's colour along V:
-// the air between the view and a cloud veils it in that colour. SceneReach: cm along V to whatever stands in front of the
-// clouds there (the clouds behind it are not drawn; the march itself does not change with it, or its samples would move
-// with the scene's depth from pixel to pixel and frame to frame).
-float4 DSky_VolumeClouds(float3 V, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLayer,
-	float4 MapParams, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float3 Tone,
-	float3 Halo, float3 SkyBehind, float4 CloudLit, float4 CloudShadow, float4 Extra, float3 Sun, float4 LightColor, float SceneReach,
-	out float Core)
-{
-	Core = 0.0;
-	if (Cloud0.x <= 0.0)
-	{
-		return float4(0, 0, 0, 0);
-	}
-	FDSkyCloudField F;
-	F.Camera = Camera;
-	F.Base = max(CloudLayer.x, 10000.0);
-	F.Iso = 0.06;
-	F.Cloud0 = Cloud0;
-	F.Cloud1 = Cloud1;
-	F.Cloud2 = Cloud2;
-	F.CloudLayer = CloudLayer;
-
-	const float MaxDist = 9000000.0;
-	const float DetailEnd = 6000000.0;
-	// The most samples the march takes (finding the surface exactly, its normal and its shadow take up to 27 more), and
-	// how long its schedule is: half as long, so that where cloud may be it can take its fine steps all the way.
-	const int Steps = 80;
-	const float Schedule = 36.0;
-	// Far off, a ray skimming a cumulus's top (within some 300 m of its surface, where the march's fine steps are longer
-	// than 400 m) takes steps a third as long, up to this many more: the fine steps were longer than a billow there, rows
-	// of rays found the surface on one billow or the one behind (or the cloud behind), and far cumulus came out in
-	// horizontal streaks and brushed edges. Its own budget: no other ray steps differently.
-	const int Skims = 30;
-	// The layer along the ray, over the planet's curve, from its base to the top of the tallest towers: entered from
-	// below, from inside, or from above (looking down on the clouds).
-	float T0;
-	float T1;
-	DSky_LayerSpan(Camera, V, F.Base, F.Base + DCS_STORM_TOP, MaxDist, T0, T1);
-	if (T0 >= T1)
-	{
-		return float4(0, 0, 0, 0);
-	}
-
-	// Every density lookup goes through one call in each of two loops, small state machines: the field is heavy, and
-	// each place it is called from is a whole copy the shader compiler must build (nine of them took it past minutes).
-	// The march reads the field in full; once it has found where along the ray the cloud is, everything else stays
-	// within a few kilometres of a sample it took and reads the field the cheap way, from what that sample found
-	// (DCS_ShapeNear: its weather, its storm cell -- no map reads, no search for storm cells), in a loop of its own (in
-	// one loop the two ways of reading the field together held more registers than the cheap one saved).
-	//   0 march    samples along the ray, the same ones every frame (a sample that moved from frame to frame made far
-	//              small clouds flicker and edges crawl): coarse through air the shape's bound says no cloud can be in,
-	//              fine where one may be (backing up to the last clear sample first), never more than the samples left
-	//              can spread over the rest of the ray
-	//   1 refine   halving the gap between the last sample outside the cloud and the first inside
-	//   2 closest  a ray that only came near a cloud, or came near one before it hit: a golden-section search of the
-	//              signed shape for its closest approach; if it reaches the surface, that is a hit like any other (refined
-	//              in 1), else the hit after it is refined
-	//   3 here     the surface itself
-	//   4 normal   four taps on a tetrahedron around it (wider apart far away)
-	//   5 shadow   four samples toward the light, further apart as they go
-	//   6 sliver   on a deck or a storm's tower and anvil, two samples on along the ray behind the surface: how much
-	//              of the cloud the ray goes through there
-	//   7 done
-	const float3 Ld = normalize(LightDir + float3(0.0, 0.0, 0.08));
-	// A cover closing into a deck: its cumulus spread and merge, one flat base seen from below.
-	const float Merging = smoothstep(0.55, 0.85, Cloud0.x);
-	int Phase = 0;
-	int Index = 0;
-	float Next = T0;
-	float PrevT = T0;
-	float U = 0.0;        // where the march is along its schedule (0 .. Schedule)
-	float PrevU = 0.0;
-	bool bFine = false;
-	int Quiet = 0;
-	int Skimmed = 0;
-	bool bHit = false;
-	float BestSigned = -1.0e6;
-	float BestT = T0;
-	float BestStep = 0.0;
-	FDCloudAnchor Anchor = (FDCloudAnchor)0;
-	float Lo = 0.0;
-	float Hi = 0.0;
-	float HitLo = 0.0;
-	float HitHi = 0.0;
-	bool bHitWaiting = false;
-	float FirstProbe = 0.0;
-	float SurfaceT = 0.0;
-	float3 Surface = float3(0, 0, 0);
-	float E = 15000.0;
-	FDSkyCloudSample Here = (FDSkyCloudSample)0;
-	float3 GradSolid = float3(0, 0, 0);
-	float3 GradForm = float3(0, 0, 0);
-	float3 GradSigned = float3(0, 0, 0);
-	float3 N = -V;
-	float3 NForm = -V;    // the normal of the cloud's mass alone (the form before the billows)
-	float Depth = 0.0;
-	float Travelled = 0.0;
-	float Sliver = 0.0;
-	float Behind = 1.0;   // the signed shape at the first of those samples: how far the cloud goes on behind its surface
-	float Within = 1.0;   // and at the second, further in
-	[loop]
-	for (int It = 0; It < Steps + Skims && Phase == 0; ++It)
-	{
-		float T = Next;
-		FDSkyCloudSample S = DSky_CloudAt(V * T, F, false, Anchor, MapParams, Map, MapSampler, Noise, NoiseSampler,
-			1.0 - smoothstep(DetailEnd * 0.5, DetailEnd, T));
-		if (S.Solid >= F.Iso)
-		{
-			// A ray grazing far cloud tops can step over a bump and hit the next one: neighbouring rows found their surface
-			// on different billows, and the shading came out in horizontal streaks. If the march came close to cloud before
-			// the hit, that closest approach is searched first; where it reaches the surface, that is the surface.
-			HitLo = PrevT;
-			HitHi = T;
-			Anchor = S.Anchor;
-			Index = 0;
-			if (BestSigned > -0.025 && BestT < PrevT && S.Deck < 0.5 && S.Column < 500000.0)
-			{
-				bHitWaiting = true;
-				Lo = max(BestT - BestStep, T0);
-				Hi = min(BestT + BestStep, PrevT);
-				Phase = 2;
-			}
-			else
-			{
-				Lo = HitLo;
-				Hi = HitHi;
-				Phase = 1;
-			}
-		}
-		else
-		{
-			bool bMaybe = S.Form > 0.5 * F.Iso;
-			// Cloud may begin anywhere since the last clear sample: back to it, and on in fine steps.
-			bool bBack = bMaybe && !bFine && T > PrevT;
-			if (bMaybe)
-			{
-				bFine = true;
-				Quiet = 0;
-			}
-			else if (bFine && ++Quiet >= 2)
-			{
-				bFine = false;
-			}
-			// (Never slower than the samples left can cover the rest of the schedule at.)
-			float From = bBack ? PrevU : U;
-			float Pace = max(DSky_MarchPace(bFine), (Schedule - From) / float(max(Steps - 1 - (Index - Skimmed), 1)));
-			if (bFine && !bBack && Skimmed < Skims && S.Signed > -0.1 && S.Deck < 0.5 && S.Column < 500000.0
-				&& T0 + (T1 - T0) * DSky_Square((From + Pace) / Schedule) - T > 40000.0)
-			{
-				Pace /= 3.0;
-				++Skimmed;
-			}
-			float NextU = From + Pace;
-			Next = T0 + (T1 - T0) * DSky_Square(NextU / Schedule);
-			if (!bBack)
-			{
-				if (S.Signed > BestSigned)
-				{
-					BestSigned = S.Signed;
-					BestT = T;
-					BestStep = max(Next - T, T - PrevT);
-					Anchor = S.Anchor;
-				}
-				PrevT = T;
-				PrevU = U;
-			}
-			U = NextU;
-			if (++Index - Skimmed >= Steps || U > Schedule)
-			{
-				// (A ray that came within some 80 m of a cumulus, a few metres of a deck.)
-				Phase = BestSigned > -0.025 ? 2 : 7;
-				Lo = max(BestT - BestStep, T0);
-				Hi = min(BestT + BestStep, T1);
-				Index = 0;
-			}
-		}
-	}
-	FDSkySurfaceWalk W;
-	W.GivenDepth = -1.0;
-	W.Phase = Phase;
-	W.Index = Index;
-	W.Lo = Lo;
-	W.Hi = Hi;
-	W.HitLo = HitLo;
-	W.HitHi = HitHi;
-	W.bHitWaiting = bHitWaiting;
-	W.BestSigned = BestSigned;
-	W.BestT = BestT;
-	W.BestStep = BestStep;
-	W.Anchor = Anchor;
-	W.FirstProbe = FirstProbe;
-	W.SurfaceT = SurfaceT;
-	W.Surface = Surface;
-	W.E = E;
-	W.Here = Here;
-	W.GradSolid = GradSolid;
-	W.GradForm = GradForm;
-	W.GradSigned = GradSigned;
-	W.N = N;
-	W.NForm = NForm;
-	W.Depth = Depth;
-	W.Travelled = Travelled;
-	W.Sliver = Sliver;
-	W.Behind = Behind;
-	W.Within = Within;
-	W.bHit = bHit;
-	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, MapParams, Map, MapSampler, Noise, NoiseSampler);
-	return DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, Cloud0, Cloud1, Cloud3, CloudLayer, Noise, NoiseSampler, Camera, Tone,
-		Halo, SkyBehind, CloudLit, CloudShadow, Extra, Sun, LightColor, SceneReach, MaxDist, Core);
-}
-
 // High cloud: thin cirrus veils on a layer far above the cumulus (Cloud3.w cm up), lying along the wind and drifting
 // faster than the cumulus, in patches over Cloud3.z of the sky, gone under a closing overcast. The dome draws them
 // under either kind of cumulus (they are higher than any). Returns the colour (premultiplied) and the cover.
@@ -1139,27 +915,13 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float SkyGrey = dot(Sky, float3(0.2126, 0.7152, 0.0722));
 	Sky = max(SkyGrey + (Sky - SkyGrey) * (1.0 + 1.5 * Closing), 0.0);
 
-	// The volumetric clouds.
+	// The cumulus: the sky cloud renderer draws them into the view after the base pass, which the sky light capture never
+	// sees; there the dome shows the panorama of them it draws round the view (CloudLayer.w = 1 while it draws them; with
+	// no clouds drawn there is no panorama to show, or an empty or stale one).
 	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
-	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
-	// CloudLayer.w = 1: the engine's volumetric cloud layer draws the clouds over the dome; the dome leaves its own out.
 	float CloudCore = 0.0;
 	float4 VC = float4(0, 0, 0, 0);
-	// Under the horizon the clouds are drawn over the scene instead (DSky_ShadeBelow): the dome is behind the ground. Not in
-	// the sky light, which sees no ground: there the dome still draws them.
-	if (CloudLayer.w < 0.5 && (V.z >= 0.0 || Capture > 0.5))
-	{
-		// Looking down on clouds, the air between takes the low sky's colour, not the ground's.
-		float3 HazeHalo = Halo;
-		float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
-		VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-			Noise, NoiseSampler, Camera, Tone, Halo, Haze + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, 1.0e10,
-			CloudCore);
-		VC *= CloudShadow.a;
-	}
-	// CloudLayer.w = 2: the sky cloud renderer draws the clouds into the view after the base pass, which the sky light
-	// capture never sees; there the dome shows the panorama of them it draws round the view.
-	else if (CloudLayer.w > 1.5 && Capture > 0.5)
+	if (CloudLayer.w > 0.5 && Capture > 0.5)
 	{
 		float2 UV = float2(frac(atan2(V.y, V.x) / (2.0 * 3.14159265)), 0.5 - asin(clamp(V.z, -1.0, 1.0)) / 3.14159265);
 		VC = Panorama.SampleLevel(PanoramaSampler, UV, 0);
@@ -1208,47 +970,6 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);
-}
-
-// The toon clouds under the horizon, drawn over the scene (M_DreamSkyBelow, translucent on a small sphere round the view):
-// the dome stands behind everything and leaves them out, or the ground they hang over would hide them. The same drawing
-// as the dome's, its weather fog and lightning on the clouds alone (the scene behind them has its own); only as far as
-// the scene reaches along V (Reach, cm). Returns the colour, premultiplied, and the cover.
-float4 DSky_ShadeBelow(float3 V, float4 SunDir, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo, float4 Cloud0,
-	float4 Cloud1, float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor,
-	float4 CloudLayer, float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap,
-	SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, float3 Camera, float Reach)
-{
-	V = normalize(V);
-	if (V.z >= 0.0 || CloudLayer.w >= 0.5)
-	{
-		return float4(0, 0, 0, 0);
-	}
-	float3 Sun = normalize(SunDir.xyz);
-	float3 LightDir = normalize(MainLight.xyz);
-	float3 Halo;
-	float3 Base = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
-	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
-	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
-	float3 HazeHalo = Halo;
-	float3 HazeColor = DSky_Backdrop(DSky_HazeDirection(V), Sun, Zenith, Horizon, Ground, SunHalo, HazeHalo);
-	float CloudCore = 0.0;
-	float4 VC = DSky_VolumeClouds(V, LightDir, Cloud0, Cloud1, Cloud2, Cloud3, CloudLayer, MapParams, WeatherMap, WeatherMapSampler,
-		Noise, NoiseSampler, Camera, Tone, Halo, HazeColor + HazeHalo, CloudLit, CloudShadow, Extra, Sun, MainLightColor, Reach,
-		CloudCore);
-	VC *= CloudShadow.a;
-	// (The dome's weather fog under the horizon, where it hides all of it: the clouds fade into it, the fogged scene shows.)
-	VC *= 1.0 - saturate(Haze.a);
-	float FlashNow = Flash.w * Extra.w;
-	if (FlashNow > 0.0 && VC.a > 0.0)
-	{
-		float Toward = pow(saturate(dot(V, normalize(Flash.xyz))), 3.0);
-		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
-		float Level = saturate(0.3 + SkyLevel * 3.0);
-		float Body = lerp(0.6, 1.4, saturate(CloudCore));
-		VC.rgb += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * VC.a) * Body * VC.a;
-	}
-	return float4(max(VC.rgb, 0.0), VC.a);
 }
 
 #endif // DREAMSKY_STYLIZED_USH
