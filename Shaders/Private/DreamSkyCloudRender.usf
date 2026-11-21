@@ -886,8 +886,14 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 		return;
 	}
 	float4 History = HistoryColor.SampleLevel(HistorySampler, PrevRay * HistoryInvExtent, 0);
+	// Where the view holds still the history weighs more, up to 0.97: at the set weight (0.9) a tenth of every frame's
+	// jitter stays in the picture, and close to a cloud, whose first step decides a ray, that tenth showed the jitter's own
+	// diagonal pattern, a fine hatching that never settled. Where the clouds move across the screen the set weight holds,
+	// so nothing trails behind them.
+	float Motion = length(PrevRay - (float2(Ray) + 0.5));
+	float Weight = HistoryWeight + (1.0 - HistoryWeight) * 0.7 * (1.0 - smoothstep(0.25, 1.5, Motion));
 	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.
-	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), HistoryWeight);
+	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), Weight);
 }
 
 float DSkyR_GridLine(float Degrees, float Spacing, float PixelDegrees)
