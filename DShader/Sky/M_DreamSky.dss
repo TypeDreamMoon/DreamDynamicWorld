@@ -14,7 +14,7 @@
 /// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
 static const Texture2D WeatherMap;
 
-/// The 3D noise the clouds are shaped from (Setup generates it; the engine's volumetric clouds use the same).
+/// The 3D noise the high cloud and rain shafts are shaped from (Setup generates it; the sky cloud renderer uses the same).
 /// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
 static const VolumeTexture CloudNoise;
 
