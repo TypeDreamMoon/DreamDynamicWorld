@@ -194,7 +194,9 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	bHasApplied = true;
 
-	// The sky modifiers over the eased lighting (they fade in and out themselves).
+	// The sky modifiers over the eased lighting (they fade in and out themselves), the weather's among them.
+	++UpdateSerial;
+	TakeWeatherModifiers(Clock.GetEnvironment());
 	Applied = Eased;
 	ApplyModifiers(Applied, Look, DeltaTime);
 	UpdateModifierPostProcess(Sky);
@@ -210,21 +212,47 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Applied = Modified;
 }
 
-FDreamSkyActiveModifier* UDreamSkySubsystem::FindModifier(const UDreamSkyModifier* Modifier)
+FDreamSkyActiveModifier* UDreamSkySubsystem::FindModifier(const UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source)
 {
-	return Modifiers.FindByPredicate([Modifier](const FDreamSkyActiveModifier& M) { return M.Modifier == Modifier; });
+	return Modifiers.FindByPredicate([Modifier, Source](const FDreamSkyActiveModifier& M) { return M.Modifier == Modifier && M.Source == Source; });
 }
 
-FDreamSkyActiveModifier& UDreamSkySubsystem::FindOrAddModifier(UDreamSkyModifier* Modifier)
+FDreamSkyActiveModifier& UDreamSkySubsystem::FindOrAddModifier(UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source)
 {
-	if (FDreamSkyActiveModifier* Found = FindModifier(Modifier))
+	if (FDreamSkyActiveModifier* Found = FindModifier(Modifier, Source))
 	{
 		return *Found;
 	}
 	FDreamSkyActiveModifier& Added = Modifiers.AddDefaulted_GetRef();
 	Added.Modifier = Modifier;
+	Added.Source = Source;
 	Added.Order = NextModifierOrder++;
 	return Added;
+}
+
+void UDreamSkySubsystem::SetDrivenModifier(UDreamSkyModifier* Modifier, float Alpha, EDreamSkyModifierSource Source)
+{
+	if (!Modifier || Source == EDreamSkyModifierSource::Script)
+	{
+		return;
+	}
+	FDreamSkyActiveModifier& M = FindOrAddModifier(Modifier, Source);
+	M.bManual = true;
+	M.bRemoving = false;
+	M.Progress = M.Target = FMath::Clamp(Alpha, 0.0f, 1.0f);
+	M.Rate = 0.0f;
+	M.DrivenSerial = UpdateSerial;
+}
+
+void UDreamSkySubsystem::TakeWeatherModifiers(const FDreamWorldEnvironment& Environment)
+{
+	for (const FDreamWorldWeightedObject& Entry : Environment.SkyModifiers)
+	{
+		if (UDreamSkyModifier* Modifier = Cast<UDreamSkyModifier>(Entry.Object.Get()))
+		{
+			SetDrivenModifier(Modifier, Entry.Weight, EDreamSkyModifierSource::Weather);
+		}
+	}
 }
 
 void UDreamSkySubsystem::AddModifier(UDreamSkyModifier* Modifier, float FadeInSeconds)
@@ -275,6 +303,10 @@ void UDreamSkySubsystem::ClearModifiers(float FadeOutSeconds)
 {
 	for (FDreamSkyActiveModifier& M : Modifiers)
 	{
+		if (M.Source != EDreamSkyModifierSource::Script)
+		{
+			continue;
+		}
 		const float Seconds = FadeOutSeconds >= 0.0f ? FadeOutSeconds : (M.Modifier ? M.Modifier->FadeOutSeconds : 0.0f);
 		M.Target = 0.0f;
 		M.Rate = Seconds > 0.0f ? 1.0f / Seconds : 0.0f;
@@ -284,8 +316,13 @@ void UDreamSkySubsystem::ClearModifiers(float FadeOutSeconds)
 
 float UDreamSkySubsystem::GetModifierAlpha(const UDreamSkyModifier* Modifier) const
 {
-	const FDreamSkyActiveModifier* M = Modifiers.FindByPredicate([Modifier](const FDreamSkyActiveModifier& E) { return E.Modifier == Modifier; });
-	return M ? M->GetAlpha() : 0.0f;
+	// (All its entries: a modifier the weather holds and a script added as well goes on twice.)
+	float Alpha = 0.0f;
+	for (const FDreamSkyActiveModifier& M : Modifiers)
+	{
+		Alpha = M.Modifier == Modifier ? FMath::Max(Alpha, M.GetAlpha()) : Alpha;
+	}
+	return Alpha;
 }
 
 TArray<UDreamSkyModifier*> UDreamSkySubsystem::GetModifiers() const
@@ -326,7 +363,8 @@ void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLo
 			continue;
 		}
 		M.Progress = M.Rate > 0.0f ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
-		if (M.bRemoving && M.Progress <= 0.0f)
+		const bool bLetGo = M.Source != EDreamSkyModifierSource::Script && M.DrivenSerial != UpdateSerial;
+		if ((M.bRemoving && M.Progress <= 0.0f) || bLetGo)
 		{
 			if (M.PostProcess)
 			{
@@ -335,9 +373,18 @@ void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLo
 			Modifiers.RemoveAt(Index);
 		}
 	}
-	for (UDreamSkyModifier* Modifier : GetModifiers())
+	TArray<const FDreamSkyActiveModifier*> Sorted;
+	for (const FDreamSkyActiveModifier& M : Modifiers)
 	{
-		Modifier->Settings.Apply(Lighting, InOutLook, GetModifierAlpha(Modifier));
+		Sorted.Add(&M);
+	}
+	Sorted.StableSort([](const FDreamSkyActiveModifier& A, const FDreamSkyActiveModifier& B)
+	{
+		return A.Modifier->Priority != B.Modifier->Priority ? A.Modifier->Priority < B.Modifier->Priority : A.Order < B.Order;
+	});
+	for (const FDreamSkyActiveModifier* M : Sorted)
+	{
+		M->Modifier->Settings.Apply(Lighting, InOutLook, M->GetAlpha());
 	}
 }
 
@@ -388,7 +435,8 @@ void UDreamSkySubsystem::CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const
 	Data.NextOrder = int32(NextModifierOrder);
 	for (const FDreamSkyActiveModifier& M : Modifiers)
 	{
-		if (!M.Modifier)
+		// (The weather's and the conditions' come back with the next update.)
+		if (!M.Modifier || M.Source != EDreamSkyModifierSource::Script)
 		{
 			continue;
 		}

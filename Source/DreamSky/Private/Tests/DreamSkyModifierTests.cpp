@@ -9,6 +9,7 @@
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Engine/World.h"
+#include "JsonObjectConverter.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/Package.h"
 
@@ -210,6 +211,55 @@ bool FDreamSkyModifierStackTest::RunTest(const FString& Parameters)
 	W.SkySubsystem->ClearModifiers(0.0f);
 	W.Clock->Tick(0.016f);
 	TestEqual(TEXT("cleared"), W.SkySubsystem->GetModifiers().Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyModifierWeatherTest, "DreamSky.Modifiers.FollowTheWeather", DreamSky::ModifierTests::Flags)
+bool FDreamSkyModifierWeatherTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::ModifierTests;
+	FSkyWorld W;
+	if (!TestTrue(TEXT("test world"), W.IsValid()))
+	{
+		return false;
+	}
+	const float Sun = W.Sky->SunLight->Intensity;
+	UDreamSkyModifier* Gloom = MakeModifier(5.0f);
+	Gloom->Settings.bOverride_SunIntensity = true;
+	Gloom->Settings.SunIntensity = 0.25f;
+
+	// The weather says its storm is in effect at 0.5 where the view is: the sky takes its modifier at that, at once.
+	FDreamWorldEnvironment Env;
+	Env.bActive = true;
+	FDreamWorldWeightedObject& Entry = Env.SkyModifiers.AddDefaulted_GetRef();
+	Entry.Object = Gloom;
+	Entry.Weight = 0.5f;
+	W.Clock->SetEnvironment(Env);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("at the weather's weight"), W.SkySubsystem->GetModifierAlpha(Gloom), 0.5f, 1e-4f);
+	TestNearlyEqual(TEXT("the sun dimmed half way (a quarter to a half)"), W.Sky->SunLight->Intensity, Sun * 0.5f, Sun * 1e-3f);
+
+	// A script adding the same modifier adds another entry: the two go on in turn.
+	W.SkySubsystem->AddModifier(Gloom, 0.0f);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("two entries"), W.SkySubsystem->GetModifiers().Num(), 2);
+	TestNearlyEqual(TEXT("both on the sun"), W.Sky->SunLight->Intensity, Sun * 0.5f * 0.25f, Sun * 1e-3f);
+
+	// The weather's is not kept in a snapshot (it comes back with the weather); the script's is.
+	const FDreamWorldSnapshot Snapshot = W.Clock->CaptureSnapshot();
+	const FString* Kept = Snapshot.Extensions.Find(TEXT("DreamSky"));
+	if (TestNotNull(TEXT("the sky's part of the snapshot"), Kept))
+	{
+		FDreamSkySnapshotData Data;
+		TestTrue(TEXT("it reads"), FJsonObjectConverter::JsonObjectStringToUStruct(*Kept, &Data));
+		TestEqual(TEXT("only the script's"), Data.Modifiers.Num(), 1);
+	}
+
+	// The weather moves on: its modifier leaves with the next update; the script's stays.
+	W.Clock->SetEnvironment(FDreamWorldEnvironment());
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("the weather's gone, the script's left"), W.SkySubsystem->GetModifiers().Num(), 1);
+	TestNearlyEqual(TEXT("the script's in full"), W.SkySubsystem->GetModifierAlpha(Gloom), 1.0f, 1e-4f);
 	return true;
 }
 

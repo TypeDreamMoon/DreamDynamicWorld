@@ -17,6 +17,17 @@ class UDreamWorldSubsystem;
 class FDreamSkyCloudViewExtension;
 struct FDreamWorldSnapshot;
 
+/** Who put a sky modifier in the stack. */
+enum class EDreamSkyModifierSource : uint8
+{
+	/** AddModifier, RemoveModifier, SetModifierAlpha (kept in snapshots). */
+	Script,
+	/** The weather in effect at the view (UDreamWeatherPreset::SkyModifier), at its weight there. */
+	Weather,
+	/** The sky actor, by a condition. */
+	Condition,
+};
+
 /** A sky modifier in the stack (UDreamSkySubsystem::AddModifier and the rest). */
 USTRUCT()
 struct DREAMSKY_API FDreamSkyActiveModifier
@@ -36,6 +47,10 @@ struct DREAMSKY_API FDreamSkyActiveModifier
 	bool bRemoving = false;
 	/** Driven by SetModifierAlpha: Progress is its alpha as it stands (no fade shape). */
 	bool bManual = false;
+	/** Who put it in the stack. One not of Script is held anew every update (SetDrivenModifier) or dropped. */
+	EDreamSkyModifierSource Source = EDreamSkyModifierSource::Script;
+	/** The update it was last held in. */
+	uint32 DrivenSerial = 0;
 	/** Order it was added in (among modifiers of one priority, the later goes on later). */
 	uint32 Order = 0;
 
@@ -165,6 +180,12 @@ public:
 	/** Advances the modifiers' fades by DeltaTime seconds and applies those in effect, lowest priority first. */
 	void ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime);
 
+	/**
+	 * Holds a modifier at Alpha for this update on behalf of Source (the weather, the sky actor's conditions): one not
+	 * held again in the next update leaves the stack. Kept apart from the same modifier added by script.
+	 */
+	void SetDrivenModifier(UDreamSkyModifier* Modifier, float Alpha, EDreamSkyModifierSource Source);
+
 private:
 	friend class FDreamSkyCloudViewExtension;
 
@@ -173,8 +194,10 @@ private:
 	void UpdateModifierPostProcess(ADreamSky* Sky);
 	void CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const;
 	void ApplySnapshot(const FDreamWorldSnapshot& Snapshot);
-	FDreamSkyActiveModifier* FindModifier(const UDreamSkyModifier* Modifier);
-	FDreamSkyActiveModifier& FindOrAddModifier(UDreamSkyModifier* Modifier);
+	FDreamSkyActiveModifier* FindModifier(const UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source = EDreamSkyModifierSource::Script);
+	FDreamSkyActiveModifier& FindOrAddModifier(UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source = EDreamSkyModifierSource::Script);
+	/** The weather's sky modifiers (FDreamWorldEnvironment::SkyModifiers) into the stack. */
+	void TakeWeatherModifiers(const FDreamWorldEnvironment& Environment);
 	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds). */
 	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
@@ -195,6 +218,8 @@ private:
 	UPROPERTY(Transient)
 	TArray<FDreamSkyActiveModifier> Modifiers;
 	uint32 NextModifierOrder = 0;
+	/** Counts the updates (for the driven modifiers). */
+	uint32 UpdateSerial = 0;
 	/** The sky actor the modifiers' post processes are on. */
 	TWeakObjectPtr<ADreamSky> ModifierPostProcessSky;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

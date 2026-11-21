@@ -636,6 +636,7 @@ void UDreamWeatherSubsystem::PreTick(UDreamWorldSubsystem& Clock, float DeltaTim
 	Env.Wind = ViewSample.Wind;
 	Env.Lightning = ViewSample.Lightning;
 	Env.Temperature = ViewSample.Temperature;
+	GatherSkyModifiers(Env.SkyModifiers);
 	Clock.SetEnvironment(Env);
 
 	using namespace DreamWeather::Names;
@@ -647,6 +648,85 @@ void UDreamWeatherSubsystem::PreTick(UDreamWorldSubsystem& Clock, float DeltaTim
 	UpdateWeatherMap(Clock);
 	OnWeatherFrame.Broadcast(Clock, *this, ViewSample, DeltaTime);
 	FireEvents(ViewSample);
+}
+
+void UDreamWeatherSubsystem::GatherSkyModifiers(TArray<FDreamWorldWeightedObject>& Out) const
+{
+	Out.Reset();
+	TArray<TPair<const UDreamWeatherPreset*, float>, TInlineAllocator<8>> Weights;
+	auto Layer = [&Weights](const UDreamWeatherPreset* Preset, EDreamWeatherBlend Blend, float Weight)
+	{
+		Weight = FMath::Clamp(Weight, 0.0f, 1.0f);
+		if (!Preset || Weight <= 0.0f)
+		{
+			return;
+		}
+		if (Blend == EDreamWeatherBlend::Override)
+		{
+			for (TPair<const UDreamWeatherPreset*, float>& Under : Weights)
+			{
+				Under.Value *= 1.0f - Weight;
+			}
+		}
+		TPair<const UDreamWeatherPreset*, float>* Same = Weights.FindByPredicate([Preset](const TPair<const UDreamWeatherPreset*, float>& P) { return P.Key == Preset; });
+		if (Same)
+		{
+			Same->Value = FMath::Min(Same->Value + Weight, 1.0f);
+		}
+		else
+		{
+			Weights.Emplace(Preset, Weight);
+		}
+	};
+
+	// The schedule, as the cloud cover eases across its slots (the channel the sky shows most).
+	if (const UDreamWeatherSelector* Selector = GetSelector())
+	{
+		const TArray<FDreamWeatherChannelDef>& Defs = FDreamWeatherChannels::Get();
+		const FDreamWeatherChannelDef* Def = Defs.IsValidIndex(FDreamWeatherChannels::CloudCoverage) ? &Defs[FDreamWeatherChannels::CloudCoverage] : nullptr;
+		const double T = NowSeconds() + (Def ? double(Def->LeadMinutes) * 60.0 : 0.0);
+		const FDreamWeatherSlot Slot = Selector->GetSlot(T, Seed());
+		const double Duration = FMath::Min(Def ? double(Def->TransitionMinutes) * 60.0 : 0.0, Slot.Length);
+		const double Alpha = Duration > 0.0 ? FMath::Clamp((T - Slot.Start) / Duration, 0.0, 1.0) : 1.0;
+		Layer(Slot.Previous, EDreamWeatherBlend::Override, 1.0f);
+		Layer(Slot.Current, EDreamWeatherBlend::Override, FMath::SmoothStep(0.0f, 1.0f, float(Alpha)));
+	}
+	// Forced weather and pushed presets, in the order they apply (a pushed set of channels brings no preset).
+	for (const FModifier& M : Modifiers)
+	{
+		Layer(M.Desc.Preset, M.Desc.Blend, M.Current);
+	}
+	// The zones (and any influence that brings a preset) at the view.
+	for (IDreamWeatherInfluence* Influence : SortedInfluences())
+	{
+		float Weight = 0.0f;
+		EDreamWeatherBlend Blend = EDreamWeatherBlend::Override;
+		if (const UDreamWeatherPreset* Preset = Influence->GetWeatherInfluencePreset(ViewLocation, Weight, Blend))
+		{
+			Layer(Preset, Blend, Weight);
+		}
+	}
+
+	// (The presets hold their modifiers; the sky gets weak pointers to them.)
+	for (const TPair<const UDreamWeatherPreset*, float>& P : Weights)
+	{
+		UObject* Modifier = P.Key->SkyModifier;
+		if (!Modifier || P.Value <= 1.0e-4f)
+		{
+			continue;
+		}
+		FDreamWorldWeightedObject* Same = Out.FindByPredicate([Modifier](const FDreamWorldWeightedObject& E) { return E.Object.Get() == Modifier; });
+		if (Same)
+		{
+			Same->Weight = FMath::Min(Same->Weight + P.Value, 1.0f);
+		}
+		else
+		{
+			FDreamWorldWeightedObject& Added = Out.AddDefaulted_GetRef();
+			Added.Object = Modifier;
+			Added.Weight = P.Value;
+		}
+	}
 }
 
 void UDreamWeatherSubsystem::UpdateWind(const FDreamWeatherSample& View)

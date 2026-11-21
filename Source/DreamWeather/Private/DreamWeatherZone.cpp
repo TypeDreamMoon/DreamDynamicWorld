@@ -85,6 +85,13 @@ void UDreamWeatherZoneComponent::ApplyWeatherInfluence(const FVector& Position, 
 	}
 }
 
+const UDreamWeatherPreset* UDreamWeatherZoneComponent::GetWeatherInfluencePreset(const FVector& Position, float& OutWeight, EDreamWeatherBlend& OutBlend) const
+{
+	OutWeight = Preset ? GetWeightAt(Position) : 0.0f;
+	OutBlend = Blend;
+	return Preset;
+}
+
 bool UDreamWeatherZoneComponent::MakeMapRecord(FVector4f& Z0, FVector4f& Z1, FVector4f& Z2) const
 {
 	if (!bDrawIntoWeatherMap || Blend != EDreamWeatherBlend::Override || Weight <= 0.0f)

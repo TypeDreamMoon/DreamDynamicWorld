@@ -31,6 +31,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (Categories = "Dream.Weather.Channel"))
 	TMap<FGameplayTag, float> Channels;
 
+	/**
+	 * A sky modifier (Dream Sky) the sky takes on as far as this weather is in effect where the view is: through the
+	 * schedule's transitions, forced weather and zones alike (a storm's gloom, a fog's flat light).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky", meta = (AllowedClasses = "/Script/DreamSky.DreamSkyModifier"))
+	TObjectPtr<UDataAsset> SkyModifier;
+
 	/** The value of a channel (registry index), its default when the preset does not set it. */
 	float GetValue(int32 ChannelIndex) const;
 
