@@ -84,8 +84,8 @@ namespace DreamSky::Actor
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
-	static constexpr int32 CloudShadowResolution = 256;
-	static constexpr float CloudShadowHalfExtent = 2400000.0f;
+	static constexpr int32 CloudShadowResolution = 512;
+	static constexpr float CloudShadowHalfExtent = 6000000.0f;
 
 	static bool Differs(float A, float B, float Relative, float Absolute)
 	{
