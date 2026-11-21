@@ -85,6 +85,8 @@ private:
 	struct FSunMap
 	{
 		TRefCountPtr<IPooledRenderTarget> Texture;
+		/** The ground's: the optical depth from the layer's base the whole way up (the ground shadow reads it). */
+		TRefCountPtr<IPooledRenderTarget> Ground;
 		FVector4f CenterExtent = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 	};
 

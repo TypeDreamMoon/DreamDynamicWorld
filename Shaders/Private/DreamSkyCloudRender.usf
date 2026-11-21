@@ -113,10 +113,13 @@ RWTexture2D<float4> OutPanorama;
 float4 ShadowPlacement;   // ShadowCS: the ground shadow's middle x, y (world cm), half its width (cm)
 int2 ShadowResolution;
 RWTexture2D<float> OutShadow;
+Texture2D<float> NearGround; // the sun map cascades' optical depth from the layer's base the whole way up to the storm top
+Texture2D<float> FarGround;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
 RWTexture3D<float> OutTau;
+RWTexture2D<float> OutGroundTau;
 RWTexture2D<float4> OutColor;  // rgb = the clouds' light (premultiplied, pre-exposed), a = transmittance
 RWTexture2D<float> OutDepth;   // cm along the ray to the clouds; -1 none; -2 a ray no sky pixel reads (not marched)
 
@@ -537,14 +540,27 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// texels some 3 km wide, and its faces took one flat light.
 			float TapReach = lerp(90000.0, 360000.0, smoothstep(1200000.0, 3000000.0, T));
 #if DSKY_LOOK == 2
-			// Painted: the key goes by the cloud's own envelope toward the light, 1.5 km of it, as the engine's painted
-			// material's does -- not by every cloud on the way: with the sun on the horizon the path ran through the whole
-			// layer, and the clouds of a sunset came out all shade, where the engine's are lit orange.
-			TapReach = max(TapReach, 150000.0);
-#endif
+			// Painted: the key goes by the cloud's own envelope toward the light, as the engine's painted material's did --
+			// how far each of three points 0.2, 0.6 and 1.5 km on stands inside it (the envelope stands a little proud of the
+			// eroded surface) -- not by the optical depth on the way: through a low sun's long path in a cloud that came out
+			// all shade, and a sunset's clouds went the lavender of their shade where the engine's were lit orange.
+			float Depth = 0.0;
+			[unroll]
+			for (int k = 0; k < 3; ++k)
+			{
+				float Reach = k == 0 ? 20000.0 : (k == 1 ? 60000.0 : 150000.0);
+				float Weight = k == 0 ? 0.4 : (k == 1 ? 0.35 : 0.25);
+				FDSkyCloudSample Tap = DSky_CloudAt(At + LightDir * Reach, F, true, C.Anchor, P_MapParams, WeatherMap,
+					WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+				Depth += saturate((Tap.Form - 0.15) * 4.0) * saturate(Tap.Signed * 2.0 + 1.0) * Weight;
+			}
+			// The billows: the full shape some 60 m on (a turret's own sunlit side).
+			FDSkyCloudSample Billow = DSky_CloudAt(At + LightDir * 6000.0, F, true, C.Anchor, P_MapParams, WeatherMap,
+				WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			float Turret = 1.0 - saturate(Billow.Solid * 6.0);
+#else
 			float Tau = 0.0;
 			float Prev = 0.0;
-			float NearSolid = 0.0;
 			[unroll]
 			for (int k = 1; k <= 3; ++k)
 			{
@@ -552,9 +568,9 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 				FDSkyCloudSample Tap = DSky_CloudAt(At + LightDir * (0.5 * (Prev + Next)), F, true, C.Anchor, P_MapParams,
 					WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
 				Tau += DSkyR_Extinction(Tap) * (Next - Prev);
-				NearSolid = k == 1 ? Tap.Solid : NearSolid;
 				Prev = Next;
 			}
+#endif
 			// (Read at a height dithered over one of the map's slices: interpolated between its slices, piecewise straight in
 			// height, its depth drew level stripes across a far cloud's faces; the history averages the dither out.)
 			float3 Beyond = World + LightDir * TapReach;
@@ -579,10 +595,10 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			float Dip = sqrt(2.0 * max(World.z, 0.0) / DSky_PlanetRadius);
 			float EarthLit = smoothstep(-Dip - 0.008, -Dip + 0.004, LightDir.z);
 #if DSKY_LOOK == 2
-			// The key: the light through the cloud, lit higher up (as the core's), a turret's own sunlit side kept from the
-			// cloud 50 m on (BillowShade), the earth's shadow. (The core bands it at the material's thresholds.)
-			float Key = exp(-KeyFalloff * Tau) * lerp(0.7, 1.05, saturate(C.Height));
-			Key *= lerp(1.0, 1.0 - saturate(NearSolid * 6.0), LP_BillowShade) * EarthLit;
+			// The key: out of the envelope toward the light, a turret's own sunlit side (BillowShade), the bottom of a cloud a
+			// little darker (in its own shade, seeing little of the sky), the earth's shadow. (The core bands it at the
+			// look's thresholds.)
+			float Key = (1.0 - Depth) * lerp(1.0, Turret, LP_BillowShade) * lerp(0.7, 1.0, saturate(C.Height * 2.0)) * EarthLit;
 			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
 			float3 Lit = PaintLit + Halo * P_Extra.y * saturate(Key);
 			float3 Half = lerp(Shade, Lit, 0.55) * float3(0.97, 0.97, 1.02);
@@ -732,6 +748,30 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 		Prev = Next;
 	}
 	OutTau[Id] = Tau;
+
+	// The ground's: from the layer's base the whole way up to the storm top, every cloud on the way (not only the first
+	// few kilometres a cloud's own shading looks): with the sun low a tower's shadow lies tens of kilometres out over the
+	// ground, as the engine's cloud shadow map, drawn from the sun over the whole layer, had it.
+	if (Id.z == 0)
+	{
+		float3 Base = float3(XY, F.Base - dot(XY, XY) / (2.0 * DSky_PlanetRadius)) - CameraWorld;
+		float Whole = DCS_STORM_TOP / L.z;
+		FDCloudAnchor GroundAnchor = (FDCloudAnchor)0;
+		float GroundTau = 0.0;
+		float GroundPrev = 0.0;
+		// (Fine near the base, where the small cumulus stand -- spread evenly, a low sun's steps were a kilometre long and
+		// stepped over them -- longer up through the towers.)
+		const int GroundSteps = 32;
+		for (int g = 0; g < GroundSteps; ++g)
+		{
+			float GroundNext = Whole * DSky_Square(float(g + 1) / float(GroundSteps));
+			FDSkyCloudSample C = DSky_CloudAt(Base + L * (0.5 * (GroundPrev + GroundNext)), F, false, GroundAnchor, P_MapParams,
+				WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			GroundTau += DSkyR_Extinction(C) * (GroundNext - GroundPrev);
+			GroundPrev = GroundNext;
+		}
+		OutGroundTau[Id.xy] = GroundTau;
+	}
 }
 
 // One texel of the panorama: the clouds along its direction from the view, premultiplied, cover in alpha, without the
@@ -768,7 +808,13 @@ void ShadowCS(uint3 Id : SV_DispatchThreadID)
 	}
 	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
 	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
-	OutShadow[Id.xy] = exp(-DSkyR_SunTau(float3(XY, 0.0), 0.0));
+	// (The cascades' ground maps: the near one where it reaches, the far one beyond, the whole sun past both.)
+	float2 Near = (XY - NearCenterExtent.xy) / (2.0 * NearCenterExtent.z) + 0.5;
+	float2 Far = (XY - FarCenterExtent.xy) / (2.0 * FarCenterExtent.z) + 0.5;
+	float NearIn = saturate(min(min(Near.x, 1.0 - Near.x), min(Near.y, 1.0 - Near.y)) * 40.0);
+	float FarIn = min(min(Far.x, 1.0 - Far.x), min(Far.y, 1.0 - Far.y)) > 0.0 ? 1.0 : 0.0;
+	float Tau = lerp(FarGround.SampleLevel(TauSampler, saturate(Far), 0) * FarIn, NearGround.SampleLevel(TauSampler, saturate(Near), 0), NearIn);
+	OutShadow[Id.xy] = exp(-Tau);
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -840,8 +886,14 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 		return;
 	}
 	float4 History = HistoryColor.SampleLevel(HistorySampler, PrevRay * HistoryInvExtent, 0);
+	// Where the view holds still the history weighs more, up to 0.97: at the set weight (0.9) a tenth of every frame's
+	// jitter stays in the picture, and close to a cloud, whose first step decides a ray, that tenth showed the jitter's own
+	// diagonal pattern, a fine hatching that never settled. Where the clouds move across the screen the set weight holds,
+	// so nothing trails behind them.
+	float Motion = length(PrevRay - (float2(Ray) + 0.5));
+	float Weight = HistoryWeight + (1.0 - HistoryWeight) * 0.7 * (1.0 - smoothstep(0.25, 1.5, Motion));
 	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.
-	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), HistoryWeight);
+	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), Weight);
 }
 
 float DSkyR_GridLine(float Degrees, float Spacing, float PixelDegrees)
