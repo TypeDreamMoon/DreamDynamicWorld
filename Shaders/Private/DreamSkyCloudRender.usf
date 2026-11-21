@@ -198,12 +198,14 @@ FDSkyCloudField DSkyR_Field()
 }
 
 // The march's steps at T (cm along the ray) with Left samples left for the rest of the ray (to T1): fine steps of some
-// 0.6 % of the distance (30 m near, 200 m from 33 km: within a billow), never shorter than the samples left can cover the
-// rest of the ray with; skips up to 4 km, trusted in full (a true bound, or a step meant as one).
+// 0.6 % of the distance (30 m near, 200 m from 33 km: within a billow), never shorter than half the samples left could
+// walk the rest of the ray in -- most of a ray is skipped (budgeted to walk all of it fine, 160 samples walked a storm
+// tower seen from under it in some 140 m steps where 70 m were meant, and the toon surface came out blurred and mottled,
+// a realistic or painted one washed out); skips up to 4 km, trusted in full (a true bound, or a step meant as one).
 FDCloudMarchParams DSkyR_Params(float T, float T1, int Left, float Jitter)
 {
 	float Fine = clamp(T * 0.006, 3000.0, 20000.0);
-	Fine = max(Fine, (T1 - T) / float(max(Left - 8, 1)));
+	Fine = max(Fine, 0.5 * (T1 - T) / float(max(Left - 8, 1)));
 	FDCloudMarchParams P = DCM_DefaultParams(Fine);
 	P.MinSkip = Fine;
 	P.MaxSkip = 400000.0;
@@ -252,15 +254,20 @@ float DSkyR_StormReach(float2 World2)
 
 // How far the march may skip from a sample: over the layer only cumulonimbus stand, and the shape gives a true bound of
 // the distance to them (and to the layer's top), or where it searched for none, the storm proximity map does
-// (DSkyR_StormReach); in the layer, the shape's bound says only whether cloud may be here, so the march walks fine where
-// it may and takes a step of some 1.2 % of the distance where it may not, no longer than 800 m (a small cumulus'
-// formation), backing off to walk fine if that step lands where cloud may be. SkipJitter (0..1, per
-// pixel and frame) varies every skip's length -- the step 0.6 to 1.4 times, the bound 0.7 to 1 times, never past it: with
-// lengths fixed by the distance alone, neighbouring rays' samples fell in step with one another, and where they skimmed a
-// thin cloud they drew moire, hatched patches and horizontal bands that no history averages away.
+// (DSkyR_StormReach); in the layer, the shape's bound says only whether cloud may be here, and nothing bounds how far the
+// nearest such place is (the formation's noise and the weather it reads, wandering, have no useful limit to their
+// slope), so the march walks fine where cloud may be and some two fine steps where it may not, backing off to walk fine
+// if one lands where it may. (A step of 1.2 % of the distance, up to 800 m, crossed what the bound calls cloud where it
+// was thinner than that -- a toon tower's ledges seen from under it came and went from frame to frame -- and cost no
+// less: landing in cloud, it backed off and searched for the edge.) SkipJitter (0..1, per pixel and frame) varies the
+// bounds' skips 0.7 to 1 times, never past them: with lengths fixed by the distance alone, neighbouring rays' samples
+// fell in step with one another, and where they skimmed a thin cloud they drew moire, hatched patches and horizontal
+// bands that no history averages away. (Not the two fine steps: the march's own jitter already parts the rays by up to a
+// step there; varied as well, some fell under the length the march leaves its fine walk at, and the march cost up to
+// half as much again.)
 float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter, float2 World2)
 {
-	float LayerStep = max(clamp(T * 0.012, 20000.0, 80000.0) * (0.6 + 0.8 * SkipJitter), 2.0 * P.FineStep);
+	float LayerStep = 2.0 * P.FineStep;
 	float Bound = 0.7 + 0.3 * SkipJitter;
 	if (C.Z >= DCS_LAYER_TOP)
 	{
