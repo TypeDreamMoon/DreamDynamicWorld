@@ -23,6 +23,7 @@ public class DreamSky : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"Projects",
 			"RenderCore",
 			"Renderer",
 			"RHI",

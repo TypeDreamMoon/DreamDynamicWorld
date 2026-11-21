@@ -2,6 +2,7 @@
 
 #include "DreamSkyModule.h"
 #include "DreamWorldParameters.h"
+#include "Interfaces/IPluginManager.h"
 #include "UObject/CoreRedirects.h"
 
 DEFINE_LOG_CATEGORY(LogDreamSky);
@@ -10,12 +11,33 @@ void FDreamSkyModule::StartupModule()
 {
 	// Dream Sky's settings that were named for the engine's volumetric clouds, kept by the sky cloud renderer, and the
 	// choice of what drew the clouds, read once into the renderer's look: a level saved with the old names reads them.
-	TArray<FCoreRedirect> Redirects;
-	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.Clouds"), TEXT("/Script/DreamSky.DreamSky.Clouds_DEPRECATED"));
-	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial"), TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial_DEPRECATED"));
-	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering"), TEXT("/Script/DreamSky.DreamSky.CloudSunScattering"));
-	Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance"), TEXT("/Script/DreamSky.DreamSky.CloudShadowTracingDistance"));
-	FCoreRedirects::AddRedirectList(Redirects, TEXT("DreamSky"));
+	// (This module starts before the object system, and a plugin's own config is not read for redirects: they go in as
+	// soon as a loading phase ends with the object system up, well before any level loads.)
+	auto AddRedirects = []()
+	{
+		TArray<FCoreRedirect> Redirects;
+		Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.Clouds"), TEXT("/Script/DreamSky.DreamSky.Clouds_DEPRECATED"));
+		Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial"), TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial_DEPRECATED"));
+		Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering"), TEXT("/Script/DreamSky.DreamSky.CloudSunScattering"));
+		Redirects.Emplace(ECoreRedirectFlags::Type_Property, TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance"), TEXT("/Script/DreamSky.DreamSky.CloudShadowTracingDistance"));
+		FCoreRedirects::AddRedirectList(Redirects, TEXT("DreamSky"));
+	};
+	if (FCoreRedirects::IsInitialized())
+	{
+		AddRedirects();
+	}
+	else
+	{
+		RedirectsHandle = IPluginManager::Get().OnLoadingPhaseComplete().AddLambda([this, AddRedirects](ELoadingPhase::Type, bool)
+		{
+			if (FCoreRedirects::IsInitialized() && RedirectsHandle.IsValid())
+			{
+				AddRedirects();
+				IPluginManager::Get().OnLoadingPhaseComplete().Remove(RedirectsHandle);
+				RedirectsHandle.Reset();
+			}
+		});
+	}
 
 	using namespace DreamSky::Names;
 	const FName Owner(TEXT("DreamSky"));
@@ -47,6 +69,11 @@ void FDreamSkyModule::StartupModule()
 
 void FDreamSkyModule::ShutdownModule()
 {
+	if (RedirectsHandle.IsValid())
+	{
+		IPluginManager::Get().OnLoadingPhaseComplete().Remove(RedirectsHandle);
+		RedirectsHandle.Reset();
+	}
 	FDreamWorldParameters::UnregisterOwner(TEXT("DreamSky"));
 }
 

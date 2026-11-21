@@ -370,15 +370,15 @@ bool FDreamSkyCloudMigrationTest::RunTest(const FString& Parameters)
 	}
 	TestNearlyEqual(TEXT("the shared style is left as it is"), Style ? Style->PaintedClouds.Extinction : 0.0f, StyleExtinction, 1e-6f);
 
-	// The old names are read into the new ones.
+	// The old names are read into the new ones (a property's path ends in ':').
 	auto Redirected = [](const TCHAR* Old)
 	{
 		return FCoreRedirects::GetRedirectedName(ECoreRedirectFlags::Type_Property, FCoreRedirectObjectName(FString(Old))).ToString();
 	};
-	TestEqual(TEXT("Clouds"), Redirected(TEXT("/Script/DreamSky.DreamSky.Clouds")), FString(TEXT("/Script/DreamSky.DreamSky.Clouds_DEPRECATED")));
-	TestEqual(TEXT("VolumetricCloudMaterial"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial")), FString(TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial_DEPRECATED")));
-	TestEqual(TEXT("VolumetricSunScattering"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering")), FString(TEXT("/Script/DreamSky.DreamSky.CloudSunScattering")));
-	TestEqual(TEXT("VolumetricShadowTracingDistance"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance")), FString(TEXT("/Script/DreamSky.DreamSky.CloudShadowTracingDistance")));
+	TestEqual(TEXT("Clouds"), Redirected(TEXT("/Script/DreamSky.DreamSky.Clouds")), FString(TEXT("/Script/DreamSky.DreamSky:Clouds_DEPRECATED")));
+	TestEqual(TEXT("VolumetricCloudMaterial"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricCloudMaterial")), FString(TEXT("/Script/DreamSky.DreamSky:VolumetricCloudMaterial_DEPRECATED")));
+	TestEqual(TEXT("VolumetricSunScattering"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricSunScattering")), FString(TEXT("/Script/DreamSky.DreamSky:CloudSunScattering")));
+	TestEqual(TEXT("VolumetricShadowTracingDistance"), Redirected(TEXT("/Script/DreamSky.DreamSky.VolumetricShadowTracingDistance")), FString(TEXT("/Script/DreamSky.DreamSky:CloudShadowTracingDistance")));
 	return true;
 }
 

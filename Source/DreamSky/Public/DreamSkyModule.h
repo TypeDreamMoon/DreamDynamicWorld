@@ -46,4 +46,8 @@ class FDreamSkyModule : public IModuleInterface
 public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
+
+private:
+	/** Waiting for the object system to add the sky's redirects (StartupModule). */
+	FDelegateHandle RedirectsHandle;
 };
