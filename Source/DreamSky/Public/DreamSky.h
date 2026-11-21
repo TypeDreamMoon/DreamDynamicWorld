@@ -70,7 +70,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
 	bool bRealTimeSkyCapture = true;
 
-	/** What draws the clouds. The console variable DreamSky.Clouds overrides it (0 toon, 2 rendered). */
+	/** What drew the clouds in a level saved before: the sky cloud renderer draws them, whatever it says. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
 	EDreamSkyClouds Clouds = EDreamSkyClouds::Toon;
 
@@ -117,14 +117,6 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SkyDome;
 
-	/**
-	 * The toon clouds under the horizon: a small translucent sphere round the view that draws them over the scene, each
-	 * only as far as the scene reaches (the dome stands behind everything, so clouds it drew there were hidden by the
-	 * ground they hang over). Shown with the toon clouds.
-	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	TObjectPtr<UStaticMeshComponent> CloudsBelow;
-
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UDirectionalLightComponent> SunLight;
 
@@ -161,9 +153,6 @@ public:
 	/** The clouds in effect: Clouds, or the console variable DreamSky.Clouds when it is set. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	EDreamSkyClouds GetEffectiveClouds() const;
-
-	/** Shows the clouds in effect (the dome's own under the horizon with the toon clouds). Cheap when nothing changed; the sky subsystem calls it every update. */
-	void ApplyClouds(const UDreamSkyStyle& InStyle);
 
 	/** The clock this level starts with. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")

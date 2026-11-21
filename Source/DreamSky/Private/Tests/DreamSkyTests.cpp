@@ -280,13 +280,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudBackendTest, "DreamSky.Clouds.Bac
 bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 {
 	DreamSky::Tests::FSkyWorld W;
-	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds"));
-	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar))
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
 	{
 		return false;
 	}
-	const int32 SavedOverride = CVar->GetInt();
-	CVar->Set(-1, ECVF_SetByCode);
 	const UMaterialParameterCollection* Collection = LoadObject<UMaterialParameterCollection>(nullptr, TEXT("/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld"));
 	auto DomeLeavesCloudsOut = [&W, Collection]()
 	{
@@ -303,40 +300,19 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	FDreamWorldClockConfig Config;
 	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
 	W.Clock->ApplyClockConfig(Config, true);
-	W.Clock->Tick(0.016f);
-	TestTrue(TEXT("toon clouds by default"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Toon);
-	TestFalse(TEXT("the dome draws its own clouds"), DomeLeavesCloudsOut());
-	const double ToonDome = DomeRadius();
+	// Whatever a level saved, the sky cloud renderer draws the clouds and the dome leaves its own out.
+	for (const EDreamSkyClouds Saved : { EDreamSkyClouds::Toon, EDreamSkyClouds::Volumetric, EDreamSkyClouds::Rendered })
+	{
+		W.Sky->Clouds = Saved;
+		W.Clock->Tick(0.016f);
+		TestTrue(FString::Printf(TEXT("saved as %d: the renderer draws the clouds"), int32(Saved)), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
+		TestTrue(FString::Printf(TEXT("saved as %d: the dome leaves its own out"), int32(Saved)), DomeLeavesCloudsOut());
+	}
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
 	// horizon. Its sky goes by the view direction alone, so it stands far beyond any terrain.)
-	TestTrue(FString::Printf(TEXT("the toon dome stands beyond far terrain (%.0f km)"), ToonDome / 100000.0), ToonDome >= 50000000.0);
-	// (So the clouds under the horizon are drawn over the scene instead, or the ground would hide them.)
-	const UMaterialInterface* Below = W.Sky->CloudsBelow->GetMaterial(0);
-	TestTrue(TEXT("the clouds under the horizon are drawn over the scene"), W.Sky->CloudsBelow->GetVisibleFlag());
-	TestTrue(TEXT("with their own material"), Below && Below->GetPathName() == TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow"));
-	TestTrue(TEXT("a translucent one"), Below && IsTranslucentBlendMode(*Below));
-	TestTrue(TEXT("round the view, well inside the dome"), W.Sky->CloudsBelow->Bounds.SphereRadius < ToonDome * 0.01);
-
-	W.Sky->Clouds = EDreamSkyClouds::Rendered;
-	W.Clock->Tick(0.016f);
-	TestTrue(TEXT("the renderer draws them"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
-	TestTrue(TEXT("the dome leaves its own clouds out"), DomeLeavesCloudsOut());
-	TestFalse(TEXT("and so does the sphere of the clouds under the horizon"), W.Sky->CloudsBelow->GetVisibleFlag());
-	TestNearlyEqual(TEXT("the dome stays where it is"), DomeRadius(), ToonDome, 1.0);
+	TestTrue(FString::Printf(TEXT("the dome stands beyond far terrain (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= 50000000.0);
 	TestTrue(TEXT("the moon is the second atmosphere light"),
 		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
-	// A level saved with the engine's volumetric clouds is drawn by the renderer.
-	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
-	W.Clock->Tick(0.016f);
-	TestTrue(TEXT("volumetric, as saved: the renderer draws them"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
-	TestTrue(TEXT("and the dome leaves its own out"), DomeLeavesCloudsOut());
-
-	// The console variable wins over the actor's choice.
-	CVar->Set(0, ECVF_SetByCode);
-	W.Clock->Tick(0.016f);
-	TestFalse(TEXT("DreamSky.Clouds 0 gives the clouds back to the dome"), DomeLeavesCloudsOut());
-	TestTrue(TEXT("and the clouds under the horizon with it"), W.Sky->CloudsBelow->GetVisibleFlag());
-	CVar->Set(SavedOverride, ECVF_SetByCode);
 	return true;
 }
 

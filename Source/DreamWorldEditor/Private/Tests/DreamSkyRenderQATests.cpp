@@ -1,6 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// Render checks of the sky's cloud renderer (DreamSky.Clouds 2) in the views the game tests cannot reach: a play in
+// Render checks of the sky's cloud renderer in the views the game tests cannot reach: a play in
 // editor session (its game view, a second local player's split screen, a mirror sphere
 // reflecting the sky light), the level editor's own viewport, the two drawing together, and (DreamQA.SkyCrash.SceneCapture)
 // a 2D and a cube scene capture. They need a renderer: run them in the editor (not
@@ -11,8 +11,9 @@
 //
 // Each view is read back and measured on its sky part: how much of it is cloud (white or grey against the blue), how
 // noisy it is (the mean difference between a pixel's luminance and its neighbours'), and how alike two pictures of the
-// same view are (the correlation of their luminance). The sky renderer's toon look and the old toon dome draw the same
-// clouds, so the two must agree in coverage and correlate; a view that does not accumulate its history shows as noise.
+// same view are (the correlation of their luminance). A view must show the clouds (cloud cover, contrast); the renderer's
+// toon and realistic looks draw the same clouds, so their pictures of one view correlate; a view that does not accumulate
+// its history shows as noise.
 // Every picture is saved under <project>/Saved/DreamQA/.
 
 #include "CoreMinimal.h"
@@ -62,11 +63,10 @@ namespace DreamQA
 	static const FVector CameraAt(600.0, 600.0, 260.0);
 	static const FRotator CameraLooks(8.0, 220.0, 0.0);
 
-	/** A way of drawing the clouds: DreamSky.Clouds and DreamSky.CloudRender.Look, and a short name for the pictures. */
+	/** A way of drawing the clouds: DreamSky.CloudRender.Look, and a short name for the pictures. */
 	struct FMode
 	{
 		const TCHAR* Name;
-		int32 Clouds;
 		int32 Look;
 	};
 
@@ -224,12 +224,8 @@ namespace DreamQA
 		return P;
 	}
 
-	void SetClouds(int32 Clouds, int32 Look)
+	void SetLook(int32 Look)
 	{
-		if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds")))
-		{
-			V->Set(Clouds, ECVF_SetByCode);
-		}
 		if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.CloudRender.Look")))
 		{
 			V->Set(Look, ECVF_SetByCode);
@@ -355,40 +351,40 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	WaitFrames(30);
 	Then([PlayWorld]() { SetWorld(PlayWorld()); GShaderCompilingManager->FinishAllCompilation(); });
 
-	// 1. The game view, every look, against the old toon dome.
-	const FMode GameLooks[] = { { TEXT("Game_RT"), 2, 0 }, { TEXT("Game_RR"), 2, 1 }, { TEXT("Game_RP"), 2, 2 }, { TEXT("Game_OT"), 0, 0 } };
+	// 1. The game view, every look.
+	const FMode GameLooks[] = { { TEXT("Game_RT"), 0 }, { TEXT("Game_RR"), 1 }, { TEXT("Game_RP"), 2 } };
 	for (const FMode& L : GameLooks)
 	{
 		const FString Name = L.Name;
-		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
+		const int32 Look = L.Look;
+		Then([Look]() { SetLook(Look); });
 		WaitFrames(90);
 		Then([State, Name, Viewport]() { State->Pictures.Add(Name, ReadViewport(Viewport())); Save(State->Pictures[Name], Name); });
 	}
 	Then([this, State]()
 	{
 		const FPicture& RT = State->Pictures[TEXT("Game_RT")];
-		const FPicture& OT = State->Pictures[TEXT("Game_OT")];
-		if (!TestTrue(TEXT("the play in editor view reads back"), RT.IsValid() && OT.IsValid()))
+		const FPicture& RR = State->Pictures[TEXT("Game_RR")];
+		if (!TestTrue(TEXT("the play in editor view reads back"), RT.IsValid() && RR.IsValid()))
 		{
 			return;
 		}
 		const FIntRect Sky = SkyOf(RT);
-		for (const TCHAR* Name : { TEXT("Game_RT"), TEXT("Game_RR"), TEXT("Game_RP"), TEXT("Game_OT") })
+		for (const TCHAR* Name : { TEXT("Game_RT"), TEXT("Game_RR"), TEXT("Game_RP") })
 		{
 			AddInfo(FString::Printf(TEXT("%s %dx%d: %s"), Name, RT.Size.X, RT.Size.Y, *Describe(Measure(State->Pictures[Name], Sky))));
 		}
 		const FStats A = Measure(RT, Sky);
-		const FStats B = Measure(OT, Sky);
-		const float Corr = Correlation(RT, OT, Sky);
-		AddInfo(FString::Printf(TEXT("PIE: renderer toon vs old toon correlation %.3f"), Corr));
-		TestTrue(TEXT("PIE: the renderer's toon clouds cover the sky as the old dome's do"), FMath::Abs(A.Coverage - B.Coverage) < 0.35f * FMath::Max(B.Coverage, 0.05f));
-		TestTrue(TEXT("PIE: they stand where the old dome's do"), Corr > 0.6f);
-		TestTrue(TEXT("PIE: the realistic look is not noisier than the old dome by much"), Measure(State->Pictures[TEXT("Game_RR")], Sky).Noise < 2.0f * B.Noise + 1.0f);
+		const FStats B = Measure(RR, Sky);
+		const float Corr = Correlation(RT, RR, Sky);
+		AddInfo(FString::Printf(TEXT("PIE: toon vs realistic correlation %.3f"), Corr));
+		TestTrue(TEXT("PIE: the toon clouds of a cloudy sky are there, with sky between them"), A.Coverage > 0.05f && A.Coverage < 0.95f);
+		TestTrue(TEXT("PIE: the realistic clouds stand where the toon ones do"), Corr > 0.3f);
+		TestTrue(TEXT("PIE: the realistic look is not noisier than the toon look by much"), B.Noise < 2.0f * A.Noise + 1.0f);
 	});
 
 	// 2. A mirror sphere in front of the camera reflects the sky light (its capture of the dome, which shows the renderer's
-	// panorama): the clouds in it, the right way round, about as sharp as the old dome's.
+	// panorama): the clouds in it, the same clouds in either look.
 	Then([State, PlayWorld, Mirror]()
 	{
 		UWorld* W = PlayWorld();
@@ -417,12 +413,12 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	WaitFrames(240);
 	Then([]() { GShaderCompilingManager->FinishAllCompilation(); });
 	WaitFrames(30);
-	const FMode MirrorLooks[] = { { TEXT("RT"), 2, 0 }, { TEXT("RR"), 2, 1 }, { TEXT("OT"), 0, 0 } };
+	const FMode MirrorLooks[] = { { TEXT("RT"), 0 }, { TEXT("RR"), 1 } };
 	for (const FMode& L : MirrorLooks)
 	{
 		const FString Name = L.Name;
-		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
+		const int32 Look = L.Look;
+		Then([Look]() { SetLook(Look); });
 		WaitFrames(30);
 		Then([PlayWorld]() { RecaptureSkyLights(PlayWorld()); });
 		WaitFrames(60);
@@ -432,26 +428,25 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	{
 		const FIntRect R = State->SphereRect;
 		AddInfo(FString::Printf(TEXT("mirror sphere's upper half on screen: %d,%d .. %d,%d"), R.Min.X, R.Min.Y, R.Max.X, R.Max.Y));
-		for (const TCHAR* Name : { TEXT("RT"), TEXT("RR"), TEXT("OT") })
+		for (const TCHAR* Name : { TEXT("RT"), TEXT("RR") })
 		{
 			AddInfo(FString::Printf(TEXT("Mirror %s: %s"), Name, *Describe(Measure(State->Pictures[FString(TEXT("Mirror_")) + Name], R))));
 		}
 		const FPicture& RT = State->Pictures[TEXT("Mirror_RT")];
-		const FPicture& OT = State->Pictures[TEXT("Mirror_OT")];
+		const FPicture& RR = State->Pictures[TEXT("Mirror_RR")];
 		const FStats A = Measure(RT, R);
-		const FStats B = Measure(OT, R);
-		const float Corr = Correlation(RT, OT, R);
-		AddInfo(FString::Printf(TEXT("mirror: renderer toon vs old toon correlation %.3f"), Corr));
-		TestTrue(TEXT("mirror: the reflection varies (clouds in it, not a flat sky colour)"), A.Deviation > 0.5f * B.Deviation && B.Deviation > 2.0f);
-		TestTrue(TEXT("mirror: the clouds stand where the old dome's do (the right way round)"), Corr > 0.5f);
-		TestTrue(TEXT("mirror: not much blurrier than the old dome's"), A.Noise > 0.5f * B.Noise);
+		const FStats B = Measure(RR, R);
+		const float Corr = Correlation(RT, RR, R);
+		AddInfo(FString::Printf(TEXT("mirror: toon vs realistic correlation %.3f"), Corr));
+		TestTrue(TEXT("mirror: the reflection varies (clouds in it, not a flat sky colour)"), A.Deviation > 2.0f && B.Deviation > 2.0f);
+		TestTrue(TEXT("mirror: the same clouds in either look"), Corr > 0.3f);
 		if (State->Sphere.IsValid())
 		{
 			State->Sphere->Destroy();
 		}
 	});
 
-	// 3. Split screen: a second local player; both halves must show the clouds the old dome shows in them.
+	// 3. Split screen: a second local player; both halves must show the clouds, no noisier than the single view.
 	Then([this, PlayWorld]()
 	{
 		UWorld* W = PlayWorld();
@@ -471,33 +466,26 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 			}
 		}
 	});
-	for (const FMode& L : { FMode{ TEXT("RT"), 2, 0 }, FMode{ TEXT("OT"), 0, 0 } })
-	{
-		const FString Name = L.Name;
-		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
-		WaitFrames(90);
-		Then([State, Name, Viewport]() { State->Pictures.Add(TEXT("Split_") + Name, ReadViewport(Viewport())); Save(State->Pictures[TEXT("Split_") + Name], TEXT("Split_") + Name); });
-	}
+	Then([]() { SetLook(0); });
+	WaitFrames(90);
+	Then([State, Viewport]() { State->Pictures.Add(TEXT("Split_RT"), ReadViewport(Viewport())); Save(State->Pictures[TEXT("Split_RT")], TEXT("Split_RT")); });
 	Then([this, State, PlayWorld]()
 	{
 		const FPicture& RT = State->Pictures[TEXT("Split_RT")];
-		const FPicture& OT = State->Pictures[TEXT("Split_OT")];
-		if (!TestTrue(TEXT("split screen reads back"), RT.IsValid() && OT.IsValid()))
+		const FPicture& Single = State->Pictures[TEXT("Game_RT")];
+		if (!TestTrue(TEXT("split screen reads back"), RT.IsValid() && Single.IsValid()))
 		{
 			return;
 		}
+		const FStats Whole = Measure(Single, SkyOf(Single));
 		const int32 Half = RT.Size.Y / 2;
 		for (int32 View = 0; View < 2; ++View)
 		{
 			const FIntRect Sky = SkyOf(RT, View * Half, Half);
 			const FStats A = Measure(RT, Sky);
-			const FStats B = Measure(OT, Sky);
-			const float Corr = Correlation(RT, OT, Sky);
-			AddInfo(FString::Printf(TEXT("split view %d renderer: %s | old dome: %s | correlation %.3f"), View, *Describe(A), *Describe(B), Corr));
-			TestTrue(FString::Printf(TEXT("split view %d: the renderer's clouds are there"), View), A.Coverage > 0.5f * B.Coverage && B.Coverage > 0.01f);
-			TestTrue(FString::Printf(TEXT("split view %d: where the old dome's are"), View), Corr > 0.5f);
-			TestTrue(FString::Printf(TEXT("split view %d: not noisy"), View), A.Noise < 2.0f * B.Noise + 1.0f);
+			AddInfo(FString::Printf(TEXT("split view %d: %s | the single view: %s"), View, *Describe(A), *Describe(Whole)));
+			TestTrue(FString::Printf(TEXT("split view %d: the clouds are there"), View), A.Coverage > 0.02f);
+			TestTrue(FString::Printf(TEXT("split view %d: not noisier than the single view by much"), View), A.Noise < 2.0f * Whole.Noise + 1.0f);
 		}
 		if (UWorld* W = PlayWorld())
 		{
@@ -509,7 +497,7 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	});
 
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	Then([Mirror]() { Mirror->RemoveFromRoot(); SetClouds(-1, 0); });
+	Then([Mirror]() { Mirror->RemoveFromRoot(); SetLook(-1); });
 	return true;
 }
 
@@ -559,12 +547,12 @@ bool FDreamQASkyRenderEditorViewportTest::RunTest(const FString& Parameters)
 		SetWorld(GEditor->GetEditorWorldContext().World());
 		GShaderCompilingManager->FinishAllCompilation();
 	});
-	const FMode EditorLooks[] = { { TEXT("RR"), 2, 1 }, { TEXT("RT"), 2, 0 }, { TEXT("OT"), 0, 0 } };
+	const FMode EditorLooks[] = { { TEXT("RR"), 1 }, { TEXT("RT"), 0 } };
 	for (const FMode& L : EditorLooks)
 	{
 		const FString Name = L.Name;
-		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
+		const int32 Look = L.Look;
+		Then([Look]() { SetLook(Look); });
 		WaitFrames(120);
 		// Two pictures a frame apart: a view that accumulates changes little from one to the next and is smooth; one that
 		// does not is noisy (the jitter shows) and, if the jitter moves per frame, changes much.
@@ -580,23 +568,23 @@ bool FDreamQASkyRenderEditorViewportTest::RunTest(const FString& Parameters)
 	}
 	Then([this, State]()
 	{
-		const FPicture& OT = State->Pictures[TEXT("Editor_OT_a")];
-		if (!TestTrue(TEXT("the editor viewport reads back"), OT.IsValid()))
+		const FPicture& RT = State->Pictures[TEXT("Editor_RT_a")];
+		if (!TestTrue(TEXT("the editor viewport reads back"), RT.IsValid()))
 		{
 			return;
 		}
-		const FIntRect Sky = SkyOf(OT);
-		const FStats Old = Measure(OT, Sky);
-		for (const TCHAR* Name : { TEXT("RR"), TEXT("RT"), TEXT("OT") })
+		const FIntRect Sky = SkyOf(RT);
+		const FStats Toon = Measure(RT, Sky);
+		for (const TCHAR* Name : { TEXT("RR"), TEXT("RT") })
 		{
 			const FPicture& A = State->Pictures[FString::Printf(TEXT("Editor_%s_a"), Name)];
 			const FPicture& B = State->Pictures[FString::Printf(TEXT("Editor_%s_b"), Name)];
 			AddInfo(FString::Printf(TEXT("editor viewport %s %dx%d: %s, change to the next frame %.2f"), Name, A.Size.X, A.Size.Y, *Describe(Measure(A, Sky)), Change(A, B, Sky)));
 		}
 		const FStats Realistic = Measure(State->Pictures[TEXT("Editor_RR_a")], Sky);
-		TestTrue(TEXT("editor viewport: the realistic look is not noisier than the old dome by much (its history accumulates)"), Realistic.Noise < 2.0f * Old.Noise + 1.0f);
-		TestTrue(TEXT("editor viewport: the toon look neither"), Measure(State->Pictures[TEXT("Editor_RT_a")], Sky).Noise < 2.0f * Old.Noise + 1.0f);
-		SetClouds(-1, 0);
+		TestTrue(TEXT("editor viewport: the toon clouds are there"), Toon.Coverage > 0.02f);
+		TestTrue(TEXT("editor viewport: the realistic look is not noisier than the toon look by much (its history accumulates)"), Realistic.Noise < 2.0f * Toon.Noise + 1.0f);
+		SetLook(-1);
 	});
 	return true;
 }
@@ -623,14 +611,14 @@ bool FDreamQASkyRenderEditorAndPIETest::RunTest(const FString& Parameters)
 			C->SetRealtime(true);
 		}
 	}
-	SetClouds(2, 1);
+	SetLook(1);
 	WaitFrames(60);
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]() { return GEditor->PlayWorld != nullptr; }));
 	WaitFrames(300);
 	Then([this]() { AddInfo(TEXT("the editor viewport and the play session drew the sky renderer together for 300 frames")); });
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	Then([]() { SetClouds(-1, 0); });
+	Then([]() { SetLook(-1); });
 	return true;
 }
 
@@ -638,7 +626,7 @@ bool FDreamQASkyRenderEditorAndPIETest::RunTest(const FString& Parameters)
 
 // Scene captures in a play session: a 2D one and a cube one, each a view family of its own drawn in the same frame as
 // the game view. Run it on its own (it is not under DreamQA.SkyRender): the renderer's clouds must be in both captures,
-// where the old dome draws them; a renderer that keeps per-frame state between view families wrongly stops the editor
+// the same clouds in either look; a renderer that keeps per-frame state between view families wrongly stops the editor
 // here (RDG validation: "... registered with pass March ... is not part of the graph").
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamQASkyCrashSceneCaptureTest, "DreamQA.SkyCrash.SceneCapture", DreamQA::Flags)
 bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
@@ -699,11 +687,11 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 		Cube->GetCaptureComponentCube()->bCaptureEveryFrame = true;
 		State->CaptureCube = Cube;
 	});
-	for (const FMode& L : { FMode{ TEXT("RT"), 2, 0 }, FMode{ TEXT("OT"), 0, 0 } })
+	for (const FMode& L : { FMode{ TEXT("RT"), 0 }, FMode{ TEXT("RR"), 1 } })
 	{
 		const FString Name = L.Name;
-		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
+		const int32 Look = L.Look;
+		Then([Look]() { SetLook(Look); });
 		WaitFrames(90);
 		Then([State, Name]()
 		{
@@ -721,7 +709,7 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 		for (const TCHAR* Kind : { TEXT("Capture2D_"), TEXT("CaptureCubeUp_"), TEXT("CaptureCubeSide_") })
 		{
 			const FPicture& A = State->Pictures[FString(Kind) + TEXT("RT")];
-			const FPicture& B = State->Pictures[FString(Kind) + TEXT("OT")];
+			const FPicture& B = State->Pictures[FString(Kind) + TEXT("RR")];
 			if (!TestTrue(FString::Printf(TEXT("%s reads back"), Kind), A.IsValid() && B.IsValid()))
 			{
 				continue;
@@ -731,9 +719,9 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 			const FStats Sa = Measure(A, R);
 			const FStats Sb = Measure(B, R);
 			const float Corr = Correlation(A, B, R);
-			AddInfo(FString::Printf(TEXT("%s renderer: %s | old dome: %s | correlation %.3f"), Kind, *Describe(Sa), *Describe(Sb), Corr));
-			TestTrue(FString::Printf(TEXT("%s: the renderer's clouds are in the capture"), Kind), Sa.Coverage > 0.5f * Sb.Coverage && Sb.Coverage > 0.01f);
-			TestTrue(FString::Printf(TEXT("%s: where the old dome's are"), Kind), Corr > 0.5f);
+			AddInfo(FString::Printf(TEXT("%s toon: %s | realistic: %s | correlation %.3f"), Kind, *Describe(Sa), *Describe(Sb), Corr));
+			TestTrue(FString::Printf(TEXT("%s: the renderer's clouds are in the capture"), Kind), Sa.Coverage > 0.01f && Sb.Deviation > 2.0f);
+			TestTrue(FString::Printf(TEXT("%s: the same clouds in either look"), Kind), Corr > 0.3f);
 		}
 		State->Target->RemoveFromRoot();
 		State->CubeTarget->RemoveFromRoot();
@@ -748,7 +736,7 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 	});
 
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	Then([]() { SetClouds(-1, 0); });
+	Then([]() { SetLook(-1); });
 	return true;
 }
 
