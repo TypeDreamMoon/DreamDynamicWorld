@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Measures the GPU time of the sky dome and of the volumetric clouds (realistic and painted) at standard views and
-    weathers in a game window, and prints a table.
+    Measures the GPU time of the sky dome and of the sky cloud renderer's clouds (toon, realistic and painted) at
+    standard views and weathers in a game window, and prints a table.
 
 .DESCRIPTION
     One game session (Invoke-DreamSkyScript.ps1) steps through every mode x weather x view: it sets the weather,
@@ -11,15 +11,13 @@
       Frame       the whole frame on the graphics queue (busy + wait)
       Dome        the sky dome's draws (SM_SkySphere, found by r.ShowMaterialDrawEvents), outside the sky capture
       Capture     CaptureConvolveSkyEnvMap: the real-time sky light capture (draws the dome and the clouds again)
-      Clouds      VolumetricCloud: the engine's cloud layer for the view (all queues), or DreamSky.Clouds: the sky cloud
-                  renderer's passes for the view
-      Shadow      VolumetricCloudShadow: its shadow map
+      Clouds      DreamSky.Clouds: the sky cloud renderer's passes for the view
+      Shadow      VolumetricCloudShadow: an engine cloud layer's shadow map (none of the sky's own; 0 unless a level adds one)
       Sky         Dome + Capture + Clouds + Shadow
 
-    Modes: Toon (the dome draws the clouds; DreamSky.Clouds 0), Realistic (M_DreamVolumetricCloud) and Painted
-    (M_DreamVolumetricCloud_Painted), both with DreamSky.Clouds 1, RenderedToon and RenderedRealistic (the sky cloud
-    renderer, DreamSky.Clouds 2, DreamSky.CloudRender.Look 0 and 1). Views are Name=pitch[/yaw] (degrees; the level
-    camera's yaw when left out). The volumetric render target mode is the engine's default unless -CloudRenderMode.
+    Modes: Toon, Realistic and Painted, the sky cloud renderer's looks (DreamSky.CloudRender.Look 0, 1, 2; the names
+    RenderedToon, RenderedRealistic and RenderedPainted are taken too). Views are Name=pitch[/yaw] (degrees; the level
+    camera's yaw when left out).
 
     The numbers are only as quiet as the GPU: other work on it (another editor, a game, a build that compiles shaders)
     shows up in them. -Log reads an earlier run's log again instead of running.
@@ -41,12 +39,11 @@ param(
     [int]$Settle = 40,
     [int]$ResX = 1920,
     [int]$ResY = 1080,
-    [Nullable[int]]$CloudRenderMode,
     # Console commands run once before the measurements (e.g. 'r.ScreenPercentage 100'); none may contain a comma.
     [string[]]$Commands = @(),
     [string]$Log,
     [string]$Project,
-    # Frames held after switching to a volumetric material: its shaders keep compiling after 'settle' returns.
+    # Frames held after switching the look: its shaders may still compile after 'settle' returns.
     [int]$CompileHold = 600,
     [switch]$OffScreen,
     [switch]$Force
@@ -56,13 +53,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 # pwsh -File passes a list argument as one comma-joined string.
 foreach ($ListName in 'Modes', 'Weathers', 'Views') { Set-Variable -Name $ListName -Value @((Get-Variable -Name $ListName -ValueOnly) | ForEach-Object { $_ -split ',' } | Where-Object { $_ }) }
-$Unknown = @($Modes | Where-Object { $_ -notin 'Toon', 'Realistic', 'Painted', 'RenderedToon', 'RenderedRealistic' }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
+$LookOf = @{ Toon = 0; Realistic = 1; Painted = 2; RenderedToon = 0; RenderedRealistic = 1; RenderedPainted = 2 }
+$Unknown = @($Modes | Where-Object { -not $LookOf.ContainsKey($_) }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
 $Invariant = [System.Globalization.CultureInfo]::InvariantCulture
-
-$MaterialOf = @{
-    Realistic = '/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud'
-    Painted   = '/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted'
-}
 
 if (-not $Log)
 {
@@ -74,12 +67,9 @@ if (-not $Log)
         'r.ShowMaterialDrawEvents 1',
         "time $($Hour.ToString($Invariant))"
     ) + $Commands
-    if ($null -ne $CloudRenderMode) { $Lines += "r.VolumetricRenderTarget.Mode $CloudRenderMode" }
     foreach ($Mode in $Modes)
     {
-        if ($Mode -eq 'Toon') { $Lines += 'DreamSky.Clouds 0' }
-        elseif ($Mode -like 'Rendered*') { $Lines += 'DreamSky.Clouds 2', "DreamSky.CloudRender.Look $(if ($Mode -eq 'RenderedToon') { 0 } else { 1 })", 'settle', "wait $CompileHold" }
-        else { $Lines += 'DreamSky.Clouds 1', "DreamSky.CloudMaterial $($MaterialOf[$Mode])", 'settle', "wait $CompileHold" }
+        $Lines += "DreamSky.CloudRender.Look $($LookOf[$Mode])", 'settle', "wait $CompileHold"
         foreach ($Weather in $Weathers)
         {
             $Lines += "DreamWeather.Set $Weather 0"
@@ -144,7 +134,7 @@ foreach ($Line in [System.IO.File]::ReadLines($Log))
     $Path = $Stack -join ' / '
     $InCapture = $Path -match 'CaptureConvolveSkyEnvMap'
     if ($Name -eq 'CaptureConvolveSkyEnvMap') { $Current.Capture += $Ms }
-    elseif ($Name -eq 'VolumetricCloud' -or $Name -eq 'DreamSky.Clouds') { $Current.Clouds += $Ms }
+    elseif ($Name -eq 'DreamSky.Clouds') { $Current.Clouds += $Ms }
     elseif ($Name -eq 'VolumetricCloudShadow') { $Current.Shadow += $Ms }
     elseif ($Name -match 'SM_SkySphere' -and -not $InCapture) { $Current.Dome += $Ms }
 }

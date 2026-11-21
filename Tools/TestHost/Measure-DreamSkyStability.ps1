@@ -9,7 +9,7 @@
     (<Prefix>_<Mode>_<speed>_fNNNN.png). measure_frame_change.py then compares consecutive frames over the top part of
     the picture (-Top) and counts the jumps: steps that stand out from the steps around them.
 
-    Modes as in Measure-DreamSkyGpu.ps1 (Toon, Realistic, Painted). Speeds in m/s; 0 measures the drift of the clouds
+    Modes as in Measure-DreamSkyGpu.ps1 (Toon, Realistic, Painted: the sky cloud renderer's looks). Speeds in m/s; 0 measures the drift of the clouds
     alone. -Heading is the flight's direction and -Pitch / -Yaw the view's (degrees); the default looks toward the
     test level's storm zone while flying across it, so the weather map's edges move through the picture.
 
@@ -37,14 +37,13 @@ param(
     [string]$Prefix = 'Fly',
     [int]$ResX = 960,
     [int]$ResY = 540,
-    [Nullable[int]]$CloudRenderMode,
     [string[]]$Commands = @(),
     # No lightning (StrikesPerMinute 0): a flash brightens every frame it lands in and reads as a jump.
     [switch]$NoLightning,
     [string]$Project,
     # Only measure frames an earlier run saved (with the same -Prefix, -Modes and -Speeds).
     [switch]$NoRun,
-    # Frames held after switching to a volumetric material: its shaders keep compiling after 'settle' returns.
+    # Frames held after switching the look: its shaders may still compile after 'settle' returns.
     [int]$CompileHold = 600,
     [switch]$OffScreen,
     [switch]$Force
@@ -55,12 +54,9 @@ Set-StrictMode -Version Latest
 # pwsh -File passes a list argument as one comma-joined string.
 $Modes = @($Modes | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Speeds = @($Speeds | ForEach-Object { "$_" -split ',' } | Where-Object { $_ } | ForEach-Object { [double]::Parse($_, [System.Globalization.CultureInfo]::InvariantCulture) })
-$Unknown = @($Modes | Where-Object { $_ -notin 'Toon', 'Realistic', 'Painted' }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
+$LookOf = @{ Toon = 0; Realistic = 1; Painted = 2; RenderedToon = 0; RenderedRealistic = 1; RenderedPainted = 2 }
+$Unknown = @($Modes | Where-Object { -not $LookOf.ContainsKey($_) }); if ($Unknown) { throw "Unknown mode: $($Unknown -join ', ')" }
 $Invariant = [System.Globalization.CultureInfo]::InvariantCulture
-$MaterialOf = @{
-    Realistic = '/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud'
-    Painted   = '/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted'
-}
 function Num([double]$Value) { $Value.ToString($Invariant) }
 function SequenceName([string]$Mode, [double]$Speed) { "${Prefix}_${Mode}_$(Num $Speed)" }
 
@@ -82,12 +78,10 @@ if (-not $NoRun)
         }
     }
     $Lines = @('# Measure-DreamSkyStability.ps1', "time $(Num $Hour)", "DreamWeather.Set $Weather 0") + $Commands
-    if ($null -ne $CloudRenderMode) { $Lines += "r.VolumetricRenderTarget.Mode $CloudRenderMode" }
     $Lines += 'mark start'
     foreach ($Mode in $Modes)
     {
-        if ($Mode -eq 'Toon') { $Lines += 'DreamSky.Clouds 0' }
-        else { $Lines += 'DreamSky.Clouds 1', "DreamSky.CloudMaterial $($MaterialOf[$Mode])", 'settle', "wait $CompileHold" }
+        $Lines += "DreamSky.CloudRender.Look $($LookOf[$Mode])", 'settle', "wait $CompileHold"
         foreach ($Speed in $Speeds)
         {
             if ($Start) { $Lines += "move $(($Start -split ',' | ForEach-Object { $_.Trim() }) -join ' ')" } else { $Lines += 'home' }

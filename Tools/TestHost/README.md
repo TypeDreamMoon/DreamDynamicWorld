@@ -78,7 +78,7 @@ logs in `<host>/Saved/ClaudeRuns/`.
 | --- | --- |
 | `Take-DreamSkyShots.ps1` | one shot per hour (`DreamWorld.ShotTour`), and a contact sheet |
 | `Invoke-DreamSkyScript.ps1` | runs a `DreamWorld.Script` file (`-Script`) or lines (`-Lines`); `-FixedFps 30` steps the game clock 1/30 s a frame however slow the frames are |
-| `Measure-DreamSkyGpu.ps1` | GPU time of the dome, the sky capture, the volumetric clouds and their shadow, per mode x weather x view (`ProfileGPU`, median of `-Samples`); a table and a csv |
+| `Measure-DreamSkyGpu.ps1` | GPU time of the dome, the sky capture and the sky cloud renderer's clouds, per look x weather x view (`ProfileGPU`, median of `-Samples`); a table and a csv |
 | `Measure-DreamSkyStability.ps1` | flies the view at `-Speeds` (m/s) while saving every frame, then counts the frames where the sky jumps (`measure_frame_change.py`) |
 
 `DreamWorld.Script <file>` runs one line at a time: a console command, or `wait <frames>`, `settle [frames]` (until

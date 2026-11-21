@@ -409,6 +409,37 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("the moon casts no cloud shadow: still dimmed"), Shadowing.MoonIlluminance, Dome.MoonIlluminance, 1e-5f);
 	TestNearlyEqual(TEXT("exposure is the same either way"), Shadowing.ExposureEV100, Dome.ExposureEV100, 1e-5f);
 
+	// The sky's own clouds hide no sun from its light (they shade the ground through a light function): under an
+	// overcast the sky dims the sun itself.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
+	auto SunUnder = [&W, &Config](float Cover)
+	{
+		FDreamWorldEnvironment Weather;
+		Weather.bActive = true;
+		Weather.CloudCoverage = Cover;
+		W.Clock->SetEnvironment(Weather);
+		// (A jump: the light is applied at once, not eased.)
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+		return W.Sky->SunLight->Intensity;
+	};
+	const float Clear = SunUnder(0.0f);
+	const float Grey = SunUnder(1.0f);
+	if (!W.Clock->GetEnvironment().bActive || !FMath::IsNearlyEqual(W.Clock->GetEnvironment().CloudCoverage, 1.0f))
+	{
+		AddWarning(TEXT("the world's weather was set over the test's: the sky's dimming is not checked"));
+		return true;
+	}
+	TestTrue(FString::Printf(TEXT("a clear noon has a sun (%.2f lux)"), Clear), Clear > 1.0f);
+	TestNearlyEqual(FString::Printf(TEXT("an overcast dims the sky's sun (%.2f against %.2f lux)"), Grey, Clear), Grey,
+		Clear * (1.0f - Style->OvercastLightDimming), FMath::Max(1e-3f, Clear * 2e-3f));
+
 	return true;
 }
 
