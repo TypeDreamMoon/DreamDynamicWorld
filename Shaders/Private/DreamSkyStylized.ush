@@ -1142,7 +1142,6 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	// The volumetric clouds.
 	float3 Mean = max(0.5 * (Zenith.rgb + Horizon.rgb), 1.0e-4);
 	float3 Tone = clamp(Base / Mean, 0.25, 4.0);
-	// CloudLayer.w = 1: the engine's volumetric cloud layer draws the clouds over the dome; the dome leaves its own out.
 	float CloudCore = 0.0;
 	float4 VC = float4(0, 0, 0, 0);
 	// Under the horizon the clouds are drawn over the scene instead (DSky_ShadeBelow): the dome is behind the ground. Not in

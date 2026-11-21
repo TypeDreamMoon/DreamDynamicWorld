@@ -32,8 +32,9 @@ public:
 
 	/**
 	 * What the weather does to both (when Environment.bActive): clouds, a dimmer and greyer sky, more fog.
-	 * bCloudsShadowTheSun: the clouds cast their own shadow from the sun (ADreamSky::CloudsShadowTheSun), so an overcast
-	 * sky does not dim the sun as well (OvercastLightDimming still dims the moon).
+	 * bCloudsShadowTheSun: the clouds cast their own shadow from the sun (a cloud layer that hides the sun itself, as the
+	 * engine's volumetric clouds do), so an overcast sky does not dim the sun as well (OvercastLightDimming still dims the
+	 * moon). The sky's own clouds do not: Dream Sky leaves it false.
 	 */
 	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
 

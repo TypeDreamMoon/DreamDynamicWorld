@@ -24,8 +24,8 @@ enum class EDreamSkyClouds : uint8
 {
 	/** Painted volumes the sky dome ray marches itself: the style's toon tones, crisp edges. */
 	Toon UMETA(DisplayName = "Toon (sky dome)"),
-	/** The engine's volumetric cloud layer with the plugin's cloud material: soft, lit by scattering, casting shadows. */
-	Volumetric UMETA(DisplayName = "Volumetric (engine)"),
+	/** The engine's volumetric cloud layer, as it was: a level saved with it is drawn by the sky cloud renderer. */
+	Volumetric UMETA(Hidden),
 	/**
 	 * The plugin's own cloud renderer: a compute pass per view marches the cloud layer at reduced resolution, filters it
 	 * over frames and composites it into the sky behind the scene (DreamSky.CloudRender.* settings).
@@ -39,9 +39,9 @@ enum class EDreamSkyCloudLook : uint8
 {
 	/** The clouds' surface, lit and painted in the style's few tones (as the dome's toon clouds). */
 	Toon,
-	/** The density integrated along the view, lit by scattering (as M_DreamVolumetricCloud). */
+	/** The density integrated along the view, lit by scattering (the style's RealisticClouds). */
 	Realistic,
-	/** The density integrated, painted in the style's tones by the light through it (as M_DreamVolumetricCloud_Painted). */
+	/** The density integrated, painted in the style's tones by the light through it (the style's PaintedClouds). */
 	Painted,
 };
 

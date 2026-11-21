@@ -1,7 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 //
-// The shape of the clouds, shared by both ways the sky draws them: the engine's volumetric cloud layer
-// (M_DreamVolumetricCloud) and the toon clouds the dome marches itself (DreamSkyStylized.ush). Whichever draws them,
+// The shape of the clouds, shared by every way the sky draws them: the sky cloud renderer's looks
+// (DreamSkyCloudRender.usf) and the toon clouds the dome marches itself (DreamSkyStylized.ush). Whichever draws them,
 // the same clouds stand in the same places.
 //
 // A density field, built the way UDS's volumetric clouds (and Nubis) build theirs:
@@ -34,8 +34,7 @@
 // cumulus and an overcast fill it.
 #define DCS_LAYER_TOP 400000.0
 
-// How high above the layer's base a storm's cumulonimbus climb (the tropopause, cm): the toon march stops there, and
-// the engine's cloud layer is that thick (ADreamSky::VolumetricLayerThickness).
+// How high above the layer's base a storm's cumulonimbus climb (the tropopause, cm): the marches stop there.
 #define DCS_STORM_TOP 1000000.0
 
 // The weather the map holds at a point (its world position, cm, horizontally): (cover, darkness, precipitation), or the

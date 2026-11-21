@@ -145,7 +145,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	const FDreamCelestialState& Celestial = Clock.GetCelestial();
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->CloudsShadowTheSun());
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).
@@ -204,8 +204,8 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Style.CloudHighCover, Style.CloudHighAltitude));
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));
-	// w: 1 while the engine's volumetric clouds draw the clouds (the dome then leaves its own out).
-	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, Clouds == EDreamSkyClouds::Toon ? 0.0f : (Clouds == EDreamSkyClouds::Volumetric ? 1.0f : 2.0f)));
+	// w: 2 while the sky cloud renderer draws the clouds (the dome then leaves its own out), 0 while the dome does.
+	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, Clouds == EDreamSkyClouds::Toon ? 0.0f : 2.0f));
 	Clock.SetVectorParameter(MPC_SkyExtra, FLinearColor(Style.CloudSkyTint, Style.CloudSunGlow, Style.SunDiskInSkyLight, Applied.FlashGain));
 	Clock.SetVectorParameter(MPC_SkyHaze, Look.Haze);
 

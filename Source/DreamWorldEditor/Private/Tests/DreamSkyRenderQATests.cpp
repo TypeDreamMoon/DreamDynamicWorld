@@ -417,20 +417,12 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	WaitFrames(240);
 	Then([]() { GShaderCompilingManager->FinishAllCompilation(); });
 	WaitFrames(30);
-	const FMode MirrorLooks[] = { { TEXT("RT"), 2, 0 }, { TEXT("RR"), 2, 1 }, { TEXT("OT"), 0, 0 }, { TEXT("OR"), 1, 0 } };
+	const FMode MirrorLooks[] = { { TEXT("RT"), 2, 0 }, { TEXT("RR"), 2, 1 }, { TEXT("OT"), 0, 0 } };
 	for (const FMode& L : MirrorLooks)
 	{
 		const FString Name = L.Name;
 		const FIntPoint Mode(L.Clouds, L.Look);
-		Then([Mode, PlayWorld]()
-		{
-			SetClouds(Mode.X, Mode.Y);
-			if (Mode.X == 1)
-			{
-				GEngine->Exec(PlayWorld(), TEXT("DreamSky.CloudMaterial /DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud"));
-				GShaderCompilingManager->FinishAllCompilation();
-			}
-		});
+		Then([Mode]() { SetClouds(Mode.X, Mode.Y); });
 		WaitFrames(30);
 		Then([PlayWorld]() { RecaptureSkyLights(PlayWorld()); });
 		WaitFrames(60);
@@ -440,7 +432,7 @@ bool FDreamQASkyRenderPIETest::RunTest(const FString& Parameters)
 	{
 		const FIntRect R = State->SphereRect;
 		AddInfo(FString::Printf(TEXT("mirror sphere's upper half on screen: %d,%d .. %d,%d"), R.Min.X, R.Min.Y, R.Max.X, R.Max.Y));
-		for (const TCHAR* Name : { TEXT("RT"), TEXT("RR"), TEXT("OT"), TEXT("OR") })
+		for (const TCHAR* Name : { TEXT("RT"), TEXT("RR"), TEXT("OT") })
 		{
 			AddInfo(FString::Printf(TEXT("Mirror %s: %s"), Name, *Describe(Measure(State->Pictures[FString(TEXT("Mirror_")) + Name], R))));
 		}

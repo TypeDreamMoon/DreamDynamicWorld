@@ -347,7 +347,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 	UDreamSkySubsystem* Sky = Subsystem.Get();
 	const ADreamSky* Actor = Sky ? Sky->GetSky() : nullptr;
 	// The dome follows the camera within 2 % of its radius; half the radius parts it safely from the scene.
-	Settings.SkyDepth = Actor ? Actor->GetEffectiveDomeRadius() * 0.5f : 1.0e30f;
+	Settings.SkyDepth = Actor ? Actor->DomeRadius * 0.5f : 1.0e30f;
 
 	const UDreamWorldSubsystem* Clock = Sky ? Sky->ClockSubsystem.Get() : nullptr;
 	UWorld* ViewWorld = GetWorld();

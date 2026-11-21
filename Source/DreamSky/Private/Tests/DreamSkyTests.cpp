@@ -13,7 +13,6 @@
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/VolumetricCloudComponent.h"
 #include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/VolumeTexture.h"
@@ -266,7 +265,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudNoiseTest, "DreamSky.Assets.Cloud
 bool FDreamSkyCloudNoiseTest::RunTest(const FString& Parameters)
 {
 	const UVolumeTexture* Noise = LoadObject<UVolumeTexture>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise.T_DreamCloudNoise"));
-	if (!TestNotNull(TEXT("the volumetric clouds' 3D noise exists"), Noise))
+	if (!TestNotNull(TEXT("the clouds' 3D noise exists"), Noise))
 	{
 		return false;
 	}
@@ -274,9 +273,6 @@ bool FDreamSkyCloudNoiseTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("a cube of voxels"), int32(Noise->Source.GetSizeX()), int32(Noise->Source.GetNumSlices()));
 	TestEqual(TEXT("128 voxels across"), int32(Noise->Source.GetSizeX()), 128);
 	TestTrue(TEXT("tiles"), Noise->AddressMode == TA_Wrap);
-	const UMaterialInterface* Material = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud"));
-	TestNotNull(TEXT("the volumetric cloud material exists"), Material);
-	TestTrue(TEXT("it is a Volume domain material"), Material && Material->GetMaterial() && Material->GetMaterial()->MaterialDomain == MD_Volume);
 	return true;
 }
 
@@ -285,8 +281,7 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 {
 	DreamSky::Tests::FSkyWorld W;
 	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds"));
-	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar)
-		|| !TestNotNull(TEXT("the volumetric cloud component"), W.Sky->VolumetricClouds.Get()))
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar))
 	{
 		return false;
 	}
@@ -310,7 +305,6 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	W.Clock->ApplyClockConfig(Config, true);
 	W.Clock->Tick(0.016f);
 	TestTrue(TEXT("toon clouds by default"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Toon);
-	TestFalse(TEXT("no volumetric layer with toon clouds"), W.Sky->VolumetricClouds->GetVisibleFlag());
 	TestFalse(TEXT("the dome draws its own clouds"), DomeLeavesCloudsOut());
 	const double ToonDome = DomeRadius();
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
@@ -323,45 +317,24 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("a translucent one"), Below && IsTranslucentBlendMode(*Below));
 	TestTrue(TEXT("round the view, well inside the dome"), W.Sky->CloudsBelow->Bounds.SphereRadius < ToonDome * 0.01);
 
-	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
+	W.Sky->Clouds = EDreamSkyClouds::Rendered;
 	W.Clock->Tick(0.016f);
-	const UDreamSkyStyle* Style = W.Sky->GetEffectiveStyle();
-	TestTrue(TEXT("the volumetric layer shows"), W.Sky->VolumetricClouds->GetVisibleFlag());
-	const UMaterialInterface* Material = W.Sky->VolumetricClouds->GetMaterial();
-	TestTrue(TEXT("with the plugin's cloud material (not the engine's default)"), Material && Material->GetPathName() == W.Sky->VolumetricCloudMaterial.ToSoftObjectPath().ToString());
-	TestNearlyEqual(TEXT("its base at the style's cloud height"), W.Sky->VolumetricClouds->LayerBottomAltitude, Style->CloudLayerHeight / 100000.0f, 1e-3f);
-	TestNearlyEqual(TEXT("as tall as asked"), W.Sky->VolumetricClouds->LayerHeight, W.Sky->VolumetricLayerThickness, 1e-3f);
-	TestNearlyEqual(TEXT("sampled as finely as asked"), W.Sky->VolumetricClouds->ViewSampleCountScale, W.Sky->VolumetricSampleCountScale, 1e-3f);
+	TestTrue(TEXT("the renderer draws them"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
 	TestTrue(TEXT("the dome leaves its own clouds out"), DomeLeavesCloudsOut());
 	TestFalse(TEXT("and so does the sphere of the clouds under the horizon"), W.Sky->CloudsBelow->GetVisibleFlag());
-	TestTrue(TEXT("the clouds shade the sky light under them"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
-	TestTrue(FString::Printf(TEXT("the dome stands beyond the traced clouds (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= W.Sky->VolumetricTracingDistance * 100000.0 && DomeRadius() >= ToonDome);
-	TestTrue(TEXT("the moon is the second atmosphere light (it lights the clouds at night)"),
+	TestNearlyEqual(TEXT("the dome stays where it is"), DomeRadius(), ToonDome, 1.0);
+	TestTrue(TEXT("the moon is the second atmosphere light"),
 		W.Sky->MoonLight->IsUsedAsAtmosphereSunLight() && W.Sky->MoonLight->GetAtmosphereSunLightIndex() == 1);
-
-	// The painted material over the same clouds, chosen from the console; empty gives the actor's back.
-	IConsoleVariable* MaterialVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.CloudMaterial"));
-	if (TestNotNull(TEXT("DreamSky.CloudMaterial"), MaterialVar))
-	{
-		const TCHAR* PaintedPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted");
-		MaterialVar->Set(PaintedPath, ECVF_SetByCode);
-		W.Clock->Tick(0.016f);
-		const UMaterialInterface* Painted = W.Sky->VolumetricClouds->GetMaterial();
-		TestTrue(TEXT("the console's material is drawn"), Painted && Painted->GetPathName() == PaintedPath);
-		TestTrue(TEXT("it is a Volume domain material"), Painted && Painted->GetMaterial() && Painted->GetMaterial()->MaterialDomain == MD_Volume);
-		MaterialVar->Set(TEXT(""), ECVF_SetByCode);
-		W.Clock->Tick(0.016f);
-		const UMaterialInterface* Back = W.Sky->VolumetricClouds->GetMaterial();
-		TestTrue(TEXT("and empty gives the actor's own back"), Back && Back->GetPathName() == W.Sky->VolumetricCloudMaterial.ToSoftObjectPath().ToString());
-	}
+	// A level saved with the engine's volumetric clouds is drawn by the renderer.
+	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("volumetric, as saved: the renderer draws them"), W.Sky->GetEffectiveClouds() == EDreamSkyClouds::Rendered);
+	TestTrue(TEXT("and the dome leaves its own out"), DomeLeavesCloudsOut());
 
 	// The console variable wins over the actor's choice.
 	CVar->Set(0, ECVF_SetByCode);
 	W.Clock->Tick(0.016f);
-	TestFalse(TEXT("DreamSky.Clouds 0 turns the volumetric layer off"), W.Sky->VolumetricClouds->GetVisibleFlag());
-	TestFalse(TEXT("and gives the clouds back to the dome"), DomeLeavesCloudsOut());
-	TestFalse(TEXT("painted clouds cast no sky light shade"), bool(W.Sky->SkyLight->bCloudAmbientOcclusion));
-	TestNearlyEqual(TEXT("the dome comes back in"), DomeRadius(), ToonDome, 1.0);
+	TestFalse(TEXT("DreamSky.Clouds 0 gives the clouds back to the dome"), DomeLeavesCloudsOut());
 	TestTrue(TEXT("and the clouds under the horizon with it"), W.Sky->CloudsBelow->GetVisibleFlag());
 	CVar->Set(SavedOverride, ECVF_SetByCode);
 	return true;
@@ -394,24 +367,6 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("the moon casts no cloud shadow: still dimmed"), Shadowing.MoonIlluminance, Dome.MoonIlluminance, 1e-5f);
 	TestNearlyEqual(TEXT("exposure is the same either way"), Shadowing.ExposureEV100, Dome.ExposureEV100, 1e-5f);
 
-	// Which clouds shadow the sun: the volumetric ones, while the sun casts cloud shadows at some strength.
-	DreamSky::Tests::FSkyWorld W;
-	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds"));
-	if (!TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("DreamSky.Clouds"), CVar) || !TestNotNull(TEXT("the sun"), W.Sky->SunLight.Get()))
-	{
-		return false;
-	}
-	const int32 SavedOverride = CVar->GetInt();
-	CVar->Set(-1, ECVF_SetByCode);
-	W.Sky->Clouds = EDreamSkyClouds::Toon;
-	TestFalse(TEXT("toon clouds cast no shadow"), W.Sky->CloudsShadowTheSun());
-	W.Sky->Clouds = EDreamSkyClouds::Volumetric;
-	TestTrue(TEXT("volumetric clouds shadow the sun"), W.Sky->CloudsShadowTheSun());
-	const float SavedStrength = W.Sky->SunLight->CloudShadowStrength;
-	W.Sky->SunLight->CloudShadowStrength = 0.0f;
-	TestFalse(TEXT("unless their shadow is turned off"), W.Sky->CloudsShadowTheSun());
-	W.Sky->SunLight->CloudShadowStrength = SavedStrength;
-	CVar->Set(SavedOverride, ECVF_SetByCode);
 	return true;
 }
 
@@ -484,24 +439,6 @@ bool FDreamSkyOverridesTest::RunTest(const FString& Parameters)
 	Sky.LightOverrides.bOverride_ShadowCascades = false;
 	Sky.RefreshOverrides();
 	TestEqual(TEXT("unticked: the sky's default again"), Sky.SunLight->DynamicShadowCascades, DefaultCascades);
-
-	// A material setting: the volumetric clouds draw an instance of their material carrying it.
-	Sky.Clouds = EDreamSkyClouds::Volumetric;
-	Sky.CloudOverrides.bOverride_Extinction = true;
-	Sky.CloudOverrides.Extinction = 0.2f;
-	Sky.RefreshOverrides();
-	Noon();
-	const UMaterialInstanceDynamic* Instance = Cast<UMaterialInstanceDynamic>(Sky.VolumetricClouds->GetMaterial());
-	if (TestNotNull(TEXT("the clouds draw an instance"), Instance))
-	{
-		TestTrue(TEXT("of the actor's material"), Instance->Parent && Instance->Parent->GetPathName() == Sky.VolumetricCloudMaterial.ToSoftObjectPath().ToString());
-		float Extinction = 0.0f;
-		TestTrue(TEXT("carrying the extinction"), Instance->GetScalarParameterValue(TEXT("CloudExtinction"), Extinction) && FMath::IsNearlyEqual(Extinction, 0.2f, 1e-5f));
-	}
-	Sky.CloudOverrides.bOverride_Extinction = false;
-	Sky.RefreshOverrides();
-	Noon();
-	TestFalse(TEXT("unticked: the plain material again"), Sky.VolumetricClouds->GetMaterial() && Sky.VolumetricClouds->GetMaterial()->IsA<UMaterialInstanceDynamic>());
 
 	// Nothing ticked: the preset itself.
 	Sky.CloudOverrides = FDreamSkyCloudOverrides();

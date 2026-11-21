@@ -12,7 +12,6 @@
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/VolumetricCloudComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -26,8 +25,7 @@
 
 static TAutoConsoleVariable<int32> CVarDreamSkyClouds(
 	TEXT("DreamSky.Clouds"), -1,
-	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 1 = volumetric (the engine's cloud layer),")
-	TEXT(" 2 = the plugin's sky cloud renderer."),
+	TEXT("What draws the clouds: -1 = each Dream Sky's own choice, 0 = toon (the sky dome), 2 = the plugin's sky cloud renderer."),
 	ECVF_Default);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
@@ -37,11 +35,6 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT(" integrated, painted in the style's tones by the light through it)."),
 	ECVF_Default);
 
-static TAutoConsoleVariable<FString> CVarDreamSkyCloudMaterial(
-	TEXT("DreamSky.CloudMaterial"), FString(),
-	TEXT("The volumetric clouds' material, as an object path (for example /DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted); empty = each Dream Sky's own."),
-	ECVF_Default);
-
 namespace DreamSky::Actor
 {
 	/** The engine's sky sphere: a unit-ish sphere whose normals face inward. */
@@ -49,13 +42,11 @@ namespace DreamSky::Actor
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudsBelowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSkyBelow.M_DreamSkyBelow");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
-	static const TCHAR* PaintedCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud_Painted.M_DreamVolumetricCloud_Painted");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
 	static constexpr int32 CloudShadowResolution = 256;
 	static constexpr float CloudShadowHalfExtent = 2400000.0f;
 	/** cm: the sphere the clouds under the horizon are drawn on (anything nearer than this hides them, as it should). */
 	static constexpr float CloudsBelowRadius = 50000.0f;
-	static const TCHAR* DefaultCloudMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamVolumetricCloud.M_DreamVolumetricCloud");
 
 	static bool Differs(float A, float B, float Relative, float Absolute)
 	{
@@ -131,15 +122,16 @@ ADreamSky::ADreamSky()
 	SunLight->AtmosphereSunLightIndex = 0;
 	SunLight->Intensity = 10.0f;
 	SunLight->CastShadows = true;
-	// The volumetric clouds' shadows on the ground (nothing without them).
+	// The engine's volumetric clouds' shadows on the ground, for a level that adds a cloud layer of its own (nothing
+	// without one; the sky's own clouds shadow the ground through a light function, UpdateCloudShadow).
 	SunLight->bCastCloudShadows = true;
 
 	MoonLight = CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("MoonLight"));
 	MoonLight->SetupAttachment(SceneRoot);
 	MoonLight->SetMobility(EComponentMobility::Movable);
 	MoonLight->SetUsingAbsoluteRotation(true);
-	// The second atmosphere light: the engine's volumetric clouds are lit by the atmosphere lights only, so the
-	// moon lights them at night. Without a sky atmosphere this changes nothing else.
+	// The second atmosphere light: the moon lights a sky atmosphere (and any engine cloud layer a level adds) at night.
+	// Without one this changes nothing else.
 	MoonLight->bAtmosphereSunLight = true;
 	MoonLight->AtmosphereSunLightIndex = 1;
 	MoonLight->Intensity = 0.0f;
@@ -165,14 +157,6 @@ ADreamSky::ADreamSky()
 	LightningLight->CastShadows = false;
 	LightningLight->bAffectsWorld = true;
 
-	VolumetricClouds = CreateDefaultSubobject<UVolumetricCloudComponent>(TEXT("VolumetricClouds"));
-	VolumetricClouds->SetupAttachment(SceneRoot);
-	VolumetricClouds->SetMobility(EComponentMobility::Movable);
-	VolumetricClouds->SetVisibility(false);
-	// The sky light reaching a cloud's underside from below is the dome's ground colour: mostly held back, so
-	// undersides keep the sky's blue (and the material's own shade glow) rather than turning brown.
-	VolumetricClouds->SkyLightCloudBottomOcclusion = 0.85f;
-
 	PostProcess = CreateDefaultSubobject<UPostProcessComponent>(TEXT("Exposure"));
 	PostProcess->SetupAttachment(SceneRoot);
 	PostProcess->bUnbound = true;
@@ -180,7 +164,6 @@ ADreamSky::ADreamSky()
 	PostProcess->Priority = -1.0f;
 
 	SkyMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(DreamSky::Actor::DefaultMaterialPath));
-	VolumetricCloudMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(DreamSky::Actor::DefaultCloudMaterialPath));
 }
 
 UDreamSkyStyle* ADreamSky::GetEffectiveStyle() const
@@ -223,11 +206,6 @@ void ADreamSky::RefreshOverrides()
 {
 	RebuildOverriddenStyle();
 	ApplyComponentOverrides(true);
-	bCloudMaterialDirty = true;
-	if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
-	{
-		ApplyClouds(*Effective);
-	}
 }
 
 void ADreamSky::ApplyLightingOverrides(FDreamSkyLighting& L) const
@@ -347,20 +325,12 @@ EDreamSkyClouds ADreamSky::GetEffectiveClouds() const
 	{
 		return EDreamSkyClouds::Toon;
 	}
-	if (Override == 1)
-	{
-		return EDreamSkyClouds::Volumetric;
-	}
-	if (Override == 2)
+	// (1 was the engine's volumetric clouds: the renderer draws them now.)
+	if (Override == 1 || Override == 2)
 	{
 		return EDreamSkyClouds::Rendered;
 	}
-	return Clouds;
-}
-
-bool ADreamSky::CloudsShadowTheSun() const
-{
-	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric && SunLight && SunLight->bCastCloudShadows && SunLight->CloudShadowStrength > 0.0f;
+	return Clouds == EDreamSkyClouds::Volumetric ? EDreamSkyClouds::Rendered : Clouds;
 }
 
 EDreamSkyCloudLook ADreamSky::GetEffectiveCloudLook() const
@@ -511,202 +481,13 @@ void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 	}
 }
 
-float ADreamSky::GetEffectiveDomeRadius() const
-{
-	// The engine's clouds stop at whatever the depth buffer holds, and the dome is in it.
-	return GetEffectiveClouds() == EDreamSkyClouds::Volumetric ? FMath::Max(DomeRadius, VolumetricTracingDistance * 100000.0f * 1.1f) : DomeRadius;
-}
-
 void ADreamSky::ApplyClouds(const UDreamSkyStyle& InStyle)
 {
-	if (!VolumetricClouds)
+	// The dome's own clouds under the horizon show with the toon clouds only (ApplyDome).
+	const bool bToon = GetEffectiveClouds() == EDreamSkyClouds::Toon;
+	if (CloudsBelow && CloudsBelow->GetVisibleFlag() != bToon)
 	{
-		return;
-	}
-	const bool bVolumetric = GetEffectiveClouds() == EDreamSkyClouds::Volumetric;
-	if (bVolumetric)
-	{
-		// The component starts with the engine's default cloud material: ours replaces it (or the console's).
-		UMaterialInterface* Wanted = nullptr;
-		const FString Override = CVarDreamSkyCloudMaterial.GetValueOnGameThread();
-		static FString MissingOverride;
-		if (!Override.IsEmpty() && Override != MissingOverride)
-		{
-			const TSoftObjectPtr<UMaterialInterface> Chosen{FSoftObjectPath(Override)};
-			Wanted = Chosen.Get() ? Chosen.Get() : Chosen.LoadSynchronous();
-			// (A path that loads nothing is not tried again every frame.)
-			MissingOverride = Wanted ? FString() : Override;
-		}
-		if (!Wanted)
-		{
-			Wanted = VolumetricCloudMaterial.Get() ? VolumetricCloudMaterial.Get() : VolumetricCloudMaterial.LoadSynchronous();
-		}
-		// The material overrides go on an instance of it.
-		if (Wanted && CloudOverrides.TouchesMaterial())
-		{
-			if (!CloudMaterialInstance || CloudMaterialInstance->Parent != Wanted)
-			{
-				CloudMaterialInstance = UMaterialInstanceDynamic::Create(Wanted, this);
-				bCloudMaterialDirty = true;
-			}
-			if (bCloudMaterialDirty)
-			{
-				CloudMaterialInstance->ClearParameterValues();
-				CloudOverrides.ApplyTo(*CloudMaterialInstance);
-				// (The clouds' shadows fade out short of the shadow map's edge: the map reaches the traced distance.)
-				CloudMaterialInstance->SetScalarParameterValue(TEXT("ShadowReach"), FMath::Max(VolumetricTracingDistance, 10.0f) * 100000.0f);
-				bCloudMaterialDirty = false;
-			}
-			Wanted = CloudMaterialInstance;
-		}
-		else
-		{
-			CloudMaterialInstance = nullptr;
-		}
-		if (Wanted && VolumetricClouds->GetMaterial() != Wanted)
-		{
-			VolumetricClouds->SetMaterial(Wanted);
-		}
-		// How much sun the clouds' shadows take off the ground: all of it under realistic clouds; under the painted ones
-		// (the material with a PaintGain), between broken clouds, a little over half, so the shadows lie light and keep
-		// some of the sun's warmth, as in a painted background, instead of the sky light's dark blue alone. Under a
-		// closing cover it goes back to all of it: an overcast or a storm lets no sun through to cast shadows. (Stepped,
-		// so the sun is not re-made every frame while the weather turns.)
-		float PaintGain = 0.0f;
-		const bool bPainted = Wanted && Wanted->GetScalarParameterValue(FMaterialParameterInfo(TEXT("PaintGain")), PaintGain);
-		const UDreamWorldSubsystem* Weather = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-		const float Cover = Weather && Weather->GetEnvironment().bActive ? Weather->GetEnvironment().CloudCoverage : 0.0f;
-		const float PaintedShadow = FMath::RoundToFloat(FMath::Lerp(0.55f, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
-		const float GroundShadow = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow : (bPainted ? PaintedShadow : 1.0f), 0.0f, 1.0f);
-		if (SunLight && !FMath::IsNearlyEqual(SunLight->CloudShadowOnSurfaceStrength, GroundShadow, 1.0e-3f))
-		{
-			SunLight->CloudShadowOnSurfaceStrength = GroundShadow;
-			SunLight->MarkRenderStateDirty();
-		}
-		const float BottomKm = FMath::Max(0.0f, InStyle.CloudLayerHeight / 100000.0f);
-		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerBottomAltitude, BottomKm, 1.0e-3f))
-		{
-			VolumetricClouds->SetLayerBottomAltitude(BottomKm);
-		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->LayerHeight, VolumetricLayerThickness, 1.0e-3f))
-		{
-			VolumetricClouds->SetLayerHeight(VolumetricLayerThickness);
-		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->TracingMaxDistance, VolumetricTracingDistance, 1.0e-3f))
-		{
-			VolumetricClouds->SetTracingMaxDistance(VolumetricTracingDistance);
-		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->ViewSampleCountScale, VolumetricSampleCountScale, 1.0e-3f))
-		{
-			VolumetricClouds->SetViewSampleCountScale(VolumetricSampleCountScale);
-		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->ShadowTracingDistance, CloudShadowTracingDistance, 1.0e-3f))
-		{
-			VolumetricClouds->SetShadowTracingDistance(CloudShadowTracingDistance);
-		}
-		if (!FMath::IsNearlyEqual(VolumetricClouds->SkyLightCloudBottomOcclusion, VolumetricBaseSkyOcclusion, 1.0e-3f))
-		{
-			VolumetricClouds->SetSkyLightCloudBottomOcclusion(VolumetricBaseSkyOcclusion);
-		}
-		// The shadow map and the sky light's occlusion map cover the clouds that are traced (the engine's default
-		// spreads them over 150 km around the view, 586 m a texel): drawing them costs about their texel count, each
-		// texel a march through the clouds' material.
-		const float MapExtentKm = FMath::Max(VolumetricTracingDistance, 10.0f);
-		if (SunLight && (!FMath::IsNearlyEqual(SunLight->CloudShadowExtent, MapExtentKm, 1.0e-2f)
-			|| !FMath::IsNearlyEqual(SunLight->CloudShadowMapResolutionScale, VolumetricShadowResolution, 1.0e-3f)
-			|| !FMath::IsNearlyEqual(SunLight->CloudShadowRaySampleCountScale, VolumetricShadowSamples, 1.0e-3f)))
-		{
-			SunLight->CloudShadowExtent = MapExtentKm;
-			SunLight->CloudShadowMapResolutionScale = VolumetricShadowResolution;
-			SunLight->CloudShadowRaySampleCountScale = VolumetricShadowSamples;
-			SunLight->MarkRenderStateDirty();
-		}
-		// (The sky light's occlusion is soft: half the shadow map's resolution is plenty.)
-		const float SkyMapScale = FMath::Max(0.25f, 0.5f * VolumetricShadowResolution);
-		if (SkyLight && (!FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionExtent, MapExtentKm, 1.0e-2f)
-			|| !FMath::IsNearlyEqual(SkyLight->CloudAmbientOcclusionMapResolutionScale, SkyMapScale, 1.0e-3f)))
-		{
-			SkyLight->CloudAmbientOcclusionExtent = MapExtentKm;
-			SkyLight->CloudAmbientOcclusionMapResolutionScale = SkyMapScale;
-			SkyLight->MarkRenderStateDirty();
-		}
-		// The sun's light scattered in the clouds, and the moon's while it lights anything: a second atmosphere light
-		// the clouds scatter costs a second march toward it at every lit sample, so a dark moon is left out of them.
-		// (The earth's shadow: with the sun below the horizon the clouds, a few kilometres up, see it until it is some
-		// two degrees down. Stepped, so the light is not re-made every frame through the dusk.)
-		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-		const float SunUp = WorldClock ? FMath::SmoothStep(-2.5f, 0.5f, WorldClock->GetCelestial().SunElevation) : 1.0f;
-		const float SunScale = CloudSunScattering * FMath::RoundToFloat(SunUp * 20.0f) / 20.0f;
-		const FLinearColor SunScatter(SunScale, SunScale, SunScale);
-		const FLinearColor MoonScale(CloudSunScattering, CloudSunScattering, CloudSunScattering);
-		if (SunLight && SunLight->CloudScatteredLuminanceScale != SunScatter)
-		{
-			SunLight->CloudScatteredLuminanceScale = SunScatter;
-			SunLight->MarkRenderStateDirty();
-		}
-		const FLinearColor MoonScatter = MoonLight && MoonLight->Intensity > 1.0e-4f ? MoonScale : FLinearColor::Black;
-		if (MoonLight && MoonLight->CloudScatteredLuminanceScale != MoonScatter)
-		{
-			MoonLight->CloudScatteredLuminanceScale = MoonScatter;
-			MoonLight->MarkRenderStateDirty();
-		}
-		UpdateCloudTracing(bPainted);
-	}
-	if (VolumetricClouds->GetVisibleFlag() != bVolumetric)
-	{
-		VolumetricClouds->SetVisibility(bVolumetric);
 		ApplyDome();
-	}
-	// The volumetric clouds shade the sky light under them (part of how they read as solid); the toon clouds are
-	// painted and cast none.
-	if (SkyLight && bool(SkyLight->bCloudAmbientOcclusion) != bVolumetric)
-	{
-		SkyLight->bCloudAmbientOcclusion = bVolumetric;
-		SkyLight->MarkRenderStateDirty();
-	}
-}
-
-void ADreamSky::UpdateCloudTracing(bool bPainted)
-{
-	const UWorld* World = GetWorld();
-	const UDreamWorldSubsystem* WorldClock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-	const float Flash = WorldClock ? WorldClock->GetEnvironment().LightningFlash : 0.0f;
-	if (Flash > 0.02f)
-	{
-		CloudFlashLitFrame = GFrameCounter;
-	}
-
-	// (Each setting is left alone where a project or the console has set it.)
-	auto SetByUs = [](IConsoleVariable* Variable)
-	{
-		const EConsoleVariableFlags SetBy = EConsoleVariableFlags(Variable->GetFlags() & ECVF_SetByMask);
-		return SetBy <= ECVF_SetByScalability || SetBy == ECVF_SetByCode;
-	};
-	// Half resolution traced whole every frame, if asked, for the realistic clouds. (Never switched while running: the
-	// renderer rebuilds its targets on a switch, a hitch of tens of milliseconds.)
-	static IConsoleVariable* RenderTargetMode = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.Mode"));
-	if (RenderTargetMode && SetByUs(RenderTargetMode))
-	{
-		const int32 WantedMode = bVolumetricHalfResTracing && !bPainted ? 1 : 0;
-		if (RenderTargetMode->GetInt() != WantedMode)
-		{
-			RenderTargetMode->Set(WantedMode, ECVF_SetByCode);
-		}
-	}
-	// A lightning flash relights the whole field from one frame to the next, while the default tracing rebuilds three
-	// quarters of the pixels from the frames before: a flash came out as a checkerboard, and the frames after it, as
-	// the history caught up with the fading light, as stripes. While a flash lasts, and a few frames after it is out,
-	// the clouds are drawn from each frame's own trace alone (a little softer and noisier for that half second, at no
-	// cost); once the light holds still the history takes over again.
-	static IConsoleVariable* Reprojection = IConsoleManager::Get().FindConsoleVariable(TEXT("r.VolumetricRenderTarget.MinimumDistanceKmToEnableReprojection"));
-	if (Reprojection && SetByUs(Reprojection))
-	{
-		const bool bHold = CloudFlashLitFrame != 0 && GFrameCounter - CloudFlashLitFrame <= 4;
-		if (bHold != bHoldingCloudHistory)
-		{
-			bHoldingCloudHistory = bHold;
-			Reprojection->Set(bHold ? 1.0e6f : 0.0f, ECVF_SetByCode);
-		}
 	}
 }
 
@@ -736,7 +517,6 @@ void ADreamSky::PostRegisterAllComponents()
 	// The overrides are taken in here: placed actors in a game are loaded, not constructed.
 	RebuildOverriddenStyle();
 	ApplyComponentOverrides(false);
-	bCloudMaterialDirty = true;
 #if WITH_EDITOR
 	if (!StyleChangedHandle.IsValid())
 	{
@@ -808,28 +588,15 @@ void ADreamSky::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEve
 		PushClockToWorld(true);
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, SkyMaterial) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, DomeRadius)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance))
+		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds))
 	{
 		ApplyDome();
-		bCloudMaterialDirty = true;
 	}
 	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Style) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudOverrides)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, LightOverrides) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, AmbientOverrides)
 		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, ExposureOverrides))
 	{
 		RefreshOverrides();
-	}
-	if (Property == GET_MEMBER_NAME_CHECKED(ADreamSky, Clouds) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricLayerThickness)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricTracingDistance) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricSampleCountScale)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricCloudMaterial)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricBaseSkyOcclusion) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudShadowTracingDistance)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowResolution) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, CloudSunScattering)
-		|| Property == GET_MEMBER_NAME_CHECKED(ADreamSky, VolumetricShadowSamples) || Property == GET_MEMBER_NAME_CHECKED(ADreamSky, bVolumetricHalfResTracing))
-	{
-		if (const UDreamSkyStyle* Effective = GetEffectiveStyle())
-		{
-			ApplyClouds(*Effective);
-		}
 	}
 }
 
@@ -860,7 +627,7 @@ void ADreamSky::ApplyDome()
 	if (const UStaticMesh* Mesh = SkyDome->GetStaticMesh())
 	{
 		const float MeshRadius = FMath::Max(1.0f, float(Mesh->GetBounds().SphereRadius));
-		SkyDome->SetWorldScale3D(FVector(GetEffectiveDomeRadius() / MeshRadius));
+		SkyDome->SetWorldScale3D(FVector(DomeRadius / MeshRadius));
 	}
 	if (CloudsBelow)
 	{
@@ -876,8 +643,7 @@ void ADreamSky::ApplyDome()
 		{
 			CloudsBelow->SetWorldScale3D(FVector(DreamSky::Actor::CloudsBelowRadius / FMath::Max(1.0f, float(Mesh->GetBounds().SphereRadius))));
 		}
-		// The engine's volumetric clouds draw their own, in front of the ground as they should. (Without its material it
-		// would show the sphere mesh's own material round the view.)
+		// With the toon clouds only. (Without its material it would show the sphere mesh's own material round the view.)
 		const UMaterialInterface* BelowMaterial = CloudsBelow->GetMaterial(0);
 		const bool bToon = GetEffectiveClouds() == EDreamSkyClouds::Toon && BelowMaterial
 			&& BelowMaterial->GetPathName() == DreamSky::Actor::CloudsBelowMaterialPath;
@@ -888,11 +654,9 @@ void ADreamSky::ApplyDome()
 	}
 	if (HeightFog)
 	{
-		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient. The
-		// engine's volumetric clouds take the fog wherever they are, though: then the dome takes it too, or far
-		// clouds fogged over an unfogged sky would stand as a bright band along the horizon.
-		const bool bVolumetric = GetEffectiveClouds() == EDreamSkyClouds::Volumetric;
-		HeightFog->SetFogCutoffDistance(bVolumetric ? 0.0f : GetEffectiveDomeRadius() * 0.8f);
+		// The dome already shows the sky's colours at the horizon; fogging it again flattens the gradient. (The sky cloud
+		// renderer lays the fog over its clouds itself, as the engine fogs its own.)
+		HeightFog->SetFogCutoffDistance(DomeRadius * 0.8f);
 	}
 }
 
@@ -902,7 +666,7 @@ void ADreamSky::UpdateDome(const FVector& ViewLocation, bool bHasView)
 	{
 		return;
 	}
-	if (FVector::DistSquared(SkyDome->GetComponentLocation(), ViewLocation) > FMath::Square(GetEffectiveDomeRadius() * 0.02f))
+	if (FVector::DistSquared(SkyDome->GetComponentLocation(), ViewLocation) > FMath::Square(DomeRadius * 0.02f))
 	{
 		SkyDome->SetWorldLocation(ViewLocation);
 	}
@@ -1017,29 +781,6 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 		S.bOverride_AutoExposureSpeedDown = bAuto;
 		S.AutoExposureSpeedDown = InStyle.ExposureSpeedDown;
 		PostProcess->bEnabled = bManual || bAuto;
-	}
-
-	// Clouds that shadow the sun: a Manual curve cannot know whether the view stands in their shadow. The eye may
-	// brighten meanwhile, by what it actually sees (Auto), at most CloudShadowExposureLift under a closed grey cover,
-	// little under a storm (it is meant to look dark), and never darker than the curve: a clear day, and white tops
-	// seen from above, keep the curve's exposure.
-	if (PostProcess && InStyle.ExposureMode == EDreamSkyExposureMode::Manual && InStyle.CloudShadowExposureLift > 0.0f && CloudsShadowTheSun())
-	{
-		const UDreamWorldSubsystem* WorldClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-		const bool bWeather = WorldClock && WorldClock->GetEnvironment().bActive;
-		const float Cover = bWeather ? WorldClock->GetEnvironment().CloudCoverage : 0.0f;
-		const float Dark = bWeather ? WorldClock->GetEnvironment().CloudDarkness : 0.0f;
-		FPostProcessSettings& S = PostProcess->Settings;
-		S.AutoExposureMethod = AEM_Histogram;
-		S.AutoExposureBias = 0.0f;
-		S.bOverride_AutoExposureMinBrightness = true;
-		S.AutoExposureMinBrightness = L.ExposureEV100 - InStyle.CloudShadowExposureLiftFor(Cover, Dark);
-		S.bOverride_AutoExposureMaxBrightness = true;
-		S.AutoExposureMaxBrightness = L.ExposureEV100;
-		S.bOverride_AutoExposureSpeedUp = true;
-		S.AutoExposureSpeedUp = InStyle.ExposureSpeedUp;
-		S.bOverride_AutoExposureSpeedDown = true;
-		S.AutoExposureSpeedDown = InStyle.ExposureSpeedDown;
 	}
 }
 
