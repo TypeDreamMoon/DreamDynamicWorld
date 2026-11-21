@@ -328,6 +328,9 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[6] = FVector4f(L.EdgeSoftness, L.HalfToneAt, L.LitToneAt, L.ToneSoftness);
 	Out[7] = FVector4f(L.SilverLining, L.BillowShade, L.ShadowTracingDistance * 100000.0f, 0.0f);
 	Out[8] = FVector4f(L.LightIlluminance.R, L.LightIlluminance.G, L.LightIlluminance.B, L.ShadowReach);
+	// (The height fog as the engine's renderer takes it: density and falloff per cm.)
+	Out[9] = FVector4f(L.FogDensity * 0.001f, L.FogHeightFalloff * 0.001f, L.FogHeight, L.FogStartDistance);
+	Out[10] = FVector4f(L.FogColor.R, L.FogColor.G, L.FogColor.B, 1.0f - FMath::Clamp(L.FogMaxOpacity, 0.0f, 1.0f));
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -397,6 +400,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		FDreamSkyCloudLookParameters Look;
 		Actor->GetCloudLookParameters(Look);
 		PackLookParameters(Look, Settings.LookParameters);
+
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);

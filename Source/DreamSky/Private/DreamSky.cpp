@@ -428,6 +428,19 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 	const float MoonLux = MoonLight ? MoonLight->Intensity : 0.0f;
 	const UDirectionalLightComponent* Light = MoonLux > SunLux ? MoonLight.Get() : SunLight.Get();
 	Out.LightIlluminance = Light ? Light->GetLightColor() * Light->Intensity : FLinearColor::Black;
+	if (HeightFog && HeightFog->IsVisible())
+	{
+		Out.FogDensity = HeightFog->FogDensity;
+		Out.FogHeightFalloff = HeightFog->FogHeightFalloff;
+		Out.FogHeight = float(HeightFog->GetComponentLocation().Z);
+		Out.FogStartDistance = HeightFog->StartDistance;
+		Out.FogMaxOpacity = HeightFog->FogMaxOpacity;
+		Out.FogColor = HeightFog->FogInscatteringLuminance;
+	}
+	else
+	{
+		Out.FogDensity = 0.0f;
+	}
 	const UMaterialInterface* Painted = GetCloudLookMaterial(true);
 	Scalar(Painted, TEXT("CloudExtinction"), Out.PaintExtinction);
 	Scalar(Painted, TEXT("PaintGain"), Out.PaintGain);

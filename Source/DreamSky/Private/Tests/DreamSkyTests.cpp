@@ -9,6 +9,7 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -627,6 +628,11 @@ bool FDreamSkyCloudLookParametersTest::RunTest(const FString& Parameters)
 		const FLinearColor Sun = Sky.SunLight->GetLightColor() * Sky.SunLight->Intensity;
 		TestTrue(FString::Printf(TEXT("noon: the sun light's colour x lux (%s vs %s)"), *P.LightIlluminance.ToString(), *Sun.ToString()),
 			Sun.R > 0.0f && P.LightIlluminance.Equals(Sun, 1e-3f * FMath::Max(1.0f, Sun.R)));
+		// The height fog the engine lays over its clouds, as the sky's fog component has it.
+		TestNearlyEqual(TEXT("the fog's density"), P.FogDensity, Sky.HeightFog->FogDensity, 1e-6f);
+		TestNearlyEqual(TEXT("its falloff"), P.FogHeightFalloff, Sky.HeightFog->FogHeightFalloff, 1e-6f);
+		TestNearlyEqual(TEXT("its max opacity"), P.FogMaxOpacity, Sky.HeightFog->FogMaxOpacity, 1e-6f);
+		TestTrue(TEXT("its colour"), P.FogColor.Equals(Sky.HeightFog->FogInscatteringLuminance, 1e-5f));
 	}
 	const float RealisticExtinction = P.Extinction;
 	const float PaintedExtinction = P.PaintExtinction;

@@ -83,6 +83,14 @@ struct FDreamSkyCloudLookParameters
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	// The sky's height fog, which the engine lays over its clouds at their depth (its cut-off is at the dome while the
+	// renderer draws them, so the renderer lays it on itself): the component's own settings.
+	float FogDensity = 0.0f;           // as the component has it (per 1000 cm)
+	float FogHeightFalloff = 0.2f;     // per 1000 cm
+	float FogHeight = 0.0f;            // cm, the component's height
+	float FogStartDistance = 0.0f;     // cm
+	float FogMaxOpacity = 1.0f;
+	FLinearColor FogColor = FLinearColor::Black;
 };
 
 /**

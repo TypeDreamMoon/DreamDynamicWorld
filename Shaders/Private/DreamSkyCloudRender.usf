@@ -59,7 +59,7 @@ float4 Parameters[18];
 
 // The realistic and painted looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them.
-float4 LookParameters[9];
+float4 LookParameters[11];
 #define LP_Extinction           LookParameters[0].x   // per cm
 #define LP_Albedo               LookParameters[0].y
 #define LP_Glow                 LookParameters[0].z
@@ -86,6 +86,8 @@ float4 LookParameters[9];
 #define LP_BillowShade          LookParameters[7].y
 #define LP_LightIlluminance     LookParameters[8].rgb  // the sun's (or the moon's) light component: colour x lux
 #define LP_ShadowReach          LookParameters[8].w    // cm (the realistic material's ShadowReach)
+#define LP_Fog                  LookParameters[9]      // the height fog: density, falloff (per cm), height, start distance (cm)
+#define LP_FogColor             LookParameters[10]     // its inscattering colour, its least transmittance (1 - max opacity)
 #define LP_ShadowTracing        LookParameters[7].z   // cm toward the sun a sample's shadow looks (VolumetricShadowTracingDistance)
 
 float3 CameraWorld;   // the view in the world (cm)
@@ -281,6 +283,28 @@ float3 DSkyR_AirTransmittance(float Height, float LightZ)
 	float Mie = 4.44e-3 * 1.2 * exp(-Km / 1.2);
 	float3 Ozone = float3(0.65, 1.881, 0.085) * 1.0e-3 * 25.0 * saturate(1.0 - Km / 35.0);
 	return exp(-(Rayleigh + Mie + Ozone) * Air);
+}
+
+// The sky's height fog over a cloud Distance along V, as the engine's renderer lays it over its own clouds (its
+// exponential height fog, one term, the start distance, the max opacity; no directional inscattering, which the sky does
+// not use): rgb the fog's light, a what of the cloud still shows.
+float4 DSkyR_HeightFog(float3 V, float Distance)
+{
+	float Density = LP_Fog.x;
+	if (Density <= 0.0 || Distance <= 0.0)
+	{
+		return float4(0, 0, 0, 1);
+	}
+	float Falloff = LP_Fog.y;
+	float Start = min(LP_Fog.w, Distance);
+	float RayLength = Distance - Start;
+	float StartZ = CameraWorld.z + V.z * Start;
+	float RayZ = V.z * RayLength;
+	float OriginTerms = Density * exp2(-max(-127.0, Falloff * (StartZ - LP_Fog.z)));
+	float F = max(-127.0, Falloff * RayZ);
+	float LineIntegral = abs(F) > 1.0e-4 ? (1.0 - exp2(-F)) / F : log(2.0) - 0.5 * log(2.0) * log(2.0) * F;
+	float Through = max(saturate(exp2(-OriginTerms * LineIntegral * RayLength)), LP_FogColor.a);
+	return float4(LP_FogColor.rgb * (1.0 - Through), Through);
 }
 
 // A point's height over the layer's base, over the planet's curve (cm), as the field measures it.
@@ -607,6 +631,10 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	// the sun) by the veil itself.
 	float Veil = DCS_AirVeil(SurfaceDepth, V.z, CameraWorld.z, P_Cloud0.x, P_Cloud3);
 	float3 Light = lerp(M.Luminance, SkyBehind * Cover, Veil);
+	// The height fog in front of it, as the engine fogs its clouds: in a sunset's warm fog a low deck's underside goes
+	// the warm brown of the old volumetric clouds, where without it it stayed the blue-lavender of its glow.
+	float4 Fog = DSkyR_HeightFog(V, SurfaceDepth);
+	Light = Light * Fog.a + Fog.rgb * Cover;
 	return float4(Light, Cover) * P_CloudShadow.a;
 }
 
