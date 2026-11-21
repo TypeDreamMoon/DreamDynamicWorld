@@ -37,13 +37,27 @@
 // How high above the layer's base a storm's cumulonimbus climb (the tropopause, cm): the marches stop there.
 #define DCS_STORM_TOP 1000000.0
 
+// The sky modifiers' change to the weather the map holds (DDW_SkyModClouds): x = how much of its cover is replaced, y =
+// what replaces it, z and w the same for its darkness. A shader that has it defines DCS_MAP_ADJUST before this file;
+// elsewhere the map is read as it is. (The view's own values, the fallback, have the change already.)
+#ifndef DCS_MAP_ADJUST
+#define DCS_MAP_ADJUST float4(0.0, 0.0, 0.0, 0.0)
+#endif
+
+// The weather the map holds as the sky modifiers change it: (cover, darkness, precipitation).
+float3 DCS_AdjustMap(float3 Weather)
+{
+	float4 Adjust = DCS_MAP_ADJUST;
+	return float3(Weather.xy * (1.0 - Adjust.xz) + Adjust.yw, Weather.z);
+}
+
 // The weather the map holds at a point (its world position, cm, horizontally): (cover, darkness, precipitation), or the
 // view's own values off the map. MapParams = (minus the drawn map's centre x, y; 1 / its extent; 1 when it is live).
 float3 DCS_MapAt(float2 Point, float3 Fallback, float4 MapParams, Texture2D Map, SamplerState MapSampler)
 {
 	float2 UV = (MapParams.xy + Point) * MapParams.z + 0.5;
 	float Inside = MapParams.w < 0.5 ? 0.0 : saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
-	return lerp(Fallback, Map.SampleLevel(MapSampler, saturate(UV), 0).xyz, Inside);
+	return lerp(Fallback, DCS_AdjustMap(Map.SampleLevel(MapSampler, saturate(UV), 0).xyz), Inside);
 }
 
 // The weather at the view itself, for points off the map: (cover, darkness, and rain going with the darkness).

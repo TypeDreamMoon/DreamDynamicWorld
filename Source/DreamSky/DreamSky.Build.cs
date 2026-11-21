@@ -23,6 +23,8 @@ public class DreamSky : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"Json",
+			"JsonUtilities",
 			"Projects",
 			"RenderCore",
 			"Renderer",

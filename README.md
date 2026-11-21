@@ -162,6 +162,23 @@ sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`) an
 sun and moon there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
+**Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
+runs: a cave's gloom, a cursed red sky, a dream. Tick what it changes: the sun's and moon's intensity and tint,
+their disks' brightness, the sky light, the ambient tint, the exposure (stops), the fog's density and colour, the
+haze, the dome's tint and saturation, the stars, and the clouds' cover, darkness and tones. Intensities scale,
+tints multiply, the exposure is offset, the cover, darkness, haze and fog colour are approached; part way (an
+alpha below 1) each goes that share of the way. The cover and darkness reach the sky cloud renderer's clouds
+wherever the weather map gives them as well (`DDW_SkyModClouds`). A modifier can also carry a post process,
+blended in with it.
+In C++ or Blueprint, on `UDreamSkySubsystem`: `AddModifier(Modifier, FadeInSeconds)` and
+`RemoveModifier(Modifier, FadeOutSeconds)` fade it in and out (a negative time takes the asset's own, with its
+easing); `SetModifierAlpha(Modifier, Alpha, Seconds)` holds it at a strength something else drives (a player's
+distance to a place); `ClearModifiers`, `GetModifierAlpha`, `GetModifiers`. Several stack: the higher `Priority`
+goes on later. They go on over the eased lighting, before a lightning flash. The stack is kept in world
+snapshots (`FDreamWorldSnapshot`), so a save restores it mid-fade. Console: `DreamSky.Modifier.Add <asset path>
+[seconds]`, `.Remove`, `.Alpha <asset> <alpha> [seconds]`, `.Clear`, `.List`; instead of a path, `Gloom`,
+`Crimson` or `Clear` take a ready-made one to try.
+
 **For any material or character shader** the collection carries the lighting: `DDW_MainLight` (direction
 toward the main light, illuminance), `DDW_MainLightColor` (rgb, 0 sun / 1 moon), `DDW_AmbientSky /
 Equator / Ground`, `DDW_DayPhase` (day, twilight, night weights and the sun's elevation), plus `DDW_SunDir`,

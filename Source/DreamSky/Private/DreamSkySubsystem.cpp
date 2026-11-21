@@ -3,17 +3,34 @@
 #include "DreamSkySubsystem.h"
 #include "DreamSky.h"
 #include "DreamSkyCloudRenderer.h"
+#include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
 #include "DreamWorldSubsystem.h"
 
+#include "Components/PostProcessComponent.h"
 #include "Engine/World.h"
+#include "JsonObjectConverter.h"
 #include "Misc/App.h"
 #include "SceneViewExtension.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSkySubsystem)
 
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
+
+namespace DreamSky::Subsystem
+{
+	static const FName SnapshotKey(TEXT("DreamSky"));
+}
+
+float FDreamSkyActiveModifier::GetAlpha() const
+{
+	if (!Modifier)
+	{
+		return 0.0f;
+	}
+	return bManual ? FMath::Clamp(Progress, 0.0f, 1.0f) * FMath::Clamp(Modifier->MaxAlpha, 0.0f, 1.0f) : Modifier->Shape(Progress);
+}
 
 static TAutoConsoleVariable<float> CVarDreamSkyLogLighting(
 	TEXT("DreamSky.LogLighting"), 0.0f,
@@ -50,6 +67,8 @@ void UDreamSkySubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		ClockSubsystem = Clock;
 		TickHandle = Clock->OnWorldTick.AddUObject(this, &UDreamSkySubsystem::Update);
+		CaptureHandle = Clock->OnCaptureSnapshot.AddWeakLambda(this, [this](FDreamWorldSnapshot& Snapshot) { CaptureSnapshot(Snapshot); });
+		ApplyHandle = Clock->OnApplySnapshot.AddWeakLambda(this, [this](const FDreamWorldSnapshot& Snapshot) { ApplySnapshot(Snapshot); });
 		RecaptureTask = Clock->GetScheduler().Register(TEXT("DreamSky.Recapture"), 0, 0.5, 0.0, [this] { return RecaptureIfChanged(); });
 	}
 	if (FApp::CanEverRender())
@@ -63,6 +82,8 @@ void UDreamSkySubsystem::Deinitialize()
 	if (UDreamWorldSubsystem* Clock = ClockSubsystem.Get())
 	{
 		Clock->OnWorldTick.Remove(TickHandle);
+		Clock->OnCaptureSnapshot.Remove(CaptureHandle);
+		Clock->OnApplySnapshot.Remove(ApplyHandle);
 		Clock->GetScheduler().Unregister(RecaptureTask);
 	}
 	if (CloudViewExtension.IsValid())
@@ -70,6 +91,14 @@ void UDreamSkySubsystem::Deinitialize()
 		CloudViewExtension->Detach();
 		CloudViewExtension.Reset();
 	}
+	for (FDreamSkyActiveModifier& M : Modifiers)
+	{
+		if (M.PostProcess)
+		{
+			M.PostProcess->DestroyComponent();
+		}
+	}
+	Modifiers.Reset();
 	Skies.Reset();
 	Super::Deinitialize();
 }
@@ -156,24 +185,265 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	LastJumpSerial = Clock.GetTimeJumpSerial();
 	if (bSnap)
 	{
-		Applied = Target;
+		Eased = Target;
 	}
 	else
 	{
 		const float Alpha = 1.0f - FMath::Exp(-FMath::Max(DeltaTime, 0.0f) / Style->LightResponseTime);
-		Applied = BlendLighting(Applied, Target, Alpha);
+		Eased = BlendLighting(Eased, Target, Alpha);
 	}
 	bHasApplied = true;
 
-	// A lightning flash goes on top of the eased lighting, so it is as sudden as it should be.
-	const FDreamSkyLighting Eased = Applied;
+	// The sky modifiers over the eased lighting (they fade in and out themselves).
+	Applied = Eased;
+	ApplyModifiers(Applied, Look, DeltaTime);
+	UpdateModifierPostProcess(Sky);
+
+	// A lightning flash goes on top, so it is as sudden as it should be.
+	const FDreamSkyLighting Modified = Applied;
 	Style->ApplyFlash(Clock.GetEnvironment(), Applied);
 	Sky->ApplyLighting(Applied, *Style, bSnap);
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
 	WriteParameters(Clock, *Style, Sky->DrawsClouds());
 	LogLighting(Clock);
-	Applied = Eased;
+	Applied = Modified;
+}
+
+FDreamSkyActiveModifier* UDreamSkySubsystem::FindModifier(const UDreamSkyModifier* Modifier)
+{
+	return Modifiers.FindByPredicate([Modifier](const FDreamSkyActiveModifier& M) { return M.Modifier == Modifier; });
+}
+
+FDreamSkyActiveModifier& UDreamSkySubsystem::FindOrAddModifier(UDreamSkyModifier* Modifier)
+{
+	if (FDreamSkyActiveModifier* Found = FindModifier(Modifier))
+	{
+		return *Found;
+	}
+	FDreamSkyActiveModifier& Added = Modifiers.AddDefaulted_GetRef();
+	Added.Modifier = Modifier;
+	Added.Order = NextModifierOrder++;
+	return Added;
+}
+
+void UDreamSkySubsystem::AddModifier(UDreamSkyModifier* Modifier, float FadeInSeconds)
+{
+	if (!Modifier)
+	{
+		return;
+	}
+	FDreamSkyActiveModifier& M = FindOrAddModifier(Modifier);
+	const float Seconds = FadeInSeconds >= 0.0f ? FadeInSeconds : Modifier->FadeInSeconds;
+	if (M.bManual)
+	{
+		// (Its alpha as it stood, along the fade's linear progress: close enough to carry on from.)
+		M.bManual = false;
+	}
+	M.Target = 1.0f;
+	M.Rate = Seconds > 0.0f ? 1.0f / Seconds : 0.0f;
+	M.bRemoving = false;
+}
+
+void UDreamSkySubsystem::RemoveModifier(UDreamSkyModifier* Modifier, float FadeOutSeconds)
+{
+	FDreamSkyActiveModifier* M = FindModifier(Modifier);
+	if (!M)
+	{
+		return;
+	}
+	const float Seconds = FadeOutSeconds >= 0.0f ? FadeOutSeconds : Modifier->FadeOutSeconds;
+	M->Target = 0.0f;
+	M->Rate = Seconds > 0.0f ? 1.0f / Seconds : 0.0f;
+	M->bRemoving = true;
+}
+
+void UDreamSkySubsystem::SetModifierAlpha(UDreamSkyModifier* Modifier, float Alpha, float Seconds)
+{
+	if (!Modifier)
+	{
+		return;
+	}
+	FDreamSkyActiveModifier& M = FindOrAddModifier(Modifier);
+	M.bManual = true;
+	M.bRemoving = false;
+	M.Target = FMath::Clamp(Alpha, 0.0f, 1.0f);
+	M.Rate = Seconds > 0.0f ? FMath::Abs(M.Target - M.Progress) / Seconds : 0.0f;
+}
+
+void UDreamSkySubsystem::ClearModifiers(float FadeOutSeconds)
+{
+	for (FDreamSkyActiveModifier& M : Modifiers)
+	{
+		const float Seconds = FadeOutSeconds >= 0.0f ? FadeOutSeconds : (M.Modifier ? M.Modifier->FadeOutSeconds : 0.0f);
+		M.Target = 0.0f;
+		M.Rate = Seconds > 0.0f ? 1.0f / Seconds : 0.0f;
+		M.bRemoving = true;
+	}
+}
+
+float UDreamSkySubsystem::GetModifierAlpha(const UDreamSkyModifier* Modifier) const
+{
+	const FDreamSkyActiveModifier* M = Modifiers.FindByPredicate([Modifier](const FDreamSkyActiveModifier& E) { return E.Modifier == Modifier; });
+	return M ? M->GetAlpha() : 0.0f;
+}
+
+TArray<UDreamSkyModifier*> UDreamSkySubsystem::GetModifiers() const
+{
+	TArray<const FDreamSkyActiveModifier*> Sorted;
+	for (const FDreamSkyActiveModifier& M : Modifiers)
+	{
+		if (M.Modifier)
+		{
+			Sorted.Add(&M);
+		}
+	}
+	Sorted.Sort([](const FDreamSkyActiveModifier& A, const FDreamSkyActiveModifier& B)
+	{
+		return A.Modifier->Priority != B.Modifier->Priority ? A.Modifier->Priority < B.Modifier->Priority : A.Order < B.Order;
+	});
+	TArray<UDreamSkyModifier*> Out;
+	for (const FDreamSkyActiveModifier* M : Sorted)
+	{
+		Out.Add(M->Modifier);
+	}
+	return Out;
+}
+
+void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime)
+{
+	const float Dt = FMath::Max(DeltaTime, 0.0f);
+	for (int32 Index = Modifiers.Num() - 1; Index >= 0; --Index)
+	{
+		FDreamSkyActiveModifier& M = Modifiers[Index];
+		if (!M.Modifier)
+		{
+			if (M.PostProcess)
+			{
+				M.PostProcess->DestroyComponent();
+			}
+			Modifiers.RemoveAt(Index);
+			continue;
+		}
+		M.Progress = M.Rate > 0.0f ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
+		if (M.bRemoving && M.Progress <= 0.0f)
+		{
+			if (M.PostProcess)
+			{
+				M.PostProcess->DestroyComponent();
+			}
+			Modifiers.RemoveAt(Index);
+		}
+	}
+	for (UDreamSkyModifier* Modifier : GetModifiers())
+	{
+		Modifier->Settings.Apply(Lighting, InOutLook, GetModifierAlpha(Modifier));
+	}
+}
+
+void UDreamSkySubsystem::UpdateModifierPostProcess(ADreamSky* Sky)
+{
+	// (Components of the sky actor: a sky that went away took them with it.)
+	if (ModifierPostProcessSky.Get() != Sky)
+	{
+		for (FDreamSkyActiveModifier& M : Modifiers)
+		{
+			if (M.PostProcess && M.PostProcess->GetOwner() != Sky)
+			{
+				M.PostProcess->DestroyComponent();
+				M.PostProcess = nullptr;
+			}
+		}
+		ModifierPostProcessSky = Sky;
+	}
+	for (FDreamSkyActiveModifier& M : Modifiers)
+	{
+		const float Alpha = M.GetAlpha();
+		const bool bWants = Sky && M.Modifier && M.Modifier->bUsePostProcess && Alpha > 0.0f;
+		if (!bWants)
+		{
+			if (M.PostProcess)
+			{
+				M.PostProcess->DestroyComponent();
+				M.PostProcess = nullptr;
+			}
+			continue;
+		}
+		if (!M.PostProcess)
+		{
+			M.PostProcess = NewObject<UPostProcessComponent>(Sky, NAME_None, RF_Transient);
+			M.PostProcess->bUnbound = true;
+			M.PostProcess->RegisterComponent();
+		}
+		M.PostProcess->Settings = M.Modifier->PostProcess;
+		// (Over the sky's own exposure post process, which stands at -1.)
+		M.PostProcess->Priority = float(M.Modifier->Priority);
+		M.PostProcess->BlendWeight = Alpha;
+	}
+}
+
+void UDreamSkySubsystem::CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const
+{
+	FDreamSkySnapshotData Data;
+	Data.NextOrder = int32(NextModifierOrder);
+	for (const FDreamSkyActiveModifier& M : Modifiers)
+	{
+		if (!M.Modifier)
+		{
+			continue;
+		}
+		FDreamSkyModifierState& State = Data.Modifiers.AddDefaulted_GetRef();
+		State.Modifier = FSoftObjectPath(M.Modifier);
+		State.Progress = M.Progress;
+		State.Target = M.Target;
+		State.Rate = M.Rate;
+		State.bRemoving = M.bRemoving;
+		State.bManual = M.bManual;
+		State.Order = int32(M.Order);
+	}
+	FString Json;
+	if (FJsonObjectConverter::UStructToJsonObjectString(Data, Json))
+	{
+		Snapshot.Extensions.Add(DreamSky::Subsystem::SnapshotKey, Json);
+	}
+}
+
+void UDreamSkySubsystem::ApplySnapshot(const FDreamWorldSnapshot& Snapshot)
+{
+	for (FDreamSkyActiveModifier& M : Modifiers)
+	{
+		if (M.PostProcess)
+		{
+			M.PostProcess->DestroyComponent();
+		}
+	}
+	Modifiers.Reset();
+	NextModifierOrder = 0;
+	const FString* Json = Snapshot.Extensions.Find(DreamSky::Subsystem::SnapshotKey);
+	FDreamSkySnapshotData Data;
+	if (!Json || !FJsonObjectConverter::JsonObjectStringToUStruct(*Json, &Data))
+	{
+		return;
+	}
+	NextModifierOrder = uint32(FMath::Max(Data.NextOrder, 0));
+	for (const FDreamSkyModifierState& State : Data.Modifiers)
+	{
+		UObject* Found = State.Modifier.ResolveObject();
+		UDreamSkyModifier* Modifier = Cast<UDreamSkyModifier>(Found ? Found : State.Modifier.TryLoad());
+		if (!Modifier)
+		{
+			UE_LOG(LogDreamSky, Warning, TEXT("%s: a snapshot's sky modifier %s did not load; left out."), *GetNameSafe(GetWorld()), *State.Modifier.ToString());
+			continue;
+		}
+		FDreamSkyActiveModifier& M = Modifiers.AddDefaulted_GetRef();
+		M.Modifier = Modifier;
+		M.Progress = State.Progress;
+		M.Target = State.Target;
+		M.Rate = State.Rate;
+		M.bRemoving = State.bRemoving;
+		M.bManual = State.bManual;
+		M.Order = uint32(FMath::Max(State.Order, 0));
+	}
 }
 
 void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds)
@@ -208,6 +478,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_CloudLayer, FLinearColor(Style.CloudLayerHeight, Look.CloudDarkness, Style.StormCloudDarkening, bRendererDrawsClouds ? 1.0f : 0.0f));
 	Clock.SetVectorParameter(MPC_SkyExtra, FLinearColor(Style.CloudSkyTint, Style.CloudSunGlow, Style.SunDiskInSkyLight, Applied.FlashGain));
 	Clock.SetVectorParameter(MPC_SkyHaze, Look.Haze);
+	Clock.SetVectorParameter(MPC_SkyModClouds, FLinearColor(1.0f - Look.CloudCoverageKept, Look.CloudCoverageAdded, 1.0f - Look.CloudDarknessKept, Look.CloudDarknessAdded));
 
 	const FVector& L = Applied.MainLightDirection;
 	Clock.SetVectorParameter(MPC_MainLight, FLinearColor(float(L.X), float(L.Y), float(L.Z), Applied.MainLightIlluminance));

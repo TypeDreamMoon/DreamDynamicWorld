@@ -27,17 +27,10 @@
 //               front of it). Upsampled taking only the rays whose clouds stand nearer than the pixel's scene.
 
 #include "/Engine/Private/Common.ush"
-#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
-#include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
-#include "/Plugin/DreamDynamicWorld/Private/DreamCloudLight.ush"
 
-// 0 toon, 1 realistic, 2 painted.
-#ifndef DSKY_LOOK
-#define DSKY_LOOK 0
-#endif
-
-// The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames).
-float4 Parameters[18];
+// The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
+// its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
+float4 Parameters[19];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -56,6 +49,17 @@ float4 Parameters[18];
 #define P_Extra        Parameters[15]
 #define P_Haze         Parameters[16]
 #define P_Flash        Parameters[17]
+#define P_SkyModClouds Parameters[18]
+#define DCS_MAP_ADJUST P_SkyModClouds
+
+#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamCloudLight.ush"
+
+// 0 toon, 1 realistic, 2 painted.
+#ifndef DSKY_LOOK
+#define DSKY_LOOK 0
+#endif
 
 // The realistic and painted looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them.
@@ -226,7 +230,7 @@ float DSkyR_SearchDarkness(float2 Point, float3 ViewWeather)
 		return ViewWeather.y;
 	}
 	float Inside = saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
-	float Dark = WeatherMap.SampleLevel(WeatherMapSampler, saturate(UV), 0).y;
+	float Dark = DCS_AdjustMap(WeatherMap.SampleLevel(WeatherMapSampler, saturate(UV), 0).xyz).y;
 	return Inside < 1.0 ? max(Dark, ViewWeather.y) : Dark;
 }
 
