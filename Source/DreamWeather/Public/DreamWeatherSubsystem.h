@@ -253,6 +253,13 @@ private:
 	void UpdateFlashNow();
 	float ExposureAt(const FVector& Position) const;
 	void CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const;
+
+	/**
+	 * The weathers in effect at the view and how much of each, by the rules the channels are blended by (the schedule's
+	 * transition, then forced or pushed presets, then the influences at the view; an Override pulls everything under it
+	 * back by its weight, the other blends add theirs), into the sky modifiers those weathers carry.
+	 */
+	void GatherSkyModifiers(TArray<FDreamWorldWeightedObject>& Out) const;
 	void ApplySnapshot(const FDreamWorldSnapshot& Snapshot);
 	TArray<IDreamWeatherInfluence*> SortedInfluences() const;
 	double NowSeconds() const;

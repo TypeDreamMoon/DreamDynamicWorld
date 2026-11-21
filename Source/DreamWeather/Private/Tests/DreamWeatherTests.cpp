@@ -855,4 +855,68 @@ bool FDreamWeatherFallPathsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherSkyModifiersTest, "DreamWeather.SkyModifiers", DreamWeather::Tests::Flags)
+bool FDreamWeatherSkyModifiersTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	auto Weight = [](const FDreamWorldEnvironment& Env, const UObject* Modifier)
+	{
+		float W = 0.0f;
+		for (const FDreamWorldWeightedObject& E : Env.SkyModifiers)
+		{
+			W += E.Object.Get() == Modifier ? E.Weight : 0.0f;
+		}
+		return W;
+	};
+	UDreamWeatherPreset* Fair = Clear();
+	UDreamWeatherTestSkyModifier* FairSky = NewObject<UDreamWeatherTestSkyModifier>();
+	Fair->SkyModifier = FairSky;
+	UDreamWeatherPreset* Wet = Rain();
+	UDreamWeatherTestSkyModifier* WetSky = NewObject<UDreamWeatherTestSkyModifier>();
+	Wet->SkyModifier = WetSky;
+	UDreamWeatherPreset* Storm = Rain();
+	UDreamWeatherTestSkyModifier* StormSky = NewObject<UDreamWeatherTestSkyModifier>();
+	Storm->SkyModifier = StormSky;
+
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Fair;
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->Tick(0.0f);
+	TestNearlyEqual(TEXT("the scheduled weather's sky modifier in full"), Weight(W.Clock->GetEnvironment(), FairSky), 1.0f, 1e-4f);
+	TestEqual(TEXT("and nothing else"), W.Clock->GetEnvironment().SkyModifiers.Num(), 1);
+
+	// Forced weather blends in over the schedule as its channels do: half way, half each.
+	W.Weather->ForceWeather(Wet, 10.0f);
+	W.Clock->Tick(5.0f);
+	TestNearlyEqual(TEXT("forced half way in"), Weight(W.Clock->GetEnvironment(), WetSky), 0.5f, 1e-3f);
+	TestNearlyEqual(TEXT("the schedule's half way out"), Weight(W.Clock->GetEnvironment(), FairSky), 0.5f, 1e-3f);
+	W.Clock->Tick(6.0f);
+	TestNearlyEqual(TEXT("forced in full"), Weight(W.Clock->GetEnvironment(), WetSky), 1.0f, 1e-4f);
+	TestEqual(TEXT("the schedule's gone"), Weight(W.Clock->GetEnvironment(), FairSky), 0.0f);
+
+	// A pushed set of channels brings no preset, and takes nothing away.
+	FDreamWeatherModifierDesc Wind;
+	Wind.Channels.Add(Channel_Wind, 1.0f);
+	W.Weather->PushModifier(Wind);
+	W.Clock->Tick(0.0f);
+	TestNearlyEqual(TEXT("channels alone leave the sky modifiers"), Weight(W.Clock->GetEnvironment(), WetSky), 1.0f, 1e-4f);
+
+	// A zone the view stands in, with a preset: its sky modifier by the zone's weight at the view, over the rest.
+	ADreamWeatherZone* Zone = W.AddZone(FVector(500.0f, 0.0f, 0.0f), 1000.0f, 1000.0f, 0, {});
+	Zone->Zone->Preset = Storm;
+	W.Clock->Tick(0.0f);
+	TestNearlyEqual(TEXT("in the storm zone, its sky"), Weight(W.Clock->GetEnvironment(), StormSky), 1.0f, 1e-4f);
+	TestEqual(TEXT("the forced weather's under it"), Weight(W.Clock->GetEnvironment(), WetSky), 0.0f);
+	Zone->Zone->Weight = 0.25f;
+	W.Clock->Tick(0.0f);
+	TestNearlyEqual(TEXT("a quarter-weight zone, a quarter of its sky"), Weight(W.Clock->GetEnvironment(), StormSky), 0.25f, 1e-4f);
+	TestNearlyEqual(TEXT("and three quarters of the forced weather's"), Weight(W.Clock->GetEnvironment(), WetSky), 0.75f, 1e-4f);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

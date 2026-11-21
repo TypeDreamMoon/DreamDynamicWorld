@@ -48,6 +48,12 @@ public:
 
 	/** A number that orders influences of equal priority the same way on every run. */
 	virtual uint32 GetWeatherInfluenceStableId() const = 0;
+
+	/**
+	 * The weather preset it brings at Position, if it brings one (the sky takes on the preset's sky modifier by it):
+	 * how much it has its way there and how it blends. Null when it brings none.
+	 */
+	virtual const UDreamWeatherPreset* GetWeatherInfluencePreset(const FVector& Position, float& OutWeight, EDreamWeatherBlend& OutBlend) const { return nullptr; }
 };
 
 UENUM(BlueprintType)
@@ -125,6 +131,7 @@ public:
 	virtual void ApplyWeatherInfluence(const FVector& Position, FDreamWeatherValues& InOut) const override;
 	virtual int32 GetWeatherInfluencePriority() const override { return Priority; }
 	virtual uint32 GetWeatherInfluenceStableId() const override { return StableId; }
+	virtual const UDreamWeatherPreset* GetWeatherInfluencePreset(const FVector& Position, float& OutWeight, EDreamWeatherBlend& OutBlend) const override;
 
 	//~ UActorComponent
 	virtual void OnRegister() override;

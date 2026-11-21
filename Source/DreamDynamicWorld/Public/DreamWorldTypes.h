@@ -159,6 +159,20 @@ struct DREAMDYNAMICWORLD_API FDreamWorldSnapshot
 	TMap<FName, FString> Extensions;
 };
 
+/** An object in effect at some weight (FDreamWorldEnvironment::SkyModifiers). */
+USTRUCT(BlueprintType)
+struct DREAMDYNAMICWORLD_API FDreamWorldWeightedObject
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TWeakObjectPtr<UObject> Object;
+
+	/** 0..1. */
+	UPROPERTY()
+	float Weight = 0.0f;
+};
+
 /**
  * What the weather is doing where the world is being looked at from, as the sky and other looks need it.
  * Written by the weather every frame (before the sky updates); bActive is false when no weather runs, and the
@@ -214,6 +228,13 @@ struct DREAMDYNAMICWORLD_API FDreamWorldEnvironment
 	/** Toward the flash, from the view. */
 	UPROPERTY(BlueprintReadOnly, Category = "Environment")
 	FVector LightningDirection = FVector::UpVector;
+
+	/**
+	 * The sky modifiers of the weathers in effect at the view (UDreamWeatherPreset::SkyModifier), each at how far its
+	 * weather is in effect there. The weather holds them; the sky takes them on.
+	 */
+	UPROPERTY()
+	TArray<FDreamWorldWeightedObject> SkyModifiers;
 };
 
 /**

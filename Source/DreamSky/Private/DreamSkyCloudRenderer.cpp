@@ -418,7 +418,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_SunDir"), TEXT("DDW_SkyZenith"), TEXT("DDW_SkyHorizon"), TEXT("DDW_SkyGround"), TEXT("DDW_SunHalo"),
 		TEXT("DDW_Cloud0"), TEXT("DDW_Cloud1"), TEXT("DDW_Cloud2"), TEXT("DDW_Cloud3"), TEXT("DDW_CloudLit"), TEXT("DDW_CloudShadow"),
 		TEXT("DDW_MainLight"), TEXT("DDW_MainLightColor"), TEXT("DDW_CloudLayer"), TEXT("DDW_WeatherMap"), TEXT("DDW_SkyExtra"),
-		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"),
+		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"), TEXT("DDW_SkyModClouds"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;

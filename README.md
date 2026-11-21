@@ -162,6 +162,25 @@ sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`) an
 sun and moon there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
+**Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
+runs: a cave's gloom, a cursed red sky, a dream. Tick what it changes: the sun's and moon's intensity and tint,
+their disks' brightness, the sky light, the ambient tint, the exposure (stops), the fog's density and colour, the
+haze, the dome's tint and saturation, the stars, and the clouds' cover, darkness and tones. Intensities scale,
+tints multiply, the exposure is offset, the cover, darkness, haze and fog colour are approached; part way (an
+alpha below 1) each goes that share of the way. The cover and darkness reach the sky cloud renderer's clouds
+wherever the weather map gives them as well (`DDW_SkyModClouds`). A modifier can also carry a post process,
+blended in with it.
+In C++ or Blueprint, on `UDreamSkySubsystem`: `AddModifier(Modifier, FadeInSeconds)` and
+`RemoveModifier(Modifier, FadeOutSeconds)` fade it in and out (a negative time takes the asset's own, with its
+easing); `SetModifierAlpha(Modifier, Alpha, Seconds)` holds it at a strength something else drives (a player's
+distance to a place); `ClearModifiers`, `GetModifierAlpha`, `GetModifiers`. Several stack: the higher `Priority`
+goes on later. They go on over the eased lighting, before a lightning flash. The stack is kept in world
+snapshots (`FDreamWorldSnapshot`), so a save restores it mid-fade. Console: `DreamSky.Modifier.Add <asset path>
+[seconds]`, `.Remove`, `.Alpha <asset> <alpha> [seconds]`, `.Clear`, `.List`; instead of a path, `Gloom`,
+`Crimson` or `Clear` take a ready-made one to try. A weather preset can carry a modifier too (its
+*Sky Modifier*): the sky then holds it at that weather's weight at the view, apart from the scripted stack and
+not saved with it (the weather gives it again).
+
 **For any material or character shader** the collection carries the lighting: `DDW_MainLight` (direction
 toward the main light, illuminance), `DDW_MainLightColor` (rgb, 0 sun / 1 moon), `DDW_AmbientSky /
 Equator / Ground`, `DDW_DayPhase` (day, twilight, night weights and the sun's elevation), plus `DDW_SunDir`,
@@ -192,7 +211,11 @@ lags — a change of weather reads as coming.
 `Random` (weighted, with persistence) or `Seasonal` (weights per season, either hemisphere). Every selector is a
 pure function of the world time and seed: the same moment has the same weather on every machine, after every
 load, in every replay, and `GetForecast` is just the function evaluated ahead. Presets (`UDreamWeatherPreset`)
-hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`.
+hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`. A preset
+can name a *Sky Modifier* (see *Sky modifiers* above): the sky takes it on as far as that weather is in effect
+where the view is, through the schedule's transitions, forced or pushed presets and zones alike, weighed by the
+rules the channels blend by (an Override pulls what is under it back by its weight; the other blends add theirs).
+An influence of your own brings a preset the same way by overriding `GetWeatherInfluencePreset`.
 
 **Bending it.** `PushModifier` (a scripted storm, a spell that brings rain: channel values or a preset,
 Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)` (a second

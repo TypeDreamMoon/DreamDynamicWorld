@@ -30,7 +30,10 @@ namespace DreamSky::Names
 	inline const FName MPC_CloudShadow(TEXT("DDW_CloudShadow"));  // rgb, a = opacity
 	inline const FName MPC_CloudLayer(TEXT("DDW_CloudLayer"));    // layer height (cm), darkness at the view, storm darkening, 1 while the sky cloud renderer draws the clouds, 0 while none are drawn
 	inline const FName MPC_SkyExtra(TEXT("DDW_SkyExtra"));        // cloud sky tint, cloud sun glow, sun disk share in the sky light, flash gain
-	inline const FName MPC_SkyHaze(TEXT("DDW_SkyHaze"));          // rgb = height fog colour, a = how much of the dome weather fog hides
+	inline const FName MPC_SkyHaze(TEXT("DDW_SkyHaze"));
+	// The sky modifiers' change to the weather map's cloud cover and darkness: x = how much of the cover is replaced, y =
+	// what replaces it, z, w the same for the darkness (all 0: none).
+	inline const FName MPC_SkyModClouds(TEXT("DDW_SkyModClouds"));          // rgb = height fog colour, a = how much of the dome weather fog hides
 
 	// lighting, for every material
 	inline const FName MPC_MainLight(TEXT("DDW_MainLight"));            // direction toward the light, a = illuminance (lux)

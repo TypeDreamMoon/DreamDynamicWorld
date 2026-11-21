@@ -5,11 +5,19 @@
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "DreamWeatherTypes.h"
+#include "Engine/DataAsset.h"
 #include "UObject/Object.h"
 #include "DreamWeatherTestListener.generated.h"
 
 class UDreamWeatherPreset;
 class UDreamWeatherSubsystem;
+
+/** Stands in for a sky modifier in the weather's tests (the weather never looks inside one). */
+UCLASS(Transient)
+class UDreamWeatherTestSkyModifier : public UDataAsset
+{
+	GENERATED_BODY()
+};
 
 /** Counts the weather's events for the automation tests (dynamic delegates need a UFUNCTION to bind). */
 UCLASS(Transient)
