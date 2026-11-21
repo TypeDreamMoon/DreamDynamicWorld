@@ -352,19 +352,18 @@ TArray<IDreamWeatherInfluence*> UDreamWeatherSubsystem::SortedInfluences() const
 	return Out;
 }
 
-void UDreamWeatherSubsystem::ApplyInfluences(const FVector& Position, FDreamWeatherValues& InOut) const
+void UDreamWeatherSubsystem::ApplyInfluences(const FVector& Position, FDreamWeatherValues& InOut, double WorldSeconds) const
 {
 	for (IDreamWeatherInfluence* Influence : SortedInfluences())
 	{
-		Influence->ApplyWeatherInfluence(Position, InOut);
+		Influence->ApplyWeatherInfluenceAt(Position, WorldSeconds, InOut);
 	}
 }
 
-float UDreamWeatherSubsystem::TemperatureFor(const FVector& Position, float Offset, float Coverage) const
+float UDreamWeatherSubsystem::TemperatureFor(const FVector& Position, float Offset, float Coverage, double Seconds) const
 {
 	const UDreamWeatherSettings* S = UDreamWeatherSettings::Get();
 	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
-	const double Seconds = NowSeconds();
 	const FDateTime Date = DreamWorld::Celestial::ToDateTime(Seconds);
 	const double Hours = DreamWorld::Celestial::HoursOfDay(Seconds);
 	const bool bSouth = Clock && Clock->GetCelestialSettings().Mode == EDreamCelestialMode::Realistic && Clock->GetCelestialSettings().Latitude < 0.0;
@@ -376,7 +375,7 @@ float UDreamWeatherSubsystem::TemperatureFor(const FVector& Position, float Offs
 		- S->LapseRatePer100m * Height + Offset);
 }
 
-FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, const FDreamWeatherValues& Values) const
+FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, const FDreamWeatherValues& Values, double WorldSeconds) const
 {
 	using C = FDreamWeatherChannels;
 	using namespace DreamWeather::Tags;
@@ -391,7 +390,7 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	S.Lightning = Values.Get(C::Lightning);
 	S.Wetness = Values.Get(C::Wetness);
 	S.SnowCover = Values.Get(C::SnowCover);
-	S.Temperature = TemperatureFor(Position, Values.Get(C::Temperature), S.CloudCoverage);
+	S.Temperature = TemperatureFor(Position, Values.Get(C::Temperature), S.CloudCoverage, WorldSeconds);
 	// What falls turns to snow near freezing, whatever the weather says (a mountain top snows in the rain).
 	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), 1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature));
 	S.Rain = S.Precipitation * (1.0f - S.SnowRatio);
@@ -438,14 +437,19 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 
 FDreamWeatherSample UDreamWeatherSubsystem::SampleWeather(FVector Position) const
 {
-	FDreamWeatherValues Values = GlobalValues;
+	return SampleWeatherAt(Position, GlobalValues, NowSeconds());
+}
+
+FDreamWeatherSample UDreamWeatherSubsystem::SampleWeatherAt(FVector Position, const FDreamWeatherValues& Global, double WorldSeconds) const
+{
+	FDreamWeatherValues Values = Global;
 	if (Values.Values.Num() != FDreamWeatherChannels::Num())
 	{
 		Values = FDreamWeatherChannels::Defaults();
 	}
-	ApplyInfluences(Position, Values);
+	ApplyInfluences(Position, Values, WorldSeconds);
 	FDreamWeatherChannels::ApplyCloudGates(Values);
-	return MakeSample(Position, Values);
+	return MakeSample(Position, Values, WorldSeconds);
 }
 
 float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channel) const
@@ -456,7 +460,7 @@ float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channe
 		return 0.0f;
 	}
 	FDreamWeatherValues Values = GlobalValues;
-	ApplyInfluences(Position, Values);
+	ApplyInfluences(Position, Values, NowSeconds());
 	FDreamWeatherChannels::ApplyCloudGates(Values);
 	return Values.Get(Index);
 }

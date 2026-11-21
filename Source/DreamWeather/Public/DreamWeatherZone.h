@@ -33,6 +33,16 @@ public:
 	/** Bend the channel values at Position. */
 	virtual void ApplyWeatherInfluence(const FVector& Position, FDreamWeatherValues& InOut) const = 0;
 
+	/**
+	 * Bend the channel values at Position at a world time (now, or a past moment the surfaces integrate over). An
+	 * influence that moves with time (a travelling storm) places itself for WorldSeconds here; one that stands still
+	 * needs nothing more than ApplyWeatherInfluence.
+	 */
+	virtual void ApplyWeatherInfluenceAt(const FVector& Position, double WorldSeconds, FDreamWeatherValues& InOut) const
+	{
+		ApplyWeatherInfluence(Position, InOut);
+	}
+
 	/** Higher applies later (wins). */
 	virtual int32 GetWeatherInfluencePriority() const { return 0; }
 
