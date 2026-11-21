@@ -202,9 +202,11 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 // How far a march may trust there is no cumulonimbus beyond the ones a full sample searched (cm, times the field's scale):
 // a tower stands at least 0.4 km inside its 18 km cell and reaches at most 16 km from where it stands, so one outside the
 // 3 x 3 cells searched is at least 2.4 km off. Where the darkness keeps a sample from searching at all, no tower stands at
-// the point, but one may stand nearby: a shorter, untrusted step.
+// the point, but one may stand nearby: a shorter, untrusted step. (600 m: at 1.2 km a march over the layer stepped from
+// where the darkness let no search into an anvil past the fragments of its rim, and a far tower's rim came out a smooth
+// blob; 300 m keeps them all, at some twice the cost.)
 #define DCS_STORM_UNSEARCHED_GAP 230000.0
-#define DCS_STORM_UNSEARCHED_STEP 120000.0
+#define DCS_STORM_UNSEARCHED_STEP 60000.0
 
 // What a full sample found (DCS_Shape) that samples near it can take as theirs (DCS_ShapeNear): the weather there and
 // the two cumulonimbus standing nearest.
