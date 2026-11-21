@@ -672,33 +672,3 @@ bool FDreamSkyCloudLookParametersTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyStormExposureTest, "DreamSky.Clouds.StormStaysDarkerThanOvercast", DreamSky::Tests::Flags)
-bool FDreamSkyStormExposureTest::RunTest(const FString& Parameters)
-{
-	// Under shadowing clouds the eye may brighten by what it sees; a storm is meant to look dark, so it gets little of that.
-	const UDreamSkyStyle* Style = UDreamSkySubsystem::GetDefaultStyle();
-	const float Full = Style->CloudShadowExposureLift;
-	if (!TestTrue(TEXT("the default style lifts at all"), Full > 0.0f))
-	{
-		return false;
-	}
-	// Cover and darkness of the stock presets (WP_Clear, WP_Cloudy, WP_Overcast, WP_Storm).
-	const float Clear = Style->CloudShadowExposureLiftFor(0.0f, 0.0f);
-	const float Cloudy = Style->CloudShadowExposureLiftFor(0.55f, 0.05f);
-	const float Overcast = Style->CloudShadowExposureLiftFor(0.9f, 0.25f);
-	const float Storm = Style->CloudShadowExposureLiftFor(1.0f, 0.85f);
-	TestNearlyEqual(TEXT("a clear sky keeps the curve"), Clear, 0.0f, 1e-5f);
-	TestNearlyEqual(TEXT("broken cloud: by the cover alone"), Cloudy, Full * FMath::SmoothStep(0.2f, 0.85f, 0.55f), 1e-4f);
-	TestNearlyEqual(TEXT("a grey overcast deck: all of it"), Overcast, Full, 1e-4f);
-	TestTrue(FString::Printf(TEXT("a storm gets well under half of the overcast lift (%.2f vs %.2f EV)"), Storm, Overcast), Storm < 0.5f * Overcast);
-	TestTrue(TEXT("never negative: never darker than the curve"), Style->CloudShadowExposureLiftFor(1.0f, 1.0f) >= 0.0f);
-	for (float Dark = 0.0f; Dark < 1.0f; Dark += 0.05f)
-	{
-		if (Style->CloudShadowExposureLiftFor(1.0f, Dark + 0.05f) > Style->CloudShadowExposureLiftFor(1.0f, Dark) + 1e-5f)
-		{
-			AddError(FString::Printf(TEXT("darker clouds lift more at darkness %.2f"), Dark));
-			break;
-		}
-	}
-	return true;
-}

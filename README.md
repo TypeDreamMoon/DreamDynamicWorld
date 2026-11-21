@@ -131,8 +131,8 @@ captured light has no hot spot.
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,
 base glow, painted tones, edge softness and ground shadow), Sun
-and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, cloud
-shadows, the disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
+and Moon (intensity, source angle, shadow distance and cascades, contact shadows, volumetric scattering, the
+disks), Sky Light and Fog (intensity, fog density, falloff, opacity, start, volumetric fog) and
 Exposure (mode, compensation, the eye's range and speed). Tick a setting to use it; the style stays the preset
 other levels share. The components the sky drives are still in the component tree, though it rewrites most of
 what they hold every frame.
@@ -149,8 +149,9 @@ values were not carried over: set them in the style's `RealisticClouds` or `Pain
 overrides). The painted material's `EngineLight` (how much of the engine's own lighting showed under its tones) has no
 counterpart: the renderer lights the painted clouds by its own march alone. `VolumetricSunScattering` and
 `VolumetricShadowTracingDistance` are now `CloudSunScattering` and `CloudShadowTracingDistance`, and a saved value is
-read into them; the materials' `ShadowReach` is the style's `CloudShadowReach` (60 km). Save the level once to keep it
-in the new form. Console lines or device profiles that set `DreamSky.Clouds` or `DreamSky.CloudMaterial` do nothing
+read into them; the materials' `ShadowReach` is the style's `CloudShadowReach` (60 km). The sun override
+`CloudShadowStrength` and the style's `CloudShadowExposureLift` went with the engine's clouds: a level that adds an
+engine cloud layer of its own sets its shadow on the sun light itself. Save the level once to keep it in the new form. Console lines or device profiles that set `DreamSky.Clouds` or `DreamSky.CloudMaterial` do nothing
 any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a

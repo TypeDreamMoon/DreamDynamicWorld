@@ -214,12 +214,6 @@ struct DREAMSKY_API FDreamSkyLightOverrides
 	float VolumetricScattering = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
-	bool bOverride_CloudShadowStrength = false;
-	/** How dark the volumetric clouds' shadows on the ground are. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_CloudShadowStrength", ClampMin = "0", ClampMax = "1"))
-	float CloudShadowStrength = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
 	bool bOverride_MoonCastsShadows = false;
 	/** Whether the moon casts shadows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_MoonCastsShadows"))

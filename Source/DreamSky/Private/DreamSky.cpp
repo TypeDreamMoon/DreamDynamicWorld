@@ -289,15 +289,6 @@ void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
 			Light->ContactShadowLength = Contact;
 			bDirty = true;
 		}
-		if (bSun)
-		{
-			const float CloudShadow = Want(O.bOverride_CloudShadowStrength, O.CloudShadowStrength, Default->CloudShadowStrength, Light->CloudShadowStrength);
-			if (Light->CloudShadowStrength != CloudShadow)
-			{
-				Light->CloudShadowStrength = CloudShadow;
-				bDirty = true;
-			}
-		}
 		if (bDirty)
 		{
 			Light->MarkRenderStateDirty();
