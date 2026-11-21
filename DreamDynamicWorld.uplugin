@@ -56,6 +56,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "DreamWorldSequencer",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DreamWindEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
