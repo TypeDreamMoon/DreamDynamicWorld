@@ -19,7 +19,7 @@ param(
     [string]$Project,
 
     # Automation filter (prefix). The plugin's tests live under DreamWind., DreamWorld., DreamSky. and DreamWeather.
-    [string[]]$Filter = @('DreamWind.', 'DreamWorld.', 'DreamSky.', 'DreamWeather.', 'DreamCloud.'),
+    [string[]]$Filter = @('DreamWind.', 'DreamWorld.', 'DreamSky.', 'DreamWeather.', 'DreamCloud.', 'DreamSurface.'),
 
     # The engine root. Defaults to the one recorded in the host's .dreamdynamicworld-testhost.json.
     [string]$EngineRoot,

@@ -246,6 +246,40 @@ precipitation falls. The weather hands every frame to listeners through `UDreamW
 Console: `DreamWeather.Set <preset> [seconds]`, `DreamWeather.Clear`, `DreamWeather.Forecast [hours] [step]`,
 `DreamWeather.Dump`.
 
+## Surfaces
+
+Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
+(`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing in the hollows:
+the low half fills the small dips, the high half makes puddles), **Snow** (of the deepest cover, *Max Snow Depth*,
+30 cm by default) and **Dust**.
+
+**How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
+an hour or two of sun and wind (slower in the shade, the cold or still air), the puddles outlast it. Snow settles
+below freezing (warm ground melts the flakes as they land), melts above it — faster in the sun and the rain — and
+the melt wets the ground. A dust storm lays dust, a dry wind a little, and rain washes it off. Under a roof
+(shelters, the wind's baked roofs) nothing lands, and the shade keeps the sun off. The rates are in *Project
+Settings ▸ Dream Surface ▸ Rates*, in game hours.
+
+**Deterministic, nothing saved.** A surface's state is the weather integrated over its past (*Memory Hours*, 48 by
+default, in *Step Minutes* of 15) on the timeline's own grid: the same moment gives the same state whenever and
+however often it is asked, on any machine, after a load or a jump in time. The weather of a past step comes from:
+
+- **the schedule** — a pure function of the time and seed, known for any past moment;
+- **what this session saw** — modifiers and forced weather fade in real time, so their past values cannot be worked
+  out afterwards: each step the session runs through records the weather it had (modifiers included) when it began.
+  A modifier therefore counts from the moment it took effect in this session; before that, and for every step the
+  session never saw (before it started or was loaded, across a jump in time), the schedule stands. A loaded game has
+  its modifiers back from the world snapshot, so they count again from the load on, the same on every machine.
+
+Zones apply at each step's own time (`IDreamWeatherInfluence::ApplyWeatherInfluenceAt`), so a zone that moves with
+the world time is where it was then. The formula is one file, `Shaders/Shared/DreamSurfaceShared.h`, compiled for the
+CPU queries and the GPU surface map alike.
+
+**Queries.** `UDreamSurfaceSubsystem::SampleSurface(Position)` (and `SampleSurfaceAt(Position, WorldSeconds)`),
+`GetSnowDepthAt(Position)` in cm, `GetViewState()` — the state in the open at the view this frame. A query
+integrates the whole memory (some 190 steps of the weather at that point), so ask it for the places that matter
+(the player, a footstep), not for thousands of points a frame.
+
 The rest of this document is **Wind**.
 
 > Renamed from `DreamWind` on 2026-08-18. Content moved from `/DreamWind/<X>` to
