@@ -16,6 +16,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Misc/App.h"
+#include "RHIFeatureLevel.h"
 #include "Serialization/CustomVersion.h"
 #include "UObject/Package.h"
 #include "Engine/World.h"
@@ -23,7 +24,20 @@
 #include "Materials/MaterialInterface.h"
 #include "UObject/UObjectGlobals.h"
 
+#if WITH_EDITOR
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"
+#endif
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSky)
+
+static TAutoConsoleVariable<bool> CVarDreamSkyCloudRenderEnable(
+	TEXT("DreamSky.CloudRender.Enable"), true,
+	TEXT("Whether the sky cloud renderer draws the sky's clouds. 0 leaves them out (the sky, the high cloud and the rain shafts")
+	TEXT(" are still drawn): set it in a device profile to have no clouds on a platform. Where the renderer cannot run (below")
+	TEXT(" Shader Model 5, the mobile renderer) they are left out whatever it says."),
+	ECVF_Scalability);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT("DreamSky.CloudRender.Look"), -1,
@@ -34,6 +48,18 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 
 namespace DreamSky::Actor
 {
+	/** Why a sky's clouds are not drawn (ADreamSky::WhyNoClouds). */
+	enum class ECloudsOff : uint8
+	{
+		None,
+		/** No renderer (-nullrhi, a server, a commandlet). */
+		NoRenderer,
+		/** Below Shader Model 5: the mobile renderer, which has none of the passes the sky cloud renderer draws in. */
+		Unsupported,
+		/** DreamSky.CloudRender.Enable 0. */
+		TurnedOff,
+	};
+
 	/** How a sky was saved (its custom version). */
 	struct FVersion
 	{
@@ -309,7 +335,68 @@ void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
 
 bool ADreamSky::DrawsClouds() const
 {
-	return FApp::CanEverRender();
+	return WhyNoClouds() == uint8(DreamSky::Actor::ECloudsOff::None);
+}
+
+uint8 ADreamSky::WhyNoClouds() const
+{
+	using namespace DreamSky::Actor;
+	if (!FApp::CanEverRender())
+	{
+		return uint8(ECloudsOff::NoRenderer);
+	}
+	// (The world's: the editor's mobile preview draws it with the mobile renderer.)
+	const UWorld* World = GetWorld();
+	if ((World ? World->GetFeatureLevel() : GMaxRHIFeatureLevel) < ERHIFeatureLevel::SM5)
+	{
+		return uint8(ECloudsOff::Unsupported);
+	}
+	if (!CVarDreamSkyCloudRenderEnable.GetValueOnGameThread())
+	{
+		return uint8(ECloudsOff::TurnedOff);
+	}
+	return uint8(ECloudsOff::None);
+}
+
+void ADreamSky::TellCloudsOff(uint8 Why)
+{
+	using namespace DreamSky::Actor;
+	if (Why == ToldCloudsOff)
+	{
+		return;
+	}
+	const uint8 Before = ToldCloudsOff;
+	ToldCloudsOff = Why;
+	switch (ECloudsOff(Why))
+	{
+	case ECloudsOff::Unsupported:
+	{
+		UE_LOG(LogDreamSky, Warning, TEXT("%s: the sky cloud renderer cannot run here (it needs Shader Model 5 or above; the mobile renderer has none of its passes): the sky is drawn without its clouds."), *GetPathName());
+#if WITH_EDITOR
+		// (Once an editor session: every play in editor world would say it again.)
+		static bool bToldEditor = false;
+		if (GIsEditor && !bToldEditor && FSlateApplication::IsInitialized())
+		{
+			bToldEditor = true;
+			FNotificationInfo Info(NSLOCTEXT("DreamSky", "CloudsUnsupported", "Dream Sky: the clouds are not drawn here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview have no clouds)."));
+			Info.ExpireDuration = 8.0f;
+			FSlateNotificationManager::Get().AddNotification(Info);
+		}
+#endif
+		break;
+	}
+	case ECloudsOff::TurnedOff:
+		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.CloudRender.Enable is 0: the sky is drawn without its clouds."), *GetPathName());
+		break;
+	case ECloudsOff::None:
+		if (Before != uint8(ECloudsOff::NoRenderer))
+		{
+			UE_LOG(LogDreamSky, Display, TEXT("%s: the sky cloud renderer draws the clouds again."), *GetPathName());
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 EDreamSkyCloudLook ADreamSky::GetEffectiveCloudLook() const
@@ -390,6 +477,7 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 {
 	using namespace DreamSky::Actor;
+	TellCloudsOff(WhyNoClouds());
 	const bool bWanted = SunLight && DrawsClouds();
 	if (!bWanted)
 	{

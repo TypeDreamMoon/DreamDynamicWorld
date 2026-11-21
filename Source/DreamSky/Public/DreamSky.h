@@ -147,7 +147,12 @@ public:
 	/** Scales the style's lighting by this level's overrides (sun, moon, sky light, fog, exposure compensation). */
 	void ApplyLightingOverrides(FDreamSkyLighting& Lighting) const;
 
-	/** Whether the sky cloud renderer draws this sky's clouds (it needs a renderer: not under -nullrhi). */
+	/**
+	 * Whether the sky cloud renderer draws this sky's clouds: it needs a renderer of Shader Model 5 or above (not the
+	 * mobile renderer, not -nullrhi), and DreamSky.CloudRender.Enable on (a device profile can turn it off for a
+	 * platform). Where it does not, the sky has no cumulus; the sky itself, the high cloud and the rain shafts are drawn
+	 * as ever. Saying so once in the log and the editor when it turns off.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool DrawsClouds() const;
 
@@ -224,6 +229,11 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudShadowFunction;
 	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+
+	/** Why the clouds are not drawn (DreamSky::Actor::ECloudsOff; none while they are), and what was said last. */
+	uint8 WhyNoClouds() const;
+	uint8 ToldCloudsOff = 0;
+	void TellCloudsOff(uint8 Why);
 
 #if WITH_EDITOR
 	/** The style asset was edited: the overridden copy is rebuilt. */

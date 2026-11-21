@@ -306,6 +306,21 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	// The sky cloud renderer draws the clouds (where there is a renderer) and the dome's sky light capture shows its panorama.
 	TestTrue(TEXT("the renderer draws the clouds where there is one"), W.Sky->DrawsClouds() == FApp::CanEverRender());
 	TestTrue(TEXT("and the dome knows it"), DomeLeavesCloudsOut() == W.Sky->DrawsClouds());
+	// No clouds where the console (a device profile) says so: none drawn, no panorama in the sky light, no cloud shadow.
+	IConsoleVariable* Enable = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.CloudRender.Enable"));
+	if (TestNotNull(TEXT("DreamSky.CloudRender.Enable"), Enable))
+	{
+		const int32 Saved = Enable->GetInt();
+		Enable->Set(0, ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
+		TestFalse(TEXT("DreamSky.CloudRender.Enable 0: no clouds"), W.Sky->DrawsClouds());
+		TestFalse(TEXT("the dome's sky light capture takes no panorama"), DomeLeavesCloudsOut());
+		TestTrue(TEXT("the sun takes no cloud shadow"), W.Sky->SunLight->LightFunctionMaterial == nullptr);
+		TestNull(TEXT("and no shadow texture is kept"), W.Sky->GetCloudShadowTarget());
+		Enable->Set(Saved, ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
+		TestTrue(TEXT("on again: the clouds as before"), W.Sky->DrawsClouds() == FApp::CanEverRender());
+	}
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
 	// horizon. Its sky goes by the view direction alone, so it stands far beyond any terrain.)
 	TestTrue(FString::Printf(TEXT("the dome stands beyond far terrain (%.0f km)"), DomeRadius() / 100000.0), DomeRadius() >= 50000000.0);

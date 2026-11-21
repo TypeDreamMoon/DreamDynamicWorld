@@ -28,7 +28,7 @@ namespace DreamSky::Names
 	inline const FName MPC_Cloud3(TEXT("DDW_Cloud3"));            // visibility (cm), haze height (cm), high cloud cover, high cloud altitude (cm)
 	inline const FName MPC_CloudLit(TEXT("DDW_CloudLit"));        // rgb, a = rim strength
 	inline const FName MPC_CloudShadow(TEXT("DDW_CloudShadow"));  // rgb, a = opacity
-	inline const FName MPC_CloudLayer(TEXT("DDW_CloudLayer"));    // layer height (cm), darkness at the view, storm darkening, what draws the clouds: 0 the dome, 1 the engine's volumetric clouds, 2 the sky cloud renderer
+	inline const FName MPC_CloudLayer(TEXT("DDW_CloudLayer"));    // layer height (cm), darkness at the view, storm darkening, 1 while the sky cloud renderer draws the clouds, 0 while none are drawn
 	inline const FName MPC_SkyExtra(TEXT("DDW_SkyExtra"));        // cloud sky tint, cloud sun glow, sun disk share in the sky light, flash gain
 	inline const FName MPC_SkyHaze(TEXT("DDW_SkyHaze"));          // rgb = height fog colour, a = how much of the dome weather fog hides
 

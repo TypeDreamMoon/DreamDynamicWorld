@@ -18,7 +18,8 @@ class UDreamSkySubsystem;
  * translucency), a compute pass marches the cloud layer at reduced resolution (DreamSkyCloudRender.usf), a second one
  * blends it with the previous frames reprojected by the clouds' depth, and a full-screen pass composites it into the sky
  * pixels -- the far plane and whatever lies beyond the dome's depth -- so the engine's fog, aerial perspective and
- * translucency land on top of it. The dome leaves its own clouds out (DDW_CloudLayer.w = 1) and draws the sky behind.
+ * translucency land on top of it. The dome draws the sky behind (and, in the sky light capture, the renderer's panorama:
+ * DDW_CloudLayer.w = 1).
  */
 class FDreamSkyCloudViewExtension : public FWorldSceneViewExtension
 {
