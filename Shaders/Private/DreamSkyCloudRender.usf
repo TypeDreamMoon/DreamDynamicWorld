@@ -115,12 +115,24 @@ int2 ShadowResolution;
 RWTexture2D<float> OutShadow;
 Texture2D<float> NearGround; // the sun map cascades' optical depth from the layer's base the whole way up to the storm top
 Texture2D<float> FarGround;
+int ReferenceSteps;          // ShadowCS: > 0, its own march of so many even steps instead (DreamSky.CloudRender.GroundShadowReference)
+
+// The storm proximity map: for each of its cells over the weather map, how far (cm) the nearest place is from which a
+// sample searches for storms (DCS_STORM_SEARCH_DARKNESS there or 9 km upwind). StormSeedCS marks those cells, StormJumpCS
+// spreads the nearest one (a jump flood), StormProximityCS turns it into the distance the marches read.
+int ProximityResolution;
+int JumpStep;
+Texture2D<float2> InSeed;
+RWTexture2D<float2> OutSeed;
+RWTexture2D<float> OutProximity;
+Texture2D<float> StormProximity;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
 RWTexture3D<float> OutTau;
 RWTexture2D<float> OutGroundTau;
 RWTexture2D<float4> OutColor;  // rgb = the clouds' light (premultiplied, pre-exposed), a = transmittance
+uint TemporalDebug;            // TemporalCS: 1 = tint each ray by how it took the frames before (DreamSky.CloudRender.Debug 3)
 RWTexture2D<float> OutDepth;   // cm along the ray to the clouds; -1 none; -2 a ray no sky pixel reads (not marched)
 
 Texture2D<float4> CurrentColor;
@@ -202,20 +214,61 @@ FDCloudMarchParams DSkyR_Params(float T, float T1, int Left, float Jitter)
 	return P;
 }
 
+// Whether a sample whose weather reads this point of the map could search for storms: the darkest the map's bilinear read
+// gives about it (its texel's, the view's where the read leans that way at the map's rim or off it).
+float DSkyR_SearchDarkness(float2 Point, float3 ViewWeather)
+{
+	float2 UV = (P_MapParams.xy + Point) * P_MapParams.z + 0.5;
+	if (P_MapParams.w < 0.5)
+	{
+		return ViewWeather.y;
+	}
+	float Inside = saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 8.0);
+	float Dark = WeatherMap.SampleLevel(WeatherMapSampler, saturate(UV), 0).y;
+	return Inside < 1.0 ? max(Dark, ViewWeather.y) : Dark;
+}
+
+// How far (cm, at least) a point of the world (horizontally) is from wherever a sample may search for storms: the storm
+// proximity map, less what its cells and a sample's wandering weather leave unknown. Off the map, the map's rim is that
+// far, less how far off; and a point off it searches only where the view's weather is dark enough, or where its weather
+// (wandering) or that 9 km upwind of it falls on the map.
+float DSkyR_StormReach(float2 World2)
+{
+	float Extent = 1.0 / max(P_MapParams.z, 1.0e-12);
+	float2 UV = (P_MapParams.xy + World2) * P_MapParams.z + 0.5;
+	float Off = length(max(max(-UV, UV - 1.0), 0.0)) * Extent;
+	float3 ViewWeather = DCS_ViewWeather(P_Cloud0, P_CloudLayer);
+	if (Off > 0.0 && (P_MapParams.w < 0.5 || saturate(ViewWeather.y * 1.3 - 0.2) > DCS_STORM_SEARCH_DARKNESS))
+	{
+		return 0.0;
+	}
+	int2 Cell = clamp(int2(UV * float(ProximityResolution)), 0, ProximityResolution - 1);
+	// (The wander either way across and along, and two cells: a cell's middle against its far corner where it is read,
+	// and where it was marked. Off the map, the 9 km upwind too: a point marked on the map may search from off it.)
+	float Wander = DCS_WEATHER_WANDER * 1.4143;
+	float Margin = Wander + 2.0 * 1.4143 * Extent / float(ProximityResolution) + (Off > 0.0 ? 900000.0 : 0.0);
+	return max(StormProximity.Load(int3(Cell, 0)) - Off - Margin, Off - 900000.0 - Wander);
+}
+
 // How far the march may skip from a sample: over the layer only cumulonimbus stand, and the shape gives a true bound of
-// the distance to them (and to the layer's top); in the layer, the shape's bound says only whether cloud may be here, so
-// the march walks fine where it may and takes a step of some 1.2 % of the distance where it may not, no longer than 800 m
-// (a small cumulus' formation), backing off to walk fine if that step lands where cloud may be. SkipJitter (0..1, per
+// the distance to them (and to the layer's top), or where it searched for none, the storm proximity map does
+// (DSkyR_StormReach); in the layer, the shape's bound says only whether cloud may be here, so the march walks fine where
+// it may and takes a step of some 1.2 % of the distance where it may not, no longer than 800 m (a small cumulus'
+// formation), backing off to walk fine if that step lands where cloud may be. SkipJitter (0..1, per
 // pixel and frame) varies every skip's length -- the step 0.6 to 1.4 times, the bound 0.7 to 1 times, never past it: with
 // lengths fixed by the distance alone, neighbouring rays' samples fell in step with one another, and where they skimmed a
 // thin cloud they drew moire, hatched patches and horizontal bands that no history averages away.
-float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter)
+float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter, float2 World2)
 {
 	float LayerStep = max(clamp(T * 0.012, 20000.0, 80000.0) * (0.6 + 0.8 * SkipJitter), 2.0 * P.FineStep);
 	float Bound = 0.7 + 0.3 * SkipJitter;
 	if (C.Z >= DCS_LAYER_TOP)
 	{
-		return min(C.StormDistance * Bound, max(C.Z - DCS_LAYER_TOP, LayerStep));
+		// (Over the layer only cumulonimbus stand. Where this sample searched for none, the nearest stands at least as far
+		// as the nearest place a sample searches from; close to one, a step no longer than 300 m -- a rim's fragments are
+		// that size -- rather than the march walking it fine.)
+		float Storm = C.StormDistance > 0.5 * DCS_STORM_UNSEARCHED ? C.StormDistance : max(DSkyR_StormReach(World2), 30000.0);
+		return min(Storm * Bound, max(C.Z - DCS_LAYER_TOP, LayerStep));
 	}
 	if (C.Z <= 0.0)
 	{
@@ -354,7 +407,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
-		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter);
+		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter, CameraWorld.xy + V.xy * T);
 		DCM_SurfaceAdvance(S, Fd, P);
 	}
 	float SurfaceT = S.bHit ? S.HitT : S.ClosestT;
@@ -505,7 +558,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
-		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter);
+		Fd.Distance = DSkyR_Distance(C, T, P, SkipJitter, CameraWorld.xy + V.xy * T);
 		float Dt = DCM_Advance(M, Fd, P);
 		if (Dt > 0.0 && C.Volume > 0.0)
 		{
@@ -774,6 +827,95 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 	}
 }
 
+// A cell of the storm proximity map is marked where a sample may search for storms anywhere in it: where the darkness its
+// weather reads (DSkyR_SearchDarkness), there or 9 km upwind, lets it. The map's bilinear read never peaks between the
+// centres of its texels, so those covering the cell (and the cell 9 km upwind) are all it needs.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void StormSeedCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= ProximityResolution))
+	{
+		return;
+	}
+	uint MapWidth;
+	uint MapHeight;
+	WeatherMap.GetDimensions(MapWidth, MapHeight);
+	float MapRes = float(max(MapWidth, 1u));
+	float Extent = 1.0 / max(P_MapParams.z, 1.0e-12);
+	float Ratio = MapRes / float(ProximityResolution);
+	int Span = min(int(ceil(Ratio)) + 2, 10);
+	float2 Downwind = dot(P_Cloud1.xy, P_Cloud1.xy) > 1.0e-6 ? normalize(P_Cloud1.xy) : float2(0.866, 0.5);
+	float3 ViewWeather = DCS_ViewWeather(P_Cloud0, P_CloudLayer);
+	float Darkest = 0.0;
+	for (int Pass = 0; Pass < 2; ++Pass)
+	{
+		// (In texels: the cell's corner, and the shift to the cell 9 km upwind.)
+		float2 Shift = Pass == 0 ? float2(0.0, 0.0) : -Downwind * 900000.0 * P_MapParams.z * MapRes;
+		float2 First = floor(float2(Id.xy) * Ratio + Shift - 0.5) + 0.5;
+		[loop]
+		for (int y = 0; y < Span; ++y)
+		{
+			for (int x = 0; x < Span; ++x)
+			{
+				float2 Texel = First + float2(x, y);
+				float2 At = (Texel / MapRes - 0.5) * Extent - P_MapParams.xy;
+				Darkest = max(Darkest, DSkyR_SearchDarkness(At, ViewWeather));
+			}
+		}
+	}
+	bool bSearch = saturate(Darkest * 1.3 - 0.2) > DCS_STORM_SEARCH_DARKNESS;
+	OutSeed[Id.xy] = bSearch ? float2(Id.xy) : float2(-1.0, -1.0);
+}
+
+// One round of the jump flood: of the cells JumpStep away round this one (and itself), the nearest marked cell any of
+// them knows.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void StormJumpCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= ProximityResolution))
+	{
+		return;
+	}
+	float2 Here = float2(Id.xy);
+	float2 Best = float2(-1.0, -1.0);
+	float BestD = 1.0e20;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			int2 Q = int2(Id.xy) + int2(x, y) * JumpStep;
+			if (any(Q < 0) || any(Q >= ProximityResolution))
+			{
+				continue;
+			}
+			float2 Seed = InSeed.Load(int3(Q, 0));
+			if (Seed.x >= 0.0)
+			{
+				float D = dot(Seed - Here, Seed - Here);
+				if (D < BestD)
+				{
+					BestD = D;
+					Best = Seed;
+				}
+			}
+		}
+	}
+	OutSeed[Id.xy] = Best;
+}
+
+// The distance (cm) from each cell's middle to the nearest marked cell's (far off when there is none).
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void StormProximityCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= ProximityResolution))
+	{
+		return;
+	}
+	float2 Seed = InSeed.Load(int3(Id.xy, 0));
+	float Cell = 1.0 / (max(P_MapParams.z, 1.0e-12) * float(ProximityResolution));
+	OutProximity[Id.xy] = Seed.x >= 0.0 ? length(Seed - float2(Id.xy)) * Cell : 1.0e10;
+}
+
 // One texel of the panorama: the clouds along its direction from the view, premultiplied, cover in alpha, without the
 // weather haze (the dome lays it over the clouds as it does over its own).
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -808,6 +950,25 @@ void ShadowCS(uint3 Id : SV_DispatchThreadID)
 	}
 	float2 UV = (float2(Id.xy) + 0.5) / float2(ShadowResolution);
 	float2 XY = ShadowPlacement.xy + (UV - 0.5) * 2.0 * ShadowPlacement.z;
+	// (Debug: the reference, the same way up through the field in even steps from this very point.)
+	if (ReferenceSteps > 0)
+	{
+		float3 L = normalize(P_MainLight.xyz);
+		L = normalize(float3(L.xy, max(L.z, 0.05)));
+		FDSkyCloudField F = DSkyR_Field();
+		float3 Base = float3(XY, F.Base - dot(XY, XY) / (2.0 * DSky_PlanetRadius)) - CameraWorld;
+		float Whole = DCS_STORM_TOP / L.z;
+		FDCloudAnchor Anchor = (FDCloudAnchor)0;
+		float RefTau = 0.0;
+		for (int r = 0; r < ReferenceSteps; ++r)
+		{
+			FDSkyCloudSample C = DSky_CloudAt(Base + L * (Whole * (float(r) + 0.5) / float(ReferenceSteps)), F, false, Anchor,
+				P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			RefTau += DSkyR_Extinction(C);
+		}
+		OutShadow[Id.xy] = exp(-RefTau * Whole / float(ReferenceSteps));
+		return;
+	}
 	// (The cascades' ground maps: the near one where it reaches, the far one beyond, the whole sun past both.)
 	float2 Near = (XY - NearCenterExtent.xy) / (2.0 * NearCenterExtent.z) + 0.5;
 	float2 Far = (XY - FarCenterExtent.xy) / (2.0 * FarCenterExtent.z) + 0.5;
@@ -815,6 +976,13 @@ void ShadowCS(uint3 Id : SV_DispatchThreadID)
 	float FarIn = min(min(Far.x, 1.0 - Far.x), min(Far.y, 1.0 - Far.y)) > 0.0 ? 1.0 : 0.0;
 	float Tau = lerp(FarGround.SampleLevel(TauSampler, saturate(Far), 0) * FarIn, NearGround.SampleLevel(TauSampler, saturate(Near), 0), NearIn);
 	OutShadow[Id.xy] = exp(-Tau);
+}
+
+// What TemporalCS writes for a ray: its colour, or (DreamSky.CloudRender.Debug 3) the tint of the way it got it, opaque,
+// brighter where the clouds cover more.
+void DSkyR_TemporalOut(int2 Ray, float4 Color, float3 Tint)
+{
+	OutColor[Ray] = TemporalDebug != 0 ? float4(Tint * lerp(0.3, 1.0, 1.0 - Color.a), 0.0) : Color;
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -835,7 +1003,7 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	OutDepth[Ray] = Depth;
 	if (Depth < -1.5 || HistoryWeight == 0.0)
 	{
-		OutColor[Ray] = Current;
+		DSkyR_TemporalOut(Ray, Current, float3(0.1, 0.3, 1.0));
 		return;
 	}
 	// The neighbourhood: its range keeps the history from ghosting; its mean stands in for a ray with no history (a cut, a
@@ -863,7 +1031,7 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	float4 Mean = Sum / max(Count, 1.0);
 	if (HistoryWeight < 0.0)
 	{
-		OutColor[Ray] = Mean;
+		DSkyR_TemporalOut(Ray, Mean, float3(1.0, 0.9, 0.1));
 		return;
 	}
 	// Where this ray's clouds were on screen the frame before: at their depth, or (none) the sky at infinity.
@@ -877,12 +1045,12 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	float2 PrevRay = PrevUV * PrevSize;
 	if (Prev.w <= 0.0 || any(PrevRay < 0.0) || any(PrevRay > PrevSize))
 	{
-		OutColor[Ray] = Mean;
+		DSkyR_TemporalOut(Ray, Mean, float3(1.0, 0.15, 0.1));
 		return;
 	}
 	if (HistoryDepth.Load(int3(int2(PrevRay), 0)) < -1.5)
 	{
-		OutColor[Ray] = Mean;
+		DSkyR_TemporalOut(Ray, Mean, float3(1.0, 0.15, 0.1));
 		return;
 	}
 	float4 History = HistoryColor.SampleLevel(HistorySampler, PrevRay * HistoryInvExtent, 0);
@@ -893,7 +1061,7 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	float Motion = length(PrevRay - (float2(Ray) + 0.5));
 	float Weight = HistoryWeight + (1.0 - HistoryWeight) * 0.7 * (1.0 - smoothstep(0.25, 1.5, Motion));
 	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.
-	OutColor[Ray] = lerp(Current, clamp(History, Lo, Hi), Weight);
+	DSkyR_TemporalOut(Ray, lerp(Current, clamp(History, Lo, Hi), Weight), float3(0.1, 1.0, 0.2));
 }
 
 float DSkyR_GridLine(float Degrees, float Spacing, float PixelDegrees)

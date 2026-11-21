@@ -103,6 +103,11 @@ private:
 	FFrameSettings RenderSettings;
 	TMap<uint32, TSharedPtr<FHistory>> Histories;
 	FSunMap SunMaps[2];
+	/**
+	 * How far each cell over the weather map is from the nearest place a sample searches for storms (cm): how far a march
+	 * over the layer may step where its sample searched for none. Redrawn a frame, with the sun maps.
+	 */
+	TRefCountPtr<IPooledRenderTarget> StormProximity;
 	/** The frame the sun maps were last brought up to date in (by whichever graph drew first in it). */
 	uint64 SunMapFrame = ~uint64(0);
 };
