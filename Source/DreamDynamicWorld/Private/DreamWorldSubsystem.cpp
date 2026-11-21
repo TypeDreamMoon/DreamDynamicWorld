@@ -6,7 +6,10 @@
 #include "DreamWorldSettings.h"
 #include "DreamWorldViewExtension.h"
 
+#include "Engine/Engine.h"
+#include "Engine/EngineCustomTimeStep.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformTime.h"
@@ -20,6 +23,12 @@
 DECLARE_STATS_GROUP(TEXT("DreamWorld"), STATGROUP_DreamWorld, STATCAT_Advanced);
 DECLARE_CYCLE_STAT(TEXT("DreamWorld Tick"), STAT_DreamWorldTick, STATGROUP_DreamWorld);
 DECLARE_CYCLE_STAT(TEXT("DreamWorld View Probe"), STAT_DreamWorldViewProbe, STATGROUP_DreamWorld);
+
+static TAutoConsoleVariable<int32> CVarDreamWorldCinematicMode(
+	TEXT("DreamWorld.CinematicMode"),
+	-1,
+	TEXT("Cinematic updates (every frame a full update, no easing): -1 while a Movie Render Queue render drives the frames (default), 0 never, 1 always."),
+	ECVF_Default);
 
 UDreamWorldSubsystem* UDreamWorldSubsystem::Get(const UObject* WorldContextObject)
 {
@@ -90,6 +99,12 @@ void UDreamWorldSubsystem::Tick(float DeltaTime)
 	const double PrevSeconds = WorldSeconds;
 	bool bJumped = bJumpPending;
 	bJumpPending = false;
+	// Cinematic updates: everything that eases snaps instead, every frame.
+	const bool bCinematic = IsCinematicMode();
+	if (bCinematic)
+	{
+		++TimeJumpSerial;
+	}
 
 	if (bTransitionActive)
 	{
@@ -110,7 +125,7 @@ void UDreamWorldSubsystem::Tick(float DeltaTime)
 	UpdateCelestial();
 	FireClockEvents(PrevSeconds, bJumped);
 	WriteClockParameters();
-	UpdateViewProbe(DeltaTime, false);
+	UpdateViewProbe(DeltaTime, bCinematic);
 
 	OnWorldPreTick.Broadcast(*this, DeltaTime);
 	OnWorldTick.Broadcast(*this, DeltaTime);
@@ -123,7 +138,7 @@ void UDreamWorldSubsystem::Tick(float DeltaTime)
 
 bool UDreamWorldSubsystem::IsClockRunning() const
 {
-	if (bPaused)
+	if (bPaused || ExternalDrivers.Num() > 0)
 	{
 		return false;
 	}
@@ -429,4 +444,58 @@ void UDreamWorldSubsystem::UpdateViewProbe(float DeltaTime, bool bSnap)
 	ViewOcclusion = ViewProbe.Get();
 	SetVectorParameter(DreamWorld::Names::MPC_Interior,
 		FLinearColor(ViewOcclusion.Interior, ViewOcclusion.Overhead, 0.0f, ViewOcclusion.bValid ? 1.0f : 0.0f));
+}
+
+// -------------------------------------------------------------------------------------------------
+
+void UDreamWorldSubsystem::BeginExternalDrive(const UObject* Driver)
+{
+	ExternalDrivers.RemoveAll([](const TWeakObjectPtr<const UObject>& D) { return !D.IsValid(); });
+	ExternalDrivers.AddUnique(Driver);
+}
+
+void UDreamWorldSubsystem::EndExternalDrive(const UObject* Driver)
+{
+	ExternalDrivers.RemoveAll([Driver](const TWeakObjectPtr<const UObject>& D) { return !D.IsValid() || D.Get() == Driver; });
+}
+
+void UDreamWorldSubsystem::DriveWorldSeconds(double Seconds, double MaxRunSeconds)
+{
+	Seconds = FMath::Max(Seconds, 0.0);
+	if (Seconds >= WorldSeconds && Seconds - WorldSeconds <= MaxRunSeconds && bEventsPrimed)
+	{
+		// As if it ran: the next tick fires the events of the hours passed.
+		bTransitionActive = false;
+		WorldSeconds = Seconds;
+		UpdateCelestial();
+		return;
+	}
+	if (Seconds != WorldSeconds)
+	{
+		SetWorldSeconds(Seconds);
+	}
+}
+
+bool UDreamWorldSubsystem::IsCinematicMode() const
+{
+	if (bCinematicOverride)
+	{
+		return true;
+	}
+	const int32 Mode = CVarDreamWorldCinematicMode.GetValueOnGameThread();
+	if (Mode >= 0)
+	{
+		return Mode > 0;
+	}
+	// A Movie Render Queue render steps the engine with its own custom time step.
+	static const FName MoviePipelineTimeStep(TEXT("MoviePipelineCustomTimeStep"));
+	const UEngineCustomTimeStep* TimeStep = GEngine ? GEngine->GetCustomTimeStep() : nullptr;
+	for (const UClass* Class = TimeStep ? TimeStep->GetClass() : nullptr; Class; Class = Class->GetSuperClass())
+	{
+		if (Class->GetFName() == MoviePipelineTimeStep)
+		{
+			return true;
+		}
+	}
+	return false;
 }
