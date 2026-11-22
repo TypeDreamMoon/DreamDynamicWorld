@@ -75,6 +75,10 @@ public:
 	/** Thunder heard so far. */
 	int32 GetThunderHeardCount() const { return ThunderHeard; }
 
+	/** How far a near clap ducks the wind and the rain now, 0..1 (1 = not at all). */
+	UFUNCTION(BlueprintPure, Category = "Dream Weather|Audio")
+	float GetThunderDuck() const;
+
 	/** The ambience's parameters now. */
 	const FDreamAmbienceParams& GetAmbienceParams() const { return AmbienceParams; }
 
@@ -128,7 +132,7 @@ private:
 	/** A component playing Sound in the weather's sound class (null without an audio device). */
 	UAudioComponent* MakeComponent(USoundBase* Sound, const FDreamWeatherSoundSlot* Slot, uint32 Variant, bool bLoop);
 	/** Send a voice's numbers to its component (graph parameters, or volume and low-pass for a plain sound). */
-	void Apply(UAudioComponent* Component, const FDreamWeatherVoiceMix& Mix, float Gust, float Distance) const;
+	void Apply(UAudioComponent* Component, const FDreamWeatherVoiceMix& Mix, float Gust, float Distance, float ExtraGain = 1.0f) const;
 	USoundBase* PickSound(const FDreamWeatherSoundSlot& Slot, uint32 Variant) const;
 	bool CanPlay() const;
 	float Gain() const;
@@ -144,6 +148,8 @@ private:
 
 	TArray<FDreamThunder> Pending;
 	int32 ThunderHeard = 0;
+	/** Seconds since the last near clap was heard (large: none). */
+	float SinceNearClap = 1.0e6f;
 	int32 StrikesHeard = 0;
 
 	FAmbienceState Ambience;

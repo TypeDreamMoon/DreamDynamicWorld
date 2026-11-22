@@ -171,6 +171,7 @@ void UDreamWeatherAudioSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock
 	}
 	const float Target = bMuted ? 0.0f : 1.0f;
 	MuteLevel = MuteFadeSeconds > 0.0f ? FMath::FInterpConstantTo(MuteLevel, Target, DeltaTime, 1.0f / MuteFadeSeconds) : Target;
+	SinceNearClap += FMath::Max(DeltaTime, 0.0f);
 
 	GatherInputs(Clock, View);
 	Outdoor = DreamWeatherAudio::Occlude(LastInputs.Occlusion, LastInputs.ListenerRight, Tuning.InteriorMinVolume, Tuning.MinCutoffHz);
@@ -289,13 +290,19 @@ UAudioComponent* UDreamWeatherAudioSubsystem::MakeComponent(USoundBase* Sound, c
 	return Component;
 }
 
-void UDreamWeatherAudioSubsystem::Apply(UAudioComponent* Component, const FDreamWeatherVoiceMix& Mix, float Gust, float Distance) const
+float UDreamWeatherAudioSubsystem::GetThunderDuck() const
+{
+	const UDreamWeatherAudioSettings* S = UDreamWeatherAudioSettings::Get();
+	return S->bThunderDucking ? DreamWeatherAudio::ThunderDuck(SinceNearClap, S->ThunderDuckDb, S->ThunderDuckSeconds) : 1.0f;
+}
+
+void UDreamWeatherAudioSubsystem::Apply(UAudioComponent* Component, const FDreamWeatherVoiceMix& Mix, float Gust, float Distance, float ExtraGain) const
 {
 	if (!Component)
 	{
 		return;
 	}
-	const float G = Gain();
+	const float G = Gain() * ExtraGain;
 	if (Cast<UMetaSoundSource>(Component->GetSound()))
 	{
 		Component->SetFloatParameter(LeftParam, Mix.Left * G);
@@ -317,6 +324,8 @@ void UDreamWeatherAudioSubsystem::Apply(UAudioComponent* Component, const FDream
 void UDreamWeatherAudioSubsystem::UpdateVoices(float DeltaTime)
 {
 	const float FadeOut = UDreamWeatherAudioSettings::Get()->FadeOutSeconds;
+	// A near clap ducks the wind and the rain for a moment.
+	const float Duck = GetThunderDuck();
 	const float Gust = FMath::Clamp((LastInputs.WindGust - 1.0f) / 0.8f, 0.0f, 1.0f);
 	const uint32 Seed = uint32(UDreamWorldSubsystem::Get(this) ? UDreamWorldSubsystem::Get(this)->GetSeed() : 0);
 	for (const EDreamWeatherVoice VoiceId : TEnumRange<EDreamWeatherVoice>())
@@ -336,7 +345,7 @@ void UDreamWeatherAudioSubsystem::UpdateVoices(float DeltaTime)
 			}
 			if (Component)
 			{
-				Apply(Component, Mix, Gust, 0.0f);
+				Apply(Component, Mix, Gust, 0.0f, Duck);
 				if (!Component->IsPlaying())
 				{
 					// A loop starts at a point of its own, so two voices of one recording do not phase.
@@ -346,7 +355,7 @@ void UDreamWeatherAudioSubsystem::UpdateVoices(float DeltaTime)
 		}
 		else if (Component)
 		{
-			Apply(Component, Mix, Gust, 0.0f);
+			Apply(Component, Mix, Gust, 0.0f, Duck);
 			Voice.Silent += DeltaTime;
 			if (Voice.Silent > FadeOut && Component->IsPlaying())
 			{
@@ -405,6 +414,10 @@ void UDreamWeatherAudioSubsystem::UpdateThunder(float DeltaTime)
 			Component->Play(0.0f);
 		}
 		++ThunderHeard;
+		if (Thunder.bNear)
+		{
+			SinceNearClap = 0.0f;
+		}
 		Pending.RemoveAt(i);
 	}
 }
