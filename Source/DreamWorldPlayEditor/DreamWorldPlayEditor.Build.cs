@@ -32,6 +32,7 @@ public class DreamWorldPlayEditor : ModuleRules
 			"DreamWind",
 			"DreamWeatherFX",
 			"MetasoundEngine",
+			"Niagara",
 			"MetasoundFrontend",
 			"MetasoundEditor",
 			"DreamWorldSequencer",
