@@ -323,10 +323,17 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	// The dust still in the air: the dust's own share of the blowing (the debris on its paths is not dust), its square
 	// root (fewer motes spawn as well, so the haze thins about as the weather does).
 	const float PresenceTarget = bFalling ? FMath::Sqrt(FMath::Clamp(Strength * DropShare, 0.0f, 1.0f)) : 0.0f;
+	const float WasPresent = State.Presence;
 	State.Presence = FMath::FInterpConstantTo(State.Presence, PresenceTarget, FMath::Max(DeltaTime, 0.0f), PresenceRate);
 	if (Effect && Index == DustLayer)
 	{
 		Effect->SetVariableFloat(Presence, State.Presence);
+		// Faded out: what is still flying goes at once (it would hang in the air as haze for the rest of its 20 s).
+		if (State.Presence <= 0.0f && WasPresent > 0.0f && State.bActivated)
+		{
+			Effect->DeactivateImmediate();
+			State.bActivated = false;
+		}
 	}
 
 	if (!bFalling)
