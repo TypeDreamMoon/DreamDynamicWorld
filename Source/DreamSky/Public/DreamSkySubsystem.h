@@ -160,6 +160,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetScreenFrost() const { return ScreenFrost; }
 
+	/**
+	 * How strongly hot air shimmers near the horizon, 0..1: the hotter (the style's HeatHaze), the higher the sun, the
+	 * clearer and drier the air, the stiller the wind. Kept whether or not the shimmer is drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetHeatHaze() const { return HeatHaze; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -244,6 +251,7 @@ private:
 	FDreamSkyLook Look;
 	float ScreenWetness = 0.0f;
 	float ScreenFrost = 0.0f;
+	float HeatHaze = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;

@@ -308,6 +308,43 @@ struct DREAMSKY_API FDreamSkyScreenFrost
 	float LingerSeconds = 90.0f;
 };
 
+/**
+ * The shimmer of hot air: what lies far off near the horizon wavers, rising, on a hot day in the sun -- more the hotter
+ * it is, the higher the sun, the clearer and drier the air; the wind stirs it away.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyHeatHaze
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze")
+	bool bEnabled = true;
+
+	/** How far it shifts the picture (1 = some 2.5 pixels at 1080p, at its strongest). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ClampMin = "0", UIMax = "4"))
+	float Intensity = 1.0f;
+
+	/** The air's temperature (degrees C) where it starts, and where it is as strong as it gets. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (UIMin = "0", UIMax = "50"))
+	float StartsAbove = 24.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (UIMin = "0", UIMax = "60"))
+	float FullAbove = 36.0f;
+
+	/** How far off (m) what wavers starts, and where it wavers fully. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ClampMin = "0", UIMax = "2000"))
+	float NearDistance = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ClampMin = "1", UIMax = "5000"))
+	float FullDistance = 400.0f;
+
+	/** How far (degrees) above and below the horizon it reaches. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ClampMin = "0.1", UIMax = "15"))
+	float BandDegrees = 2.5f;
+
+	/** How fast it shimmers. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ClampMin = "0", UIMax = "4"))
+	float Speed = 1.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -480,6 +517,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ShowOnlyInnerProperties))
 	FDreamSkyScreenFrost ScreenFrost;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ShowOnlyInnerProperties))
+	FDreamSkyHeatHaze HeatHaze;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

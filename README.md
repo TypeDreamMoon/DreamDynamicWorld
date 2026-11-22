@@ -211,7 +211,15 @@ or in the warm it melts over `MeltSeconds`, into drops on the lens when those ar
 of the clock shows it as it would be by then. How frosted it is, `UDreamSkySubsystem::GetScreenFrost`, is kept whether
 or not it is drawn. The style sets how thick (`Intensity`), the crystals' size (`CrystalSize`), how much it blurs
 (`Blur`) and bends (`Refraction`) the picture, and its `Tint`; `DreamSky.ScreenFrost <intensity>` draws it whatever the
-style says (-1 = the style's).
+style says (-1 = the style's). It costs some 0.2 ms at 1080p while thick, nothing while the lens is clear.
+
+**Heat haze.** On a hot day what lies far off near the horizon wavers, rising -- not on the lens but in the air, so the
+style's `HeatHaze` is on by default. It is drawn in the same pass from the scene's depth: within `BandDegrees` (2.5)
+of the horizon, from `NearDistance` (50 m) out to full at `FullDistance` (400 m), and locked to the world's directions,
+so it stands where it is as the view turns. How strong, `UDreamSkySubsystem::GetHeatHaze`, follows the air's
+temperature from `StartsAbove` (24 C) to full at `FullAbove` (36 C), the sun's height, a clear sky and dry air; the
+wind stirs it away. `Intensity` sets how far it shifts the picture (1 = some 2.5 pixels at 1080p), `Speed` how fast
+it shimmers; `DreamSky.HeatHaze <intensity>` draws it whatever the style says (-1 = the style's).
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's

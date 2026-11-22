@@ -465,4 +465,55 @@ bool FDreamSkyScreenFrostTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyHeatHazeTest, "DreamSky.HeatHaze", DreamSky::NightTests::Flags)
+bool FDreamSkyHeatHazeTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	auto Air = [](FNightWorld& W, float Temperature, float Coverage, float Rain, float Wind)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.Temperature = Temperature;
+		Env.CloudCoverage = Coverage;
+		Env.Precipitation = Rain;
+		Env.Wind = Wind;
+		W.Clock->SetEnvironment(Env);
+		W.Clock->Tick(0.016f);
+		return W.SkySubsystem->GetHeatHaze();
+	};
+	{
+		FNightWorld W(FDateTime(2026, 7, 20, 13, 0, 0), 35.68, 139.69, 9.0f);
+		if (!TestTrue(TEXT("summer noon world"), W.IsValid()))
+		{
+			return false;
+		}
+		TestTrue(TEXT("the air's own shimmer, drawn unless the project turns it off"), W.Sky->GetEffectiveStyle()->HeatHaze.bEnabled);
+		W.Clock->Tick(0.016f);
+		const float Hot = Air(W, 38.0f, 0.0f, 0.0f, 0.0f);
+		if (W.Clock->GetEnvironment().Temperature != 38.0f)
+		{
+			AddWarning(TEXT("the world's weather was set over the test's: the shimmer is not checked"));
+			return true;
+		}
+		TestTrue(FString::Printf(TEXT("a hot clear noon shimmers (%.3f)"), Hot), Hot > 0.9f);
+		TestEqual(TEXT("a mild day does not"), Air(W, 18.0f, 0.0f, 0.0f, 0.0f), 0.0f);
+		const float Warm = Air(W, 30.0f, 0.0f, 0.0f, 0.0f);
+		TestTrue(FString::Printf(TEXT("a warm one a little (%.3f)"), Warm), Warm > 0.1f && Warm < Hot);
+		TestTrue(TEXT("overcast stops it"), Air(W, 38.0f, 1.0f, 0.0f, 0.0f) < 0.01f);
+		TestTrue(TEXT("so does the rain"), Air(W, 38.0f, 0.3f, 1.0f, 0.0f) < 0.01f);
+		const float Windy = Air(W, 38.0f, 0.0f, 0.0f, 1.0f);
+		TestTrue(FString::Printf(TEXT("the wind stirs it away (%.3f)"), Windy), Windy < 0.6f * Hot);
+	}
+	{
+		FNightWorld W(FDateTime(2026, 7, 20, 23, 0, 0), 35.68, 139.69, 9.0f);
+		if (TestTrue(TEXT("summer night world"), W.IsValid()))
+		{
+			W.Clock->Tick(0.016f);
+			TestEqual(TEXT("no sun, no shimmer"), Air(W, 38.0f, 0.0f, 0.0f, 0.0f), 0.0f);
+		}
+	}
+	return true;
+}
+
 #endif

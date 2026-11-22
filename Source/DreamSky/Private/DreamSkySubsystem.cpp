@@ -253,6 +253,15 @@ void UDreamSkySubsystem::UpdateScreen(const UDreamWorldSubsystem& Clock, const U
 	const float Snow = Env.bActive ? FMath::Clamp(Env.Precipitation, 0.0f, 1.0f) * FMath::Clamp(Env.SnowRatio, 0.0f, 1.0f) : 0.0f;
 	const float FrostTarget = FMath::Clamp(Cold * Open * FMath::Min(2.0f * Snow, 1.0f) * (0.8f + 0.4f * Wind), 0.0f, 1.0f);
 	const float Thaw = FMath::Max(1.0f - Open, 1.0f - Cold);
+
+	// The hot air's shimmer follows the weather as it is (the temperature eases itself).
+	const FDreamSkyHeatHaze& Hz = Style.HeatHaze;
+	const float Hot = Env.bActive ? FMath::SmoothStep(Hz.StartsAbove, FMath::Max(Hz.FullAbove, Hz.StartsAbove + 0.1f), Env.Temperature) : 0.0f;
+	const float SunUp = FMath::SmoothStep(0.1f, 0.5f, float(Clock.GetCelestial().SunDirection.Z));
+	const float Clear = 1.0f - FMath::SmoothStep(0.4f, 0.9f, Env.CloudCoverage);
+	const float Dry = 1.0f - FMath::Clamp(Env.Precipitation, 0.0f, 1.0f);
+	HeatHaze = Hot * SunUp * Clear * Dry * (1.0f - 0.5f * Wind);
+
 	if (bAtOnce)
 	{
 		ScreenWetness = Target;

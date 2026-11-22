@@ -92,6 +92,11 @@ static TAutoConsoleVariable<float> CVarDreamSkyScreenFrost(
 	TEXT("The frost on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenFrost."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<float> CVarDreamSkyHeatHaze(
+	TEXT("DreamSky.HeatHaze"), -1.0f,
+	TEXT("The hot air's shimmer at this intensity whatever the style says (0 = none); -1 = the style's HeatHaze."),
+	ECVF_RenderThreadSafe);
+
 namespace DreamSkyCloudRender
 {
 	BEGIN_SHADER_PARAMETER_STRUCT(FCommonParameters, )
@@ -654,6 +659,20 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.Screen.bEnabled = true;
 			Settings.Screen.Frost = FVector4f(Frosted, FrostStrength, FMath::Max(Fr.CrystalSize, 0.25f), FMath::Max(Fr.Blur, 0.0f));
 			Settings.Screen.FrostTint = FVector4f(Fr.Tint.R, Fr.Tint.G, Fr.Tint.B, FMath::Max(Fr.Refraction, 0.0f));
+		}
+
+		// And the hot air's shimmer, on a hot day.
+		const FDreamSkyHeatHaze& Hz = Style->HeatHaze;
+		const float ForcedHaze = CVarDreamSkyHeatHaze.GetValueOnGameThread();
+		const float HazeStrength = ForcedHaze >= 0.0f ? ForcedHaze : (Hz.bEnabled ? FMath::Max(Hz.Intensity, 0.0f) : 0.0f);
+		const float Haze = Sky->GetHeatHaze() * HazeStrength;
+		if (Haze > 1.0e-3f)
+		{
+			Settings.Screen.bEnabled = true;
+			const float Near = FMath::Max(Hz.NearDistance, 0.0f) * 100.0f;
+			Settings.Screen.Haze = FVector4f(Haze, FMath::Sin(FMath::DegreesToRadians(FMath::Max(Hz.BandDegrees, 0.1f))), Near,
+				FMath::Max(Hz.FullDistance * 100.0f, Near + 100.0f));
+			Settings.Screen.HazeMotion = FVector4f(FMath::Max(Hz.Speed, 0.0f), 0.0f, 0.0f, 0.0f);
 		}
 	}
 
