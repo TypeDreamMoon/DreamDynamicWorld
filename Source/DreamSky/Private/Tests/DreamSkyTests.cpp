@@ -6,6 +6,7 @@
 #include "DreamSkySubsystem.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldParameters.h"
+#include "DreamWorldSettings.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
@@ -407,10 +408,14 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("shadowing clouds leave the sun as it is"), Shadowing.SunIlluminance, 10.0f, 1e-4f);
 	TestNearlyEqual(TEXT("and the main light with it"), Shadowing.MainLightIlluminance, 10.0f, 1e-4f);
 	TestNearlyEqual(TEXT("the moon casts no cloud shadow: still dimmed"), Shadowing.MoonIlluminance, Dome.MoonIlluminance, 1e-5f);
+	TestNearlyEqual(TEXT("what the shadow does not reach keeps the overcast's dimming"), Shadowing.SunOvercastScale, 1.0f - Style->OvercastLightDimming, 1e-4f);
+	TestNearlyEqual(TEXT("nothing more to take where the sun was dimmed"), Dome.SunOvercastScale, 1.0f, 1e-6f);
 	TestNearlyEqual(TEXT("exposure is the same either way"), Shadowing.ExposureEV100, Dome.ExposureEV100, 1e-5f);
 
-	// The sky's own clouds hide no sun from its light (they shade the ground through a light function): under an
-	// overcast the sky dims the sun itself.
+	// While the sky cloud renderer draws the clouds, their shadow takes the sun off the ground through the sun's light
+	// function: under an overcast the sun light is left whole (the same clouds are not counted twice) and only the shared
+	// parameters' main light -- the materials read no light function -- is dimmed. Without the renderer the sky dims the
+	// sun light itself.
 	DreamSky::Tests::FSkyWorld W;
 	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
 	{
@@ -429,16 +434,40 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 		W.Clock->Tick(0.016f);
 		return W.Sky->SunLight->Intensity;
 	};
+	auto MainLight = [&W]()
+	{
+		FLinearColor Value = FLinearColor::Transparent;
+		const UMaterialParameterCollection* Collection = Cast<UMaterialParameterCollection>(UDreamWorldSettings::Get()->ParameterCollection.TryLoad());
+		const UMaterialParameterCollectionInstance* Instance = Collection ? W.World->GetParameterCollectionInstance(Collection) : nullptr;
+		if (Instance)
+		{
+			Instance->GetVectorParameterValue(DreamSky::Names::MPC_MainLight, Value);
+		}
+		return Value.A;
+	};
 	const float Clear = SunUnder(0.0f);
+	const float ClearMain = MainLight();
 	const float Grey = SunUnder(1.0f);
+	const float GreyMain = MainLight();
 	if (!W.Clock->GetEnvironment().bActive || !FMath::IsNearlyEqual(W.Clock->GetEnvironment().CloudCoverage, 1.0f))
 	{
 		AddWarning(TEXT("the world's weather was set over the test's: the sky's dimming is not checked"));
 		return true;
 	}
 	TestTrue(FString::Printf(TEXT("a clear noon has a sun (%.2f lux)"), Clear), Clear > 1.0f);
-	TestNearlyEqual(FString::Printf(TEXT("an overcast dims the sky's sun (%.2f against %.2f lux)"), Grey, Clear), Grey,
-		Clear * (1.0f - Style->OvercastLightDimming), FMath::Max(1e-3f, Clear * 2e-3f));
+	const float Dimmed = Clear * (1.0f - Style->OvercastLightDimming);
+	if (W.Sky->DrawsClouds())
+	{
+		TestNearlyEqual(FString::Printf(TEXT("the renderer's shadow shades the ground: the sun light left whole (%.2f against %.2f lux)"), Grey, Clear), Grey,
+			Clear, FMath::Max(1e-3f, Clear * 2e-3f));
+	}
+	else
+	{
+		TestNearlyEqual(FString::Printf(TEXT("no clouds' shadow: the overcast dims the sun light (%.2f against %.2f lux)"), Grey, Clear), Grey,
+			Dimmed, FMath::Max(1e-3f, Clear * 2e-3f));
+	}
+	TestNearlyEqual(FString::Printf(TEXT("the materials' main light dimmed either way (%.2f against %.2f lux)"), GreyMain, ClearMain), GreyMain,
+		ClearMain * (1.0f - Style->OvercastLightDimming), FMath::Max(1e-3f, ClearMain * 2e-3f));
 
 	return true;
 }

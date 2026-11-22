@@ -104,6 +104,7 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 	if (bOverride_LightPollution) { K.LightPollution = Toward(K.LightPollution, FMath::Max(LightPollution, 0.0f)); }
 	if (bOverride_Airglow) { K.AirglowScale = Scale(K.AirglowScale, Airglow); }
 	if (bOverride_LightShafts) { K.LightShafts = Scale(K.LightShafts, LightShafts); }
+	if (bOverride_LensFlare) { K.LensFlare = Scale(K.LensFlare, LensFlare); }
 	if (bOverride_SolarEclipse) { K.SolarEclipse = Toward(K.SolarEclipse, FMath::Clamp(SolarEclipse, 0.0f, 1.0f)); }
 	if (bOverride_LunarEclipse) { K.LunarEclipse = Toward(K.LunarEclipse, FMath::Clamp(LunarEclipse, 0.0f, 1.0f)); }
 

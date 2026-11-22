@@ -6,6 +6,8 @@
 #include "RenderGraphResources.h"
 #include "SceneViewExtension.h"
 #include "ScreenPass.h"
+#include "DreamSkyLensFlare.h"
+#include "DreamSkyScreen.h"
 
 class FTextureResource;
 struct FDreamSkyCloudLookParameters;
@@ -66,6 +68,10 @@ private:
 		/** The light shafts (DreamSkyCloudRender.usf's SH_*); drawn while bShafts. */
 		bool bShafts = false;
 		FVector4f Shafts[2];
+		/** The sun's lens flare (drawn whether or not the clouds are). */
+		DreamSky::LensFlare::FSettings Flare;
+		/** What the weather leaves on the lens (drawn whether or not the clouds are). */
+		DreamSky::Screen::FSettings Screen;
 	};
 
 	/** A view's clouds of the frame before (render thread only). */
@@ -100,6 +106,10 @@ private:
 
 	FScreenPassTexture CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	/** The light shafts below the clouds, over the scene before the post processing (and before the clouds below). */
+	/** The sun's lens flare, over the scene after the depth of field. */
+	/** The drops on the lens, over the finished picture (after the upscale). */
+	FScreenPassTexture DrawScreen(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
+	FScreenPassTexture DrawLensFlare(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	FScreenPassTexture DrawLightShafts(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	void UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap, FRDGTextureRef WeatherMap,
 		FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon);

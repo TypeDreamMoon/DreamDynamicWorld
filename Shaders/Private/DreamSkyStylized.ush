@@ -152,14 +152,22 @@ float DSky_Eclipse(float3 V, float3 Sun, float RadiusDeg, float4 Eclipse, float3
 	float ToMoon = length(UV - Eclipse.yz);
 	float Aa = max(fwidth(ToMoon), 1.0e-4);
 	float Moon = 1.0 - smoothstep(1.03 - Aa, 1.03 + Aa, ToMoon);
+	// The corona: a bright inner ring falling off fast, and streamers of uneven length reaching two or three sun radii,
+	// finely combed along their way out (read round a circle, so no seam where the angle wraps).
 	float R = length(UV);
-	float Streamers = 0.65 + 0.35 * DSky_ValueNoise(float2(atan2(UV.y, UV.x) * 2.5 + 7.0, 3.3));
-	Corona = DiskColor * Eclipse.w * exp(-max(R - 1.0, 0.0) * 1.4 / Streamers) * (1.0 - Moon);
+	float2 Round = UV / max(R, 1.0e-4);
+	float Long = DSky_ValueNoise(Round * 1.6 + float2(7.0, 3.3));
+	float Comb = DSky_ValueNoise(Round * 7.0 + float2(1.7, 9.1));
+	float Reach = 0.25 + 1.9 * Long * Long * Long;
+	float Out = max(R - 1.0, 0.0);
+	float Glow = 0.55 * exp(-Out * 6.0) + 0.45 * exp(-Out / Reach) * lerp(0.55, 1.0, Comb);
+	Corona = DiskColor * float3(1.0, 0.97, 0.92) * Eclipse.w * Glow * (1.0 - Moon);
 	return 1.0 - Moon;
 }
 
-// Points on a jittered 3D lattice the dome cuts through; Rotation turns them about the vertical (0..1 = a turn).
-float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float Seconds)
+// Points on a jittered 3D lattice the dome cuts through; Rotation turns them about the vertical (0..1 = a turn); Hidden:
+// the share of them, the dimmest first, left out.
+float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float Seconds, float Hidden)
 {
 	if (V.z <= 0.0 || Density <= 0.0)
 	{
@@ -182,7 +190,7 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 	float Radius = max(Size, 0.7 * Pixel);
 	float Point = (1.0 - smoothstep(Radius - 0.5 * Pixel, Radius + 0.5 * Pixel, Dist)) * (Size / Radius);
 	float Flicker = 1.0 - Twinkle * 0.5 * (1.0 + sin(Seconds * (1.5 + 3.0 * R.z) + R.y * 40.0));
-	return Present * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
+	return Present * step(Hidden, R.z) * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
 }
 
 // The aurora: curtains of light along the magnetic latitude, from some 95 km up (their sharp lower edge, where a band
@@ -1052,7 +1060,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
 	// The sky light sees no stars, and only a share of the sun disk (a full disk makes a hot spot in the
 	// captured light that every rough surface would reflect).
-	Sky += Stars.x * DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds) * (1.0 - MoonCover) * Clear * (1.0 - Capture);
+	Sky += Stars.x * DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds, Stars.w) * (1.0 - MoonCover) * Clear * (1.0 - Capture);
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);
 	// (In an eclipse the moon's disk masks the sun's; the corona shows round it at totality.)

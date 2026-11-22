@@ -228,6 +228,15 @@ struct DREAMSKY_API FDreamSkyLighting
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	bool bMainLightIsMoon = false;
 
+	/**
+	 * What an overcast leaves of the sun for whatever the clouds' own shadow does not reach -- the shared parameters'
+	 * main light (materials, toon characters), which reads no light function. 1 when the sun's light itself was dimmed
+	 * for the overcast; below 1 while the sky cloud renderer's shadow takes the sun off the ground instead (the sun light
+	 * is then left whole, so the same clouds do not darken it twice).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky")
+	float SunOvercastScale = 1.0f;
+
 	/** Toward the sun / the moon light as the directional lights point (the moon light may stand in when the moon is down). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	FVector SunLightDirection = FVector::UpVector;
@@ -306,6 +315,10 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor CloudLit = FLinearColor::White;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor CloudShadow = FLinearColor::Gray;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float StarIntensity = 0.0f;
+	/** The share of the stars, the dimmest first, left out (a total eclipse shows only the brightest). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float StarsHidden = 0.0f;
+	/** The sky gradient's horizon exponent (the style's HorizonExponent; smaller keeps the horizon colour lower). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float HorizonExponent = 0.45f;
 	/** Cloud cover where the view is (the style's own, or the weather's). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudCoverage = 0.0f;
 	/** How dark the clouds are (storm), 0..1. */
@@ -320,6 +333,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float AirglowScale = 1.0f;
 	/** How bright the light shafts below the clouds are drawn (the style's LightShafts.Intensity, a modifier's scale on it). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightShafts = 0.0f;
+	/** How bright the sun's lens flare is drawn (the style's LensFlare.Intensity, a modifier's scale on it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LensFlare = 0.0f;
 	/** How much of the sun's disk the moon covers, 0..1, and where the moon's centre stands on it (sun radii, DreamSky::Eclipse). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SolarEclipse = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D SolarEclipseOffset = FVector2D(1000.0, 0.0);

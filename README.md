@@ -63,7 +63,14 @@ process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamS
 shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
-jumps) or with eye adaptation held around it. An overcast dims the sun and the moon (`OvercastLightDimming`).
+jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
+where the clouds' own shadow does not reach: the sun light is left whole while the sky cloud renderer's shadow takes it
+off the ground, so the same clouds do not darken it twice, but the shared parameters' main light (`DDW_MainLight`,
+which materials and toon characters read without the light function) is dimmed as before. Translucent materials
+lit by the engine's sun light see no light function either (forward-shaded translucency does not sample it), so
+under an overcast they get the whole sun: a project's translucent material that should darken with the weather can
+use an unlit or custom-lit model and light itself from `DDW_MainLight` (direction in rgb, illuminance in a, already
+dimmed for the overcast) and `DDW_MainLightColor` instead.
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
@@ -150,9 +157,12 @@ by a volume over a town, say) and its *Airglow* scales the glow; `DreamSky.Modif
 
 **Eclipses.** In the realistic celestial mode the sky has its eclipses where the sun and the moon line up
 (`Eclipse.bFromSunAndMoon`; the maths in `DreamSkyEclipse.h`). In a solar eclipse the dome draws the moon's disk over
-the sun's at their true places (scaled to the drawn disks), the sun's light goes with the covered share of its
-disk, and near totality the sky and its light darken (never quite all: the horizon stays a twilight), the stars
-come out and the corona shows (`Eclipse.Corona`). In a lunar eclipse the earth's umbra crosses the moon at its
+the sun's at their true places (scaled to the drawn disks) and the sun's light goes with the covered share of its
+disk. The sky, its light and the exposure hold, as the eye makes up for the failing light, until most of the disk is
+gone (`Eclipse.DarkensFrom`, 80 %); toward totality they go to a deep blue twilight, the style's own with the sun
+`Eclipse.TotalityTwilight` under the horizon, while the horizon all round glows orange (`Eclipse.TotalityRing`: the
+far air outside the moon's shadow, still in the sun), only the brightest stars come out (`Eclipse.TotalityStars`) and
+the corona shows, streamers of uneven length reaching two or three sun radii (`Eclipse.Corona`). In a lunar eclipse the earth's umbra crosses the moon at its
 true place, turning it a dark copper, and the moon's light fails to `Eclipse.BloodMoonLight` of itself. A sky
 modifier's *Solar Eclipse* or *Lunar Eclipse* sets one by its coverage in any mode (`DreamSky.Modifier.Add Eclipse`,
 `BloodMoon`). Nothing is drawn, and nothing costs, without one.
@@ -169,6 +179,28 @@ breaks (`CoverStart` to `CoverFull`: a clear sky casts none) and go with the sun
 nothing builds up over frames: a cinematic frame or a cut shows them as they are. `DreamSky.LightShafts` multiplies
 them (0 leaves them out); `DreamSky.LightShafts.Debug 1` shows in grey how much of the sun the air along each ray
 gets. They cost some 0.04 ms at 1080p, nothing under a clear sky or with the sun down.
+
+**Lens flare.** With the sun in view the sky draws its lens flare over the scene after the depth of field, in one of
+the style's `LensFlare.Preset`s: *Natural* (a soft glow, a faint ring and ghosts of a few colours along the line from
+the sun through the middle of the view), *Anamorphic* (a long blue streak across the sun) or *Stylized* (flat hexagons
+and a crisp ring, for the toon and painted looks); *None*, the default, draws none -- a lens flare is the project's
+choice to turn on. It is as bright as the sun shows on screen over
+`LensFlare.Threshold` (1 = white), times `Intensity`, in the sun's own colour times `Tint`: the brightness is measured
+from the frame itself over the sun's disk, so clouds drifting over the sun, a wall in front of it or an eclipse weaken
+it or take it away, and it fades as the sun leaves the view. Nothing builds up over frames. A sky modifier's *Lens
+Flare* scales it; `DreamSky.LensFlare` multiplies it (0 = none) and `DreamSky.LensFlare.Preset` forces a preset. It
+costs some 0.03 ms at 1080p, whatever draws the clouds.
+
+**Rain on the lens.** With the style's `ScreenDroplets.bEnabled` (off by default: a lens effect is the project's
+choice) rain drops gather on the camera's lens over the finished picture, after the upscale: beads in two sizes, each
+bending the picture behind it like a small lens, living a while and drying off, and drops running down once the screen
+is wet through. The lens gets wet while the view is out in the rain (not the snow) facing into it -- looking up catches
+more than looking down, wind more still -- and dries off under a roof, indoors (the view probe) or once the rain stops,
+over `WetSeconds` and `DrySeconds`; a cinematic frame or a jump of the clock shows it as it would be by then. How wet it
+is, `UDreamSkySubsystem::GetScreenWetness`, is kept whether or not the drops are drawn, for a game's own use. The style
+sets how many (`Intensity`), how big (`DropSize`) and how far they bend the picture (`Refraction`);
+`DreamSky.ScreenDroplets <intensity>` draws them whatever the style says (-1 = the style's). They cost some 0.05 ms at
+1080p while the lens is wet, nothing while it is dry.
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's

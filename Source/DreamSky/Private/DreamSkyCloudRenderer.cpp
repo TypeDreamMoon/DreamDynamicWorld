@@ -72,6 +72,21 @@ static TAutoConsoleVariable<int32> CVarDreamSkyLightShaftSamples(
 	TEXT("How many samples of the air below the clouds a ray of the light shafts takes (4..128)."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<float> CVarDreamSkyLensFlare(
+	TEXT("DreamSky.LensFlare"), 1.0f,
+	TEXT("Multiplies how bright the sun's lens flare is drawn (the style's LensFlare); 0 = none."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarDreamSkyLensFlarePreset(
+	TEXT("DreamSky.LensFlare.Preset"), -1,
+	TEXT("The sun's lens flare as this preset whatever the style says: 0 none, 1 natural, 2 anamorphic, 3 stylized; -1 = the style's."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<float> CVarDreamSkyScreenDroplets(
+	TEXT("DreamSky.ScreenDroplets"), -1.0f,
+	TEXT("The rain drops on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenDroplets."),
+	ECVF_RenderThreadSafe);
+
 namespace DreamSkyCloudRender
 {
 	BEGIN_SHADER_PARAMETER_STRUCT(FCommonParameters, )
@@ -597,6 +612,34 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		}
 	}
 
+	// The sun's lens flare: whatever draws the clouds.
+	if (const UDreamSkyStyle* Style = Actor ? Actor->GetEffectiveStyle() : nullptr)
+	{
+		const FDreamSkyLensFlare& F = Style->LensFlare;
+		const int32 Forced = CVarDreamSkyLensFlarePreset.GetValueOnGameThread();
+		const EDreamSkyLensFlarePreset Preset = Forced >= 0 ? EDreamSkyLensFlarePreset(FMath::Min(Forced, 3)) : F.Preset;
+		const float Strength = FMath::Max(CVarDreamSkyLensFlare.GetValueOnGameThread(), 0.0f) * FMath::Max(Sky->GetLook().LensFlare, 0.0f);
+		if (Clock && Preset != EDreamSkyLensFlarePreset::None && Strength > 0.0f)
+		{
+			const FVector Sun = Clock->GetCelestial().SunDirection;
+			Settings.Flare.bEnabled = Sun.Z > -0.05;
+			Settings.Flare.SunDirection = FVector4f(float(Sun.X), float(Sun.Y), float(Sun.Z), FMath::DegreesToRadians(FMath::Max(Style->SunDiskSize, 0.05f)));
+			Settings.Flare.Flare = FVector4f(Strength, FMath::Max(F.Threshold, 0.0f), float(uint8(Preset)), 0.0f);
+			Settings.Flare.Tint = FVector4f(F.Tint.R, F.Tint.G, F.Tint.B, 1.0f);
+		}
+
+		// The drops on the lens, while it is wet.
+		const FDreamSkyScreenDroplets& D = Style->ScreenDroplets;
+		const float ForcedDrops = CVarDreamSkyScreenDroplets.GetValueOnGameThread();
+		const float Drops = ForcedDrops >= 0.0f ? ForcedDrops : (D.bEnabled ? FMath::Max(D.Intensity, 0.0f) : 0.0f);
+		const float Wet = Sky->GetScreenWetness();
+		if (Drops > 0.0f && Wet > 1.0e-3f)
+		{
+			Settings.Screen.bEnabled = true;
+			Settings.Screen.Screen = FVector4f(Wet, Drops, FMath::Max(D.DropSize, 0.25f), FMath::Max(D.Refraction, 0.0f));
+		}
+	}
+
 	TSharedRef<FDreamSkyCloudViewExtension, ESPMode::ThreadSafe> Self = StaticCastSharedRef<FDreamSkyCloudViewExtension>(AsShared());
 	ENQUEUE_RENDER_COMMAND(DreamSkyCloudSettings)([Self, Settings](FRHICommandListImmediate&)
 		{
@@ -975,6 +1018,14 @@ bool FDreamSkyCloudViewExtension::IsOverCloudBase(const FSceneView& InView) cons
 
 void FDreamSkyCloudViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
 {
+	if (Pass == EPostProcessingPass::MotionBlur && RenderSettings.Screen.bEnabled)
+	{
+		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::DrawScreen));
+	}
+	if (Pass == EPostProcessingPass::AfterDOF && RenderSettings.Flare.bEnabled && InView.IsPerspectiveProjection())
+	{
+		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::DrawLensFlare));
+	}
 	if (Pass != EPostProcessingPass::BeforeDOF)
 	{
 		return;
@@ -988,6 +1039,18 @@ void FDreamSkyCloudViewExtension::SubscribeToPostProcessingPass(EPostProcessingP
 	{
 		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::CompositeBelow));
 	}
+}
+
+FScreenPassTexture FDreamSkyCloudViewExtension::DrawScreen(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)
+{
+	return DreamSky::Screen::AddPasses(GraphBuilder, InView, Inputs, RenderSettings.Screen);
+}
+
+FScreenPassTexture FDreamSkyCloudViewExtension::DrawLensFlare(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)
+{
+	FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
+	DreamSky::LensFlare::AddPasses(GraphBuilder, InView, SceneColor, RenderSettings.Flare);
+	return SceneColor;
 }
 
 FScreenPassTexture FDreamSkyCloudViewExtension::DrawLightShafts(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)

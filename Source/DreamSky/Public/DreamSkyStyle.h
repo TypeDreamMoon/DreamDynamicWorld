@@ -113,9 +113,31 @@ struct DREAMSKY_API FDreamSkyEclipse
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse")
 	bool bFromSunAndMoon = true;
 
-	/** How bright the corona is at totality, as a share of the sun disk's brightness. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.05"))
-	float Corona = 0.008f;
+	/** How bright the corona is at totality, as a share of the sun disk's brightness at its rim. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.2"))
+	float Corona = 0.05f;
+
+	/** How much of the sun's disk is covered before the sky and the exposure darken (the eye makes up for the sun's
+	 * failing light until then); the sun's light itself goes with the covered share all the way. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "0.99"))
+	float DarkensFrom = 0.8f;
+
+	/** At totality the sky, its light and the exposure are as the style has them with the sun this far (degrees) under the
+	 * horizon: a deep blue twilight. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "-18", ClampMax = "0"))
+	float TotalityTwilight = -5.0f;
+
+	/** The horizon all round at totality: the far air outside the moon's shadow, still in the sun, glowing orange. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (HideAlphaChannel))
+	FLinearColor TotalityRing = FLinearColor(0.60f, 0.34f, 0.12f, 1.0f);
+
+	/** How low the ring keeps to the horizon: the sky gradient's horizon exponent at totality (smaller: a thinner ring). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float TotalityRingExponent = 0.12f;
+
+	/** The share of the stars that come out at totality: the brightest only. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))
+	float TotalityStars = 0.04f;
 
 	/** How much of the moon's light is left at the middle of a total lunar eclipse. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))
@@ -170,6 +192,77 @@ struct DREAMSKY_API FDreamSkyLightShafts
 	float CoverFull = 0.35f;
 };
 
+/** The lens flare's look (FDreamSkyLensFlare). */
+UENUM(BlueprintType)
+enum class EDreamSkyLensFlarePreset : uint8
+{
+	None,
+	/** A soft glow about the sun, a faint ring, ghosts of a few colours across the view. */
+	Natural,
+	/** A long blue streak across the sun, oval ghosts stretched with it. */
+	Anamorphic,
+	/** Flat hexagons in a few clean tones and a crisp ring (for the toon and painted looks). */
+	Stylized,
+};
+
+/**
+ * The sun's lens flare, over the scene after the depth of field: as bright as the sun shows on screen over the
+ * threshold -- measured from the frame itself, so the clouds, a wall or an eclipse in front of the sun weaken it, and
+ * it is gone with the sun out of view.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyLensFlare
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare")
+	EDreamSkyLensFlarePreset Preset = EDreamSkyLensFlarePreset::None;
+
+	/** How bright the flare is drawn for the sun's brightness over the threshold. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ClampMin = "0", UIMax = "8"))
+	float Intensity = 1.0f;
+
+	/** How bright the sun has to show on screen before it flares (1 = white on screen). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ClampMin = "0", UIMax = "10"))
+	float Threshold = 1.0f;
+
+	/** Over the sun's own colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (HideAlphaChannel))
+	FLinearColor Tint = FLinearColor::White;
+};
+
+/**
+ * Rain drops on the camera's lens, over the finished picture: they gather while the view is out in the rain facing
+ * into it (looking up catches more than looking down; a roof overhead or a room keeps them off) and dry off indoors
+ * or once the rain stops. A lens effect, so off unless the project turns it on.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyScreenDroplets
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets")
+	bool bEnabled = false;
+
+	/** How many drops a wet screen holds (1 = as the rain gives). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 1.0f;
+
+	/** How big the drops are drawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0.25", UIMax = "3"))
+	float DropSize = 1.0f;
+
+	/** How far a drop bends the picture behind it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "3"))
+	float Refraction = 1.0f;
+
+	/** How fast (s) the screen gets wet out in the rain, and dries off out of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "30"))
+	float WetSeconds = 4.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "60"))
+	float DrySeconds = 12.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -199,6 +292,8 @@ public:
 	 * engine's volumetric clouds do), so an overcast sky does not dim the sun as well (OvercastLightDimming still dims the
 	 * moon). The sky's own clouds do not: Dream Sky leaves it false.
 	 */
+	/** bCloudsShadowTheSun: the clouds' own shadow takes the sun off the ground (the sky cloud renderer's light function):
+	 * the sun light is left whole and the overcast's dimming goes to Lighting.SunOvercastScale instead. */
 	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
 
 	/** What being indoors does to the lighting (FDreamViewOcclusion from the view probe). */
@@ -331,6 +426,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ShowOnlyInnerProperties))
 	FDreamSkyLightShafts LightShafts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ShowOnlyInnerProperties))
+	FDreamSkyLensFlare LensFlare;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ShowOnlyInnerProperties))
+	FDreamSkyScreenDroplets ScreenDroplets;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
