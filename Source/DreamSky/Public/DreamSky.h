@@ -7,6 +7,7 @@
 #include "DreamWorldTypes.h"
 #include "DreamSkyTypes.h"
 #include "DreamSkyOverrides.h"
+#include "DreamSkyConditions.h"
 #include "DreamSky.generated.h"
 
 class UDirectionalLightComponent;
@@ -18,6 +19,7 @@ class UPostProcessComponent;
 class USkyLightComponent;
 class UStaticMeshComponent;
 class UDreamSkyStyle;
+class UDreamSkySubsystem;
 
 /**
  * The sky of a level: drop one in (and remove the level's own directional lights, sky light and height fog).
@@ -111,6 +113,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Exposure", meta = (ShowOnlyInnerProperties))
 	FDreamSkyExposureOverrides ExposureOverrides;
 
+	/**
+	 * Post processes the sky blends in by the hour, the weather and whether the view is indoors (a cold grade on snowy
+	 * nights, a warm one at dusk, a bloom in the fog): each weighted by how far its condition holds.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post Process")
+	TArray<FDreamSkyConditionalPostProcess> PostProcesses;
+
+	/**
+	 * Sky modifiers the sky holds at the strength their condition holds to (a moonlit night's blue at night, a heavier
+	 * gloom in a storm). Leave a modifier listed here to the sky: added or removed from code as well, the two fight.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Modifiers")
+	TArray<FDreamSkyConditionalModifier> ConditionalModifiers;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SkyDome;
 
@@ -176,6 +192,18 @@ public:
 	void RecaptureSkyLight();
 
 	/**
+	 * Weighs the conditional post processes and modifiers for the frame: Hours is the time of day, the weather and the
+	 * view occlusion are the clock's. Each weight follows its condition over its BlendSeconds (at once on a snap); the
+	 * modifiers' go to Subsystem's stack. Game thread, each frame (UDreamSkySubsystem).
+	 */
+	void UpdateConditions(UDreamSkySubsystem& Subsystem, float Hours, const FDreamWorldEnvironment& Environment, const FDreamViewOcclusion& View,
+		float DeltaTime, bool bSnap);
+
+	/** How much a conditional post process (an index into PostProcesses) is blended in now. */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetPostProcessWeight(int32 Index) const;
+
+	/**
 	 * The sky cloud renderer's clouds on the ground: while it draws the clouds (DrawsClouds) the sun light
 	 * takes a light function (M_DreamCloudShadow) that reads the clouds' transmittance toward the sun from a texture the
 	 * renderer writes round the view; otherwise the light function is taken off again. Game thread, each frame.
@@ -229,6 +257,12 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudShadowFunction;
 	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+
+	/** The conditional post processes' components and weights (UpdateConditions), and the conditional modifiers' weights. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UPostProcessComponent>> ConditionalPostProcessComponents;
+	TArray<float> ConditionalPostProcessWeights;
+	TArray<float> ConditionalModifierWeights;
 
 	/** Why the clouds are not drawn (DreamSky::Actor::ECloudsOff; none while they are), and what was said last. */
 	uint8 WhyNoClouds() const;

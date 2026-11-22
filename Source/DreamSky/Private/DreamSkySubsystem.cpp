@@ -180,8 +180,10 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).
 	Sky->ApplyLightingOverrides(Target);
 
-	// Ease while the clock runs; snap on jumps (scrubbing, set time, snapshots) and while it stands still.
-	const bool bSnap = !bHasApplied || Clock.GetTimeJumpSerial() != LastJumpSerial || !Clock.IsClockRunning() || Style->LightResponseTime <= 0.0f;
+	// Ease while the clock runs; snap on jumps (scrubbing, set time, snapshots; every frame in cinematic updates) and while
+	// it stands still.
+	const bool bJumped = !bHasApplied || Clock.GetTimeJumpSerial() != LastJumpSerial;
+	const bool bSnap = bJumped || !Clock.IsClockRunning() || Style->LightResponseTime <= 0.0f;
 	LastJumpSerial = Clock.GetTimeJumpSerial();
 	if (bSnap)
 	{
@@ -194,9 +196,12 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	bHasApplied = true;
 
-	// The sky modifiers over the eased lighting (they fade in and out themselves), the weather's among them.
+	// The sky modifiers over the eased lighting (they fade in and out themselves), the weather's and those the sky holds by
+	// a condition among them; and the sky's conditional post processes. (Those follow their conditions with the clock
+	// stopped as well: a door walked through still fades; a jump of the clock cuts them.)
 	++UpdateSerial;
 	TakeWeatherModifiers(Clock.GetEnvironment());
+	Sky->UpdateConditions(*this, Clock.GetTimeOfDay(), Clock.GetEnvironment(), Clock.GetViewOcclusion(), DeltaTime, bJumped);
 	Applied = Eased;
 	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
 	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
