@@ -371,7 +371,13 @@ float UDreamWeatherSubsystem::TemperatureFor(const FVector& Position, float Offs
 	const double Seasonal = -FMath::Cos(2.0 * UE_DOUBLE_PI * (Date.GetDayOfYear() - 15) / 365.25) * (bSouth ? -1.0 : 1.0);
 	const double Diurnal = FMath::Cos(2.0 * UE_DOUBLE_PI * (Hours - S->WarmestHour) / 24.0);
 	const double Height = (Position.Z - S->BaseHeight) / 10000.0;
-	return float(S->MeanTemperature + S->SeasonalAmplitude * Seasonal + S->DiurnalAmplitude * Diurnal * (1.0 - 0.6 * Coverage)
+	// A climate selector brings its own means and swings.
+	float Mean = S->MeanTemperature, SeasonalAmplitude = S->SeasonalAmplitude, DiurnalAmplitude = S->DiurnalAmplitude;
+	if (const UDreamWeatherSelector* Selector = GetSelector())
+	{
+		Selector->GetClimateTemperature(Mean, SeasonalAmplitude, DiurnalAmplitude);
+	}
+	return float(Mean + SeasonalAmplitude * Seasonal + DiurnalAmplitude * Diurnal * (1.0 - 0.6 * Coverage)
 		- S->LapseRatePer100m * Height + Offset);
 }
 
