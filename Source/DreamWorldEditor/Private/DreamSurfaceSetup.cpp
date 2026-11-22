@@ -13,6 +13,7 @@
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherZone.h"
+#include "Components/SplineComponent.h"
 #include "DreamWindEditorLibrary.h"
 #include "DreamWindGlobalActor.h"
 #include "DreamWindPassThroughComponent.h"
@@ -424,10 +425,18 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 0.0, 102.5), FVector(0.1, 0.4, 0.35), FRotator::ZeroRotator, TEXT("WindowStand"));
 	}
 
-	// Far ahead right: a snow zone; its border lies on the ground.
-	ADreamWeatherZone* SnowZone = World->SpawnActor<ADreamWeatherZone>(FVector(5200.0, -2600.0, 0.0), FRotator::ZeroRotator);
-	SnowZone->Zone->Shape = EDreamWeatherZoneShape::Circle;
-	SnowZone->Zone->Extent = FVector2D(1600.0, 1600.0);
+	// Far ahead right: a snow zone of no regular shape, a bay cut into the side facing the camera; its border lies on
+	// the ground.
+	ADreamWeatherOutlineZone* SnowZone = World->SpawnActor<ADreamWeatherOutlineZone>(FVector(5200.0, -2600.0, 0.0), FRotator::ZeroRotator);
+	SnowZone->Outline->ClearSplinePoints(false);
+	for (const FVector& P : { FVector(1900.0, -300.0, 0.0), FVector(1300.0, 1100.0, 0.0), FVector(200.0, 1400.0, 0.0), FVector(-150.0, 450.0, 0.0),
+		FVector(-1000.0, 1500.0, 0.0), FVector(-1800.0, 400.0, 0.0), FVector(-1300.0, -1300.0, 0.0), FVector(300.0, -1800.0, 0.0) })
+	{
+		SnowZone->Outline->AddSplinePoint(P, ESplineCoordinateSpace::Local, false);
+	}
+	SnowZone->Outline->UpdateSpline();
+	SnowZone->OutlineSpacing = 200.0f;
+	SnowZone->UpdateFootprint();
 	SnowZone->Zone->BlendDistance = 500.0f;
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudCoverage, 1.0f);
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_Precipitation, 0.6f);
