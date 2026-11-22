@@ -93,6 +93,19 @@ void SkyCS(uint3 Id : SV_DispatchThreadID)
 	OutSky[Id] = float4(L, 1.0f);
 }
 
+// The whole sky table laid out as a 2D atlas, its depth slices stacked downward (W x H*D): one read back for the CPU's copy.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void SkyAtlasCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (int(Id.x) >= SkySize.x || int(Id.y) >= SkySize.y * SkySize.z)
+	{
+		return;
+	}
+	int Z = int(Id.y) / SkySize.y;
+	int Y = int(Id.y) - Z * SkySize.y;
+	OutSlice[Id.xy] = SkyLut.Load(int4(Id.x, Y, Z, 0));
+}
+
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void SkySliceCS(uint3 Id : SV_DispatchThreadID)
 {

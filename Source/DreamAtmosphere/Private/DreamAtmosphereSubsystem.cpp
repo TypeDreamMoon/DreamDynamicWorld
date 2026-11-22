@@ -2,6 +2,7 @@
 
 #include "DreamAtmosphereSubsystem.h"
 #include "DreamAtmosphereAerial.h"
+#include "DreamAtmosphereModule.h"
 #include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereTables.h"
 #include "DreamAtmosphereViewExtension.h"
@@ -60,12 +61,43 @@ void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
 		Tables->Build(Parameters);
 		++BuildCount;
 	}
+	UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	const FDreamCelestialState Celestial = Clock ? Clock->GetCelestial() : FDreamCelestialState();
 	if (ViewExtension)
 	{
-		const UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
-		const FDreamCelestialState Celestial = Clock ? Clock->GetCelestial() : FDreamCelestialState();
 		ViewExtension->SetFrame_GameThread(DreamAtmosphere::Aerial::MakeFrame(Tables, Celestial.SunDirection, Celestial.MoonDirection, Celestial.MoonIllumination));
 	}
+	if (Clock)
+	{
+		using namespace DreamAtmosphere::Names;
+		const FLinearColor Sun = GetSunLight();
+		const FLinearColor Moon = GetMoonLight();
+		Clock->SetVectorParameter(MPC_AtmosphereSun, FLinearColor(Sun.R, Sun.G, Sun.B, IsSkyReady() ? 1.0f : 0.0f));
+		Clock->SetVectorParameter(MPC_AtmosphereMoon, FLinearColor(Moon.R, Moon.G, Moon.B, 0.0f));
+	}
+}
+
+FLinearColor UDreamAtmosphereSubsystem::GetSunLight() const
+{
+	const UDreamAtmosphereSettings* S = UDreamAtmosphereSettings::Get();
+	FLinearColor C = S->SunColor * FMath::Max(S->SunIlluminance, 0.0f);
+	C.A = 1.0f;
+	return C;
+}
+
+FLinearColor UDreamAtmosphereSubsystem::GetMoonLight() const
+{
+	const UDreamAtmosphereSettings* S = UDreamAtmosphereSettings::Get();
+	const UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	const float Phase = Clock ? FMath::Clamp(Clock->GetCelestial().MoonIllumination, 0.0f, 1.0f) : 1.0f;
+	FLinearColor C = S->MoonColor * (FMath::Max(S->MoonIlluminance, 0.0f) * Phase);
+	C.A = 1.0f;
+	return C;
+}
+
+bool UDreamAtmosphereSubsystem::IsSkyReady() const
+{
+	return Tables && Tables->IsBuiltFor(Parameters) && Tables->HasCpuSky();
 }
 
 TStatId UDreamAtmosphereSubsystem::GetStatId() const

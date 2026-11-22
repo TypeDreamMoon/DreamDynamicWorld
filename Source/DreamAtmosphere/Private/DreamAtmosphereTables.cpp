@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamAtmosphereTables.h"
+#include "DreamAtmosphereHlslShim.h"
 #include "DreamAtmosphereSettings.h"
 
 #include "DataDrivenShaderPlatformInfo.h"
@@ -79,12 +80,14 @@ DREAM_ATMOSPHERE_LUT_SHADER(FDreamAtmosphereTransmittanceCS)
 DREAM_ATMOSPHERE_LUT_SHADER(FDreamAtmosphereMultiScatteringCS)
 DREAM_ATMOSPHERE_LUT_SHADER(FDreamAtmosphereSkyCS)
 DREAM_ATMOSPHERE_LUT_SHADER(FDreamAtmosphereSkySliceCS)
+DREAM_ATMOSPHERE_LUT_SHADER(FDreamAtmosphereSkyAtlasCS)
 #undef DREAM_ATMOSPHERE_LUT_SHADER
 
 IMPLEMENT_GLOBAL_SHADER(FDreamAtmosphereTransmittanceCS, "/Plugin/DreamDynamicWorld/Private/DreamAtmosphereLuts.usf", "TransmittanceCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamAtmosphereMultiScatteringCS, "/Plugin/DreamDynamicWorld/Private/DreamAtmosphereLuts.usf", "MultiScatteringCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamAtmosphereSkyCS, "/Plugin/DreamDynamicWorld/Private/DreamAtmosphereLuts.usf", "SkyCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamAtmosphereSkySliceCS, "/Plugin/DreamDynamicWorld/Private/DreamAtmosphereLuts.usf", "SkySliceCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamAtmosphereSkyAtlasCS, "/Plugin/DreamDynamicWorld/Private/DreamAtmosphereLuts.usf", "SkyAtlasCS", SF_Compute);
 
 namespace DreamAtmosphere::TablesRender
 {
@@ -169,6 +172,7 @@ void UDreamAtmosphereTables::EnsureTargets()
 	Make2D(MultiScattering, S->MultiScatteringSize, TEXT("DreamAtmosphereMultiScattering"));
 	const FIntVector SkySize(FMath::Max(S->SkySize.X, 2), FMath::Max(S->SkySize.Y, 2), FMath::Max(S->SkySize.Z, 2));
 	Make2D(SkySlice, FIntPoint(SkySize.X, SkySize.Y), TEXT("DreamAtmosphereSkySlice"));
+	Make2D(SkyAtlas, FIntPoint(SkySize.X, SkySize.Y * SkySize.Z), TEXT("DreamAtmosphereSkyAtlas"));
 	if (!Sky)
 	{
 		Sky = NewObject<UTextureRenderTargetVolume>(this, TEXT("DreamAtmosphereSky"), RF_Transient);
@@ -221,6 +225,84 @@ void UDreamAtmosphereTables::Build(const FDreamAtmosphereParameters& Parameters)
 		});
 	Built = Parameters;
 	bBuilt = true;
+	ReadCpuSky();
+}
+
+void UDreamAtmosphereTables::ReadCpuSky()
+{
+	using namespace DreamAtmosphere::TablesRender;
+	CpuSky.Reset();
+	CpuSkySize = FIntVector::ZeroValue;
+	FTextureRenderTargetResource* AtlasResource = SkyAtlas ? SkyAtlas->GameThread_GetRenderTargetResource() : nullptr;
+	FTextureResource* SkyResource = Sky ? Sky->GetResource() : nullptr;
+	if (!AtlasResource || !SkyResource)
+	{
+		return;
+	}
+	FBuild B;
+	Built.Pack(B.Atmosphere);
+	B.SkySize = FIntVector(Sky->SizeX, Sky->SizeY, Sky->SizeZ);
+	ENQUEUE_RENDER_COMMAND(DreamAtmosphereSkyAtlas)([B, AtlasResource, SkyResource](FRHICommandListImmediate& RHICmdList)
+		{
+			FRHITexture* AtlasRHI = AtlasResource->GetRenderTargetTexture();
+			FRHITexture* SkyRHI = SkyResource->TextureRHI.GetReference();
+			if (!AtlasRHI || !SkyRHI)
+			{
+				return;
+			}
+			FRDGBuilder GraphBuilder(RHICmdList, RDG_EVENT_NAME("DreamAtmosphere.SkyAtlas"));
+			auto* Params = GraphBuilder.AllocParameters<FDreamAtmosphereSkyAtlasCS::FParameters>();
+			Fill(GraphBuilder, B, Params->Lut);
+			Params->Lut.SkyLut = RegisterExternalTexture(GraphBuilder, SkyRHI, TEXT("DreamAtmosphere.Sky"));
+			Params->Lut.OutSlice = GraphBuilder.CreateUAV(RegisterExternalTexture(GraphBuilder, AtlasRHI, TEXT("DreamAtmosphere.SkyAtlas")));
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SkyAtlas"), TShaderMapRef<FDreamAtmosphereSkyAtlasCS>(GetGlobalShaderMap(GMaxRHIFeatureLevel)),
+				Params, FComputeShaderUtils::GetGroupCount(FIntPoint(B.SkySize.X, B.SkySize.Y * B.SkySize.Z), GroupSize));
+			GraphBuilder.Execute();
+		});
+	// (Once per build of the air, which is rare: a style changed, a level opened. The wait is a few milliseconds.)
+	FlushRenderingCommands();
+	TArray<FLinearColor> Pixels;
+	if (AtlasResource->ReadLinearColorPixels(Pixels) && Pixels.Num() == Sky->SizeX * Sky->SizeY * Sky->SizeZ)
+	{
+		CpuSky = MoveTemp(Pixels);
+		CpuSkySize = FIntVector(Sky->SizeX, Sky->SizeY, Sky->SizeZ);
+	}
+}
+
+FLinearColor UDreamAtmosphereTables::SampleSky(const FVector& View, const FVector& Light) const
+{
+	using namespace DreamWind::Hlsl;
+	if (CpuSky.Num() == 0)
+	{
+		return FLinearColor::Black;
+	}
+	const FVector V = View.GetSafeNormal(), L = Light.GetSafeNormal();
+	const FVector2D VH(V.X, V.Y), LH(L.X, L.Y);
+	const double Lengths = VH.Size() * LH.Size();
+	const float CosAround = Lengths > 1.0e-6 ? float(FVector2D::DotProduct(VH, LH) / Lengths) : 1.0f;
+	const float3 Uvw = DSA_SkyUvw(float(V.Z), CosAround, float(L.Z));
+	// Trilinear between the texels that store the coordinates edge to edge (DSA_TableParam).
+	const FIntVector N = CpuSkySize;
+	const float Fx = Uvw.x * (N.X - 1), Fy = Uvw.y * (N.Y - 1), Fz = Uvw.z * (N.Z - 1);
+	const int32 X0 = FMath::Clamp(int32(Fx), 0, N.X - 1), Y0 = FMath::Clamp(int32(Fy), 0, N.Y - 1), Z0 = FMath::Clamp(int32(Fz), 0, N.Z - 1);
+	const int32 X1 = FMath::Min(X0 + 1, N.X - 1), Y1 = FMath::Min(Y0 + 1, N.Y - 1), Z1 = FMath::Min(Z0 + 1, N.Z - 1);
+	const float Ax = Fx - X0, Ay = Fy - Y0, Az = Fz - Z0;
+	auto At = [&](int32 X, int32 Y, int32 Z) { return CpuSky[(Z * N.Y + Y) * N.X + X]; };
+	auto Row = [&](int32 Y, int32 Z) { return FMath::Lerp(At(X0, Y, Z), At(X1, Y, Z), Ax); };
+	auto Plane = [&](int32 Z) { return FMath::Lerp(Row(Y0, Z), Row(Y1, Z), Ay); };
+	FLinearColor C = FMath::Lerp(Plane(Z0), Plane(Z1), Az);
+	C.A = 1.0f;
+	return C;
+}
+
+FLinearColor UDreamAtmosphereTables::LightTransmittance(float LightZ) const
+{
+	using namespace DreamWind::Hlsl;
+	FVector4f P[5];
+	Built.Pack(P);
+	const FDSA_Atmosphere A = DSA_Unpack(ToHlsl(P[0]), ToHlsl(P[1]), ToHlsl(P[2]), ToHlsl(P[3]), ToHlsl(P[4]));
+	const float3 T = DSA_LightTransmittance(A, A.BottomRadius, FMath::Clamp(LightZ, -1.0f, 1.0f));
+	return FLinearColor(T.x, T.y, T.z, 1.0f);
 }
 
 bool UDreamAtmosphereTables::ReadSkySlice(int32 Z, TArray<FLinearColor>& OutPixels)

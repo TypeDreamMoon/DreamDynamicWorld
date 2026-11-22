@@ -43,6 +43,19 @@ public:
 	/** The sky table's depth slice Z (a light elevation), read back (flushes rendering): for tests and inspection. */
 	bool ReadSkySlice(int32 Z, TArray<FLinearColor>& OutPixels);
 
+	/** Whether the CPU holds a copy of the sky table (read back once after each build). */
+	bool HasCpuSky() const { return CpuSky.Num() > 0; }
+
+	/**
+	 * The sky along View with a light along Light (world unit vectors, z up), per unit of the light's illuminance outside
+	 * the air: the CPU's copy of the sky table, read as the GPU reads it (trilinear at the table's coordinates). Black
+	 * without a copy.
+	 */
+	FLinearColor SampleSky(const FVector& View, const FVector& Light) const;
+
+	/** The light's transmittance to the ground for its zenith cosine (none from under the horizon), from the built air. */
+	FLinearColor LightTransmittance(float LightZ) const;
+
 private:
 	void EnsureTargets();
 
@@ -57,6 +70,15 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UTextureRenderTarget2D> SkySlice;
+
+	UPROPERTY()
+	TObjectPtr<UTextureRenderTarget2D> SkyAtlas;
+
+	/** The sky table on the CPU: X fastest, then Y, then Z. */
+	TArray<FLinearColor> CpuSky;
+	FIntVector CpuSkySize = FIntVector::ZeroValue;
+
+	void ReadCpuSky();
 
 	FDreamAtmosphereParameters Built;
 	bool bBuilt = false;
