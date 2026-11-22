@@ -77,6 +77,7 @@ private:
 	int32 LastRoofCaptures = -1;
 	double LastResolve = -1.0e30;
 	TArray<FVector4f> LastZones;
+	int32 LastNumZones = 0;
 	bool bIntegrateRequested = false;
 	TSharedPtr<FDreamSurfaceMapRenderer, ESPMode::ThreadSafe> Renderer;
 };

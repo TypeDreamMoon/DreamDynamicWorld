@@ -60,6 +60,16 @@ namespace DreamWeatherAudio
 		OutRight = Loudness * (1.0f - 0.7f * FMath::Max(-B, 0.0f));
 	}
 
+	float ThunderDuck(float Seconds, float DuckDb, float DuckSeconds)
+	{
+		if (Seconds < 0.0f || Seconds >= DuckSeconds || DuckDb >= 0.0f)
+		{
+			return 1.0f;
+		}
+		const float Down = FMath::Pow(10.0f, DuckDb / 20.0f);
+		return FMath::Lerp(Down, 1.0f, FMath::SmoothStep(DuckSeconds / 3.0f, DuckSeconds, Seconds));
+	}
+
 	float WindAmount(float WindSpeed, float WindLoudSpeed)
 	{
 		return FMath::Clamp(WindSpeed / FMath::Max(WindLoudSpeed, 1.0f), 0.0f, 1.0f);

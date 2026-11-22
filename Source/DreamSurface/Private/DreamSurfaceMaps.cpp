@@ -44,9 +44,11 @@ namespace DreamSurface::Maps
 	/**
 	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf, four float4 each), in the order the weather
 	 * applies them: the weather map's three (footprint and coverage, darkness, precipitation), then the snow ratio,
-	 * temperature offset, dust and wind (below -9999: not set). Override zones only, as the weather map takes them.
+	 * temperature offset, dust and wind (below -9999: not set), then the polygons' points. Override zones only, as the
+	 * weather map takes them. The footprint is the zone's own (UDreamWeatherZoneComponent::MakeFootprintRecord), where
+	 * it is now.
 	 */
-	TArray<FVector4f> GatherZones(const UWorld* World, int32 MaxZones)
+	TArray<FVector4f> GatherZones(const UWorld* World, int32 MaxZones, double WorldSeconds, int32& OutNumZones)
 	{
 		using C = FDreamWeatherChannels;
 		TArray<const UDreamWeatherZoneComponent*> Zones;
@@ -70,6 +72,7 @@ namespace DreamSurface::Maps
 			Zones.RemoveAt(0, Zones.Num() - MaxZones);
 		}
 		TArray<FVector4f> Out;
+		TArray<FVector4f> PolygonPoints;
 		for (const UDreamWeatherZoneComponent* Zone : Zones)
 		{
 			auto Value = [Zone](int32 Channel, float Unset)
@@ -77,13 +80,15 @@ namespace DreamSurface::Maps
 				float V;
 				return Zone->GetChannelValue(Channel, V) ? V : Unset;
 			};
-			const FVector Location = Zone->GetComponentLocation();
-			const double Yaw = FMath::DegreesToRadians(Zone->GetComponentRotation().Yaw);
-			Out.Add(FVector4f(float(Location.X), float(Location.Y), float(FMath::Cos(Yaw)), float(FMath::Sin(Yaw))));
-			Out.Add(FVector4f(float(Zone->Extent.X), float(Zone->Extent.Y), Zone->BlendDistance, Zone->Shape == EDreamWeatherZoneShape::Circle ? 1.0f : 0.0f));
+			FVector4f Z0, Z1;
+			Zone->MakeFootprintRecord(WorldSeconds, Z0, Z1, PolygonPoints);
+			Out.Add(Z0);
+			Out.Add(Z1);
 			Out.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), FMath::Clamp(Zone->Weight, 0.0f, 1.0f)));
 			Out.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
 		}
+		OutNumZones = Zones.Num();
+		UDreamWeatherZoneComponent::AppendPolygonPoints(Out, 4, PolygonPoints);
 		return Out;
 	}
 
@@ -182,9 +187,11 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	}
 
 	const double Now = FPlatformTime::Seconds();
-	const TArray<FVector4f> Zones = DreamSurface::Maps::GatherZones(World, FMath::Max(1, UDreamWeatherSettings::Get()->MaxMapZones));
+	int32 NumZones = 0;
+	const TArray<FVector4f> Zones = DreamSurface::Maps::GatherZones(World, FMath::Max(1, UDreamWeatherSettings::Get()->MaxMapZones), Clock.GetWorldSeconds(), NumZones);
 	const bool bZonesChanged = Zones != LastZones || bIntegrateRequested || DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0;
 	LastZones = Zones;
+	LastNumZones = NumZones;
 	bIntegrateRequested = false;
 
 	// The near map moves in eighths of its size (each move integrates it afresh), the far one with the weather map.
@@ -239,6 +246,7 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.Rates[2] = Rates.R2();
 	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
 	Args.Zones = LastZones;
+	Args.NumZones = LastNumZones;
 	Renderer->EnqueueState(Slot, MoveTemp(Args));
 	Map.Center = Center;
 	Map.Extent = Extent;

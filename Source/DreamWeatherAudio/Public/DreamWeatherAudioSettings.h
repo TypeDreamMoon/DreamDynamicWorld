@@ -127,6 +127,21 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Thunder", meta = (ClampMin = "1", ClampMax = "32"))
 	int32 MaxThunders = 6;
 
+	/**
+	 * A near clap ducks the wind and the rain for a moment, so thunder hits whatever the recordings (far thunder does
+	 * not duck, nor does the thunder itself).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Thunder")
+	bool bThunderDucking = true;
+
+	/** How far a near clap ducks the wind and the rain, dB (negative). */
+	UPROPERTY(Config, EditAnywhere, Category = "Thunder", meta = (EditCondition = "bThunderDucking", ClampMin = "-24", ClampMax = "0"))
+	float ThunderDuckDb = -4.0f;
+
+	/** Seconds until the wind and the rain are back in full after a near clap. */
+	UPROPERTY(Config, EditAnywhere, Category = "Thunder", meta = (EditCondition = "bThunderDucking", ClampMin = "0.1", UIMax = "5"))
+	float ThunderDuckSeconds = 1.5f;
+
 	// ---- Rain surfaces ------------------------------------------------------------------------
 
 	/** The rain's fall paths ending this close (cm) say what the rain near the listener lands on. */
