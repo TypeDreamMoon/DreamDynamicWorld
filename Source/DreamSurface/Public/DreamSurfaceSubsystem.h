@@ -97,6 +97,24 @@ public:
 	/** Runs one frame now (tests; the weather's frame normally does it). */
 	void TickForTest(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather) { OnWeatherFrame(Clock, Weather, FDreamWeatherSample(), 0.0f); }
 
+	/**
+	 * What a contact at a point finds (a footstep, a wheel): the state there, how much of a puddle it stands in (as the
+	 * materials draw it), the snow's depth, and which of them dominates.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	FDreamSurfaceContact SampleContact(FVector Location, FVector Normal) const;
+
+	/**
+	 * Press a print into the snow and the dust and stir the puddles here (a footstep, a blast: Radius in cm, Strength
+	 * 0..1). The surface interaction component does it as it moves; drawn into the trail map with the next update.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream Surface")
+	void Stamp(FVector Location, float Radius = 50.0f, float Strength = 1.0f, bool bSnowAndDust = true, bool bPuddles = true);
+
+	/** The prints waiting for the next trail map update (two float4 each: x, y, radius, strength; snow/dust, ripple, -, -). */
+	const TArray<FVector4f>& GetPendingStamps() const { return PendingStamps; }
+	TArray<FVector4f> TakePendingStamps() { return MoveTemp(PendingStamps); }
+
 	/** Mask brushes register themselves (UDreamSurfaceMaskComponent). */
 	void RegisterMask(class UDreamSurfaceMaskComponent* Mask);
 	void UnregisterMask(class UDreamSurfaceMaskComponent* Mask);
@@ -132,6 +150,7 @@ private:
 	FDreamSurfaceMapSteps MapSteps;
 	TSharedPtr<FDreamSurfaceMaps> Maps;
 	TArray<TWeakObjectPtr<class UDreamSurfaceMaskComponent>> MaskBrushes;
+	TArray<FVector4f> PendingStamps;
 
 	TWeakObjectPtr<UDreamWeatherSubsystem> WeatherSubsystem;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

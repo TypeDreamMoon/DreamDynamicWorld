@@ -88,6 +88,8 @@ bool DreamWorld::Setup::EnsureSurfaceMaps()
 	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
 	// The mask map clears to "no brush" (every multiplier 1).
 	bOk &= SurfaceSetup::EnsureTarget(S->MaskMapTexture, 256, PF_FloatRGBA, FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
+	// The trail map: 5 cm a texel over its 51 m.
+	bOk &= SurfaceSetup::EnsureTarget(S->TrailMapTexture, 1024, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	return bOk;
 }
 

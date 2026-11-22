@@ -79,6 +79,42 @@ namespace DreamSurface::Console
 			}
 		}));
 
+	static FAutoConsoleCommandWithWorldAndArgs StampCommand(
+		TEXT("DreamSurface.Stamp"),
+		TEXT("DreamSurface.Stamp <x> <y> [radius] [strength]: press a print into the snow and the dust and stir the puddles there (cm)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamSurfaceSubsystem* Surface = Find(World);
+			if (Surface && Args.Num() >= 2)
+			{
+				Surface->Stamp(FVector(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), 0.0),
+					Args.Num() > 2 ? FCString::Atof(*Args[2]) : 50.0f, Args.Num() > 3 ? FCString::Atof(*Args[3]) : 1.0f);
+			}
+		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs WalkCommand(
+		TEXT("DreamSurface.Walk"),
+		TEXT("DreamSurface.Walk <x0> <y0> <x1> <y1> [stride]: footprints from one point to the other, left and right of the line (cm)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamSurfaceSubsystem* Surface = Find(World);
+			if (!Surface || Args.Num() < 4)
+			{
+				return;
+			}
+			const FVector2D From(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]));
+			const FVector2D To(FCString::Atod(*Args[2]), FCString::Atod(*Args[3]));
+			const double Stride = Args.Num() > 4 ? FMath::Max(10.0, FCString::Atod(*Args[4])) : 45.0;
+			const FVector2D Along = (To - From).GetSafeNormal();
+			const FVector2D Side(-Along.Y, Along.X);
+			const int32 Steps = FMath::Min(200, FMath::FloorToInt32((To - From).Size() / Stride));
+			for (int32 i = 0; i <= Steps; ++i)
+			{
+				const FVector2D P = From + Along * (Stride * i) + Side * ((i % 2) ? 14.0 : -14.0);
+				Surface->Stamp(FVector(P, 0.0), 11.0f, 0.9f);
+			}
+		}));
+
 	static FAutoConsoleCommandWithWorldAndArgs SaveMapsCommand(
 		TEXT("DreamSurface.SaveMaps"),
 		TEXT("DreamSurface.SaveMaps [name]: save the near map (wet red, water green, snow blue) and its dust and cover (dust red, cover green) as PNGs under Saved/DreamSurface."),

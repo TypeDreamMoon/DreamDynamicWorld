@@ -230,3 +230,53 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	}
 	OutMask[DispatchThreadId.xy] = Mask;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The trail map: prints pressed into the snow and the dust (R, 0..1 of the way down) and water stirred by them (G), around
+// the camera. Each update carries the previous map over where the map moved, lets the prints fill (new snow, wind) and
+// the stirred water settle, then presses the new prints (UDreamSurfaceSubsystem::Stamp).
+
+float2 TrailCenter;      // world cm, this update
+float2 PreviousCenter;   // world cm, the previous map's
+float TrailExtent;       // world cm the map spans
+float PrintKeep;         // how much of a print stays over this update (new snow and wind fill it)
+float RippleKeep;        // how much of the stirred water's energy stays
+uint NumStamps;
+int2 TrailResolution;
+Texture2D PreviousTrails;
+SamplerState PreviousSampler;
+StructuredBuffer<float4> Stamps;  // two float4 each: (x, y, radius, strength), (presses snow/dust, stirs water, -, -)
+RWTexture2D<float4> OutTrails;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void TrailsCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= (uint)TrailResolution.x || DispatchThreadId.y >= (uint)TrailResolution.y)
+	{
+		return;
+	}
+	float2 UV = (float2(DispatchThreadId.xy) + 0.5f) / float2(TrailResolution);
+	float2 P = TrailCenter + (UV - 0.5f) * TrailExtent;
+
+	// The previous map where this texel was in it.
+	float2 Before = (P - PreviousCenter) / TrailExtent + 0.5f;
+	float2 T = float2(0.0f, 0.0f);
+	if (all(Before >= 0.0f) && all(Before <= 1.0f))
+	{
+		T = PreviousTrails.SampleLevel(PreviousSampler, Before, 0).rg;
+	}
+	T.x *= PrintKeep;
+	T.y *= RippleKeep;
+
+	for (uint i = 0; i < NumStamps; ++i)
+	{
+		float4 S0 = Stamps[i * 2 + 0];
+		float4 S1 = Stamps[i * 2 + 1];
+		float Disc = 1.0f - smoothstep(S0.z * 0.6f, S0.z, length(P - S0.xy));
+		T.x = max(T.x, Disc * S0.w * S1.x);
+		// A step stirs the water further than its print: the splash spreads some three times as wide.
+		float Splash = 1.0f - smoothstep(S0.z * 0.5f, S0.z * 3.0f, length(P - S0.xy));
+		T.y = max(T.y, Splash * S1.y);
+	}
+	OutTrails[DispatchThreadId.xy] = float4(T, 0.0f, 1.0f);
+}

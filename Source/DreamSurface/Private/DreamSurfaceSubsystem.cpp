@@ -3,6 +3,7 @@
 #include "DreamSurfaceSubsystem.h"
 #include "DreamSurfaceHlslShim.h"
 #include "DreamSurfaceMaps.h"
+#include "DreamSurfaceInteraction.h"
 #include "DreamSurfaceMask.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSettings.h"
@@ -168,6 +169,47 @@ FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurfaceAt(const FVector& Positi
 	const FVector4f V = State.ToVector();
 	return FDreamSurfaceState::FromVector(FVector4f(FMath::Clamp(V.X * Mask.X, 0.0f, 1.0f), FMath::Clamp(V.Y * Mask.Y, 0.0f, 1.0f),
 		FMath::Clamp(V.Z * Mask.Z, 0.0f, 1.0f), FMath::Clamp(V.W * Mask.W, 0.0f, 1.0f)));
+}
+
+FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVector Normal) const
+{
+	FDreamSurfaceContact Contact;
+	Contact.Location = Location;
+	Contact.Normal = Normal;
+	Contact.State = SampleSurface(Location);
+	const float Up = FMath::Clamp(float(Normal.Z), 0.0f, 1.0f);
+	const float Hollow = DreamWind::Hlsl::DSF_Hollow(float(Location.X), float(Location.Y), 260.0f);
+	Contact.Puddle = DreamWind::Hlsl::DSF_PuddleCover(Contact.State.Water, Up, Hollow);
+	const float SnowCover = DreamWind::Hlsl::DSF_SnowCover(Contact.State.Snow, Up, Hollow);
+	Contact.SnowDepth = Contact.State.Snow * SnowCover * UDreamSurfaceSettings::Get()->MaxSnowDepth;
+	// The dominant: snow over water over dust over a wet film.
+	if (SnowCover > 0.5f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Snow;
+	}
+	else if (Contact.Puddle > 0.5f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Puddle;
+	}
+	else if (Contact.State.Dust > 0.5f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Dust;
+	}
+	else if (Contact.State.Wetness > 0.3f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Wet;
+	}
+	return Contact;
+}
+
+void UDreamSurfaceSubsystem::Stamp(FVector Location, float Radius, float Strength, bool bSnowAndDust, bool bPuddles)
+{
+	if (PendingStamps.Num() >= 512)
+	{
+		return;
+	}
+	PendingStamps.Add(FVector4f(float(Location.X), float(Location.Y), FMath::Max(Radius, 1.0f), FMath::Clamp(Strength, 0.0f, 1.0f)));
+	PendingStamps.Add(FVector4f(bSnowAndDust ? 1.0f : 0.0f, bPuddles ? 1.0f : 0.0f, 0.0f, 0.0f));
 }
 
 void UDreamSurfaceSubsystem::RegisterMask(UDreamSurfaceMaskComponent* Mask)

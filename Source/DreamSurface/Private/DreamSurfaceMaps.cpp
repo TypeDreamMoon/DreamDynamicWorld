@@ -107,6 +107,7 @@ void FDreamSurfaceMaps::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AddReferencedObject(Far.Target);
 	Collector.AddReferencedObject(Cover);
 	Collector.AddReferencedObject(Mask);
+	Collector.AddReferencedObject(Trails);
 }
 
 uint32 FDreamSurfaceMaps::GetDrawCount() const
@@ -121,7 +122,7 @@ uint32 FDreamSurfaceMaps::GetIntegrateCount() const
 
 bool FDreamSurfaceMaps::Resolve()
 {
-	if (Near.Target && Far.Target && Cover && Mask)
+	if (Near.Target && Far.Target && Cover && Mask && Trails)
 	{
 		return true;
 	}
@@ -137,12 +138,13 @@ bool FDreamSurfaceMaps::Resolve()
 	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
 	Cover = LoadTarget(S->CoverMapTexture, PF_G32R32F);
 	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
+	Trails = LoadTarget(S->TrailMapTexture, PF_FloatRGBA);
 	if (!Near.Target || !Far.Target || !Cover)
 	{
 		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, cover %s"),
 			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
 	}
-	return Near.Target && Far.Target && Cover && Mask;
+	return Near.Target && Far.Target && Cover && Mask && Trails;
 }
 
 void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
@@ -158,6 +160,7 @@ void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
 		Clock->SetVectorParameter(MPC_SurfaceNear, Off);
 		Clock->SetVectorParameter(MPC_SurfaceFar, Off);
 		Clock->SetVectorParameter(MPC_SurfaceView, Off);
+		Clock->SetVectorParameter(MPC_SurfaceTrails, Off);
 	}
 }
 
@@ -198,6 +201,8 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	DrawCover(Clock, NearCenter, NearExtent, Now);
 
 	using namespace DreamSurface::Maps;
+	DrawTrails(Surface, Clock, Weather.GetViewSample(), Now);
+	Clock.SetVectorParameter(MPC_SurfaceTrails, Placement(TrailCenter, UDreamSurfaceSettings::Get()->TrailExtent, TrailCenter.X < 1.0e29));
 	Clock.SetVectorParameter(MPC_SurfaceNear, Placement(Near.Center, Near.Extent, Near.bLive));
 	Clock.SetVectorParameter(MPC_SurfaceFar, Placement(Far.Center, Far.Extent, Far.bLive));
 }
@@ -346,4 +351,42 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 	Renderer->EnqueueCover(MoveTemp(Args));
 	CoverCenter = Center;
 	LastCoverDraw = Now;
+}
+
+void FDreamSurfaceMaps::DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsystem& Clock, const FDreamWeatherSample& View, double Now)
+{
+	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
+	const bool bPrints = Surface.GetPendingStamps().Num() > 0;
+	if (!bPrints && Now - LastTrailDraw < S->MapInterval)
+	{
+		return;
+	}
+	FDreamSurfaceMapRenderer::FTrailArgs Args;
+	Args.Target = Trails->GameThread_GetRenderTargetResource();
+	if (!Args.Target)
+	{
+		return;
+	}
+	// The map moves in eighths of its size; what it held moves with it.
+	const float Extent = FMath::Max(500.0f, S->TrailExtent);
+	const double Snap = Extent / 8.0;
+	const FVector At = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+	const FVector2D Center(FMath::GridSnap(At.X, Snap), FMath::GridSnap(At.Y, Snap));
+	const double WorldSeconds = Clock.GetWorldSeconds();
+	const bool bFirst = TrailCenter.X > 1.0e29;
+	// A print fills with new snow, blows away with the wind and settles; the stirred water calms in real seconds.
+	const double GameHours = bFirst ? 0.0 : FMath::Clamp((WorldSeconds - LastTrailWorldSeconds) / 3600.0, 0.0, 48.0);
+	const double RealSeconds = bFirst ? 0.0 : FMath::Clamp(Now - LastTrailDraw, 0.0, 10.0);
+	const double FillRate = View.SnowHere / S->PrintFillHours + View.Wind / S->PrintWindHours + 1.0 / S->PrintFadeHours;
+	Args.Center = FVector2f(Center);
+	Args.PreviousCenter = FVector2f(bFirst ? Center : TrailCenter);
+	Args.Extent = Extent;
+	Args.PrintKeep = float(FMath::Exp(-GameHours * FillRate));
+	Args.RippleKeep = float(FMath::Exp(-RealSeconds / FMath::Max(0.05f, S->RippleSeconds)));
+	Args.bReset = bFirst || WorldSeconds < LastTrailWorldSeconds;
+	Args.Stamps = Surface.TakePendingStamps();
+	Renderer->EnqueueTrails(MoveTemp(Args));
+	TrailCenter = Center;
+	LastTrailDraw = Now;
+	LastTrailWorldSeconds = WorldSeconds;
 }

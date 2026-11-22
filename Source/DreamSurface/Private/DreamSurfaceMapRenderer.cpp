@@ -282,3 +282,95 @@ void FDreamSurfaceMapRenderer::Cover_RenderThread(FRDGBuilder& GraphBuilder, con
 	}
 	DrawCount.fetch_add(1);
 }
+
+class FDreamSurfaceTrailsCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSurfaceTrailsCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSurfaceTrailsCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER(FVector2f, TrailCenter)
+		SHADER_PARAMETER(FVector2f, PreviousCenter)
+		SHADER_PARAMETER(float, TrailExtent)
+		SHADER_PARAMETER(float, PrintKeep)
+		SHADER_PARAMETER(float, RippleKeep)
+		SHADER_PARAMETER(uint32, NumStamps)
+		SHADER_PARAMETER(FIntPoint, TrailResolution)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, PreviousTrails)
+		SHADER_PARAMETER_SAMPLER(SamplerState, PreviousSampler)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Stamps)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutTrails)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		DreamSurface::Render::SetGroupSize(OutEnvironment);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FDreamSurfaceTrailsCS, "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMap.usf", "TrailsCS", SF_Compute);
+
+void FDreamSurfaceMapRenderer::EnqueueTrails(FTrailArgs&& Args)
+{
+	check(IsInGameThread());
+	TSharedRef<FDreamSurfaceMapRenderer, ESPMode::ThreadSafe> Self = AsShared();
+	ENQUEUE_RENDER_COMMAND(DreamSurfaceTrails)(
+		[Self, Args = MoveTemp(Args)](FRHICommandListImmediate& RHICmdList)
+		{
+			FRDGBuilder GraphBuilder(RHICmdList, RDG_EVENT_NAME("DreamSurfaceTrails"));
+			Self->Trails_RenderThread(GraphBuilder, Args);
+			GraphBuilder.Execute();
+		});
+}
+
+void FDreamSurfaceMapRenderer::Trails_RenderThread(FRDGBuilder& GraphBuilder, const FTrailArgs& Args)
+{
+	using namespace DreamSurface::Render;
+	check(IsInRenderingThread());
+	FRHITexture* TargetRHI = Args.Target ? Args.Target->GetRenderTargetTexture() : nullptr;
+	if (!TargetRHI || !EnumHasAnyFlags(TargetRHI->GetFlags(), TexCreate_UAV))
+	{
+		return;
+	}
+	const FIntVector Size = TargetRHI->GetSizeXYZ();
+	const FIntPoint Resolution(Size.X, Size.Y);
+	FRDGTextureRef Target = RegisterExternalTexture(GraphBuilder, TargetRHI, TEXT("DreamSurface.Trails"));
+
+	// The previous map, kept here: a new one (first use, a resize, a reset) starts from nothing.
+	bool bReset = Args.bReset;
+	if (!TrailHistory.IsValid() || TrailHistory->GetDesc().Extent != Resolution)
+	{
+		const FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(Resolution, PF_FloatRGBA, FClearValueBinding::Black,
+			TexCreate_None, TexCreate_ShaderResource | TexCreate_RenderTargetable, false);
+		GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, TrailHistory, TEXT("DreamSurface.TrailHistory"));
+		bReset = true;
+	}
+	FRDGTextureRef History = GraphBuilder.RegisterExternalTexture(TrailHistory, TEXT("DreamSurface.TrailHistory"));
+
+	const TArray<FVector4f> NoStamp = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f::Zero() };
+	FRDGBufferRef StampBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Stamps"), NonEmpty(Args.Stamps, NoStamp));
+
+	FDreamSurfaceTrailsCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSurfaceTrailsCS::FParameters>();
+	Params->TrailCenter = Args.Center;
+	// Starting over: the previous map lies nowhere near.
+	Params->PreviousCenter = bReset ? Args.Center + FVector2f(Args.Extent * 4.0f) : Args.PreviousCenter;
+	Params->TrailExtent = Args.Extent;
+	Params->PrintKeep = Args.PrintKeep;
+	Params->RippleKeep = Args.RippleKeep;
+	Params->NumStamps = uint32(Args.Stamps.Num() / 2);
+	Params->TrailResolution = Resolution;
+	Params->PreviousTrails = History;
+	Params->PreviousSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Params->Stamps = GraphBuilder.CreateSRV(StampBuffer);
+	Params->OutTrails = GraphBuilder.CreateUAV(Target);
+
+	TShaderMapRef<FDreamSurfaceTrailsCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceTrails %dx%d, %d prints", Resolution.X, Resolution.Y, Args.Stamps.Num() / 2),
+		Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, ThreadGroupSize));
+	// What this update made is what the next one carries over.
+	AddCopyTexturePass(GraphBuilder, Target, History);
+	GraphBuilder.SetTextureAccessFinal(Target, ERHIAccess::SRVMask);
+	DrawCount.fetch_add(1);
+}
