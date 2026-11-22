@@ -57,6 +57,32 @@ float4 Parameters[21];
 #define P_LightPollution Parameters[20]
 #define DCS_MAP_ADJUST P_SkyModClouds
 
+// The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
+// materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
+// the stylized include's toon painting reads (DSKY_TOON_*).
+float4 LookParameters[146];
+
+// A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
+// from LookParameters[18]).
+float DSkyR_ToonRamp(float X, int Channel)
+{
+	float P = saturate(X) * 255.0;
+	int I = min(int(P), 254);
+	float4 A = LookParameters[18 + (I >> 1)];
+	float4 B = LookParameters[18 + ((I + 1) >> 1)];
+	float2 FromA = (I & 1) != 0 ? A.zw : A.xy;
+	float2 FromB = ((I + 1) & 1) != 0 ? B.zw : B.xy;
+	float2 Value = lerp(FromA, FromB, P - float(I));
+	return Channel == 0 ? Value.x : Value.y;
+}
+#define DSKY_TOON_TONE(Light) DSkyR_ToonRamp(Light, 0)
+#define DSKY_TOON_UNDER(Glow) DSkyR_ToonRamp(Glow, 1)
+#define DSKY_TOON_HALF LookParameters[11]
+#define DSKY_TOON_DEEP LookParameters[12]
+#define DSKY_TOON_KEY LookParameters[13]
+#define DSKY_TOON_KEY2 LookParameters[14]
+#define DSKY_TOON_RIM LookParameters[15].x
+
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudLight.ush"
@@ -66,9 +92,7 @@ float4 Parameters[21];
 #define DSKY_LOOK 0
 #endif
 
-// The realistic and painted looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
-// materials' parameters, the sky's overrides over them.
-float4 LookParameters[11];
+// (LookParameters, declared above:)
 #define LP_Extinction           LookParameters[0].x   // per cm
 #define LP_Albedo               LookParameters[0].y
 #define LP_Glow                 LookParameters[0].z
@@ -574,12 +598,12 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	FDCloudPaintedParams PP = DCL_DefaultPaintedParams();
 	PP.HalfAt = LP_HalfToneAt;
 	PP.LitAt = LP_LitToneAt;
-	const float KeyFalloff = 0.04;
+	const float KeyFalloff = LookParameters[15].y;
 	PP.KeyFalloff = KeyFalloff;
 	PP.KeyLow = 1.0;
 	PP.KeyHigh = 1.0;
-	PP.RimFalloff = 0.025;
-	PP.RimPower = 4.0;
+	PP.RimFalloff = LookParameters[15].z;
+	PP.RimPower = LookParameters[15].w;
 	PP.Rim = LP_SilverLining * P_CloudLit.a;
 	PP.Softness = LP_ToneSoftness;
 #endif
@@ -692,9 +716,9 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// little darker (in its own shade, seeing little of the sky), the earth's shadow. (The core bands it at the
 			// look's thresholds.)
 			float Key = (1.0 - Depth) * lerp(1.0, Turret, LP_BillowShade) * lerp(0.7, 1.0, saturate(C.Height * 2.0)) * EarthLit;
-			float3 Shade = PaintShade * lerp(0.84, 1.0, saturate(C.Height));
+			float3 Shade = PaintShade * lerp(LookParameters[17].x, 1.0, saturate(C.Height));
 			float3 Lit = PaintLit + Halo * P_Extra.y * saturate(Key);
-			float3 Half = lerp(Shade, Lit, 0.55) * float3(0.97, 0.97, 1.02);
+			float3 Half = lerp(Shade, Lit, LookParameters[16].w) * LookParameters[16].rgb;
 			float3 Paint = DCL_ShadePainted(-log(max(saturate(Key), 1.0e-4)) / KeyFalloff, Cos, C.Height, saturate(C.Signed * 4.0),
 				Shade, Half, Lit, PP);
 			// An overcast deck is painted soft: no bands, the gradient from its thick shade to the half tone where it thins.
@@ -707,7 +731,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// the sky (less of it low in the cloud and in a storm). Without it a storm's thick body went a flat grey where the
 			// engine's painted clouds keep their blue-lavender.
 			float FromBase = 1.0 - saturate(C.Height);
-			Paint = max(Paint, Shade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
+			Paint = max(Paint, Shade * LookParameters[17].y * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
 			Paint += DSkyR_UnderLight(C.Height);
 			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint * LP_PaintGain, Dt);
 #else

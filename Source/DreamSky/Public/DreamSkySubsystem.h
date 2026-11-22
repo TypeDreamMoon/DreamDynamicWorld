@@ -174,6 +174,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetRainbow() const { return Rainbow; }
 
+	/**
+	 * How much of the Milky Way shows, 0..1 of the darkest night's: the night's darkness, the moon's light, a city's,
+	 * the haze, fog and cloud. Kept whether or not it is drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetMilkyWayVisibility() const { return MilkyWayVisibility; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -262,6 +269,7 @@ private:
 	/** The rain in the air, 0..1: as it falls, lingering once it stops. */
 	float RainInAir = 0.0f;
 	float Rainbow = 0.0f;
+	float MilkyWayVisibility = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;

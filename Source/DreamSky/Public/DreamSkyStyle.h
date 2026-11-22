@@ -52,9 +52,20 @@ struct DREAMSKY_API FDreamSkyAurora
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "90"))
 	float FullLatitude = 66.0f;
 
-	/** Under the toon and painted clouds, its light goes in three clean tones (as the clouds' own). */
+	/** Under the toon and painted clouds, its light goes in three clean tones (as the clouds' own); off, it keeps its
+	 *  own soft light whatever the clouds' look. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora")
-	bool bStylizedTones = true;
+	bool bStylizedTones = false;
+
+	/** The banded tones' three steps (of its brightness), and how soft their edges are (1 = the look's own). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep1 = 0.14f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep2 = 0.295f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep3 = 0.52f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "4", EditCondition = "bStylizedTones"))
+	float ToneSoftness = 1.0f;
 
 	/** Artistic mode (no latitude): how present it is, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))
@@ -190,6 +201,54 @@ struct DREAMSKY_API FDreamSkyLightShafts
 	float CoverStart = 0.08f;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", ClampMax = "1"))
 	float CoverFull = 0.35f;
+};
+
+/**
+ * The Milky Way behind the stars (T_DreamMilkyWay, made from noise by Setup), where it stands on the celestial sphere
+ * for the latitude and the sidereal time: the band widening and brightening toward the centre in Sagittarius, its star
+ * clouds, its dust lanes and the Great Rift. Only on a dark night: the twilight, moonlight, a city's light, haze and fog
+ * all wash it out -- a full moon or a bright city all but hides it, a moonless night in the country shows it best.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMilkyWay
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way")
+	bool bEnabled = true;
+
+	/** How bright it is drawn on the darkest night (in the dome's measure, as the stars' intensity curve). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 0.35f;
+
+	/** A power on its light: above 1 the star clouds stand out more against the faint band, below 1 it is flatter. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0.25", UIMax = "3"))
+	float Contrast = 1.0f;
+
+	/** How dark its dust lanes and the Great Rift are (0 = none). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "3"))
+	float Dust = 1.0f;
+
+	/** Its colour: warm white toward the centre, cooler along the arms (0 = grey, 1 = as made). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "2"))
+	float Saturation = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (HideAlphaChannel))
+	FLinearColor Tint = FLinearColor::White;
+
+	/** The sun's elevation (degrees) where it starts to show, and where the night is dark enough for all of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (UIMin = "-20", UIMax = "0"))
+	float ShowsBelow = -10.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (UIMin = "-25", UIMax = "0"))
+	float FullBelow = -18.0f;
+
+	/** How much a full moon high up washes it out (0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonWash = 0.92f;
+
+	/** The city's light (the dome's LightPollution) that leaves a third of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0.001", UIMax = "0.1"))
+	float CityWash = 0.02f;
 };
 
 /** Which stars the dome draws. */
@@ -541,6 +600,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon")
 	bool bNightLightAlwaysUp = true;
 
+	/** How soft the moon's terminator is (in the sunlight's cosine across it; small = a crisp edge). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0.002", UIMax = "0.5"))
+	float MoonTerminatorSoftness = 0.12f;
+
+	/** The earthshine on the moon's dark side at its strongest (near the new moon), of the lit side's brightness. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
+	float MoonEarthshine = 0.06f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
 
@@ -551,6 +618,9 @@ public:
 	/** Relative number of stars (the stylized scatter). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4", EditCondition = "StarField == EDreamSkyStarField::Stylized"))
 	float StarDensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ShowOnlyInnerProperties))
+	FDreamSkyMilkyWay MilkyWay;
 
 	/** How much brighter the catalogue's stars are drawn for each magnitude (1 = as in the sky, 2.512 times; less
 	 *  keeps the faint ones in sight next to the bright). */
@@ -692,6 +762,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Painted", meta = (ShowOnlyInnerProperties))
 	FDreamSkyPaintedClouds PaintedClouds;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Toon", meta = (ShowOnlyInnerProperties))
+	FDreamSkyToonClouds ToonClouds;
+
+	/**
+	 * How much of the sun the toon and painted clouds' shadows on the ground take between broken clouds (1 = all of it,
+	 * as under the realistic ones; lower, they lie lighter and keep some of the sun's warmth, as in a painted
+	 * background), rising to all of it as the cover closes.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float StylizedCloudShadow = 1.0f;
+
 	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
 	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
@@ -815,9 +896,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (UIMin = "0", UIMax = "4"))
 	float InteriorExposureLift = 2.5f;
 
-	/** Sky light intensity indoors, as a multiplier (lower it when the sky light has no occlusion of its own). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
-	float InteriorSkyLightScale = 1.0f;
+	/**
+	 * Sky light intensity indoors, as a multiplier: with Lumen the sky light is occluded, so only what the doors and
+	 * windows let in brightens (the room's corners stay dark). Lower it toward 1 where the sky light has no occlusion of
+	 * its own: there it brightens the whole room alike.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "4"))
+	float InteriorSkyLightScale = 2.5f;
+
+	/**
+	 * A weak fill indoors, for projects without Lumen (no light bounces in through the doors and windows there): an
+	 * ambient that ignores occlusion, the sky light raised by InteriorFill of its outdoor strength and the shared
+	 * parameters' ambient gradient with it, as far as the view is indoors. Off by default.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior")
+	bool bInteriorFill = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2", EditCondition = "bInteriorFill"))
+	float InteriorFill = 0.3f;
 
 	/** Sun and moon light indoors, as a multiplier. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))

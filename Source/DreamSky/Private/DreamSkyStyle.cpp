@@ -135,6 +135,8 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
 	Look.LensFlare = FMath::Max(LensFlare.Intensity, 0.0f);
+	Look.MilkyWay = MilkyWay.bEnabled ? FMath::Max(MilkyWay.Intensity, 0.0f) : 0.0f;
+	ToonClouds.Bake(Look.Toon);
 	return Look;
 }
 
@@ -191,7 +193,16 @@ void UDreamSkyStyle::ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamS
 		return;
 	}
 	L.ExposureEV100 -= InteriorExposureLift * In;
+	const float OutdoorSkyLight = L.SkyLightIntensity;
 	L.SkyLightIntensity *= FMath::Lerp(1.0f, InteriorSkyLightScale, In);
+	if (bInteriorFill && InteriorFill > 0.0f)
+	{
+		const float Fill = InteriorFill * In;
+		L.SkyLightIntensity += Fill * OutdoorSkyLight;
+		L.AmbientSky *= 1.0f + Fill;
+		L.AmbientEquator *= 1.0f + Fill;
+		L.AmbientGround *= 1.0f + Fill;
+	}
 	const float Directional = FMath::Lerp(1.0f, InteriorDirectionalScale, In);
 	L.SunIlluminance *= Directional;
 	L.MoonIlluminance *= Directional;
@@ -371,4 +382,71 @@ float DreamSky::CloudFormation(double WorldSeconds, float Speed)
 	// (In double until it is wrapped: the clock runs for days of game seconds.)
 	const double Phase = WorldSeconds / 3600.0 * CloudFormationPerHour * double(FMath::Max(Speed, 0.0f));
 	return float(Phase - FMath::FloorToDouble(Phase));
+}
+
+FDreamSkyToonClouds::FDreamSkyToonClouds()
+{
+	// (The look's own: the half tone from 0.24 to 0.28 of the light, the lit tone from 0.56 to 0.6; an underside from its
+	// deepest shade to the shade over 0.05..0.35 of its glow, to the half tone over 0.45..0.8.)
+	Bands = { { 0.26f, 0.04f, 0.5f }, { 0.58f, 0.04f, 1.0f } };
+	UndersideBands = { { 0.2f, 0.3f, 0.5f }, { 0.625f, 0.35f, 1.0f } };
+	FRichCurve* Curve = ToneCurve.GetRichCurve();
+	Curve->AddKey(0.0f, 0.0f);
+	Curve->AddKey(0.26f, 0.5f);
+	Curve->AddKey(0.58f, 1.0f);
+}
+
+float FDreamSkyToonClouds::EvaluateBands(const TArray<FDreamSkyToneBand>& InBands, float X)
+{
+	TArray<FDreamSkyToneBand, TInlineAllocator<8>> Sorted(InBands);
+	Sorted.Sort([](const FDreamSkyToneBand& A, const FDreamSkyToneBand& B) { return A.At < B.At; });
+	float Tone = 0.0f, Before = 0.0f;
+	for (const FDreamSkyToneBand& Band : Sorted)
+	{
+		const float Half = 0.5f * FMath::Max(Band.Softness, 0.0f);
+		const float Step = Half > 0.0f ? FMath::SmoothStep(Band.At - Half, Band.At + Half, X) : (X >= Band.At ? 1.0f : 0.0f);
+		Tone += (Band.Tone - Before) * Step;
+		Before = Band.Tone;
+	}
+	return FMath::Clamp(Tone, 0.0f, 1.0f);
+}
+
+void FDreamSkyToonClouds::Bake(FDreamSkyToonBaked& Out) const
+{
+	Out.Ramp.SetNumUninitialized(FDreamSkyToonBaked::RampSize);
+	const FRichCurve* Curve = ToneCurve.GetRichCurveConst();
+	const bool bCurve = bUseToneCurve && Curve && Curve->GetNumKeys() > 0;
+	for (int32 Index = 0; Index < FDreamSkyToonBaked::RampSize; ++Index)
+	{
+		const float X = float(Index) / float(FDreamSkyToonBaked::RampSize - 1);
+		const float Tone = bCurve ? FMath::Clamp(Curve->Eval(X), 0.0f, 1.0f) : EvaluateBands(Bands, X);
+		Out.Ramp[Index] = FVector2f(Tone, EvaluateBands(UndersideBands, X));
+	}
+	Out.Half = FVector4f(HalfToneTint.R, HalfToneTint.G, HalfToneTint.B, FMath::Clamp(HalfToneMix, 0.0f, 1.0f));
+	Out.Deep = FVector4f(UndersideDeepTint.R, UndersideDeepTint.G, UndersideDeepTint.B, KeyHeightPivot);
+	Out.Key = FVector4f(KeyFacing, KeyUp, KeyHeight, FMath::Clamp(StormLitDarkening, 0.0f, 1.0f));
+	Out.Key2 = FVector4f(KeyLow, FMath::Max(KeyRange, 0.01f), FMath::Max(RimPower, 0.5f), FMath::Max(RimStrength, 0.0f));
+	Out.RimFocus = FMath::Max(RimFocus, 0.5f);
+}
+
+void FDreamSkyToonBaked::BlendToward(const FDreamSkyToonBaked& To, float Alpha)
+{
+	if (!To.IsValid() || Alpha <= 0.0f)
+	{
+		return;
+	}
+	if (!IsValid())
+	{
+		*this = To;
+		return;
+	}
+	for (int32 Index = 0; Index < RampSize; ++Index)
+	{
+		Ramp[Index] = FMath::Lerp(Ramp[Index], To.Ramp[Index], Alpha);
+	}
+	Half = FMath::Lerp(Half, To.Half, Alpha);
+	Deep = FMath::Lerp(Deep, To.Deep, Alpha);
+	Key = FMath::Lerp(Key, To.Key, Alpha);
+	Key2 = FMath::Lerp(Key2, To.Key2, Alpha);
+	RimFocus = FMath::Lerp(RimFocus, To.RimFocus, Alpha);
 }

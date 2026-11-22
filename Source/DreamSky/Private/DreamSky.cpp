@@ -427,6 +427,14 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.BillowShade = P.BillowShade;
 		Out.PaintLitTint = P.LitTint;
 		Out.PaintShadeTint = P.ShadeTint;
+		Out.PaintHalfToneMix = P.HalfToneMix;
+		Out.PaintHalfToneTint = P.HalfToneTint;
+		Out.PaintKeyFalloff = P.KeyFalloff;
+		Out.PaintRimFalloff = P.RimFalloff;
+		Out.PaintRimPower = P.RimPower;
+		Out.PaintShadeAtBase = P.ShadeAtBase;
+		Out.PaintBaseFloor = P.BaseFloor;
+		Effective->ToonClouds.Bake(Out.Toon);
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}
 	Out.SunScattering = CloudSunScattering;
@@ -515,12 +523,14 @@ void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 	const float X = float(FMath::RoundToDouble(ViewLocation.X / Texel) * Texel);
 	const float Y = float(FMath::RoundToDouble(ViewLocation.Y / Texel) * Texel);
 	// As under the engine's clouds: all of the sun under the realistic ones; under the painted and toon ones, between
-	// broken clouds, a little over half -- a painted background's cloud shadows lie light and keep some of the sun's
-	// warmth -- rising to all of it as the cover closes (stepped, so the sun is not re-made every frame while the weather
-	// turns). The GroundShadow override sets it for any look.
+	// broken clouds, the style's StylizedCloudShadow (all of it by default; lower, the shadows lie light and keep some of
+	// the sun's warmth, as a painted background's), rising to all of it as the cover closes (stepped, so the sun is not
+	// re-made every frame while the weather turns). The GroundShadow override sets it for any look.
 	const UDreamWorldSubsystem* Weather = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
 	const float Cover = Weather && Weather->GetEnvironment().bActive ? Weather->GetEnvironment().CloudCoverage : 0.0f;
-	const float Painted = FMath::RoundToFloat(FMath::Lerp(0.55f, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
+	const UDreamSkyStyle* ShadowStyle = GetEffectiveStyle();
+	const float Broken = ShadowStyle ? FMath::Clamp(ShadowStyle->StylizedCloudShadow, 0.0f, 1.0f) : 1.0f;
+	const float Painted = FMath::RoundToFloat(FMath::Lerp(Broken, 1.0f, FMath::SmoothStep(0.6f, 0.9f, Cover)) * 20.0f) / 20.0f;
 	const float Strength = FMath::Clamp(CloudOverrides.bOverride_GroundShadow ? CloudOverrides.GroundShadow
 		: (GetEffectiveCloudLook() == EDreamSkyCloudLook::Realistic ? 1.0f : Painted), 0.0f, 1.0f);
 	const FVector4f Placement(X, Y, CloudShadowHalfExtent, Strength);

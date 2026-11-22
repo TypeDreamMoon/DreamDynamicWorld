@@ -41,17 +41,17 @@ Function float DreamSurfaceTerrain_Low(in float3 WorldPos, in float4 NearPlace, 
 	return DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
 }
 
-Function float4 DreamSurfaceTerrain_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale)
+Function float4 DreamSurfaceTerrain_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale);
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	return float4(L.Color, L.Roughness);
 }
 
-Function float4 DreamSurfaceTerrain_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale)
+Function float4 DreamSurfaceTerrain_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale);
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	return float4(L.Normal, L.Metallic);
 }
 
@@ -75,6 +75,29 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceTrails") TrailPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
+
+		Group("Weather Look|Wet") {
+			ScalarParameter WetValueHard    = 0.85 [Slider(0, 1); Description="How much of its colour a wet hard surface (stone, paving) keeps: 1 none darker."];
+			ScalarParameter WetValuePorous  = 0.4  [Slider(0, 1); Description="How much of its colour a wet porous surface (rough, or soft ground) keeps."];
+			ScalarParameter WetRoughHard    = 0.2  [Slider(0, 1); Description="The roughness a wet hard surface goes down to (low: glossier)."];
+			ScalarParameter WetRoughPorous  = 0.35 [Slider(0, 1); Description="The roughness a wet porous surface goes down to."];
+		}
+		Group("Weather Look|Water") {
+			ScalarParameter PuddleValue     = 0.35 [Slider(0, 1); Description="How much of its colour a surface under standing water keeps."];
+			ScalarParameter PuddleRoughness = 0.02 [Slider(0, 1); Description="Standing water's roughness: 0 a mirror."];
+			ScalarParameter RippleStrength  = 0.35 [Slider(0, 1); Description="How far the rain's ripples tilt the water's surface."];
+		}
+		Group("Weather Look|Snow") {
+			VectorParameter SnowColor       = float4(0.88, 0.9, 0.93, 1.0) [Description="The snow's colour."];
+			ScalarParameter SnowRoughness   = 0.6  [Slider(0, 1)];
+			ScalarParameter SnowCoverGain   = 1.0  [Slider(0, 3); Description="How readily the snow covers: above 1 a thin fall covers sooner, below 1 later."];
+			ScalarParameter PrintDarken     = 0.12 [Slider(0, 1); Description="How much darker a print trodden in the snow is."];
+		}
+		Group("Weather Look|Dust") {
+			VectorParameter DustColor       = float4(0.55, 0.46, 0.34, 1.0) [Description="The dust's colour."];
+			ScalarParameter DustAmount      = 0.85 [Slider(0, 1); Description="How much of the dust's colour shows where it lies."];
+			ScalarParameter DustRoughness   = 0.95 [Slider(0, 1)];
+		}
 	}
 
 	Inputs = {
@@ -94,8 +117,13 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 		float Seconds = UE.Time();
 		float4 Trail = DreamSurfaceTerrain_Trail(WP, TrailPlace, TrailMap);
 		float Low = DreamSurfaceTerrain_Low(WP, NearPlace, CoverMap);
-		float4 CR = DreamSurfaceTerrain_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w);
-		float4 NM = DreamSurfaceTerrain_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w);
+		float4 LookWet = float4(WetValueHard, WetValuePorous, WetRoughHard, WetRoughPorous);
+		float4 LookWater = float4(PuddleValue, PuddleRoughness, RippleStrength, 0.0);
+		float4 LookSnow = float4(SnowColor.rgb, SnowRoughness);
+		float4 LookDust = float4(DustColor.rgb, DustAmount);
+		float4 LookMore = float4(SnowCoverGain, DustRoughness, PrintDarken, 0.0);
+		float4 CR = DreamSurfaceTerrain_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore);
+		float4 NM = DreamSurfaceTerrain_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore);
 
 		// The depth follows the snow smoothly over the ground (no broken edge: a snowfield's surface is continuous), and
 		// sinks where it was trodden.

@@ -524,6 +524,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2, "the toon ramps, two samples a vector, after the 18 looks' vectors");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -537,6 +538,24 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	// (The height fog as the engine's renderer takes it: density and falloff per cm.)
 	Out[9] = FVector4f(L.FogDensity * 0.001f, L.FogHeightFalloff * 0.001f, L.FogHeight, L.FogStartDistance);
 	Out[10] = FVector4f(L.FogColor.R, L.FogColor.G, L.FogColor.B, 1.0f - FMath::Clamp(L.FogMaxOpacity, 0.0f, 1.0f));
+	// The toon tones (DSKY_TOON_*) and the painted look's own constants; then the toon ramps, two samples a vector.
+	FDreamSkyToonBaked Toon = L.Toon;
+	if (!Toon.IsValid())
+	{
+		FDreamSkyToonClouds().Bake(Toon);
+	}
+	Out[11] = Toon.Half;
+	Out[12] = Toon.Deep;
+	Out[13] = Toon.Key;
+	Out[14] = Toon.Key2;
+	Out[15] = FVector4f(Toon.RimFocus, L.PaintKeyFalloff, L.PaintRimFalloff, L.PaintRimPower);
+	Out[16] = FVector4f(L.PaintHalfToneTint.R, L.PaintHalfToneTint.G, L.PaintHalfToneTint.B, L.PaintHalfToneMix);
+	Out[17] = FVector4f(L.PaintShadeAtBase, L.PaintBaseFloor, 0.0f, 0.0f);
+	for (int32 Index = 0; Index < FDreamSkyToonBaked::RampSize / 2; ++Index)
+	{
+		const FVector2f A = Toon.Ramp[2 * Index], B = Toon.Ramp[2 * Index + 1];
+		Out[18 + Index] = FVector4f(A.X, A.Y, B.X, B.Y);
+	}
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -605,6 +624,11 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.Look = int32(Actor->GetEffectiveCloudLook());
 		FDreamSkyCloudLookParameters Look;
 		Actor->GetCloudLookParameters(Look);
+		// (The toon tones as the sky modifiers have blended them.)
+		if (Sky->GetLook().Toon.IsValid())
+		{
+			Look.Toon = Sky->GetLook().Toon;
+		}
 		PackLookParameters(Look, Settings.LookParameters);
 
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);

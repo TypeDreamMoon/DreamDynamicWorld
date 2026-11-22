@@ -60,8 +60,10 @@ work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
-`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, high cloud and rain
-shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
+moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full,
+`DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
@@ -96,10 +98,10 @@ shading toward the light reaches), the level's cloud overrides over them; on the
 brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
 comes out light grey) and `CloudShadowTracingDistance` (6 km) is how far each sample looks toward the sun. A map of
 the optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function
-the sky puts on its sun, `M_DreamCloudShadow`): under the toon and painted clouds the shadows take only 0.55 of the
-sun off the ground between broken clouds — a painted background's cloud shadows lie light and warm — rising to all
-of it as the cover closes (an overcast casts no sun shadows); under the realistic ones all of it (the `GroundShadow`
-override sets it for any look). A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
+the sky puts on its sun, `M_DreamCloudShadow`): they take all of the sun off the ground under every look; the style's
+`StylizedCloudShadow` lowers that between broken clouds under the toon and painted ones (say 0.55: a painted
+background's cloud shadows lie light and warm), rising to all of it as the cover closes (an overcast casts no sun
+shadows); the `GroundShadow` override sets it for any look. A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
 in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
 between the view and the ground are drawn over the scene too, just before the post processing: there they cover
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
@@ -137,16 +139,31 @@ deep blue overhead) and catch the sun's glow beside it. The sun's halo spreads a
 low. When the sky light captures the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the
 captured light has no hot spot.
 
-**Aurora.** The dome draws the aurora as curtains of light some 95 to 330 km up toward the magnetic pole (north,
-or south below the equator), in three layers one behind another: a brighter band along their sharp lower edge,
-great S-bends that drift and slowly change shape, rays in their bodies, green low down and red to violet at their
-tops. Under the toon and painted clouds its light goes in three clean tones (`Aurora.bStylizedTones`). The clouds
+**Cloud tones.** The toon and painted looks' tones are the style's to set, none fixed in the shaders. The toon look
+(`ToonClouds`): the steps from the shade through the half tone to the lit tone by the light on a billow -- `Bands`, as
+many as wanted, each where it changes, how softly and to which tone, or a free `ToneCurve` in their place -- the half
+tone (`HalfToneMix`, `HalfToneTint`), an underside's own steps and deepest shade (`UndersideBands`,
+`UndersideDeepTint`), how the light on a billow is reckoned (`KeyFacing`, `KeyUp`, `KeyHeight`, `KeyHeightPivot`,
+`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side.
+The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
+and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
+of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of
+it as over the rest of the style. The renderer takes them with its own parameters; no shared parameter, no texture.
+
+**Aurora.** The dome draws the aurora as curtains of soft light over the auroral oval toward the magnetic pole
+(north, or south below the equator), from a sharp, brighter lower edge some 95 km up fading out by 320 km, green
+low down going to violet at the top. Where the curtains stand is drawn as thin ribbons that wander, fold and slowly
+change shape (two copies of one smooth noise field drifting apart, lit where they nearly agree), stretched along the
+oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
+heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
+this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
+clean tones there instead, at `ToneStep1..3` with `ToneSoftness` (`DDW_AuroraTones`). The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's
 `Aurora.ArtisticPresence` says in the artistic one. The style's *Aurora* also sets its brightness, colours, speed,
 and how far toward the pole the arc stands and how wide it is. A sky modifier's *Aurora* brings it anywhere (or
-holds it off); `DreamSky.Modifier.Add Aurora` tries it. It costs some 0.19 ms of the base pass at 1080p while it
+holds it off); `DreamSky.Modifier.Add Aurora` tries it. It costs some 0.16 ms of the base pass at 1080p while it
 shows, nothing while it does not.
 
 **Night glow and light pollution.** From sunset on the night sky has a faint glow of its own (the style's
@@ -236,6 +253,20 @@ Center for Astrophysics' Telescope Data Center or the CDS as V/50); with no file
 a file that does not read as the catalogue (far from its 9110 records, or places and magnitudes out of their ranges) is
 an error and leaves it as it is too. The catalogue's file itself is not part of the plugin; the map is.
 
+**Milky Way.** Behind the stars the dome draws the Milky Way on the same celestial sphere, so it turns with them and
+stands where it does for the latitude, the season and the hour (low in the south on a northern summer night with its
+bright centre in Sagittarius, the fainter Perseus and Auriga stretch on a winter one): a band widening and brightening
+toward the centre with the bulge round it, clumped into star clouds, split by dust lanes and the Great Rift, warm white
+toward the centre and cooler along the arms, and the Magellanic Clouds in the south. It is made from noise, no
+photograph: Setup bakes it into `T_DreamMilkyWay` (2048 x 1024 in galactic longitude and latitude, the dust's depth in
+its alpha). It shows only on a dark night -- from the sun at `ShowsBelow` (-10 degrees) to all of it by `FullBelow`
+(-18) -- and the moon's light (`MoonWash`: a full moon high up leaves some 8% of it), a city's light (`CityWash`: the
+dome's light pollution that leaves a third), haze, fog and cloud wash it out; `UDreamSkySubsystem::GetMilkyWayVisibility`
+says how much shows. It looks the same under every cloud look. The style's `MilkyWay` sets how bright it is
+(`Intensity`, on the stars' night intensity curve), its `Contrast`, how dark its `Dust` lanes are, its `Saturation` and
+`Tint`; a sky modifier's *Milky Way* scales it. It is read in the dome with the stars, one texture sample, nothing
+while it does not show.
+
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
 0.43) at 50.4 to 53.5 with its colours turned about, and the darker sky between the two. It shows while there is rain
@@ -275,9 +306,13 @@ any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
-sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`, 2.5 EV: a room lit only through its
-door and windows, with little bounced light, is still dark at 1) and can scale the sky light and the sun and moon
-there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
+sides are closed. Indoors the sky lifts the exposure (`InteriorExposureLift`, 2.5 EV: a room lit only through its
+door and windows, with little bounced light, is still dark at 1) and raises the sky light (`InteriorSkyLightScale`,
+2.5): with Lumen the sky light is occluded, so what the doors and windows let in brightens and the corners stay dark.
+Without Lumen nothing bounces in; `bInteriorFill` (off by default) then adds a weak fill that ignores occlusion
+(`InteriorFill` of the outdoor sky light, and as much on the shared ambient gradient). Neither lights a room with
+small windows by itself: place lights in it, as a level would anyway. The sun and moon can be scaled indoors too;
+`DDW_Interior` carries how far the view is indoors to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
@@ -597,6 +632,17 @@ wait four seconds, for the drops of the weather before to land; inside the hut, 
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
 `DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
 
+**Timing it.** `Tools/Showcase/Measure-ShowcaseGpu.ps1` times the GPU features one at a time on the showcase level at
+1920x1080, each at a fixed view and weather: the surface maps, the surface materials, trails, ripples, window glass,
+the rain, snow, dust and debris particles, the cloud renderer, light shafts, the aurora, the star map, the lens flare,
+drops and frost on the lens, heat haze, the rainbow and an eclipse. A feature with a switch is timed off and on (its own
+GPU events, or the whole frame), one with passes of its own by those passes; each figure is the median of `-Samples`
+(7) ProfileGPU dumps. It starts only on a quiet GPU (under `-MaxBusy`, 15 %, by nvidia-smi; after `-WaitMinutes` it
+gives up and names the processes using it, stopping none), samples every process's GPU use while it runs, and writes a
+Markdown table next to the run's log: the feature, whether it is on by default, its cost, and how busy the GPU was with
+other work meanwhile. A whole run takes some minutes; `-Only Rain,LensFlare -Samples 1` is a quick check, `-Shots`
+pictures each feature's view, `-Log` reads a run again.
+
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
@@ -660,6 +706,19 @@ and the cover), 0.2 ms for an integration.
 | `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
+
+**Tuning the look.** What the weather does to a surface is set in the editor, per material instance: every shift,
+edge and colour the weather functions apply is a material parameter, its default the look described above. Put the
+values a set of materials shares in a parent instance and let the materials inherit them.
+
+| Group | Parameters (defaults) |
+| :-- | :-- |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95 |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95 |
+
+Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
+formula, so a CPU query and every material agree on it; the parameters change how it looks there.
+`DreamWorld.SurfaceLook.Parameters` checks that the demo materials carry every parameter with its default.
 
 **Rain on it.** While it rains (at the view, `DDW_Weather0`; not under cover) the puddles ripple — rings spreading
 from where drops land, more cells ringing the harder it rains, every ring with the same rhythm so a temporal filter

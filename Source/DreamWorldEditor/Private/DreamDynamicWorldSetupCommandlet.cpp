@@ -8,6 +8,7 @@
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
+#include "DreamMilkyWay.h"
 #include "DreamStarMap.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
@@ -50,6 +51,8 @@ namespace DreamWorld::Setup
 	static constexpr int32 CloudNoiseSize = 128;
 	static const TCHAR* StarMapPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamStarMap");
 	static const TCHAR* StarMapStampKey = TEXT("DreamStarMapStamp");
+	static const TCHAR* MilkyWayPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamMilkyWay");
+	static const TCHAR* MilkyWayVersionKey = TEXT("DreamMilkyWayVersion");
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
 	{
@@ -290,6 +293,66 @@ namespace DreamWorld::Setup
 		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
 	}
 
+	/**
+	 * The Milky Way's map (see DreamMilkyWay.h), made from noise: no file needed. Built again when its version changed,
+	 * or with bForce; bPreview also writes it as <project>/Saved/DreamDynamicWorld/MilkyWay.bmp to look at.
+	 */
+	static bool EnsureMilkyWay(bool bForce, bool bPreview)
+	{
+		const FString ObjectPath = FString(MilkyWayPackage) + TEXT(".") + FPackageName::GetShortName(MilkyWayPackage);
+		UTexture2D* Texture = FPackageName::DoesPackageExist(MilkyWayPackage) ? LoadObject<UTexture2D>(nullptr, *ObjectPath) : nullptr;
+		const FString Version = FString::FromInt(DreamMilkyWay::Version);
+		if (Texture && !bForce && !bPreview && Texture->GetOutermost()->GetMetaData().GetValue(Texture, MilkyWayVersionKey) == Version)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Milky Way %s: up to date"), *ObjectPath);
+			return true;
+		}
+		const double Start = FPlatformTime::Seconds();
+		TArray<FColor> Texels;
+		DreamMilkyWay::Build(DreamMilkyWay::Width, DreamMilkyWay::Height, Texels);
+		if (bPreview)
+		{
+			const FString Preview = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("DreamDynamicWorld"), TEXT("MilkyWay.bmp"));
+			// (As the dome shows it by default: the light dimmed by the dust.)
+			TArray<FColor> Seen = Texels;
+			for (FColor& C : Seen)
+			{
+				const FLinearColor L = FLinearColor::FromSRGBColor(FColor(C.R, C.G, C.B)) * FMath::Exp(-4.0f * 0.8f * C.A / 255.0f);
+				C = L.ToFColor(true);
+				C.A = 255;
+			}
+			FFileHelper::CreateBitmap(*Preview, DreamMilkyWay::Width, DreamMilkyWay::Height, Seen.GetData());
+			UE_LOG(LogDreamWorld, Display, TEXT("Milky Way preview: %s"), *Preview);
+		}
+		const bool bCreated = Texture == nullptr;
+		if (!Texture)
+		{
+			UPackage* Package = CreatePackage(MilkyWayPackage);
+			Package->FullyLoad();
+			Texture = NewObject<UTexture2D>(Package, *FPackageName::GetShortName(MilkyWayPackage), RF_Public | RF_Standalone);
+		}
+		Texture->PreEditChange(nullptr);
+		Texture->Source.Init(DreamMilkyWay::Width, DreamMilkyWay::Height, 1, 1, TSF_BGRA8, reinterpret_cast<const uint8*>(Texels.GetData()));
+		Texture->Source.Compress();
+		// (Smooth light: block compressed, its colour in sRGB for the faint end, the dust in alpha; it wraps round in
+		// longitude, and is read at its full size.)
+		Texture->SRGB = true;
+		Texture->CompressionSettings = TC_BC7;
+		Texture->MipGenSettings = TMGS_NoMipmaps;
+		Texture->LODGroup = TEXTUREGROUP_World;
+		Texture->NeverStream = true;
+		Texture->AddressX = TA_Wrap;
+		Texture->AddressY = TA_Clamp;
+		Texture->PostEditChange();
+		Texture->GetOutermost()->GetMetaData().SetValue(Texture, MilkyWayVersionKey, *Version);
+		if (bCreated)
+		{
+			FAssetRegistryModule::AssetCreated(Texture);
+		}
+		UE_LOG(LogDreamWorld, Display, TEXT("Milky Way %s: built %dx%d in %.1f s"), *ObjectPath, DreamMilkyWay::Width, DreamMilkyWay::Height, FPlatformTime::Seconds() - Start);
+		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
+	}
+
 	struct FPresetSpec
 	{
 		const TCHAR* Name;
@@ -496,6 +559,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= EnsureCloudPanorama();
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	bOk &= EnsureStarMap(Params, FParse::Param(*Params, TEXT("ForceStarMap")));
+	bOk &= EnsureMilkyWay(FParse::Param(*Params, TEXT("ForceMilkyWay")), FParse::Param(*Params, TEXT("MilkyWayPreview")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
 

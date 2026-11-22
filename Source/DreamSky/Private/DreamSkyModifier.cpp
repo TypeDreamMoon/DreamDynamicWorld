@@ -105,6 +105,13 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 	if (bOverride_Airglow) { K.AirglowScale = Scale(K.AirglowScale, Airglow); }
 	if (bOverride_LightShafts) { K.LightShafts = Scale(K.LightShafts, LightShafts); }
 	if (bOverride_LensFlare) { K.LensFlare = Scale(K.LensFlare, LensFlare); }
+	if (bOverride_MilkyWay) { K.MilkyWay = Scale(K.MilkyWay, MilkyWay); }
+	if (bOverride_ToonClouds)
+	{
+		FDreamSkyToonBaked Theirs;
+		ToonClouds.Bake(Theirs);
+		K.Toon.BlendToward(Theirs, Alpha);
+	}
 	if (bOverride_SolarEclipse) { K.SolarEclipse = Toward(K.SolarEclipse, FMath::Clamp(SolarEclipse, 0.0f, 1.0f)); }
 	if (bOverride_LunarEclipse) { K.LunarEclipse = Toward(K.LunarEclipse, FMath::Clamp(LunarEclipse, 0.0f, 1.0f)); }
 
