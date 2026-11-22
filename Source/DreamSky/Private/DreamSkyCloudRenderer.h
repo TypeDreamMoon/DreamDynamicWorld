@@ -60,6 +60,11 @@ private:
 		FVector4f LookParameters[NumLookParameters];
 		FTextureResource* Noise = nullptr;
 		FTextureResource* Map = nullptr;
+		/** The atmosphere's transmittance table (DreamAtmosphere), and the air it was built for (null: not built yet,
+		 *  the light through the air is the analytic one). */
+		FTextureResource* Transmittance = nullptr;
+		FIntPoint TransmittanceSize = FIntPoint::ZeroValue;
+		FVector4f Atmosphere[5] = { FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f) };
 		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */
 		FTextureResource* Shadow = nullptr;
 		/** The panorama the dome shows in the sky light capture (RT_DreamCloudPanorama); null: none. */
@@ -108,6 +113,8 @@ private:
 	/** The light shafts below the clouds, over the scene before the post processing (and before the clouds below). */
 	/** The sun's lens flare, over the scene after the depth of field. */
 	/** The drops on the lens, over the finished picture (after the upscale). */
+	/** The atmosphere's part of the march's common parameters (the transmittance table, the air), from Settings. */
+	static void FillAtmosphere(DreamSkyCloudRender::FCommonParameters& Common, const FFrameSettings& Settings);
 	FScreenPassTexture DrawScreen(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	FScreenPassTexture DrawLensFlare(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	FScreenPassTexture DrawLightShafts(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);

@@ -1,6 +1,8 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSkyCloudRenderer.h"
+#include "DreamAtmosphereSubsystem.h"
+#include "DreamAtmosphereTables.h"
 #include "DreamSky.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
@@ -82,6 +84,11 @@ static TAutoConsoleVariable<int32> CVarDreamSkyLensFlarePreset(
 	TEXT("The sun's lens flare as this preset whatever the style says: 0 none, 1 natural, 2 anamorphic, 3 stylized; -1 = the style's."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderAtmosphere(
+	TEXT("DreamSky.CloudRender.Atmosphere"), 1,
+	TEXT("1: the clouds' light through the air from the atmosphere's tables (DreamAtmosphere) once built; 0: the analytic air."),
+	ECVF_RenderThreadSafe);
+
 static TAutoConsoleVariable<float> CVarDreamSkyScreenDroplets(
 	TEXT("DreamSky.ScreenDroplets"), -1.0f,
 	TEXT("The rain drops on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenDroplets."),
@@ -111,6 +118,12 @@ namespace DreamSkyCloudRender
 		SHADER_PARAMETER(FVector3f, CameraWorld)
 		SHADER_PARAMETER(float, SkyDepth)
 		SHADER_PARAMETER(int32, Downsample)
+		// The atmosphere (DreamAtmosphere): its transmittance table (TransmittanceSize 0: not built, the analytic air) and
+		// the air it was built for (FDreamAtmosphereParameters::Pack).
+		SHADER_PARAMETER_TEXTURE(Texture2D, TransmittanceLut)
+		SHADER_PARAMETER_SAMPLER(SamplerState, TransmittanceSampler)
+		SHADER_PARAMETER(FIntPoint, TransmittanceSize)
+		SHADER_PARAMETER_ARRAY(FVector4f, Atmosphere, [5])
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool Supported(const FGlobalShaderPermutationParameters& Parameters)
@@ -522,6 +535,18 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 	return Names;
 }
 
+void FDreamSkyCloudViewExtension::FillAtmosphere(DreamSkyCloudRender::FCommonParameters& Common, const FFrameSettings& Settings)
+{
+	const bool bTable = Settings.Transmittance && Settings.Transmittance->TextureRHI;
+	Common.TransmittanceLut = bTable ? Settings.Transmittance->TextureRHI.GetReference() : GBlackTexture->TextureRHI.GetReference();
+	Common.TransmittanceSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Common.TransmittanceSize = bTable ? Settings.TransmittanceSize : FIntPoint::ZeroValue;
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		Common.Atmosphere[Index] = Settings.Atmosphere[Index];
+	}
+}
+
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
 	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's");
@@ -629,6 +654,15 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.Parameters[Index] = FVector4f(Value.R, Value.G, Value.B, Value.A);
 		}
 		Settings.bClouds = Settings.Noise && Settings.Map;
+		// (The atmosphere's transmittance table once built: the light through the air, as the sky's.)
+		const UDreamAtmosphereSubsystem* Atmosphere = UDreamAtmosphereSubsystem::Get(ViewWorld);
+		const UDreamAtmosphereTables* Tables = Atmosphere ? Atmosphere->GetTables() : nullptr;
+		if (Tables && Tables->IsBuilt() && Tables->GetTransmittance() && CVarDreamSkyCloudRenderAtmosphere.GetValueOnGameThread() != 0)
+		{
+			Settings.Transmittance = Tables->GetTransmittance()->GetResource();
+			Settings.TransmittanceSize = FIntPoint(Tables->GetTransmittance()->SizeX, Tables->GetTransmittance()->SizeY);
+			Tables->GetBuiltParameters().Pack(Settings.Atmosphere);
+		}
 		Settings.Look = int32(Actor->GetEffectiveCloudLook());
 		FDreamSkyCloudLookParameters Look;
 		Actor->GetCloudLookParameters(Look);
@@ -791,6 +825,7 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		Common.CameraWorld = FVector3f(InView.ViewLocation);
 		Common.SkyDepth = Settings.SkyDepth;
 		Common.Downsample = Downsample;
+		FillAtmosphere(Common, Settings);
 	};
 
 	FRDGTextureRef Clouds = nullptr;
@@ -1176,6 +1211,7 @@ FScreenPassTexture FDreamSkyCloudViewExtension::DrawLightShafts(FRDGBuilder& Gra
 		{
 			Common.LookParameters[Index] = Entry->LookParameters[Index];
 		}
+		FillAtmosphere(Common, RenderSettings);
 		Common.CameraWorld = FVector3f(InView.ViewLocation);
 		Common.SkyDepth = Settings.SkyDepth;
 		Common.Downsample = Entry->Downsample;
@@ -1232,6 +1268,7 @@ FScreenPassTexture FDreamSkyCloudViewExtension::CompositeBelow(FRDGBuilder& Grap
 	{
 		Params->Common.LookParameters[Index] = Entry->LookParameters[Index];
 	}
+	FillAtmosphere(Params->Common, RenderSettings);
 	Params->Common.CameraWorld = FVector3f(InView.ViewLocation);
 	Params->Common.SkyDepth = RenderSettings.SkyDepth;
 	Params->Common.Downsample = Entry->Downsample;
