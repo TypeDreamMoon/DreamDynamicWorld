@@ -29,6 +29,12 @@ namespace DreamWeatherAudio
 	/** The wind speed as 0..1 of a loud wind. */
 	DREAMWEATHERAUDIO_API float WindAmount(float WindSpeed, float WindLoudSpeed);
 
+	/**
+	 * Gain of the wind and the rain Seconds after a near thunder clap: down by DuckDb at once, back to 1 over
+	 * DuckSeconds (held for the first third, then easing back). 1 before the clap and after.
+	 */
+	DREAMWEATHERAUDIO_API float ThunderDuck(float Seconds, float DuckDb, float DuckSeconds);
+
 	/** Every looping voice for these inputs. */
 	DREAMWEATHERAUDIO_API void Mix(const FDreamWeatherAudioInputs& In, const FDreamWeatherAudioTuning& Tuning, FDreamWeatherVoiceMix OutVoices[(int32)EDreamWeatherVoice::Num]);
 

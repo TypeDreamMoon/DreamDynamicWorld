@@ -16,8 +16,9 @@ struct DREAMWEATHERFX_API FDreamPrecipitationLayer
 	GENERATED_BODY()
 
 	/**
-	 * The effect. Every frame it is given its fall paths (User.Paths, User.Normals: see DreamFallPath.dfm), the
-	 * drops' velocity (User.FallVelocity) and how many drops and splashes to spawn (User.DropRate, User.SplashRate).
+	 * The effect. Every frame it is given its fall paths (User.Paths, User.Starts, User.Normals: see
+	 * DreamFallPath.dfm; a drop runs from its path's start to its end) and how many drops and splashes to spawn
+	 * (User.DropRate, User.SplashRate).
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation", meta = (AllowedClasses = "/Script/Niagara.NiagaraSystem"))
 	FSoftObjectPath System;
@@ -71,11 +72,55 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General")
 	bool bPrecipitationInEditor = true;
 
+	/** Every local player's camera buffets in a strong wind, calmed indoors (UDreamWindCameraModifier). */
+	UPROPERTY(Config, EditAnywhere, Category = "Wind")
+	bool bWindCameraShake = true;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
 	FDreamPrecipitationLayer Rain;
 
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
 	FDreamPrecipitationLayer Snow;
+
+	/**
+	 * Dust and sand blown along the ground: its paths run nearly flat downwind (FallSpeed is how fast motes settle,
+	 * MaxSlant how flat they may go), so motes stream past outside and never blow indoors. Its strength is the Dust
+	 * channel; the same paths carry the wind's debris.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FDreamPrecipitationLayer Dust;
+
+	/**
+	 * Debris in a strong wind (leaves, twigs, scraps): spawned on the dust layer's paths like the motes and carried by
+	 * the wind field. Given User.Paths / User.Normals, User.DebrisRate (per second) and User.DebrisColor (the season's).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris", meta = (AllowedClasses = "/Script/Niagara.NiagaraSystem"))
+	FSoftObjectPath WindDebris;
+
+	/** Wind speed at the view (cm/s) where debris starts to fly, and where it is at its most. */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FVector2D DebrisWindSpeed = FVector2D(900.0, 2200.0);
+
+	/** Pieces spawned per second at the most. */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris", meta = (ClampMin = "0", UIMax = "1000"))
+	float DebrisPerSecond = 300.0f;
+
+	/** How much debris each season has (spring, summer, autumn, winter): autumn leaves, a bare winter. */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FVector4f DebrisSeasonAmount = FVector4f(0.6f, 0.4f, 1.6f, 0.25f);
+
+	/** The debris's colour in each season. */
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FLinearColor DebrisSpring = FLinearColor(0.35f, 0.55f, 0.15f);
+
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FLinearColor DebrisSummer = FLinearColor(0.25f, 0.45f, 0.12f);
+
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FLinearColor DebrisAutumn = FLinearColor(0.75f, 0.42f, 0.10f);
+
+	UPROPERTY(Config, EditAnywhere, Category = "Dust and Debris")
+	FLinearColor DebrisWinter = FLinearColor(0.42f, 0.33f, 0.24f);
 
 	/** Fall paths kept per kind of precipitation. More = less visible repetition, more traces. */
 	UPROPERTY(Config, EditAnywhere, Category = "Fall Paths", meta = (ClampMin = "16", UIMax = "8192"))

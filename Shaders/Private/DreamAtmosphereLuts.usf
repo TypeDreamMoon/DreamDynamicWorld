@@ -1,0 +1,104 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The atmosphere's lookup tables, built from the shared model (DreamAtmosphereShared.h) whenever the air changes:
+//   TransmittanceCS    2D, the transmittance to the top of the atmosphere for each height and zenith angle (direct)
+//   MultiScatteringCS  2D, the light scattered many times for each height and light angle (reads the transmittance)
+//   SkyCS              3D, the sky an observer near the ground sees for each view elevation, angle round from the
+//                      light and light elevation, per unit of the light's illuminance (reads both)
+//   SkySliceCS         one depth slice of the sky table into a 2D target (for tests and inspection)
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
+
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 8
+#endif
+
+float4 Atmosphere[5];
+int2 TransmittanceSize;
+int2 MultiScatteringSize;
+int3 SkySize;
+float SkyAltitude;   // km over the ground: the observer the sky table is for
+uint SkySteps;
+uint SkySlice;
+
+Texture2D<float4> TransmittanceLut;
+Texture2D<float4> MultiScatteringLut;
+Texture3D<float4> SkyLut;
+SamplerState LutSampler;
+
+RWTexture2D<float4> OutTransmittance;
+RWTexture2D<float4> OutMultiScattering;
+RWTexture3D<float4> OutSky;
+RWTexture2D<float4> OutSlice;
+
+FDSA_Atmosphere Air()
+{
+	return DSA_Unpack(Atmosphere[0], Atmosphere[1], Atmosphere[2], Atmosphere[3], Atmosphere[4]);
+}
+
+float3 DSA_LookupTransmittance(FDSA_Atmosphere A, float r, float mu)
+{
+	float2 P = DSA_TransmittanceUv(A, r, mu);
+	float2 Uv = float2(DSA_TableTexcoord(P.x, TransmittanceSize.x), DSA_TableTexcoord(P.y, TransmittanceSize.y));
+	return TransmittanceLut.SampleLevel(LutSampler, Uv, 0).rgb;
+}
+
+float3 DSA_LookupMultiScattering(FDSA_Atmosphere A, float r, float MuS)
+{
+	float2 P = DSA_MultiScatteringUv(A, r, MuS);
+	float2 Uv = float2(DSA_TableTexcoord(P.x, MultiScatteringSize.x), DSA_TableTexcoord(P.y, MultiScatteringSize.y));
+	return MultiScatteringLut.SampleLevel(LutSampler, Uv, 0).rgb;
+}
+
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereScattering.h"
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void TransmittanceCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= TransmittanceSize))
+	{
+		return;
+	}
+	FDSA_Atmosphere A = Air();
+	float2 P = float2(DSA_TableParam(Id.x, TransmittanceSize.x), DSA_TableParam(Id.y, TransmittanceSize.y));
+	float2 RMu = DSA_TransmittanceRMu(A, P);
+	OutTransmittance[Id.xy] = float4(DSA_TransmittanceToTopDirect(A, RMu.x, RMu.y), 1.0f);
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void MultiScatteringCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= MultiScatteringSize))
+	{
+		return;
+	}
+	FDSA_Atmosphere A = Air();
+	float2 P = float2(DSA_TableParam(Id.x, MultiScatteringSize.x), DSA_TableParam(Id.y, MultiScatteringSize.y));
+	float2 RMu = DSA_MultiScatteringRMu(A, P);
+	OutMultiScattering[Id.xy] = float4(DSA_MultiScatteringDirect(A, RMu.x, RMu.y), 1.0f);
+}
+
+[numthreads(4, 4, 4)]
+void SkyCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int3(Id) >= SkySize))
+	{
+		return;
+	}
+	FDSA_Atmosphere A = Air();
+	float3 P = float3(DSA_TableParam(Id.x, SkySize.x), DSA_TableParam(Id.y, SkySize.y), DSA_TableParam(Id.z, SkySize.z));
+	float3 Directions = DSA_SkyDirections(P);
+	float3 L = DSA_SkyLuminance(A, SkyAltitude, DSA_SkyViewVector(Directions), DSA_SkyLightVector(Directions), SkySteps);
+	OutSky[Id] = float4(L, 1.0f);
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void SkySliceCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= SkySize.xy))
+	{
+		return;
+	}
+	OutSlice[Id.xy] = SkyLut.Load(int4(Id.x, Id.y, int(SkySlice), 0));
+}

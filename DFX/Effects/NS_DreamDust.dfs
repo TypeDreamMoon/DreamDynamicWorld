@@ -1,0 +1,138 @@
+// DreamWeather: blown dust and sand around the view (GPU).
+//
+// Driven like the rain by UDreamWeatherFXSubsystem, on the dust layer's fall paths: they run nearly flat downwind,
+// a few metres above the ground, and end where they meet a wall, a roof or the ground, or pass under a shelter,
+// so the dust streams past outside and never blows indoors. Motes stream along the paths, swirling a little about
+// them; a few large soft puffs drift along the same paths and make the near haze.
+System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        ModulePaths = ["/DreamDynamicWorld/Weather/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-12000, -12000, -4000, 12000, 12000, 4000);
+    }
+
+    Properties = {
+        DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Starts;
+        DI<ArrayFloat3> Normals;
+        float  DropRate     = 0.0                [ Group="Amount"; Description="Motes spawned per second." ];
+        float  SplashRate   = 0.0                [ Group="Amount"; Description="Unused by dust." ];
+        float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the motes spawned now that start part way along their path." ];
+        float  Swirl        = 90.0               [ Group="Motion"; Description="How far motes wander about their path, cm/s." ];
+        float  MoteSize     = 3.0                [ Group="Look"; Description="Mote size, cm." ];
+        float  PuffShare    = 0.03               [ Group="Look"; Description="Puffs per mote." ];
+        float  PuffSize     = 700.0              [ Group="Look"; Description="Puff size, cm." ];
+        Color  Tint         = (0.78, 0.64, 0.46, 0.7)  [ Group="Look" ];
+        Color  PuffTint     = (0.72, 0.60, 0.44, 0.05) [ Group="Look" ];
+    }
+
+    Emitter Motes
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 32768;
+            FixedBounds        = box(-12000, -12000, -4000, 12000, 12000, 4000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.DropRate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = 20.0,
+                ColorMode            = DirectSet,
+                Color                = User.Tint,
+                SpriteSizeMode       = RandomUniform,
+                UniformSpriteSizeMin = hlsl { User.MoteSize * 0.5 },
+                UniformSpriteSizeMax = hlsl { User.MoteSize * 1.5 }
+            );
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere);
+            float Particles.DustPhase = hlsl { rand(6.2831853) };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            // Swirl about the path (the sideways velocity is a sine, so a mote keeps coming back to its path).
+            Vector Particles.Velocity = hlsl {
+                Particles.DreamPathVelocity + float3(sin(Particles.Age * 2.3 + Particles.DustPhase),
+                                           cos(Particles.Age * 1.9 + Particles.DustPhase * 1.3),
+                                           sin(Particles.Age * 3.1 + Particles.DustPhase * 0.7) * 0.5) * User.Swirl
+            };
+            SolveForcesAndVelocity();
+            Color Particles.Color = hlsl {
+                float4(User.Tint.rgb, User.Tint.a * saturate(Particles.NormalizedAge * 8.0) * saturate((1.0 - Particles.NormalizedAge) * 8.0))
+            };
+        }
+
+        SpriteRenderer Mote
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamSnowFlake";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+        }
+    }
+
+    Emitter Puffs
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 1024;
+            FixedBounds        = box(-12000, -12000, -4000, 12000, 12000, 4000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = hlsl { User.DropRate * User.PuffShare });
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = 20.0,
+                ColorMode            = DirectSet,
+                Color                = User.PuffTint,
+                SpriteSizeMode       = RandomUniform,
+                UniformSpriteSizeMin = hlsl { User.PuffSize * 0.6 },
+                UniformSpriteSizeMax = hlsl { User.PuffSize * 1.4 },
+                SpriteRotationMode   = Random
+            );
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere);
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            Vector Particles.Velocity = hlsl { Particles.DreamPathVelocity * 0.8 };
+            SolveForcesAndVelocity();
+            SpriteRotationRate(RotationRate = 6.0);
+            Color Particles.Color = hlsl {
+                float4(User.PuffTint.rgb, User.PuffTint.a * saturate(Particles.NormalizedAge * 4.0) * saturate((1.0 - Particles.NormalizedAge) * 4.0))
+            };
+        }
+
+        SpriteRenderer Puff
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamDustPuff";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = ViewDepth;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+}

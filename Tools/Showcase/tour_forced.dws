@@ -1,0 +1,135 @@
+ShowFlag.EyeAdaptation 0
+DreamWorld.Pause 1
+DreamWorld.DayLength 0.5
+time 7
+DreamWeather.Set WP_Snow 0
+DreamWorld.Pause 0
+wait 187
+DreamWorld.Pause 1
+time 12.5
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_SnowDay_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_SnowDay_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_SnowDay_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_SnowDay_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_SnowDay_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_SnowDay_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_SnowDay_Snow
+DreamWeather.Clear
+time 7
+DreamWeather.Set WP_Dust 0
+DreamWorld.Pause 0
+wait 150
+DreamWorld.Pause 1
+time 12
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_DustDay_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_DustDay_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_DustDay_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_DustDay_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_DustDay_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_DustDay_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_DustDay_Snow
+DreamWeather.Clear
+time 18
+DreamWeather.Set WP_Storm 0
+DreamWorld.Pause 0
+wait 112
+DreamWorld.Pause 1
+time 22.5
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_StormNight_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_StormNight_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_StormNight_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_StormNight_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_StormNight_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_StormNight_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_StormNight_Snow
+DreamWeather.Clear

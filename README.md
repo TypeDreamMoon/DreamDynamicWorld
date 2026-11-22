@@ -40,7 +40,8 @@ sky still leaves one for the project.
 **World clock** (`UDreamWorldSubsystem`). World time is a double count of seconds in the world's own
 calendar; real time times the time scale moves it (*Day Length Minutes*, default 24 = one real minute per
 game hour). Sun and moon are a pure function of it: *Artistic* mode (sunrise and sunset hours, the sun's
-height at midday, the moon kept opposite the sun if you like — the same every day) or *Realistic* mode
+height at midday, the moon kept opposite the sun if you like — the same every day; the stars turn with the
+local sidereal time of that date and hour, so the constellations rise when they really do) or *Realistic* mode
 (latitude, longitude, UTC offset, the date: NOAA sun, low-precision moon with its real phase; about a
 degree). Setting the time, a snapshot or scrubbing puts the whole sky exactly where it would have been.
 
@@ -391,8 +392,19 @@ An influence of your own brings a preset the same way by overriding `GetWeatherI
 Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)` (a second
 forcing blends in over the first, which holds until it has arrived: the schedule never shows through between).
 **Zones** (`ADreamWeatherZone`, or `UDreamWeatherZoneComponent` on anything) give a region weather of its own: a
-box or circle footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
-registration order). Anything else can bend the weather where it is by implementing `IDreamWeatherInfluence`.
+box, circle or polygon footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
+registration order). A **polygon** is any outline seen from above, up to 64 points in the zone's frame (`Points`,
+`SetPolygonPoints`), or a closed spline: `ADreamWeatherOutlineZone` takes its footprint from its `Outline` spline, a
+point every `OutlineSpacing` (call `UpdateFootprint` after moving the spline at run time; a spline tagged as an
+outline is never taken for a storm's path). The blend runs out from the outline's nearest edge, so a snowfield with a
+bay cut into it stays clear in the bay. **The footprint is where the zone is at full strength**: the blend lies
+outside it, fading to nothing `BlendDistance` beyond the outline (half strength at half of it). The weather map, the
+precipitation, the sounds, the surfaces and `DreamWeather.MarkEdge` all follow it, so a snow zone's snow reaches past
+its outline: given time to settle, snow lies nearly as deep in the blend as inside. To keep the weather close to the
+outline, shorten `BlendDistance`. A zone's channels are the weather's, so its **`Temperature` is an offset** on
+the climate's temperature for the date and hour, not a temperature: a snowfield on a midsummer afternoon (some 25 °C)
+needs about −30 to freeze, and `DreamWeather.MarkEdge Air` (below) rings where it does. Anything else can bend the
+weather where it is by implementing `IDreamWeatherInfluence`.
 
 **Queries and events.** `SampleWeather(Position)` — every channel there, rain and snow (precipitation turns to
 snow near freezing, so a mountain top snows in the valley's rain), the temperature (climate, season, hour,
@@ -404,8 +416,16 @@ are saved in the world snapshot; the schedule needs nothing saved.
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
 up in it where each direction meets the cloud layer, so a storm zone's dark clouds show from afar. The zone
-falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the compute pass and for the CPU
-queries: what the sky shows over a valley is what gameplay reads there. Rain, snow and lightning are held to what
+falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the weather map, the surface maps and
+the CPU queries: what the sky shows over a valley is where the ground gets wet and what gameplay reads there. A
+polygon's points follow the zone records in the maps' zone buffers. `DreamWeather.MarkEdge [channel] [radius m] [step
+m] [level] [post height m]` puts red posts on the ground where the point queries cross a level of a channel around
+the view (`DreamWeather.MarkEdge off` takes them away), to see a zone's edge as gameplay has it beside the clouds and
+the ground. The channel `Air` is the air's temperature at the base height rather than the `Temperature` channel (an
+offset on the climate's hour). In a warm season a cold zone's snow lies where the air stays below freezing
+(`DreamWeather.MarkEdge Air 5000 40 0.5 150` rings the showcase's snowfield); where it freezes all round, snow lies
+wherever any falls (`DreamWeather.MarkEdge Precipitation 40 0.5 0.03` in the surface test level). Rain, snow and
+lightning are held to what
 the clouds allow, after every preset, modifier and zone (*Project Settings ▸ Dream Weather ▸ Clouds*): no
 precipitation below 75% cover, in full from 90% (`PrecipitationCloudCover`), and lightning only from a dark, closed
 cover (`LightningCloudDarkness` 0.45–0.75, `LightningCloudCover` 0.85–0.97). A change of weather therefore stops
@@ -431,7 +451,8 @@ directional light from the strike, shadows optional). The flash is brightened wi
 traced a few hundred a second: each starts high above, falls down and downwind and ends where it hits something
 — ground, roof, canopy — or passes under a shelter (`FDreamWeatherFallPaths`). The effects (`NS_DreamRain`, from
 `DFX/Effects/NS_DreamRain.dfs`) draw thousands of drops by picking paths at random (`DreamFallPath.dfm`): a drop
-falls along its path and dies where it lands, and splashes open where landed paths end. No drop queries
+falls along its path, from that path's own start to its end at the speed it was traced with (a gust after the trace
+never slants it through a roof), and dies where it lands, and splashes open where landed paths end. No drop queries
 collision, no rain falls indoors, and the splashes land on what the rain lands on. Amounts, fall speeds, wind
 drift and the paths are in *Project Settings ▸ Dream Weather Effects*; an effect only lives while its
 precipitation falls. The weather hands every frame to listeners through `UDreamWeatherSubsystem::OnWeatherFrame`.
@@ -451,7 +472,9 @@ the listener — the view the world is looked at from — every frame the weathe
   shelter box, or any surface a metre above the view is a roof, the rest is ground.
 * **Thunder.** Every `OnLightningStrike` is heard after its `ThunderDelay`: a clap (`ThunderNear`) closer than
   `ThunderNearDistance` (3 km), a rumble (`ThunderFar`, or the clap low-passed) out to `ThunderMaxDistance` (15 km),
-  quieter and duller with distance, from the side it struck on.
+  quieter and duller with distance, from the side it struck on. A near clap ducks the wind and the rain for a
+  moment (`ThunderDuckDb`, −4 dB, back over `ThunderDuckSeconds`, 1.5 s; `bThunderDucking`), so thunder hits
+  whatever the recordings; far thunder ducks nothing.
 * **Walls and roofs.** The view probe (`GetViewOcclusion`: how enclosed, a roof overhead, how closed each side is)
   muffles outdoor sound (a low-pass from 20 kHz down to `MinCutoffHz` in a closed room), quietens it (to
   `InteriorMinVolume`) and moves it toward the open sides: inside the hut the rain is dull, in its doorway it comes
@@ -481,6 +504,63 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Storms
+
+**Moving storms.** Any zone can move: *Motion* (`FDreamWeatherZoneMotion`) gives it a drift (km per game hour) or a
+path (the first spline of its actor, at `PathSpeed`, looping or not), a lifetime and fades in and out (game hours).
+Where it is and how strong is a pure function of the world time from `StartSeconds` — the same on every machine, after
+a load, in a replay, and for a past moment the surfaces integrate over (`ApplyWeatherInfluenceAt` places the zone for
+the time it is asked about). A zone whose motion has no start time has no effect until `StartMotion`. The actor itself
+stays where it was placed (`GetFootprintCenter` says where its weather is); the weather map, so the sky's clouds, and
+the lightning (it strikes where the lightning is strongest) go with it. `ADreamWeatherStorm` is a ready one: a round
+zone of `WP_Storm` 15 km in radius with a `Path` spline; spawn it and call `StartMotion`, give it a start time, or tick
+`bStartOnBeginPlay`. `bAffectsQueries` off leaves a zone only drawing into the weather map.
+
+**Storms that come by themselves.** `ADreamWeatherStormSpawner` cuts time into slots (`SlotHours`); each slot holds a
+storm or not by the season's chance (`SeasonChance`), drawn from the world seed and the slot alone. A storm is of a
+kind drawn by the season's weights (`Kinds`: a preset with spring–winter weights), starts somewhere in its slot, lives
+`LifetimeHours`, and crosses on a straight line from the prevailing direction (± `DirectionVariation`) through a point
+within `PassRadius` of the spawner — place it where storms should pass. The spawner is itself the weather influence:
+a query for any moment, now or past, gets the storms alive then, so the surfaces' integration sees storms long gone.
+While a storm lives the spawner keeps an `ADreamWeatherStorm` for it that only draws it into the weather map (the
+sky). `GetStormsAt(WorldSeconds)` lists the storms of any moment, for a forecast.
+
+### Temperature and climate
+
+`ADreamTemperatureVolume` (or `UDreamTemperatureVolumeComponent`): a sphere or box with a temperature of its own,
+fading out over `Falloff` — **Offset** (a campfire: +20 °C) or **Replace** (a heated room, a cave; `Weight` is its
+insulation, and it measures itself against the air of the moment asked). It is a weather influence, so every query
+sees it (`GetTemperatureAt`, snow turning to rain by the fire, the characters' weather status).
+
+**Climates.** The *Climate* selector (`UDreamWeatherSelector_Climate`) takes a Köppen type (25 of them, `Af` … `EF`,
+each a table of representative seasons: mean high and low, precipitation, cloudiness, whether dust blows;
+`FDreamClimate::Koppen`) or your own `UDreamClimatePreset`, and from it draws the weather — clear, cloudy, overcast,
+rain, storm, snow, fog, dust, by each season's odds (wet seasons rain, cold ones snow, warm wet ones storm) — and
+gives the temperature model its yearly mean and swings in place of the project settings'.
+
+### Characters
+
+**Weather status** (`UDreamWeatherStatusComponent`, module `DreamWeatherFX`): put it on the player. A few times a
+second it asks what reaches the actor — rain and snow after the weather's shelters and a trace for a roof above it,
+the wind field's speed there, dust, the temperature with temperature volumes — and keeps `GetStatus()`: the exposures
+now, and what has built up (`Wetness`, `SnowCover`, `Dustiness`, `Chill`; real-time rates: soaked in `WetSeconds` of
+full rain, drying faster in warm and windy air, snow melting into wetness above freezing, rain washing dust off) and
+how cold it `FeelsLike` (wind and wet clothes). `OnExposureChanged(Exposure, bStarted)` fires with hysteresis for
+rain, snow, wind, dust, cold, heat, soaked and freezing. With `bWriteMaterialParameters` it sets `DreamWet` /
+`DreamSnow` / `DreamDust` / `DreamWind` on every mesh of the actor (dynamic material instances); with
+`bFreezingBreath` it breathes out mist (`NS_DreamFreezingBreath`) at `BreathSocket` when it feels colder than
+`BreathTemperature`.
+
+### Dust and debris
+
+The weather's effects have a third layer of fall paths, the **dust layer** (*Dream Weather Effects ▸ Dust and
+Debris*): nearly flat, downwind, a few metres up, ending at walls, roofs and shelters — traced only while dust blows or
+the wind is strong. `NS_DreamDust` streams motes along them, swirling about their paths, with a few large soft puffs
+for the near haze (its amount is the Dust channel). In a strong wind (`DebrisWindSpeed`) the wind's debris — leaves,
+and the odd twig — starts along the same paths (`NS_DreamWindLeaves`, its Debris emitter; `M_DreamWindDebris`) and the
+wind field carries it. How much debris and its colour follow the season (`DebrisSeasonAmount`, `DebrisSpring` …
+`DebrisWinter`: autumn leaves, a bare winter). Nothing blows in indoors.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
@@ -503,15 +583,80 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 
 `UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
-in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round) and a grove (leaves), under
-weather that runs clear → rain → storm → cloudy every three hours. `-ForceAudio` builds the graphs again, `-Force`
-the level.
+in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves), a campfire
+(warm air), crates the wind pushes, a storm that drifts in from the west on the morning of 21 June (over the area around ten, gone by half
+past twelve), a storm spawner, and 7 km to the north a snowfield of no regular shape (an outline zone some 7 km
+across with a bay cut into its south side) over land that reads the surface maps, under weather that runs clear → rain
+→ storm → cloudy every three hours.
+`-ForceAudio` builds the graphs again, `-Force` the level.
+
+## Showcase
+
+Everything the plugin does in one place, to look it over as a whole: **`/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcase`**,
+written by `-run=DreamDynamicWorldSetup -WorldShowcase` (with the dusk level and its assets below). It is built afresh
+on every run, so rerun it after updating the plugin to take in what it has gained.
+
+**The set.** Rolling ground and a paved square under the surface materials (the terrain is soft ground, the square
+hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
+**hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
+a wide window looking out, a roof the rain knows, a dim warm lamp over the table so the room reads by day and night —
+and a **porch** before its door that only a roof capture box tells the weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
+the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
+sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
+snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
+**snow field** (a polygon zone) lies far ahead; a **storm** drifts in from the west in the morning of the first day. A
+wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
+pass-through).
+
+**The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule
+(`UDreamWeatherSelector_Sequence`) that repeats every 24 hours:
+
+| Hours | Weather |
+| :-- | :-- |
+| 0–9 | clear (the night before, the morning) |
+| 9–11 | cloudy |
+| 11–13 | rain |
+| 13–15 | storm (thunder) |
+| 15–17 | after the rain (`WP_Overcast`, the ground still wet) |
+| 17–20 | snow |
+| 20–22 | dust |
+| 22–24 | clear |
+
+From 20:00 to 5:00 a sky modifier (`DSM_ShowcaseAurora`, an entry in the sky's *Conditional Modifiers*) lights the
+aurora; the sky shows it only once it is dark.
+
+**The dusk level.** `Lvl_DreamWorldShowcaseDusk` is the same set with a level sequence playing at once in cinematic
+mode (no movement, no HUD): `LS_DreamWorldShowcaseDusk`, twenty seconds of dusk into night (the time track, 17:00 to
+23:00) while the clear sky turns to rain (the weather track: clear, then rain eased in over four seconds). Open the
+sequence in Sequencer to scrub it.
+
+**Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
+shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
+day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
+sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
+<screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
+wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
+indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
+`DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
+
+**Timing it.** `Tools/Showcase/Measure-ShowcaseGpu.ps1` times the GPU features one at a time on the showcase level at
+1920x1080, each at a fixed view and weather: the surface maps, the surface materials, trails, ripples, window glass,
+the rain, snow, dust and debris particles, the cloud renderer, light shafts, the aurora, the star map, the lens flare,
+drops and frost on the lens, heat haze, the rainbow and an eclipse. A feature with a switch is timed off and on (its own
+GPU events, or the whole frame), one with passes of its own by those passes; each figure is the median of `-Samples`
+(7) ProfileGPU dumps. It starts only on a quiet GPU (under `-MaxBusy`, 15 %, by nvidia-smi; after `-WaitMinutes` it
+gives up and names the processes using it, stopping none), samples every process's GPU use while it runs, and writes a
+Markdown table next to the run's log: the feature, whether it is on by default, its cost, and how busy the GPU was with
+other work meanwhile. A whole run takes some minutes; `-Only Rain,LensFlare -Samples 1` is a quick check, `-Shots`
+pictures each feature's view, `-Log` reads a run again.
 
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
-(`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing in the hollows:
-the low half fills the small dips, the high half makes puddles), **Snow** (of the deepest cover, *Max Snow Depth*,
+(`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing where the surface lies low:
+rising, it fills the deepest dips first; full, a real dip holds it all over and flat ground in its deepest small hollows
+only, some tenth of it), **Snow** (of the deepest cover, *Max Snow Depth*,
 30 cm by default) and **Dust**.
 
 **How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
@@ -538,8 +683,119 @@ CPU queries and the GPU surface map alike.
 
 **Queries.** `UDreamSurfaceSubsystem::SampleSurface(Position)` (and `SampleSurfaceAt(Position, WorldSeconds)`),
 `GetSnowDepthAt(Position)` in cm, `GetViewState()` — the state in the open at the view this frame. A query
-integrates the whole memory (some 190 steps of the weather at that point), so ask it for the places that matter
-(the player, a footstep), not for thousands of points a frame.
+integrates the whole memory (some 190 steps of the weather at that point, about 0.1 ms), so ask it for the places
+that matter (the player, a footstep), not for thousands of points a frame.
+
+**Surface maps.** For the materials, the subsystem keeps the same state on the GPU in maps around the camera
+(`Shaders/Private/DreamSurfaceMap.usf`): a **near map** (`RT_DreamSurfaceNear`, 256², *Near Map Extent* 128 m,
+moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
+**cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
+step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
+precipitation, snow ratio, temperature, dust and wind), then the shared formula — so a map texel and `SampleSurface`
+at its centre agree (`DreamSurface.Gpu.MatchesCpu`, and `DreamSurface.Gpu.PolygonZone` for an outline with a
+corner cut out), and a snow zone's border shows on the ground from afar. The whole
+memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
+part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
+up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a
+surface below it. What differs from a query: under partial cover (the windward edge of the eaves) a query integrates
+the reduced weather while a material scales the open state; the map takes the hour's temperature at the view (a zone's
+offset added), not at each texel's height; and like the weather map it takes Override zones only, without their
+height limits. The maps are placed by `DDW_SurfaceNear / Far` in the
+shared collection, beyond both the view's state stands (`DDW_SurfaceView`). GPU cost: some 0.03 ms a frame (both maps
+and the cover), 0.2 ms for an integration.
+
+**Materials.** One node at the end of a material's attributes (Material Attributes in and out):
+
+| Function | For | What the weather does |
+| :-- | :-- | :-- |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow |
+| `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
+| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust |
+| `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
+| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
+| `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
+
+**Tuning the look.** What the weather does to a surface is set in the editor, per material instance: every shift,
+edge and colour the weather functions apply is a material parameter, its default the look described above. Put the
+values a set of materials shares in a parent instance and let the materials inherit them.
+
+| Group | Parameters (defaults) |
+| :-- | :-- |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95 |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95 |
+
+Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
+formula, so a CPU query and every material agree on it; the parameters change how it looks there.
+`DreamWorld.SurfaceLook.Parameters` checks that the demo materials carry every parameter with its default.
+
+**Rain on it.** While it rains (at the view, `DDW_Weather0`; not under cover) the puddles ripple — rings spreading
+from where drops land, more cells ringing the harder it rains, every ring with the same rhythm so a temporal filter
+does not shimmer on it — and a surface not soaked yet shows short-lived wet spots where the drops land. Both are in
+the material functions (no decals); the toon function draws them as hard-edged rings and dots. They stop with the
+rain. Cost: some 0.03 ms of base pass at 1080p in the rain on the test level.
+
+**Hard and soft surfaces.** The weather functions take an optional **Softness** input: 0 a hard surface (stone,
+paving, wood, metal), 1 soft ground (soil, grass). Wet, soft ground mostly darkens and barely turns glossy (it drinks
+the water), and its puddles are faint; the demo terrain is soft. **Where the water stands**: in small hollows of
+*Project Settings ▸ Dream Surface ▸ Water ▸ Puddle Scale* (1.5 m by default) on flat ground, and in the ground's own
+dips — where it lies below its surroundings within *Low Radius* (3 m), judged from the wind's baked level heights
+(`DSF_GroundLow`; the cover map's third channel), so a level with a wind terrain map gets puddles in its real
+valleys and hollows; without one, the small hollows only. Walls, boxes and posts beside a point do not count as its
+surroundings. **Where snow thins out** — a zone's border, a light fall, a thaw — it breaks up over metres to tens of
+metres along a large pattern (`DSF_SnowEdge`), what faces up keeping it longest; the functions read the snow at four
+points 5 m around a pixel along an offset that wanders by up to 10 m (`DSM_SnowSoft`), so a zone's border fades over
+metres along an irregular line rather than the maps' texels (`SampleSurface` reads the point itself). The toon
+function keeps that edge hard but irregular. The level heights take every surface's top, so small props would roof
+the ground beside them: mark props, posts and windows pass-through for the wind (`UDreamWindPassThroughComponent` or
+its tag) before baking.
+
+They read the maps and the cover (`/DreamDynamicWorld/Surface/...`) and the shared collection only. The hollow pattern
+puddles gather in and snow thins at (`DSF_Hollow`, `DSF_PuddleDepth`, `DSF_SnowEdge`) and the covers are in the shared
+header, so a CPU query can tell whether a point stands in a puddle (`SampleContact` takes a hard surface). Their HLSL is one file, `Shaders/Private/DreamSurfaceMaterial.ush`, included by
+each function's custom nodes (no function calls another). Demo materials: `M_DreamSurfaceDemo`, `M_DreamSurfaceToonDemo`
+(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`, `M_DreamGlassDemo`.
+
+**Rain on glass.** `MF_DreamGlassRain` finds the pane's own axes from its geometric normal (across it horizontally, up
+it), so it works on any pane at any angle without UVs. The drops bend the normal (their refraction and highlights),
+smooth the roughness and make the pane a little less clear (opacity). They take the rain landing on the pane (none
+under cover, as the ground) and the wetness the surface maps hold there, so a pane under eaves stays dry and the drops
+outlast the rain as long as the ground's film does. The drops are a pure function of the place and time
+(`DSF_GlassRain` in the shared header; `DreamSurface.GlassRain` checks it on the CPU): no texture, no render target.
+A translucent glass material wants per-pixel lighting (*Surface ForwardShading*) for the drops' highlights to show.
+
+**Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
+what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust: a
+heated square with no snow, a path kept clear, more water in a gutter. A box or circle seen from above (the weather
+zones' footprint function), fading over *Fade Distance*; overlapping brushes multiply; `SampleSurface` and the maps
+(a mask map beside the cover, `RT_DreamSurfaceMask`) both see it. A **roof capture box** (`ADreamSurfaceRoofCapture`)
+captures from above the height of what stands inside it — a roof, a canopy, a deck — with a depth capture when it
+registers in a game world, when it moves and on `CaptureNow`, so what lies beneath stays dry and free of snow with no
+shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
+per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
+
+**Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
+wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is
+there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow or dust, with the state, the puddle's depth
+and the snow's) and calls `OnContact` with it — the place for a footstep sound or a splash — then presses a print
+with `Stamp(Location, Radius, Strength)`. The prints go to a **trail map** around the camera
+(`RT_DreamSurfaceTrails`, 1024² over *Trail Extent*, 51.2 m; placed by `DDW_SurfaceTrails`): how deep a print is and
+how stirred the water. The materials sink the snow and the dust where it was trodden (the terrain function lowers
+its snow too, the toon function cuts hard-edged holes) and ring the puddles where a step went in. Prints fill in as
+fresh snow falls (*Print Fill Hours* of snow), the wind blows them over (*Print Wind Hours*) and they fade in any
+case (*Print Fade Hours*, in game hours); the stirred water settles in *Ripple Seconds*, real time. The map follows
+the camera in eighths of its size and keeps what it carried over; prints that leave it are gone. The trail map is
+for the look: `SampleSurface` does not see the prints.
+
+**Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
+a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, a wind
+terrain map baked over the test area (roofs, and the dips the puddles follow), realistic
+props (stone, metal, wood) and toon props and a toon figure, rolling ground,
+and a snow zone of no regular shape far ahead (an outline zone) whose border shows on the ground. The schedule is clear; force the weather
+(`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
+
+Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
+`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration), `DreamSurface.Stamp <x> <y>
+[radius] [strength]` (one print) and `DreamSurface.Walk <x0> <y0> <x1> <y1> [stride]` (a line of footprints).
 
 The rest of this document is **Wind**.
 
@@ -549,6 +805,61 @@ The rest of this document is **Wind**.
 > (package redirects are read before plugin configs are merged, so a plugin-side copy alone does not
 > apply). Module names, class names, `DreamWind.*` console variables and MPC parameter names are
 > unchanged.
+
+## Atmosphere
+
+Module `DreamAtmosphere`. The air's scattering from one physical model, `Shaders/Shared/DreamAtmosphereShared.h` and
+`DreamAtmosphereScattering.h`, compiled as HLSL for the GPU and as C++ (`DreamAtmosphereHlslShim.h`) for the CPU: a
+planet with a shell of air, Rayleigh scattering from the gas (blue, an 8 km scale height), Mie scattering and absorption
+from the haze (white, forward, 1.2 km), an ozone layer that absorbs (some 25 km up: it keeps the twilight zenith blue),
+the ground's albedo, and the light scattered many times folded into one table (Hillaire 2020). Luminance comes out per
+unit of the light's illuminance outside the air, so the sun and the moon read the same tables.
+
+The air is `FDreamAtmosphereParameters` (coefficients per megametre; an earth's by default), from *Project Settings ▸
+Dream Atmosphere* until a sky style sets its own (`UDreamAtmosphereSubsystem::SetParameters`). From it the world's
+`UDreamAtmosphereSubsystem` builds three lookup tables on the GPU (`UDreamAtmosphereTables`, render targets a material
+can sample), and rebuilds them only when the air changes:
+
+| table | size | holds |
+|---|---|---|
+| transmittance | 256 × 64 | the light's transmittance to the top of the air, by height and zenith angle (Bruneton's coordinates) |
+| multiple scattering | 32 × 32 | the light scattered many times, by height and light angle (dense about the horizon) |
+| sky | 64 × 32 × 32 | the sky seen from near the ground, by view elevation, angle round from the light and light elevation (both dense about the horizon, the light from 20 degrees under it) |
+
+The CPU's integrals are exact and slow (some milliseconds a sky value): they are for the few values gameplay and the sky
+want, and for the tests, which hold the GPU's tables to them (`DreamAtmosphere.Gpu.TablesMatchCpu`: 4 %, 8 % in
+twilight, where the earth's shadow edge is read from tables of finite resolution).
+
+**The sky style's air and grade.** A sky style carries the air it is made of (*Atmosphere*, an
+`FDreamAtmosphereParameters`) and its look over it (*Grade*, `FDreamSkyGrade`): the air gives how bright the sky is
+and how its hue turns with the sun; the grade gives the style's look on top, the same for every colour that comes from
+the air (the dome, the fog, the clouds' sky, the ambient light), by one function shared by the shaders and the CPU
+(`Shaders/Shared/DreamSkyGradeShared.h`, `DSG_Grade`). Over the day (curves over the sun's elevation): exposure,
+saturation, hue, contrast, a tint over the whole sky, and a zenith and a horizon tint that blend down the sky
+(*Tint Spread*); the twilight's *Afterglow*; the weather's part (*Grade ▸ Weather*: what an overcast takes, the dust's
+colour, how grey fog makes it). *Gradient Blend* (0 in every built-in style) goes back to the analytic gradient of the
+*Dome* group. A new grade is the identity. (The sky reads them once it takes the atmosphere on: until then the dome is the
+gradient.) `DreamSky.Grade` checks the grade (the identity, each control, the tints down the sky, the weather).
+
+**Aerial perspective.** The air between the eye and the scene: every frame a froxel volume in front of the camera (32 ×
+32 cells, 32 depth slices to 64 km, denser near the eye) holds the light the air scatters toward the eye from the sun and
+the moon and what it lets through, from the same model and tables
+(`Shaders/Private/DreamAtmosphereAerial.usf`); a full-screen pass lays it over the opaque scene by its depth, before the
+depth of field. Distant land turns blue and pale and meets the sky at the horizon; at night only the moon's faint light
+is in it. The sky is left alone (the far plane, and the dome beyond *Sky Distance*): the dome carries the air already,
+and the sky cloud renderer lays its own haze over its clouds by their depth. The world's own view extension draws it
+(`FDreamAtmosphereViewExtension`, priority 10: extensions run highest first, so it comes before every pass the sky's
+extension adds there, the clouds it lays over the scene from above the cloud base among them, which therefore never
+take this air twice). No extension hook comes between the lighting and the translucency, where the engine's fog goes
+(`PrePostProcessPass` takes the renderer's internal inputs, out of a plugin's reach), so near translucency takes the air
+of what stands behind it: little, that near. The way to have it exact later: a material function for translucent
+materials that reads the volume at the pixel's own depth, and the composite leaving those pixels to it. *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
+Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea level, the volume's cells and steps;
+`r.DreamAtmosphere.AerialPerspective 0` turns it off to compare. **The height fog is the weather's**: the air itself is
+the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
+when it takes the atmosphere on). The lights it uses until the sky style drives them: *Lights* (the sun's and the full
+moon's illuminance outside the air, in the scene's units; the clock's sun and moon give the directions, the moon's
+phase dims it). `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk along each cell's ray.
 
 ## Wind
 
@@ -568,6 +879,17 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
 * **Niagara** — `UNiagaraDataInterfaceDreamWind` (`SampleWind`, `GetGlobalWind`) on CPU VM and GPU, and the `DreamWindForce` module (DreamFXLang, `DFX/`)
 * **C++ / Blueprint** — `UDreamWindSubsystem::SampleWind`, no GPU read-back
 * **Everything that reads the engine's `WindDirectionalSource`** — SpeedTree, Chaos Cloth, AnimDynamics, Groom, Niagara *Wind Force* — through one driven engine wind component
+
+### Pushing things and shaking cameras
+
+**Wind pushes things** (`UDreamWindForceComponent`, module `DreamWind`): on an actor whose primitives simulate
+physics, aerodynamic drag from the wind field at each body (½ ρ C<sub>d</sub> A |v| v, A from the bounds facing the
+wind, the body's own velocity taken off), `ForceScale`, `MaxForce`, and with `bTestBlocking` a trace upwind for walls
+the wind field does not know of.
+
+**Camera shake** (`UDreamWindCameraModifier`, module `DreamWeatherFX`): from `Threshold` wind speed at the camera to
+`FullSpeed`, the view buffets (pitch, yaw, roll), in bursts with the gusts, calmed indoors by the view probe.
+*Dream Weather Effects ▸ Wind Camera Shake* adds it to every local player; `Enable(PlayerController)` does it by hand.
 
 ## Wind setup
 
@@ -770,7 +1092,8 @@ usable in your own levels; none of the runtime depends on them.
 `Tools/TestHost/Invoke-DreamDynamicWorldTests.ps1` builds the test host and runs everything headlessly
 (see `Tools/TestHost/README.md`). `DreamWorld.*` covers the clock (run, events, jumps, transitions,
 snapshots), the sun and moon (artistic path; Tokyo's solstice noon, the equinox, Sydney; the 2026 lunar and
-solar eclipses for the moon's phase), the scheduler, the parameter ids and the view probe (a closed room, a
+solar eclipses for the moon's phase), the stars' sidereal time (the epoch, a January evening in both modes, four
+minutes a night, no jump at midnight), the scheduler, the parameter ids and the view probe (a closed room, a
 porch, the open; rays spread over the round, easing, teleports). `DreamSky.*` checks that a style's
 day is continuous (the main light never jumps, sun and moon never light at once, exposure eases), drives a
 sky actor in a game world (snap on jumps, easing while the clock runs, the night hand-over) and the indoor and
@@ -781,12 +1104,19 @@ eases; clouds gather before a change and rain follows it), modifiers (fades, pri
 falloff on the CPU agreeing with the point query), events with hysteresis, the wind and the environment the sky
 reads, temperature with height and snow above the freezing line, snapshots of modifiers, shelters, lightning
 (strike counts, determinism, rods, the multi-stroke flash), the fall paths (a roof, the open, a shelter without
-geometry, wind, the forward bias, spreading) and `DreamWeather.FX.*` the rain effects driven by real weather.
+geometry, wind, the forward bias, spreading, a drop's own segment across a gust) and `DreamWeather.FX.*` the rain
+effects driven by real weather.
 `Automation RunTests DreamWind.` — `DreamWind.Shared.*` are pure C++ over the shared model
 (determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
 `DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
 subsystem tick with an impulse in whichever editor/game world is up.
+`DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
+overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
+as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
+with a blue zenith, the haze along the ground: its closed-form transmittance, blue, building up with distance, bright
+toward a low sun); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables and aerial perspective volume to the
+CPU's integrals, and that the tables are rebuilt only when the air changes.
 
 ## Verification (2026-08-18)
 

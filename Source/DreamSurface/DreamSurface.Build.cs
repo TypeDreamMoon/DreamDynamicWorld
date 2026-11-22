@@ -28,6 +28,7 @@ public class DreamSurface : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"GameplayTags",
+			"ImageCore",
 			"RenderCore",
 			"RHI",
 			"Renderer",

@@ -13,7 +13,9 @@ class UWorld;
  * out; a shelter that is not geometry (a shelter box, a baked roof) stops them too. The precipitation effects
  * then draw thousands of drops a frame by picking paths at random: a drop falls along its path and dies where
  * the path ends, and a splash is spawned at a path's end with its surface normal. No drop ever needs a
- * collision query of its own, and no rain falls indoors.
+ * collision query of its own, and no rain falls indoors. A drop runs from its path's own start to its own end, never
+ * from a start worked out again from the wind of the moment: a path traced a second ago in other wind still ends on
+ * the ground outside, and its drop must not cut through the roof beside it.
  *
  * The paths form a ring buffer; each update replaces the oldest, so a full buffer turns over every
  * RefreshSeconds and follows a moving view.
@@ -77,6 +79,9 @@ public:
 	/** Per path: where it ends (xyz) and how many seconds a drop falls along it (w). */
 	const TArray<FVector4>& GetEnds() const { return Ends; }
 
+	/** Per path: where it starts. A drop falls from here to the end in the end's w seconds, along a straight line. */
+	const TArray<FVector>& GetStarts() const { return Starts; }
+
 	/** Per path: the normal of what it landed on (zero when it ended in the air). */
 	const TArray<FVector>& GetNormals() const { return Normals; }
 
@@ -102,6 +107,7 @@ private:
 		const FParams& Params, TFunctionRef<float(const FVector&)> Shelter);
 
 	TArray<FVector4> Ends;
+	TArray<FVector> Starts;
 	TArray<FVector> Normals;
 	TArray<uint8> Landed;
 	TArray<uint8> Surfaces;

@@ -1,0 +1,56 @@
+// DreamSurface demo: a plain lit material with the weather on it - the one line a project adds at the end of its own
+// material. Tint / roughness / metallic are instance parameters, a faint world-space mottle keeps flat props readable.
+
+VirtualFunction(Name="MF_DreamSurfaceWeather")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamSurfaceWeather");
+		Description = "DreamSurface: the weather on a surface, realistic.";
+	}
+	Inputs = {
+		MaterialAttributes Attributes;
+		float Softness = 0.0;
+	}
+	Outputs = {
+		MaterialAttributes Result;
+	}
+}
+
+Function float DreamSurfaceDemo_Mottle(in float3 WorldPos)
+{
+	#include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
+	return DSF_Hollow(WorldPos.x + 913.0f, WorldPos.y - 271.0f + WorldPos.z, 40.0f);
+}
+
+Shader(Name="Surface/Materials/M_DreamSurfaceDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  Tint      = vec3(0.45, 0.42, 0.38) [Group="Surface"];
+		float Roughness = 0.75                   [Group="Surface"];
+		float Metallic  = 0.0                    [Group="Surface"];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "DefaultLit";
+		bUsedWithStaticLighting = false;
+	}
+
+	Outputs = {
+		MaterialAttributes Attrs;
+		Base.MaterialAttributes = Attrs;
+	}
+
+	Graph = {
+		float Mottle = DreamSurfaceDemo_Mottle(UE.WorldPosition());
+		MaterialAttributes Dry;
+		Dry.BaseColor = Tint * (0.85 + 0.3 * Mottle);
+		Dry.Roughness = Roughness;
+		Dry.Metallic = Metallic;
+		Dry.Specular = 0.5;
+		Dry.Normal = float3(0.0, 0.0, 1.0);
+		MF_DreamSurfaceWeather(Dry, 0.0, Attrs);
+	}
+}

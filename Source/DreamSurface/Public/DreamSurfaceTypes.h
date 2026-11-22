@@ -15,7 +15,7 @@ struct DREAMSURFACE_API FDreamSurfaceState
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float Wetness = 0.0f;
 
-	/** Water standing in its hollows, 0 none .. 1 puddles everywhere it can stand (the low half fills the small dips). */
+	/** Water standing in its hollows, 0 none .. 1 full (the deepest dips fill first; full puddles cover some two fifths of a flat surface). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float Water = 0.0f;
 
@@ -110,4 +110,43 @@ struct DREAMSURFACE_API FDreamSurfaceRates
 	FVector4f R0() const { return FVector4f(WetHours, DryHours, FillHours, DrainHours); }
 	FVector4f R1() const { return FVector4f(SettleHours, MeltHours, MeltToWater, 0.0f); }
 	FVector4f R2() const { return FVector4f(DustHours, DustWashHours, DustClearHours, 0.0f); }
+};
+
+/** What a foot (a wheel, a blast) met on a surface, the dominant of it. */
+UENUM(BlueprintType)
+enum class EDreamSurfaceContactKind : uint8
+{
+	Dry,
+	Wet,
+	Puddle,
+	Snow,
+	Dust,
+};
+
+/** What a contact with a surface found there: for footstep sounds, splashes, puffs of snow. */
+USTRUCT(BlueprintType)
+struct DREAMSURFACE_API FDreamSurfaceContact
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	FVector Location = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	FVector Normal = FVector::UpVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	EDreamSurfaceContactKind Kind = EDreamSurfaceContactKind::Dry;
+
+	/** The state there (wet, water, snow, dust). */
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	FDreamSurfaceState State;
+
+	/** How much of a puddle the point stands in, 0..1 (the hollow pattern and the water, as the materials draw it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	float Puddle = 0.0f;
+
+	/** Lying snow there, cm. */
+	UPROPERTY(BlueprintReadOnly, Category = "Surface")
+	float SnowDepth = 0.0f;
 };

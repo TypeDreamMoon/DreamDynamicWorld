@@ -1,0 +1,131 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The air between the eye and the scene (aerial perspective), from the shared model (DreamAtmosphereShared.h):
+//   VolumeCS     a froxel volume in front of the camera: for each screen cell and each depth slice, the light the air
+//                scatters toward the eye from the sun and the moon up to the slice (rgb, pre-exposure applied later)
+//                and what it lets through (a, grey)
+//   CompositePS  laid over the opaque scene by its depth: colour * transmittance + inscattered light. The sky (the
+//                dome, far beyond the volume) is left alone: it carries the air already.
+//
+// Distances: the volume's slices run to MaxDistance km, denser near the eye (the slice z ends at (z+1)^2 / N^2 of it);
+// a point beyond the last slice takes the last. DistanceScale stretches the world's distances for the air (a game's
+// few kilometres can read as a real landscape's tens).
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
+
+float4 Atmosphere[5];
+int2 TransmittanceSize;
+int2 MultiScatteringSize;
+Texture2D<float4> TransmittanceLut;
+Texture2D<float4> MultiScatteringLut;
+SamplerState LutSampler;
+
+float4x4 ClipToTranslatedWorld;
+float3 TranslatedCamera;     // the camera in translated world space, cm
+float3 CameraKm;             // the camera from the planet's centre, km (world axes, z up)
+float3 SunDirection;         // toward the sun
+float3 SunLight;             // its illuminance outside the air times its colour
+float3 MoonDirection;
+float3 MoonLight;
+float MaxDistance;           // km
+float DistanceScale;
+float SkyDistance;           // km: farther than this is the sky
+int3 VolumeSize;
+uint Steps;
+
+Texture3D<float4> AerialVolume;
+SamplerState AerialSampler;
+Texture2D<float> SceneDepth;
+float4 ViewRect;             // min x, min y, size x, size y (pixels)
+
+
+RWTexture3D<float4> OutVolume;
+
+FDSA_Atmosphere Air()
+{
+	return DSA_Unpack(Atmosphere[0], Atmosphere[1], Atmosphere[2], Atmosphere[3], Atmosphere[4]);
+}
+
+float3 DSA_LookupTransmittance(FDSA_Atmosphere A, float r, float mu)
+{
+	float2 P = DSA_TransmittanceUv(A, r, mu);
+	return TransmittanceLut.SampleLevel(LutSampler, float2(DSA_TableTexcoord(P.x, TransmittanceSize.x), DSA_TableTexcoord(P.y, TransmittanceSize.y)), 0).rgb;
+}
+
+float3 DSA_LookupMultiScattering(FDSA_Atmosphere A, float r, float MuS)
+{
+	float2 P = DSA_MultiScatteringUv(A, r, MuS);
+	return MultiScatteringLut.SampleLevel(LutSampler, float2(DSA_TableTexcoord(P.x, MultiScatteringSize.x), DSA_TableTexcoord(P.y, MultiScatteringSize.y)), 0).rgb;
+}
+
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereScattering.h"
+
+// The slice z's far distance, km of the world (before DistanceScale).
+float SliceDistance(float Z)
+{
+	float E = (Z + 1.0f) / float(VolumeSize.z);
+	return MaxDistance * E * E;
+}
+
+float3 TranslatedPosition(float2 Ndc, float DeviceZ)
+{
+	float4 P = mul(float4(Ndc, DeviceZ, 1.0f), ClipToTranslatedWorld);
+	return P.xyz / P.w;
+}
+
+[numthreads(8, 8, 1)]
+void VolumeCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= VolumeSize.xy))
+	{
+		return;
+	}
+	FDSA_Atmosphere A = Air();
+	float2 Uv = (float2(Id.xy) + 0.5f) / float2(VolumeSize.xy);
+	float2 Ndc = float2(Uv.x * 2.0f - 1.0f, 1.0f - Uv.y * 2.0f);
+	float3 Dir = normalize(TranslatedPosition(Ndc, 0.5f) - TranslatedCamera);
+	// (Never under the ground's surface: a camera dug in still sees air.)
+	float3 Origin = CameraKm;
+	float R = length(Origin);
+	if (R < A.BottomRadius + 0.001f)
+	{
+		Origin = Origin * ((A.BottomRadius + 0.001f) / max(R, 1.0f));
+	}
+	bool bMoon = dot(MoonLight, float3(1.0f, 1.0f, 1.0f)) > 0.0f;
+	for (int Z = 0; Z < VolumeSize.z; ++Z)
+	{
+		float Distance = SliceDistance(float(Z)) * DistanceScale;
+		FDSA_Ray Sun = DSA_WalkRay(A, Origin, Dir, SunDirection, Distance, Steps, false);
+		float3 L = Sun.Luminance * SunLight;
+		if (bMoon)
+		{
+			L += DSA_WalkRay(A, Origin, Dir, MoonDirection, Distance, Steps, false).Luminance * MoonLight;
+		}
+		float T = dot(Sun.Transmittance, float3(1.0f, 1.0f, 1.0f) / 3.0f);
+		OutVolume[int3(Id.xy, Z)] = float4(L, T);
+	}
+}
+
+void CompositePS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	OutColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
+	float DeviceZ = SceneDepth.Load(int3(SvPosition.xy, 0));
+	if (DeviceZ <= 0.0f)
+	{
+		return;   // (the far plane: nothing drawn there)
+	}
+	float2 Uv = (SvPosition.xy - ViewRect.xy) / ViewRect.zw;
+	float2 Ndc = float2(Uv.x * 2.0f - 1.0f, 1.0f - Uv.y * 2.0f);
+	float DistanceKm = length(TranslatedPosition(Ndc, DeviceZ) - TranslatedCamera) * 1.0e-5f;
+	if (DistanceKm >= SkyDistance)
+	{
+		return;   // the dome
+	}
+	// The slice's fractional index; before the first slice ends the air fades in from nothing.
+	float Index = sqrt(DistanceKm / MaxDistance) * float(VolumeSize.z) - 1.0f;
+	float W = (max(Index, 0.0f) + 0.5f) / float(VolumeSize.z);
+	float4 Air = AerialVolume.SampleLevel(AerialSampler, float3(Uv, W), 0);
+	float Fade = Index < 0.0f ? saturate(DistanceKm / max(SliceDistance(0.0f), 1.0e-6f)) : 1.0f;
+	OutColor = float4(Air.rgb * Fade * View.PreExposure, lerp(1.0f, Air.a, Fade));
+}

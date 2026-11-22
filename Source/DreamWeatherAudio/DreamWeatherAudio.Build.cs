@@ -28,6 +28,7 @@ public class DreamWeatherAudio : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"AudioExtensions",
+			"AudioMixer",
 			"DreamWind",
 			"DreamWeatherFX",
 			"MetasoundEngine",

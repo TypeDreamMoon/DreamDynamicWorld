@@ -74,7 +74,7 @@ void FDreamWeatherMapRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 
 	// A structured buffer may not be empty: one weightless zone stands in when there are none.
 	TArray<FVector4f> ZoneData = Args.Zones;
-	const uint32 NumZones = uint32(ZoneData.Num() / 3);
+	const uint32 NumZones = uint32(FMath::Clamp(Args.NumZones, 0, ZoneData.Num() / 3));
 	if (ZoneData.Num() == 0)
 	{
 		ZoneData.Add(FVector4f(0.0f, 0.0f, 1.0f, 0.0f));

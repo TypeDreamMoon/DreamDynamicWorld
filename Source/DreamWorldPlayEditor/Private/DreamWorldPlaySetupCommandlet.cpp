@@ -6,18 +6,30 @@
 #include "DreamSkyStyle.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
+#include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
+#include "DreamWeatherStormSpawner.h"
+#include "DreamWeatherTemperature.h"
+#include "DreamWindForceComponent.h"
+#include "DreamWeatherStatusComponent.h"
+#include "DreamWeatherZone.h"
+#include "DreamWorldCelestial.h"
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
 #include "Misc/PackageName.h"
+#include "NiagaraActor.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
@@ -105,6 +117,16 @@ namespace DreamWorldPlay
 			}
 			++Index;
 		}
+		// Leaves on the wind through the grove (the wind's own leaf effect), lit by the sky: dull under cloud, dark at night.
+		if (UNiagaraSystem* Leaves = LoadObject<UNiagaraSystem>(nullptr, TEXT("/DreamDynamicWorld/Wind/Effects/NS_DreamWindLeaves.NS_DreamWindLeaves")))
+		{
+			ANiagaraActor* Actor = World.SpawnActor<ANiagaraActor>(Center + FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator);
+			Actor->SetActorLabel(TEXT("GroveLeaves"));
+			UNiagaraComponent* Effect = Actor->GetNiagaraComponent();
+			Effect->SetAsset(Leaves);
+			Effect->SetVariableVec3(TEXT("User.SpawnExtent"), FVector(900.0, 700.0, 300.0));
+			Effect->SetVariableFloat(TEXT("User.SpawnRate"), 60.0f);
+		}
 	}
 
 	/**
@@ -139,6 +161,7 @@ namespace DreamWorldPlay
 		Sky->Style = LoadObject<UDreamSkyStyle>(nullptr, TEXT("/DreamDynamicWorld/Sky/DS_DreamSkyStylized.DS_DreamSkyStylized"));
 		Sky->TimeOfDay = 10.0f;
 		Sky->Clock.StartTime = FDateTime(2026, 6, 21, 10, 0, 0);
+		Sky->Clock.StartTime = FDateTime(2026, 6, 21, 10, 0, 0);
 		Sky->SetActorLabel(TEXT("DreamSky"));
 		World->SpawnActor<ADreamWindGlobal>(FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator)->SetActorLabel(TEXT("DreamWindGlobal"));
 
@@ -158,6 +181,95 @@ namespace DreamWorldPlay
 		AddHut(*World, FVector(1200.0, 0.0, 0.0));
 		AddPorch(*World, FVector(0.0, 0.0, 0.0));
 		AddGrove(*World, FVector(-1400.0, 0.0, 0.0));
+
+		// A campfire by the porch: warm air (a temperature volume) and a marker.
+		ADreamTemperatureVolume* Campfire = World->SpawnActor<ADreamTemperatureVolume>(FVector(0.0, -700.0, 50.0), FRotator::ZeroRotator);
+		Campfire->SetActorLabel(TEXT("Campfire_Warmth"));
+		Campfire->Volume->Temperature = 20.0f;
+		Campfire->Volume->Extent = FVector(150.0);
+		Campfire->Volume->Falloff = 350.0f;
+		AddShape(*World, Cylinder, TEXT("Campfire"), FVector(0.0, -700.0, 15.0), FVector(80.0, 80.0, 30.0));
+
+		// Someone standing in a cold spot (a temperature volume at -6 degrees), breathing out mist that the wind takes.
+		if (AStaticMeshActor* Breather = AddShape(*World, Cylinder, TEXT("Breather"), FVector(300.0, -1500.0, 85.0), FVector(40.0, 40.0, 170.0)))
+		{
+			Breather->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			UDreamWeatherStatusComponent* Status = NewObject<UDreamWeatherStatusComponent>(Breather, TEXT("WeatherStatus"));
+			Status->bFreezingBreath = true;
+			Status->bWriteMaterialParameters = false;
+			Status->BreathOffset = FVector(25.0, 0.0, 70.0);
+			Breather->AddInstanceComponent(Status);
+		}
+		ADreamTemperatureVolume* ColdSpot = World->SpawnActor<ADreamTemperatureVolume>(FVector(300.0, -1500.0, 100.0), FRotator::ZeroRotator);
+		ColdSpot->SetActorLabel(TEXT("ColdSpot"));
+		ColdSpot->Volume->Mode = EDreamTemperatureMode::Replace;
+		ColdSpot->Volume->Temperature = -6.0f;
+		ColdSpot->Volume->Extent = FVector(250.0);
+		ColdSpot->Volume->Falloff = 200.0f;
+
+		// Crates the wind pushes about, in the open before the hut.
+		for (int32 i = 0; i < 5; ++i)
+		{
+			const double Size = 60.0 - 6.0 * i;
+			if (AStaticMeshActor* Crate = AddShape(*World, Cube, *FString::Printf(TEXT("WindCrate%d"), i), FVector(700.0 + 90.0 * i, -900.0 + 60.0 * (i % 2), Size * 0.5),
+				FVector(Size)))
+			{
+				UStaticMeshComponent* Mesh = Crate->GetStaticMeshComponent();
+				Mesh->SetMobility(EComponentMobility::Movable);
+				Mesh->SetSimulatePhysics(true);
+				// Wooden crates of 15-25 kg: a gale slides and tips them, it does not throw them.
+				Mesh->SetMassOverrideInKg(NAME_None, 25.0f - 2.5f * i, true);
+				UDreamWindForceComponent* Force = NewObject<UDreamWindForceComponent>(Crate, TEXT("WindForce"));
+				Force->ForceScale = 1.0f;
+				Crate->AddInstanceComponent(Force);
+			}
+		}
+
+		// A storm that drifts in from the west on the morning of the showcase's day: over the area around ten, gone by
+		// half past twelve.
+		ADreamWeatherStorm* Storm = World->SpawnActor<ADreamWeatherStorm>(FVector(-3500000.0, 0.0, 0.0), FRotator::ZeroRotator);
+		Storm->SetActorLabel(TEXT("DriftingStorm"));
+		Storm->Zone->Extent = FVector2D(800000.0, 800000.0);
+		Storm->Zone->BlendDistance = 600000.0f;
+		Storm->Zone->Motion.Velocity = FVector2D(25.0, 0.0);
+		Storm->Zone->Motion.LifetimeHours = 4.0f;
+		Storm->Zone->Motion.bDestroyWhenDone = false;
+		Storm->Zone->Motion.StartSeconds = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 21, 8, 30, 0));
+
+		// Far to the north, a snowfield of no regular shape (an outline zone, a bay cut into its south side): its clouds,
+		// the snow on the land and the point queries share one edge. The land around the floor reads the surface maps.
+		if (AStaticMeshActor* Land = AddShape(*World, Plane, TEXT("Land"), FVector(0.0, 0.0, -5.0), FVector(4000000.0, 4000000.0, 100.0)))
+		{
+			Land->GetStaticMeshComponent()->SetMaterial(0, LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceTerrainDemo.M_DreamSurfaceTerrainDemo")));
+		}
+		ADreamWeatherOutlineZone* Snowfield = World->SpawnActor<ADreamWeatherOutlineZone>(FVector(0.0, 700000.0, 0.0), FRotator::ZeroRotator);
+		Snowfield->SetActorLabel(TEXT("Snowfield"));
+		Snowfield->Outline->ClearSplinePoints(false);
+		for (const FVector& P : { FVector(380000.0, 60000.0, 0.0), FVector(250000.0, 300000.0, 0.0), FVector(-60000.0, 340000.0, 0.0), FVector(-330000.0, 180000.0, 0.0),
+			FVector(-300000.0, -200000.0, 0.0), FVector(-120000.0, -330000.0, 0.0), FVector(-20000.0, -110000.0, 0.0), FVector(120000.0, -320000.0, 0.0),
+			FVector(330000.0, -230000.0, 0.0) })
+		{
+			Snowfield->Outline->AddSplinePoint(P, ESplineCoordinateSpace::Local, false);
+		}
+		Snowfield->Outline->UpdateSpline();
+		Snowfield->OutlineSpacing = 50000.0f;
+		Snowfield->UpdateFootprint();
+		Snowfield->Zone->BlendDistance = 40000.0f;
+		Snowfield->Zone->Priority = 5;
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudCoverage, 1.0f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudDarkness, 0.5f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_Precipitation, 0.7f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_SnowRatio, 1.0f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_Temperature, -30.0f);   // an offset: the level stands in midsummer
+
+		// And storms that come by themselves with the season.
+		ADreamWeatherStormSpawner* Spawner = World->SpawnActor<ADreamWeatherStormSpawner>(FVector::ZeroVector, FRotator::ZeroRotator);
+		Spawner->SetActorLabel(TEXT("StormSpawner"));
+		FDreamStormKind& Thunder = Spawner->Kinds.AddDefaulted_GetRef();
+		Thunder.Preset = Preset(TEXT("WP_Storm"));
+		Thunder.Winter = 0.2f;
+		FDreamStormKind& Squall = Spawner->Kinds.AddDefaulted_GetRef();
+		Squall.Preset = Preset(TEXT("WP_Rain"));
 
 
 		World->SpawnActor<APlayerStart>(FVector(0.0, -1200.0, 100.0), FRotator(0.0, 90.0, 0.0));

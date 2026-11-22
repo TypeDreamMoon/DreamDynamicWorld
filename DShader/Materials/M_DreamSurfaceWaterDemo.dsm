@@ -1,0 +1,52 @@
+// DreamSurface demo: a still pond surface that rain ripples (MF_DreamWaterRipples) - dark, glossy water whose normal
+// carries the rings while it rains at the view, flat again once the rain stops.
+
+VirtualFunction(Name="MF_DreamWaterRipples")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamWaterRipples");
+		Description = "DreamSurface: rain ripples on a water surface.";
+	}
+	Inputs = {
+		vec3  Normal;
+		vec3  WorldPosition;
+		float Scale;
+		float Intensity;
+	}
+	Outputs = {
+		vec3 Result;
+	}
+}
+
+Shader(Name="Surface/Materials/M_DreamSurfaceWaterDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  WaterColor  = vec3(0.02, 0.04, 0.05) [Group="Water"];
+		float RingScale   = 20.0                   [Group="Water"; Desc="cm across a ring's cell."];
+		float RingIntensity = 1.0                  [Group="Water"];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "DefaultLit";
+	}
+
+	Outputs = {
+		vec3  Color;
+		vec3  Norm;
+		float Rough;
+		Base.BaseColor = Color;
+		Base.Normal = Norm;
+		Base.Roughness = Rough;
+	}
+
+	Graph = {
+		float3 Rippled;
+		MF_DreamWaterRipples(float3(0.0, 0.0, 1.0), UE.WorldPosition(), RingScale, RingIntensity, Rippled);
+		Color = WaterColor;
+		Norm = Rippled;
+		Rough = 0.03;
+	}
+}

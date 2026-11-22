@@ -1,0 +1,306 @@
+ShowFlag.EyeAdaptation 0
+DreamWorld.Pause 1
+time 7.8
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Clear_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Clear_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Clear_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Clear_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Clear_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Clear_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Clear_Snow
+time 10.2
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Cloudy_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Cloudy_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Cloudy_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Cloudy_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Cloudy_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Cloudy_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Cloudy_Snow
+time 12.3
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Rain_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Rain_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Rain_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Rain_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Rain_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Rain_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Rain_Snow
+time 14.2
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Storm_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Storm_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Storm_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Storm_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Storm_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Storm_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Storm_Snow
+time 16.75
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_AfterRain_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_AfterRain_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_AfterRain_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_AfterRain_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_AfterRain_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_AfterRain_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_AfterRain_Snow
+time 19.6
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Snow_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Snow_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Snow_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Snow_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Snow_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Snow_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Snow_Snow
+time 21.5
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Dust_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Dust_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Dust_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Dust_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Dust_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Dust_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Dust_Snow
+time 23.6
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Night_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Night_Toon
+move 2680 850 160
+aim -6 -140
+wait 60
+settle 8
+shot SHOW_Night_Inside
+move 2120 700 165
+aim -6 180
+wait 3
+settle 8
+shot SHOW_Night_Door
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Night_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Night_Grove
+move 3000 -900 400
+aim -10 -38
+wait 3
+settle 8
+shot SHOW_Night_Snow

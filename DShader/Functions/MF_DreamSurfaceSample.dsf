@@ -1,0 +1,68 @@
+// DreamSurface - what the weather has left on a surface, at a world position.
+//
+// MF_DreamSurfaceSample(WorldPosition) -> Wet, Water, Snow, Dust (0..1 each), Exposure (0 under cover .. 1 in the open)
+//
+// The state comes from the surface maps the DreamSurface subsystem draws around the camera (the near map, then the far
+// one as wide as the weather map, then the view's own state beyond both), placed by DDW_SurfaceNear / DDW_SurfaceFar in
+// the plugin's shared MPC. The maps hold the state in the open; the cover map says up to what height something keeps
+// the sky off each texel (the wind's baked roofs, shelter boxes), and a surface below that is covered: no water, no
+// snow, a fifth of the dust. The HLSL is Shaders/Private/DreamSurfaceMaterial.ush; the integration itself is
+// Shaders/Shared/DreamSurfaceShared.h, the formula the CPU queries (UDreamSurfaceSubsystem::SampleSurface) run too.
+
+Function float4 DreamSurface_State(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewState,
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D MaskMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return saturate(DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
+		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler));
+}
+
+Function float DreamSurface_Exposure(in float3 WorldPos, in float4 NearPlace, in float4 Params, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler);
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceSample", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: the wet, standing water, snow and dust the weather has left at a world position (0..1 each, already lowered under cover), and how open it is to the sky.";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
+		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
+		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+	}
+
+	Inputs = {
+		vec3 WorldPosition;
+	}
+
+	Outputs = {
+		float Wet;
+		float Water;
+		float Snow;
+		float Dust;
+		float Exposure;
+	}
+
+	Graph = {
+		float4 S = DreamSurface_State(WorldPosition, NearPlace, FarPlace, ViewState, NearMap, FarMap, MaskMap);
+		float E = DreamSurface_Exposure(WorldPosition, NearPlace, Params, CoverMap);
+		Wet      = S.x * E;
+		Water    = S.y * E;
+		Snow     = S.z * E;
+		Dust     = S.w * (0.2 + 0.8 * E);
+		Exposure = E;
+	}
+}

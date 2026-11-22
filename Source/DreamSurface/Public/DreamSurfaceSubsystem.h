@@ -8,8 +8,26 @@
 #include "DreamWeatherTypes.h"
 #include "DreamSurfaceSubsystem.generated.h"
 
+class FDreamSurfaceMaps;
 class UDreamWeatherSubsystem;
 class UDreamWorldSubsystem;
+
+/** The steps the surface maps integrate (DreamSurfaceMap.usf), rebuilt when a step goes by or the view moves away. */
+struct FDreamSurfaceMapSteps
+{
+	/** The step they lead up to (the one in progress). */
+	int64 Step = TNumericLimits<int64>::Min();
+	/**
+	 * Three float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the
+	 * global channels (temperature offset, dust, wind, -), the air (the view's temperature less its offset, the sun's Z).
+	 */
+	TArray<FVector4f> Steps;
+	/** The step in progress, and how much of it has gone by. */
+	FVector4f PartialWeather = FVector4f::Zero();
+	FVector4f PartialChannels = FVector4f::Zero();
+	FVector4f PartialAir = FVector4f::Zero();
+	float PartialHours = 0.0f;
+};
 
 /**
  * What the weather has left on the surfaces of a world: wet, standing water, snow, dust.
@@ -79,8 +97,44 @@ public:
 	/** Runs one frame now (tests; the weather's frame normally does it). */
 	void TickForTest(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather) { OnWeatherFrame(Clock, Weather, FDreamWeatherSample(), 0.0f); }
 
+	/**
+	 * What a contact at a point finds (a footstep, a wheel): the state there, how much of a puddle it stands in (as the
+	 * materials draw it), the snow's depth, and which of them dominates.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	FDreamSurfaceContact SampleContact(FVector Location, FVector Normal) const;
+
+	/**
+	 * Press a print into the snow and the dust and stir the puddles here (a footstep, a blast: Radius in cm, Strength
+	 * 0..1). The surface interaction component does it as it moves; drawn into the trail map with the next update.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream Surface")
+	void Stamp(FVector Location, float Radius = 50.0f, float Strength = 1.0f, bool bSnowAndDust = true, bool bPuddles = true);
+
+	/** The prints waiting for the next trail map update (two float4 each: x, y, radius, strength; snow/dust, ripple, -, -). */
+	const TArray<FVector4f>& GetPendingStamps() const { return PendingStamps; }
+	TArray<FVector4f> TakePendingStamps() { return MoveTemp(PendingStamps); }
+
+	/** Mask brushes register themselves (UDreamSurfaceMaskComponent). */
+	void RegisterMask(class UDreamSurfaceMaskComponent* Mask);
+	void UnregisterMask(class UDreamSurfaceMaskComponent* Mask);
+
+	/** The mask brushes' multipliers at a point (wet, water, snow, dust): their product, 1 where none reaches. */
+	FVector4f GetMaskAt(const FVector& Position) const;
+
+	/** The steps the surface maps integrate this frame. */
+	const FDreamSurfaceMapSteps& GetMapSteps() const { return MapSteps; }
+
+	/** The surface maps around the camera (render targets, placement); null before Initialize. */
+	const FDreamSurfaceMaps* GetMaps() const { return Maps.Get(); }
+	FDreamSurfaceMaps* GetMaps() { return Maps.Get(); }
+
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 private:
 	void OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float RealDeltaSeconds);
+	void MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir) const;
+	void BuildMapSteps(int64 StepIndex);
 	void Record(int64 StepIndex, const FDreamWeatherValues& Global);
 	FDreamSurfaceState IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky = false) const;
 
@@ -92,6 +146,11 @@ private:
 	FDreamSurfaceState ViewStepStart;
 	int64 ViewStep = TNumericLimits<int64>::Min();
 	FVector ViewAnchor = FVector(1.0e30);
+
+	FDreamSurfaceMapSteps MapSteps;
+	TSharedPtr<FDreamSurfaceMaps> Maps;
+	TArray<TWeakObjectPtr<class UDreamSurfaceMaskComponent>> MaskBrushes;
+	TArray<FVector4f> PendingStamps;
 
 	TWeakObjectPtr<UDreamWeatherSubsystem> WeatherSubsystem;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

@@ -243,8 +243,10 @@ namespace DreamWorld::Celestial
 			Out.SunDirection = OrbitDirection(Theta, S.NoonElevation, B);
 			Out.MoonDirection = OrbitDirection(MoonTheta, S.NoonElevation, B);
 			Out.MoonPhase = float(Phase);
-			// Sidereal: one turn a day plus one extra turn a year.
-			Out.StarRotation = float(Wrap360(360.0 * (Hours / 24.0) + 360.0 * Frac(JulianLocal / 365.2422)));
+			// The local sidereal time with the clock read as local mean time (no longitude needed): the constellations
+			// stand where they do at that hour of that date, a sidereal day being some four minutes shorter. A function of
+			// the continuous world time, so it runs on through midnight and a jump lands where it would have run to.
+			Out.StarRotation = float(SiderealDegrees(JulianLocal, 0.0));
 		}
 		Out.SunElevation = float(ElevationOf(Out.SunDirection));
 		Out.SunAzimuth = float(AzimuthOf(Out.SunDirection, B));

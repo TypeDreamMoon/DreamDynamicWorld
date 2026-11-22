@@ -14,6 +14,7 @@ float MapExtent;       // world cm the map spans
 uint NumZones;
 int2 Resolution;
 
+// NumZones records of DWX_ZONE_FLOAT4S, then the points of the polygon footprints.
 StructuredBuffer<float4> Zones;
 RWTexture2D<float4> OutMap;
 
@@ -30,7 +31,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	float3 V = GlobalWeather.xyz;
 	for (uint i = 0; i < NumZones; ++i)
 	{
-		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2]);
+		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2], Zones);
 	}
 	// After the zones, as SampleWeather does: rain only under a cover closed enough for it.
 	V = DWX_GatePrecipitation(V, PrecipitationGate);

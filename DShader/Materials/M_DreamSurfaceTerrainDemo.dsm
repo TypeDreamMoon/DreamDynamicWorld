@@ -1,0 +1,56 @@
+// DreamSurface demo: ground with the weather on it - grass and earth mottled over the world, the terrain weather function
+// at the end (puddles in its hollows, dust, snow standing up off it by World Position Offset).
+
+VirtualFunction(Name="MF_DreamSurfaceWeatherTerrain")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain");
+		Description = "DreamSurface: the weather on terrain.";
+	}
+	Inputs = {
+		MaterialAttributes Attributes;
+		float Softness = 0.0;
+	}
+	Outputs = {
+		MaterialAttributes Result;
+	}
+}
+
+Function float DreamSurfaceTerrainDemo_Patches(in float3 WorldPos)
+{
+	#include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
+	return smoothstep(0.35f, 0.65f, DSF_Hollow(WorldPos.x - 517.0f, WorldPos.y + 133.0f, 900.0f));
+}
+
+Shader(Name="Surface/Materials/M_DreamSurfaceTerrainDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  Grass = vec3(0.16, 0.24, 0.08) [Group="Ground"];
+		vec3  Earth = vec3(0.30, 0.23, 0.16) [Group="Ground"];
+		float Roughness = 0.9                [Group="Ground"];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "DefaultLit";
+	}
+
+	Outputs = {
+		MaterialAttributes Attrs;
+		Base.MaterialAttributes = Attrs;
+	}
+
+	Graph = {
+		float Patches = DreamSurfaceTerrainDemo_Patches(UE.WorldPosition());
+		MaterialAttributes Dry;
+		Dry.BaseColor = lerp(Grass, Earth, Patches);
+		Dry.Roughness = Roughness;
+		Dry.Metallic = 0.0;
+		Dry.Specular = 0.5;
+		Dry.Normal = float3(0.0, 0.0, 1.0);
+		Dry.WorldPositionOffset = float3(0.0, 0.0, 0.0);
+		MF_DreamSurfaceWeatherTerrain(Dry, 1.0, Attrs);   // soil and grass: soft ground
+	}
+}
