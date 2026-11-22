@@ -150,6 +150,49 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 	return Present * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
 }
 
+// The aurora: curtains of light along the magnetic latitude, from some 100 km up (their sharp lower edge) to 320 km,
+// toward the pole. Each view ray is read at eight heights, where it meets each over the planet's curve: the arc there
+// (ArcDistance toward the pole, ArcWidth wide) folded along its length and drifting, striated with rays, green low
+// down going to red and violet at the top, brightest a little above its lower edge.
+// Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km).
+float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Seconds)
+{
+	if (Aurora.x <= 0.0 || V.z <= 0.0)
+	{
+		return 0;
+	}
+	float2 Pole = dot(Aurora.zw, Aurora.zw) > 1.0e-6 ? normalize(Aurora.zw) : float2(1.0, 0.0);
+	float2 East = float2(-Pole.y, Pole.x);
+	float Flat = length(V.xy);
+	float2 Out = Flat > 1.0e-4 ? V.xy / Flat : Pole;
+	float T = Seconds * Aurora.y;
+	float3 Sum = 0;
+	const int Heights = 8;
+	[unroll]
+	for (int i = 0; i < Heights; ++i)
+	{
+		float H = (float(i) + 0.5) / float(Heights);
+		float Altitude = lerp(100.0, 320.0, H);
+		// (Where the ray reaches that height over a 6371 km planet, and how far off along the ground.)
+		float a = Flat * Flat / (2.0 * 6371.0);
+		float Along = 2.0 * Altitude / (V.z + sqrt(V.z * V.z + 4.0 * a * Altitude));
+		float2 P = Out * (Along * Flat);
+		float East1 = dot(P, East);
+		float North1 = dot(P, Pole);
+		// The arc folds along its length (two scales of folds, drifting apart), and ripples with rays.
+		float Fold = (DSky_ValueNoise(float2(East1 * 0.004 + T * 0.020, 1.7)) - 0.5) * 280.0
+			+ (DSky_ValueNoise(float2(East1 * 0.015 - T * 0.050, 5.3)) - 0.5) * 70.0;
+		float X = (North1 - Low.a - Fold) / max(High.a, 1.0);
+		float Band = exp(-X * X);
+		float Rays = 0.45 + 0.55 * DSky_ValueNoise(float2(East1 * 0.11 + T * 0.30, 9.1 + H * 0.4));
+		float Rise = smoothstep(0.0, 0.1, H) * (1.0 - smoothstep(0.3, 1.0, H));
+		float3 Colour = lerp(Low.rgb, High.rgb, smoothstep(0.3, 0.9, H));
+		Sum += Colour * Band * Rays * Rise;
+	}
+	// (Low over the horizon it is seen through more air: it fades into it.)
+	return Sum * (Aurora.x * 2.0 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Volumetric clouds, toon: the cloud layer (shaped in DreamSkyCloudShape.ush) walked to its surface, which is then lit
 // once, by its normal and its own shadow toward the main light, and banded into the style's few tones: volumes with a
@@ -880,15 +923,16 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
+// Aurora, AuroraLow, AuroraHigh: see DSky_Aurora.
 // Cloud0 = (cover, -, scale, tones), Cloud1 = (wind drift, -, -), Cloud2 = (-, zenith thinning, -, fair-weather towers),
 // Cloud3 = (visibility, cm; haze height, cm; high cloud cover; high cloud altitude, cm).
 // Capture is 1 while the dome is drawn into the sky light (reflection capture pass), 0 on screen.
 float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
-	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, Texture2D WeatherMap, SamplerState WeatherMapSampler,
-	Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama, SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV,
-	float Seconds, float Capture)
+	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh,
+	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
+	SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
 	V = normalize(V);
 	float3 Sun = normalize(SunDir.xyz);
@@ -939,6 +983,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare;
+	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
+	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds);
 
 	Sky = Sky * (1.0 - High.a) + High.rgb;
 	Sky = Sky * (1.0 - Shafts.a) + Shafts.rgb;

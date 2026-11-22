@@ -100,6 +100,7 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 		K.CloudShadow = Saturate(K.CloudShadow, S);
 	}
 	if (bOverride_StarIntensity) { K.StarIntensity = Scale(K.StarIntensity, StarIntensity); }
+	if (bOverride_Aurora) { K.Aurora = Toward(K.Aurora, FMath::Clamp(Aurora, 0.0f, 1.0f)); }
 
 	// (And the same on whatever the weather map holds: the stack's change to it, kept and added.)
 	if (bOverride_CloudCoverage)

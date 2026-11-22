@@ -6,6 +6,7 @@
 #include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
+#include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Components/PostProcessComponent.h"
@@ -174,6 +175,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	const FDreamCelestialState& Celestial = Clock.GetCelestial();
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
+	Look.Aurora = Style->EvaluateAuroraPresence(Clock.GetCelestialSettings());
 	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
@@ -513,6 +515,17 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, 0.0f));
+	// The aurora toward the magnetic pole (north, or south below the equator in the realistic mode), as bright as the
+	// night shows it.
+	{
+		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
+		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
+		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
+		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f);
+		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
+		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
+		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
+	}
 
 	// Drift: shapes per game hour along CloudDirection, from the world time, so a given moment always shows
 	// the same clouds. Wrapped to keep the shader's float precision.

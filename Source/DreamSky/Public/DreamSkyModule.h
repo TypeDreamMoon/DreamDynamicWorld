@@ -33,7 +33,12 @@ namespace DreamSky::Names
 	inline const FName MPC_SkyHaze(TEXT("DDW_SkyHaze"));
 	// The sky modifiers' change to the weather map's cloud cover and darkness: x = how much of the cover is replaced, y =
 	// what replaces it, z, w the same for the darkness (all 0: none).
-	inline const FName MPC_SkyModClouds(TEXT("DDW_SkyModClouds"));          // rgb = height fog colour, a = how much of the dome weather fog hides
+	inline const FName MPC_SkyModClouds(TEXT("DDW_SkyModClouds"));
+	// The aurora: strength (night and presence in), speed, toward the magnetic pole (x, y); its low and high colours,
+	// with how far toward the pole the arc stands (km) and how wide it is (km) in their a.
+	inline const FName MPC_Aurora(TEXT("DDW_Aurora"));
+	inline const FName MPC_AuroraLow(TEXT("DDW_AuroraLow"));
+	inline const FName MPC_AuroraHigh(TEXT("DDW_AuroraHigh"));          // rgb = height fog colour, a = how much of the dome weather fog hides
 
 	// lighting, for every material
 	inline const FName MPC_MainLight(TEXT("DDW_MainLight"));            // direction toward the light, a = illuminance (lux)

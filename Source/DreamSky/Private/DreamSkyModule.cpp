@@ -60,6 +60,9 @@ void FDreamSkyModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, MPC_SkyExtra, FLinearColor(0.6f, 0.5f, 0.1f, 1.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_SkyHaze, FLinearColor(0.5f, 0.5f, 0.5f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_SkyModClouds, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_Aurora, FLinearColor(0.0f, 1.0f, 1.0f, 0.0f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_AuroraLow, FLinearColor(0.15f, 1.0f, 0.45f, 250.0f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_AuroraHigh, FLinearColor(0.75f, 0.2f, 0.55f, 70.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_MainLight, FLinearColor(0.0f, 0.0f, 1.0f, 10.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_MainLightColor, FLinearColor(1.0f, 1.0f, 1.0f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_AmbientSky, FLinearColor(0.3f, 0.4f, 0.6f, 0.0f));

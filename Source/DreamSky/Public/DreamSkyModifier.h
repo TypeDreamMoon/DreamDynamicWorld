@@ -112,6 +112,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float SkySaturation = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Aurora = false;
+	/** How present the aurora turns, 0..1, wherever the world lies (it still shows only once the sky is dark). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Aurora", ClampMin = "0", ClampMax = "1"))
+	float Aurora = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_StarIntensity = false;
 	/** Multiplies how bright the stars draw. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_StarIntensity", ClampMin = "0", UIMax = "8"))

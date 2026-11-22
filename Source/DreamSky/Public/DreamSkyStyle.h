@@ -10,6 +10,54 @@
 #include "DreamSkyStyle.generated.h"
 
 /**
+ * The aurora: curtains of light along the magnetic latitude, some 100 to 300 kilometres up, toward the pole (green
+ * low down, red and violet higher), folding and drifting. It shows at night where the world lies far enough north or
+ * south (the celestial settings' latitude, in the realistic mode), or as strong as the artistic mode is told; a sky
+ * modifier can bring it anywhere.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyAurora
+{
+	GENERATED_BODY()
+
+	/** How bright it draws at its strongest, in the dome's own measure (a dark night's zenith is some 0.006). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "0.3"))
+	float Brightness = 0.05f;
+
+	/** Its colour low down, near its lower edge (the green of oxygen some 100 km up). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (HideAlphaChannel))
+	FLinearColor LowColor = FLinearColor(0.15f, 1.0f, 0.45f, 1.0f);
+
+	/** Its colour at the top of the curtains (the red and violet some 250 km up and more). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (HideAlphaChannel))
+	FLinearColor HighColor = FLinearColor(0.75f, 0.2f, 0.55f, 1.0f);
+
+	/** How fast the curtains fold, ripple and drift (1 = as a quiet night's, some tens of seconds a fold). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "8"))
+	float Speed = 1.0f;
+
+	/** How far toward the pole the arc stands from the view, km (further = lower in the sky). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (UIMin = "-500", UIMax = "1500"))
+	float ArcDistance = 250.0f;
+
+	/** How wide the arc is, km. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "5", UIMax = "400"))
+	float ArcWidth = 70.0f;
+
+	/** Realistic mode: the latitude (north or south) where it begins to show. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "90"))
+	float StartLatitude = 50.0f;
+
+	/** Realistic mode: the latitude from which it shows in full. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "90"))
+	float FullLatitude = 66.0f;
+
+	/** Artistic mode (no latitude): how present it is, 0..1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))
+	float ArtisticPresence = 0.0f;
+};
+
+/**
  * How a sky looks and lights the scene through the day. Every curve is keyed by the sun's elevation in
  * degrees (-90..90), not by the hour, so one style works for any day length, latitude or season.
  *
@@ -26,6 +74,12 @@ public:
 
 	/** The dome's colours, sun/moon/stars and clouds at a moment. */
 	FDreamSkyLook EvaluateLook(const FDreamCelestialState& Celestial) const;
+
+	/** How present the aurora is where the world lies (FDreamSkyLook::Aurora), 0..1. */
+	float EvaluateAuroraPresence(const FDreamCelestialSettings& Settings) const;
+
+	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
+	static float AuroraNight(float SunElevation);
 
 	/** Lights, ambient, fog and exposure at a moment (before any smoothing). */
 	FDreamSkyLighting EvaluateLighting(const FDreamCelestialState& Celestial) const;
@@ -156,6 +210,9 @@ public:
 	/** Relative number of stars. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4"))
 	float StarDensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ShowOnlyInnerProperties))
+	FDreamSkyAurora Aurora;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
