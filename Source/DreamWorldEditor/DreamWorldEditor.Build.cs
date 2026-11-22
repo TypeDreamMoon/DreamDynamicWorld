@@ -34,6 +34,7 @@ public class DreamWorldEditor : ModuleRules
 			"DreamWind",
 			"DreamWindEditor",
 			"DreamCloud",
+			"DreamSurface",
 			"MeshDescription",
 			"StaticMeshDescription",
 		});
