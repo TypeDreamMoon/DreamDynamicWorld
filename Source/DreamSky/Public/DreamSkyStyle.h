@@ -52,9 +52,10 @@ struct DREAMSKY_API FDreamSkyAurora
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "90"))
 	float FullLatitude = 66.0f;
 
-	/** Under the toon and painted clouds, its light goes in three clean tones (as the clouds' own). */
+	/** Under the toon and painted clouds, its light goes in three clean tones (as the clouds' own); off, it keeps its
+	 *  own soft light whatever the clouds' look. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora")
-	bool bStylizedTones = true;
+	bool bStylizedTones = false;
 
 	/** Artistic mode (no latitude): how present it is, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))

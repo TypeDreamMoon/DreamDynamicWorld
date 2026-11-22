@@ -110,10 +110,15 @@ bool FDreamSkyAuroraTest::RunTest(const FString& Parameters)
 		}
 		const FLinearColor A = W.Parameter(MPC_Aurora);
 		TestTrue(FString::Printf(TEXT("strong in the arctic night (%.4f)"), A.R), FMath::Abs(A.R) > 0.5f * W.Sky->GetEffectiveStyle()->Aurora.Brightness);
-		TestTrue(TEXT("in the toon clouds' banded tones (negative)"), A.R < 0.0f);
+		TestTrue(TEXT("its own soft light under the toon clouds too, by default (positive)"), A.R > 0.0f);
+		UDreamSkyStyle* TestStyle = W.Sky->GetEffectiveStyle();
+		TestStyle->Aurora.bStylizedTones = true;
+		W.Clock->Tick(0.016f);
+		TestTrue(TEXT("in the toon clouds' banded tones when the style asks (negative)"), W.Parameter(MPC_Aurora).R < 0.0f);
 		W.Sky->CloudLook = EDreamSkyCloudLook::Realistic;
 		W.Clock->Tick(0.016f);
-		TestTrue(TEXT("under realistic clouds, smooth (positive)"), W.Parameter(MPC_Aurora).R > 0.0f);
+		TestTrue(TEXT("under realistic clouds, smooth whatever the style asks (positive)"), W.Parameter(MPC_Aurora).R > 0.0f);
+		TestStyle->Aurora.bStylizedTones = false;
 		TestTrue(TEXT("toward the north"), A.B > 0.99f && FMath::Abs(A.A) < 0.01f);
 		TestNearlyEqual(TEXT("the arc's distance"), W.Parameter(MPC_AuroraLow).A, W.Sky->GetEffectiveStyle()->Aurora.ArcDistance, 1e-3f);
 	}

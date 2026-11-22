@@ -137,16 +137,20 @@ deep blue overhead) and catch the sun's glow beside it. The sun's halo spreads a
 low. When the sky light captures the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the
 captured light has no hot spot.
 
-**Aurora.** The dome draws the aurora as curtains of light some 95 to 330 km up toward the magnetic pole (north,
-or south below the equator), in three layers one behind another: a brighter band along their sharp lower edge,
-great S-bends that drift and slowly change shape, rays in their bodies, green low down and red to violet at their
-tops. Under the toon and painted clouds its light goes in three clean tones (`Aurora.bStylizedTones`). The clouds
+**Aurora.** The dome draws the aurora as curtains of soft light over the auroral oval toward the magnetic pole
+(north, or south below the equator), from a sharp, brighter lower edge some 95 km up fading out by 320 km, green
+low down going to violet at the top. Where the curtains stand is drawn as thin ribbons that wander, fold and slowly
+change shape (two copies of one smooth noise field drifting apart, lit where they nearly agree), stretched along the
+oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
+heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
+this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
+clean tones there instead. The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's
 `Aurora.ArtisticPresence` says in the artistic one. The style's *Aurora* also sets its brightness, colours, speed,
 and how far toward the pole the arc stands and how wide it is. A sky modifier's *Aurora* brings it anywhere (or
-holds it off); `DreamSky.Modifier.Add Aurora` tries it. It costs some 0.19 ms of the base pass at 1080p while it
+holds it off); `DreamSky.Modifier.Add Aurora` tries it. It costs some 0.16 ms of the base pass at 1080p while it
 shows, nothing while it does not.
 
 **Night glow and light pollution.** From sunset on the night sky has a faint glow of its own (the style's
