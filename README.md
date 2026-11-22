@@ -645,6 +645,19 @@ and the cover), 0.2 ms for an integration.
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
+**Tuning the look.** What the weather does to a surface is set in the editor, per material instance: every shift,
+edge and colour the weather functions apply is a material parameter, its default the look described above. Put the
+values a set of materials shares in a parent instance and let the materials inherit them.
+
+| Group | Parameters (defaults) |
+| :-- | :-- |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95 |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95 |
+
+Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
+formula, so a CPU query and every material agree on it; the parameters change how it looks there.
+`DreamWorld.SurfaceLook.Parameters` checks that the demo materials carry every parameter with its default.
+
 **Rain on it.** While it rains (at the view, `DDW_Weather0`; not under cover) the puddles ripple — rings spreading
 from where drops land, more cells ringing the harder it rains, every ring with the same rhythm so a temporal filter
 does not shimmer on it — and a surface not soaked yet shows short-lived wet spots where the drops land. Both are in
