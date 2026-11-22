@@ -197,6 +197,110 @@ bool FDreamSurfaceFormulaTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace DreamSurface::Tests
+{
+	struct FGlassPatch
+	{
+		float Water = 0.0f;     // the share of the patch under water
+		float Running = 0.0f;   // the share crossed by running drops
+		float MaxSlope = 0.0f;
+		uint32 Hash = 0;        // of the whole field, to compare two moments
+	};
+
+	/** The rain on a metre of glass, sampled every 5 mm. */
+	static FGlassPatch GlassPatch(float Time, float Rain, float Wet, float Steep)
+	{
+		using namespace DreamWind::Hlsl;
+		FGlassPatch P;
+		int32 Count = 0;
+		for (float Y = 0.0f; Y < 100.0f; Y += 0.5f)
+		{
+			for (float X = 0.0f; X < 100.0f; X += 0.5f)
+			{
+				const float4 R = DSF_GlassRain(float2(X, Y), Time, Rain, Wet, Steep);
+				P.Water += R.z > 0.3f ? 1.0f : 0.0f;
+				P.Running += R.w > 0.3f ? 1.0f : 0.0f;
+				P.MaxSlope = FMath::Max(P.MaxSlope, FMath::Max(FMath::Abs(R.x), FMath::Abs(R.y)));
+				P.Hash = HashCombineFast(P.Hash, GetTypeHash(FMath::RoundToInt32(R.z * 1000.0f)));
+				++Count;
+			}
+		}
+		P.Water /= Count;
+		P.Running /= Count;
+		return P;
+	}
+
+	/** Where the drops running down one column of glass are (the mean height of their heads, cm), in a window lower
+	 *  than the shortest gap between two drops; false when the window holds none. */
+	static bool RunnerHeight(float Column, float Time, float& OutHeight)
+	{
+		using namespace DreamWind::Hlsl;
+		constexpr float Width = 2.5f;
+		double Sum = 0.0;
+		int32 Count = 0;
+		for (float Y = 0.0f; Y < 45.0f; Y += 0.05f)
+		{
+			for (float X = Column * Width + 0.01f; X < (Column + 1.0f) * Width; X += 0.05f)
+			{
+				if (DSF_GlassRunners(float2(X, Y), Time, 1.0f, Width).z > 0.9f)
+				{
+					Sum += Y;
+					++Count;
+				}
+			}
+		}
+		OutHeight = Count ? float(Sum / Count) : 0.0f;
+		return Count > 0;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGlassRainTest, "DreamSurface.GlassRain", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGlassRainTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+
+	const FGlassPatch Dry = GlassPatch(3.0f, 0.0f, 0.0f, 1.0f);
+	TestTrue(TEXT("a dry pane has no drops"), Dry.Water == 0.0f && Dry.MaxSlope == 0.0f);
+
+	const FGlassPatch Pouring = GlassPatch(3.0f, 1.0f, 1.0f, 1.0f);
+	const FGlassPatch Drizzle = GlassPatch(3.0f, 0.2f, 0.2f, 1.0f);
+	AddInfo(FString::Printf(TEXT("water on the pane: pouring %.3f, drizzle %.3f; running %.3f"), Pouring.Water, Drizzle.Water, Pouring.Running));
+	TestTrue(TEXT("heavy rain covers part of an upright pane, not all of it"), Pouring.Water > 0.08f && Pouring.Water < 0.7f);
+	TestTrue(TEXT("a drizzle fewer drops"), Drizzle.Water < Pouring.Water * 0.7f && Drizzle.Water > 0.0f);
+	TestTrue(TEXT("drops run down it"), Pouring.Running > 0.005f);
+	TestTrue(TEXT("the water's slope stays bounded"), Pouring.MaxSlope < 4.0f);
+	TestTrue(TEXT("the drops come and go while it rains"), GlassPatch(9.0f, 1.0f, 1.0f, 1.0f).Hash != Pouring.Hash);
+
+	const FGlassPatch Flat = GlassPatch(3.0f, 1.0f, 1.0f, 0.0f);
+	TestTrue(TEXT("on a flat pane drops sit"), Flat.Water > 0.05f);
+	TestTrue(TEXT("but none run"), Flat.Running == 0.0f);
+
+	// After the rain: the sitting drops stay put while the pane is wet, and go as it dries.
+	const FGlassPatch After = GlassPatch(3.0f, 0.0f, 0.8f, 1.0f);
+	TestTrue(TEXT("drops stay on a wet pane after the rain"), After.Water > 0.05f && After.Running == 0.0f);
+	TestTrue(TEXT("and do not move"), GlassPatch(40.0f, 0.0f, 0.8f, 1.0f).Hash == After.Hash);
+	TestTrue(TEXT("fewer as it dries"), GlassPatch(3.0f, 0.0f, 0.2f, 1.0f).Water < After.Water * 0.7f);
+
+	// A running drop goes down, at a speed between the slowest and the fastest a drop runs (6..20 cm/s).
+	bool bMeasured = false;
+	for (float Column = 0.0f; Column < 60.0f && !bMeasured; Column += 1.0f)
+	{
+		for (float Time = 0.0f; Time < 10.0f && !bMeasured; Time += 0.7f)
+		{
+			float Before = 0.0f, Later = 0.0f;
+			if (RunnerHeight(Column, Time, Before) && RunnerHeight(Column, Time + 0.2f, Later) && Before > 8.0f && Before < 40.0f)
+			{
+				bMeasured = true;
+				const float Speed = (Before - Later) / 0.2f;
+				AddInfo(FString::Printf(TEXT("column %.0f: a drop at %.1f cm runs at %.1f cm/s"), Column, Before, Speed));
+				TestTrue(TEXT("a running drop goes down at its speed"), Speed > 6.0f * 0.8f && Speed < 20.0f * 1.2f);
+			}
+		}
+	}
+	TestTrue(TEXT("a running drop was found to measure"), bMeasured);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWeatherAtTest, "DreamSurface.WeatherAtTime", DreamSurface::Tests::Flags)
 bool FDreamSurfaceWeatherAtTest::RunTest(const FString& Parameters)
 {

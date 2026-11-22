@@ -407,6 +407,19 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -45.0), FVector(9.0, 9.0, 1.0),
 		FRotator::ZeroRotator, TEXT("Pond"));
 
+	// A window standing on the pavement, facing the start: a wooden frame round a pane of glass with the rain on it
+	// (MF_DreamGlassRain), the toon box seen through it.
+	if (UMaterialInterface* Glass = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamGlassDemo.M_DreamGlassDemo")))
+	{
+		const FVector Window(800.0, 750.0, 120.0);
+		SurfaceSetup::AddMesh(*World, Cube, Glass, Window, FVector(0.01, 2.0, 1.5), FRotator::ZeroRotator, TEXT("WindowPane"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window + FVector(0.0, 0.0, 80.0), FVector(0.1, 2.2, 0.1), FRotator::ZeroRotator, TEXT("WindowHead"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 0.0, 80.0), FVector(0.14, 2.2, 0.1), FRotator::ZeroRotator, TEXT("WindowSill"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window + FVector(0.0, 105.0, 0.0), FVector(0.1, 0.1, 1.7), FRotator::ZeroRotator, TEXT("WindowJamb"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 105.0, 0.0), FVector(0.1, 0.1, 1.7), FRotator::ZeroRotator, TEXT("WindowJamb"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 0.0, 102.5), FVector(0.1, 0.4, 0.35), FRotator::ZeroRotator, TEXT("WindowStand"));
+	}
+
 	// Far ahead right: a snow zone; its border lies on the ground.
 	ADreamWeatherZone* SnowZone = World->SpawnActor<ADreamWeatherZone>(FVector(5200.0, -2600.0, 0.0), FRotator::ZeroRotator);
 	SnowZone->Zone->Shape = EDreamWeatherZoneShape::Circle;
