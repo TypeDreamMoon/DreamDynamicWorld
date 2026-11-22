@@ -717,6 +717,10 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
 		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
+		const FDreamSkyAurora& AS = Style.Aurora;
+		Clock.SetVectorParameter(MPC_AuroraShape, FLinearColor(FMath::Max(AS.RibbonLength, 10.0f), FMath::Max(AS.RibbonWidth, 10.0f), FMath::Max(AS.RibbonSharpness, 1.0f), FMath::Max(AS.RaySpacing, 1.0f)));
+		Clock.SetVectorParameter(MPC_AuroraShape2, FLinearColor(FMath::Max(AS.RayContrast, 0.0f), FMath::Max(AS.UpwardFade, 0.1f), FMath::Clamp(AS.ToneLevel1, 0.0f, 1.0f), FMath::Clamp(AS.ToneLevel2, 0.0f, 1.0f)));
+		Clock.SetVectorParameter(MPC_AuroraShape3, FLinearColor(AS.LowerEdge, FMath::Max(AS.TopAltitude, AS.LowerEdge + 10.0f), FMath::Max(AS.EdgeBand, 0.0f), FMath::Max(AS.OvalWidth, 0.5f)));
 		Clock.SetVectorParameter(MPC_AuroraTones, FLinearColor(Style.Aurora.ToneStep1, Style.Aurora.ToneStep2, Style.Aurora.ToneStep3, FMath::Max(Style.Aurora.ToneSoftness, 0.0f)));
 	}
 	// The eclipses: the moon on the sun (and the corona near totality), the umbra on the moon.

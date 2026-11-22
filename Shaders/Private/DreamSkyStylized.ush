@@ -312,8 +312,11 @@ float3 DSky_MilkyWay(float3 V, float4 Pole, float4 Equinox, Texture2D Galaxy, Sa
 // curtain standing over it, and fine noise along its length (the same at every height) striates it with rays.
 // A negative strength draws it for the stylized looks: its light banded in three clean tones.
 // Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km),
-// Tones = (the three steps of the banded tones, how soft their edges).
-float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tones, float Seconds, Texture3D Noise, SamplerState NoiseSampler, float2 ScreenUV)
+// Tones = (the three steps of the banded tones, how soft their edges), Shape = (ribbons' length, width km, sharpness; rays'
+// spacing km), Shape2 = (rays' contrast, upward fade; the banded tones' first two levels), Shape3 = (lower edge, top km;
+// the edge band's brightness; the oval's width in ArcWidths).
+float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tones, float4 Shape, float4 Shape2, float4 Shape3, float Seconds,
+	Texture3D Noise, SamplerState NoiseSampler, float2 ScreenUV)
 {
 	if (Aurora.x == 0.0 || V.z <= 0.0)
 	{
@@ -334,7 +337,7 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tone
 	for (int i = 0; i < Heights; ++i)
 	{
 		float H = (float(i) + Dither) / float(Heights);
-		float Altitude = lerp(95.0, 320.0, H * H);
+		float Altitude = lerp(Shape3.x, Shape3.y, H * H);
 		// (Where the ray reaches that height over a 6371 km planet, and how far off along the ground.)
 		float a = Flat * Flat / (2.0 * 6371.0);
 		float Along = 2.0 * Altitude / (V.z + sqrt(V.z * V.z + 4.0 * a * Altitude));
@@ -342,23 +345,23 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tone
 		float E = dot(P, East);
 		float N = dot(P, Pole) - Low.a;
 		// The oval: a broad band across the pole's direction, and the activity over it.
-		float Band = exp(-Square(N / (3.5 * Width)));
+		float Band = exp(-Square(N / (Shape3.w * Width)));
 		if (Band < 0.01)
 		{
 			continue;
 		}
 		float Active = smoothstep(0.25, 0.7, Noise.SampleLevel(NoiseSampler, float3(E / 2600.0 + T * 0.0004, N / 1400.0, 0.71 + T * 0.0003), 2.0).r);
 		// The ribbons: the same field twice, sliding apart.
-		float3 C = float3(E / 900.0, N / 260.0, 0.0);
+		float3 C = float3(E / Shape.x, N / Shape.y, 0.0);
 		float A1 = Noise.SampleLevel(NoiseSampler, C + float3(T * 0.0021, T * 0.0009, 0.13 + T * 0.0006), 1.0).r;
 		float A2 = Noise.SampleLevel(NoiseSampler, C * 0.85 + float3(0.37 - T * 0.0017, 0.61 + T * 0.0012, 0.29 + T * 0.0005), 1.0).r;
-		float Ribbon = pow(saturate(1.0 - abs(A1 - A2)), 13.0);
+		float Ribbon = pow(saturate(1.0 - abs(A1 - A2)), Shape.z);
 		// Rays along the curtain, the same all the way up.
-		float Rays = Noise.SampleLevel(NoiseSampler, float3(E / 45.0 + T * 0.004, N / 400.0, 0.47 + T * 0.002), 0.0).g;
-		Rays = 0.15 + 1.4 * Rays * Rays;
+		float Rays = Noise.SampleLevel(NoiseSampler, float3(E / Shape.w + T * 0.004, N / 400.0, 0.47 + T * 0.002), 0.0).g;
+		Rays = 0.15 + Shape2.x * Rays * Rays;
 		// A sharp lower edge, a bright band along it, the body fading upward (the rays reach higher than the rest).
 		float Edge = smoothstep(0.0, 0.03, H);
-		float Profile = Edge * (0.7 * exp(-Square((H - 0.06) / 0.07)) + exp(-1.5 * H / max(Rays, 0.3)));
+		float Profile = Edge * (Shape3.z * exp(-Square((H - 0.06) / 0.07)) + exp(-Shape2.y * H / max(Rays, 0.3)));
 		float3 Colour = lerp(Low.rgb, High.rgb, smoothstep(0.12, 0.6, H));
 		Sum += Colour * (Ribbon * Band * Active * Profile * lerp(1.0, Rays, smoothstep(0.02, 0.2, H)));
 	}
@@ -369,8 +372,8 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tone
 		// The stylized looks: three tones with clean edges, the hue kept (Tones: the three steps, how soft).
 		float Level = dot(Sum, float3(0.3, 0.6, 0.1)) / Strength;
 		float Soft = max(Tones.w, 0.001);
-		float Stepped = 0.22 * smoothstep(Tones.x - 0.01 * Soft, Tones.x + 0.01 * Soft, Level) + 0.33 * smoothstep(Tones.y - 0.015 * Soft, Tones.y + 0.015 * Soft, Level)
-			+ 0.45 * smoothstep(Tones.z - 0.02 * Soft, Tones.z + 0.02 * Soft, Level);
+		float Stepped = Shape2.z * smoothstep(Tones.x - 0.01 * Soft, Tones.x + 0.01 * Soft, Level) + Shape2.w * smoothstep(Tones.y - 0.015 * Soft, Tones.y + 0.015 * Soft, Level)
+			+ saturate(1.0 - Shape2.z - Shape2.w) * smoothstep(Tones.z - 0.02 * Soft, Tones.z + 0.02 * Soft, Level);
 		Sum *= Stepped / max(Level, 1.0e-4);
 	}
 	return Sum;
@@ -1168,7 +1171,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
 	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
-	SamplerState PanoramaSampler, float4 AuroraTones, float4 MoonLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
+	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
 	V = normalize(V);
@@ -1234,7 +1237,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare * SunShows;
 	Sky += Corona * Clear * (1.0 - Capture);
 	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
-	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, Seconds, Noise, NoiseSampler, ScreenUV);
+	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
 

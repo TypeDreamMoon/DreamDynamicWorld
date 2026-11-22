@@ -161,7 +161,9 @@ change shape (two copies of one smooth noise field drifting apart, lit where the
 oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
 heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
 this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
-clean tones there instead, at `ToneStep1..3` with `ToneSoftness` (`DDW_AuroraTones`). The clouds
+clean tones there instead, at `ToneStep1..3` with `ToneSoftness` and `ToneLevel1..2` (`DDW_AuroraTones`). Its
+*Shape* settings (`DDW_AuroraShape`, `2`, `3`) set the ribbons' length, width and sharpness, the rays' spacing and
+contrast, how fast a curtain fades upward, its lower edge and top, the edge band's brightness and the oval's width. The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's
