@@ -66,7 +66,11 @@ length or latitude), the clouds, and the exposure from an EV100 curve — fixed 
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
 where the clouds' own shadow does not reach: the sun light is left whole while the sky cloud renderer's shadow takes it
 off the ground, so the same clouds do not darken it twice, but the shared parameters' main light (`DDW_MainLight`,
-which materials and toon characters read without the light function) is dimmed as before.
+which materials and toon characters read without the light function) is dimmed as before. Translucent materials
+lit by the engine's sun light see no light function either (forward-shaded translucency does not sample it), so
+under an overcast they get the whole sun: a project's translucent material that should darken with the weather can
+use an unlit or custom-lit model and light itself from `DDW_MainLight` (direction in rgb, illuminance in a, already
+dimmed for the overcast) and `DDW_MainLightColor` instead.
 
 The lighting eases while the clock runs — a toon ramp reading the main light never flickers across its
 threshold — and snaps when the clock jumps. The directional lights turn only after the sun moved
