@@ -98,6 +98,34 @@ struct DREAMSKY_API FDreamSkyNightGlow
 	float CloudUnderLight = 3.0f;
 };
 
+/**
+ * Eclipses: where the sun and the moon line up (in the realistic celestial mode), or as a sky modifier sets one. A solar
+ * eclipse covers the sun's disk with the moon's (drawn at their true places, to the disks' size) and takes the sun's
+ * light with it, the sky darkening and the stars coming out near totality, when the corona shows; in a lunar eclipse
+ * the earth's umbra crosses the moon, turning it a dark copper, and the moon's light fails.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyEclipse
+{
+	GENERATED_BODY()
+
+	/** Realistic celestial mode: eclipses where the sun and the moon line up (off: only those a sky modifier sets). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse")
+	bool bFromSunAndMoon = true;
+
+	/** How bright the corona is at totality, as a share of the sun disk's brightness. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.05"))
+	float Corona = 0.008f;
+
+	/** How much of the moon's light is left at the middle of a total lunar eclipse. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))
+	float BloodMoonLight = 0.03f;
+
+	/** The moon's light in the umbra (the dark copper of sunlight bent through the earth's air). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (HideAlphaChannel))
+	FLinearColor BloodMoonColor = FLinearColor(1.0f, 0.42f, 0.25f, 1.0f);
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -253,6 +281,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ShowOnlyInnerProperties))
 	FDreamSkyNightGlow NightGlow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ShowOnlyInnerProperties))
+	FDreamSkyEclipse Eclipse;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

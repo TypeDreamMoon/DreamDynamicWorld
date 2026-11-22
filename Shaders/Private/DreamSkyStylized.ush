@@ -91,8 +91,10 @@ float DSky_Disk(float3 V, float3 Dir, float RadiusDeg)
 	return smoothstep(Edge - Aa, Edge + Aa, c);
 }
 
-// The moon as a lit sphere: Phase 0 new (dark), 0.5 full; the terminator is a hard toon edge.
-float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float RadiusDeg, float3 Color)
+// The moon as a lit sphere: Phase 0 new (dark), 0.5 full; the terminator is a hard toon edge. Lunar = (how much the
+// earth's umbra covers it, the umbra's centre on it and its radius, in moon radii): the umbra turns it a dark copper,
+// with a soft edge.
+float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float RadiusDeg, float3 Color, float4 Lunar)
 {
 	float Facing = dot(V, MoonDir);
 	if (Facing <= 0.0)
@@ -120,7 +122,40 @@ float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float Rad
 	float3 L = float3(Toward * sin(A), -cos(A));
 	float Lit = smoothstep(-0.04, 0.04, dot(N, L));
 	float Mare = DSky_ValueNoise(UV * 3.0 + 11.0) * 0.3 + 0.7;
-	return Color * Inside * lerp(0.05, 1.0, Lit) * Mare;
+	float3 Shown = Color * Inside * lerp(0.05, 1.0, Lit) * Mare;
+	if (Lunar.x > 0.0)
+	{
+		float Umbra = 1.0 - smoothstep(Lunar.w - 0.3, Lunar.w + 0.4, length(UV - Lunar.yz));
+		float3 Copper = float3(0.42, 0.12, 0.06) * dot(Color, float3(0.33, 0.33, 0.33)) * 0.1 * Inside * Mare;
+		Shown = lerp(Shown, Copper, Umbra);
+	}
+	return Shown;
+}
+
+// A solar eclipse on the sun's disk (drawn RadiusDeg wide): Eclipse = (how much the moon covers, the moon's centre on
+// the sun in sun radii, the corona's share of the disk's brightness). Out: how much of the sun's disk shows here (the
+// moon's disk, a little larger, masks it), and the corona round the moon at totality, streamered.
+float DSky_Eclipse(float3 V, float3 Sun, float RadiusDeg, float4 Eclipse, float3 DiskColor, out float3 Corona)
+{
+	Corona = 0;
+	float Facing = dot(V, Sun);
+	if (Eclipse.x <= 0.0 || Facing <= 0.0)
+	{
+		return 1.0;
+	}
+	float SinR = sin(radians(max(RadiusDeg, 0.01)));
+	float3 Up = abs(Sun.z) < 0.99 ? float3(0, 0, 1) : float3(1, 0, 0);
+	float3 X = normalize(cross(Up, Sun));
+	float3 Y = cross(Sun, X);
+	float3 D = V - Sun * Facing;
+	float2 UV = float2(dot(D, X), dot(D, Y)) / SinR;
+	float ToMoon = length(UV - Eclipse.yz);
+	float Aa = max(fwidth(ToMoon), 1.0e-4);
+	float Moon = 1.0 - smoothstep(1.03 - Aa, 1.03 + Aa, ToMoon);
+	float R = length(UV);
+	float Streamers = 0.65 + 0.35 * DSky_ValueNoise(float2(atan2(UV.y, UV.x) * 2.5 + 7.0, 3.3));
+	Corona = DiskColor * Eclipse.w * exp(-max(R - 1.0, 0.0) * 1.4 / Streamers) * (1.0 - Moon);
+	return 1.0 - Moon;
 }
 
 // Points on a jittered 3D lattice the dome cuts through; Rotation turns them about the vertical (0..1 = a turn).
@@ -959,7 +994,8 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
-// Aurora, AuroraLow, AuroraHigh: see DSky_Aurora. NightGlow, LightPollution: see DSky_NightGlow.
+// Aurora, AuroraLow, AuroraHigh: see DSky_Aurora. NightGlow, LightPollution: see DSky_NightGlow. Eclipse: see
+// DSky_Eclipse; LunarEclipse: see DSky_Moon.
 // Cloud0 = (cover, -, scale, tones), Cloud1 = (wind drift, -, -), Cloud2 = (-, zenith thinning, -, fair-weather towers),
 // Cloud3 = (visibility, cm; haze height, cm; high cloud cover; high cloud altitude, cm).
 // Capture is 1 while the dome is drawn into the sky light (reflection capture pass), 0 on screen.
@@ -967,7 +1003,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
@@ -1012,14 +1048,18 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		NoiseSampler, Base + Halo, CloudShadow.rgb);
 	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a);
 
-	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb);
+	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb, LunarEclipse);
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
 	// The sky light sees no stars, and only a share of the sun disk (a full disk makes a hot spot in the
 	// captured light that every rough surface would reflect).
 	Sky += Stars.x * DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds) * (1.0 - MoonCover) * Clear * (1.0 - Capture);
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);
-	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare;
+	// (In an eclipse the moon's disk masks the sun's; the corona shows round it at totality.)
+	float3 Corona;
+	float SunShows = DSky_Eclipse(V, Sun, SunDisk.a, Eclipse, SunDisk.rgb, Corona);
+	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare * SunShows;
+	Sky += Corona * Clear * (1.0 - Capture);
 	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
 	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.

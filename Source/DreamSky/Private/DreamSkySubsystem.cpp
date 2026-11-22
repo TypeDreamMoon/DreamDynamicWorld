@@ -3,6 +3,7 @@
 #include "DreamSkySubsystem.h"
 #include "DreamSky.h"
 #include "DreamSkyCloudRenderer.h"
+#include "DreamSkyEclipse.h"
 #include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
@@ -176,6 +177,14 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
 	Look.Aurora = Style->EvaluateAuroraPresence(Clock.GetCelestialSettings());
+	if (Style->Eclipse.bFromSunAndMoon && Clock.GetCelestialSettings().Mode == EDreamCelestialMode::Realistic)
+	{
+		FVector2D Offset;
+		Look.SolarEclipse = DreamSky::Eclipse::Solar(Celestial.SunDirection, Celestial.MoonDirection, Offset);
+		Look.SolarEclipseOffset = Offset;
+		Look.LunarEclipse = DreamSky::Eclipse::Lunar(Celestial.SunDirection, Celestial.MoonDirection, Offset);
+		Look.LunarEclipseOffset = Offset;
+	}
 	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
@@ -207,6 +216,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Applied = Eased;
 	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
 	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
+	ApplyEclipses(Applied, Look, *Style);
 	UpdateModifierPostProcess(Sky);
 
 	// A lightning flash goes on top, so it is as sudden as it should be.
@@ -219,6 +229,58 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	WriteParameters(Clock, *Style, Sky->DrawsClouds());
 	LogLighting(Clock);
 	Applied = Modified;
+}
+
+void UDreamSkySubsystem::ApplyEclipses(FDreamSkyLighting& L, FDreamSkyLook& K, const UDreamSkyStyle& Style) const
+{
+	using namespace DreamSky::Eclipse;
+	// A coverage a modifier set (or turned) gets the moon, or the umbra, a place where it covers that much: along the
+	// way it stood, or from the lower left.
+	auto Place = [](float Coverage, FVector2D& Offset, float R)
+	{
+		if (Coverage <= 0.0f || FMath::Abs(DiskOverlap(float(Offset.Size()), R) - Coverage) <= 1.0e-3f)
+		{
+			return;
+		}
+		const FVector2D Way = Offset.Size() > 1.0e-3 && Offset.Size() < 100.0 ? Offset.GetSafeNormal() : FVector2D(-0.6, -0.8);
+		Offset = Way * DistanceForOverlap(Coverage, R);
+	};
+	K.SolarEclipse = FMath::Clamp(K.SolarEclipse, 0.0f, 1.0f);
+	K.LunarEclipse = FMath::Clamp(K.LunarEclipse, 0.0f, 1.0f);
+	Place(K.SolarEclipse, K.SolarEclipseOffset, float(MoonToSun));
+	Place(K.LunarEclipse, K.LunarEclipseOffset, float(UmbraRadius / MoonRadius));
+
+	// The sun's light goes with its disk; the sky's, and the light it gives, near totality (never quite all of it: the
+	// horizon all round stays lit, a twilight glow).
+	if (K.SolarEclipse > 0.0f)
+	{
+		const float Left = 1.0f - K.SolarEclipse;
+		const float Sky = FMath::Max(Left, 0.004f);
+		L.SunIlluminance *= Left;
+		L.SkyLightIntensity *= Sky;
+		L.AmbientSky *= Sky;
+		L.AmbientEquator *= Sky;
+		L.AmbientGround *= Sky;
+		K.Zenith *= Sky;
+		K.Horizon *= FMath::Max(Left, 0.02f);
+		K.Ground *= Sky;
+		K.SunHalo *= Sky;
+		K.CloudLit *= Sky;
+		K.CloudShadow *= Sky;
+		K.StarIntensity = FMath::Max(K.StarIntensity, FMath::SmoothStep(0.95f, 1.0f, K.SolarEclipse));
+	}
+	// The moon in the umbra: its light failing to a dark copper.
+	if (K.LunarEclipse > 0.0f)
+	{
+		L.MoonIlluminance *= FMath::Lerp(1.0f, FMath::Clamp(Style.Eclipse.BloodMoonLight, 0.0f, 1.0f), K.LunarEclipse);
+		L.MoonColor = FMath::Lerp(L.MoonColor, L.MoonColor * Style.Eclipse.BloodMoonColor, K.LunarEclipse);
+		K.MoonHalo *= FMath::Lerp(1.0f, 0.05f, K.LunarEclipse);
+	}
+	if (K.SolarEclipse > 0.0f || K.LunarEclipse > 0.0f)
+	{
+		L.MainLightColor = L.bMainLightIsMoon ? L.MoonColor : L.SunColor;
+		L.MainLightIlluminance = L.bMainLightIsMoon ? L.MoonIlluminance : L.SunIlluminance;
+	}
 }
 
 FDreamSkyActiveModifier* UDreamSkySubsystem::FindModifier(const UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source)
@@ -527,6 +589,13 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
 		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
+	}
+	// The eclipses: the moon on the sun (and the corona near totality), the umbra on the moon.
+	{
+		const float Corona = FMath::Max(Style.Eclipse.Corona, 0.0f) * FMath::SmoothStep(0.96f, 1.0f, Look.SolarEclipse);
+		Clock.SetVectorParameter(MPC_Eclipse, FLinearColor(Look.SolarEclipse, float(Look.SolarEclipseOffset.X), float(Look.SolarEclipseOffset.Y), Corona));
+		Clock.SetVectorParameter(MPC_LunarEclipse, FLinearColor(Look.LunarEclipse, float(Look.LunarEclipseOffset.X), float(Look.LunarEclipseOffset.Y),
+			float(DreamSky::Eclipse::UmbraRadius / DreamSky::Eclipse::MoonRadius)));
 	}
 	// The night's own glow, and a city's light from the horizon (weather haze spreading it further up and brighter).
 	{

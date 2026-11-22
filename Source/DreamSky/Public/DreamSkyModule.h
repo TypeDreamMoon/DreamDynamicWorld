@@ -42,7 +42,11 @@ namespace DreamSky::Names
 	// The night's glow: airglow rgb (the night in), how much of the city's light the clouds' bases catch; a city's
 	// light at the horizon rgb (the night and the haze in), how high it climbs (sine of the elevation).
 	inline const FName MPC_NightGlow(TEXT("DDW_NightGlow"));
-	inline const FName MPC_LightPollution(TEXT("DDW_LightPollution"));          // rgb = height fog colour, a = how much of the dome weather fog hides
+	inline const FName MPC_LightPollution(TEXT("DDW_LightPollution"));
+	// The eclipses: how much of the sun the moon covers, the moon's centre on the sun (sun radii, x, y), the corona; how
+	// much of the moon the umbra covers, its centre on the moon (moon radii), its radius (moon radii).
+	inline const FName MPC_Eclipse(TEXT("DDW_Eclipse"));
+	inline const FName MPC_LunarEclipse(TEXT("DDW_LunarEclipse"));          // rgb = height fog colour, a = how much of the dome weather fog hides
 
 	// lighting, for every material
 	inline const FName MPC_MainLight(TEXT("DDW_MainLight"));            // direction toward the light, a = illuminance (lux)

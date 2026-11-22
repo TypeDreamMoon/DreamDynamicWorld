@@ -318,6 +318,12 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
 	/** Scales the night sky's own glow (the style's Airglow). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float AirglowScale = 1.0f;
+	/** How much of the sun's disk the moon covers, 0..1, and where the moon's centre stands on it (sun radii, DreamSky::Eclipse). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SolarEclipse = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D SolarEclipseOffset = FVector2D(1000.0, 0.0);
+	/** How much of the moon's disk the earth's umbra covers, 0..1, and where its centre stands on it (moon radii). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LunarEclipse = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D LunarEclipseOffset = FVector2D(1000.0, 0.0);
 	/**
 	 * What the sky modifiers do to the cloud cover and darkness wherever the weather map gives them (CloudCoverage and
 	 * CloudDarkness above have it already): each is kept this much and this much added.
