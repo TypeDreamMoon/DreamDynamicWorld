@@ -198,7 +198,8 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	++UpdateSerial;
 	TakeWeatherModifiers(Clock.GetEnvironment());
 	Applied = Eased;
-	ApplyModifiers(Applied, Look, DeltaTime);
+	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
+	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
 	UpdateModifierPostProcess(Sky);
 
 	// A lightning flash goes on top, so it is as sudden as it should be.
@@ -347,7 +348,7 @@ TArray<UDreamSkyModifier*> UDreamSkySubsystem::GetModifiers() const
 	return Out;
 }
 
-void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime)
+void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime, bool bAtOnce)
 {
 	const float Dt = FMath::Max(DeltaTime, 0.0f);
 	for (int32 Index = Modifiers.Num() - 1; Index >= 0; --Index)
@@ -362,7 +363,7 @@ void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLo
 			Modifiers.RemoveAt(Index);
 			continue;
 		}
-		M.Progress = M.Rate > 0.0f ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
+		M.Progress = M.Rate > 0.0f && !bAtOnce ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
 		const bool bLetGo = M.Source != EDreamSkyModifierSource::Script && M.DrivenSerial != UpdateSerial;
 		if ((M.bRemoving && M.Progress <= 0.0f) || bLetGo)
 		{
