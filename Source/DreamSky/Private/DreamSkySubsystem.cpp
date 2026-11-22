@@ -674,6 +674,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
 	Clock.SetVectorParameter(MPC_MoonLook, FLinearColor(FMath::Max(Style.MoonTerminatorSoftness, 0.002f), FMath::Max(Style.MoonEarthshine, 0.0f), 0.0f, 0.0f));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
+	Clock.SetVectorParameter(MPC_StarLook, FLinearColor(FMath::Max(Style.StarSize, 0.1f), FMath::Max(Style.StarTwinkleSpeed, 0.0f), FMath::Clamp(Style.StarDimmest, 0.0f, 1.0f), 0.0f));
 	// The celestial sphere: its north pole as high as the latitude, toward north; the March equinox on the celestial
 	// equator, as far west of the meridian (its hour angle) as the local sidereal time.
 	{

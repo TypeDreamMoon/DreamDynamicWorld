@@ -22,6 +22,7 @@ namespace DreamSky::Names
 	inline const FName MPC_MoonDisk(TEXT("DDW_MoonDisk"));        // rgb, a = angular radius, degrees
 	inline const FName MPC_MoonHalo(TEXT("DDW_MoonHalo"));        // rgb, a = halo exponent
 	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, the share of them (dimmest first) hidden
+	inline const FName MPC_StarLook(TEXT("DDW_StarLook"));        // the stars' size, twinkle speed, the stylized scatter's dimmest, -
 	inline const FName MPC_StarPole(TEXT("DDW_StarPole"));        // xyz the north celestial pole in the world, w 1 = the catalogue's stars (T_DreamStarMap), 0 = the stylized ones
 	inline const FName MPC_MoonLook(TEXT("DDW_MoonLook"));        // how soft the moon's terminator, how bright its earthshine at most, -, -
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
