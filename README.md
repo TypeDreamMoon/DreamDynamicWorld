@@ -251,7 +251,8 @@ stars of the Yale Bright Star Catalogue, 5th revised edition (Hoffleit & Warren,
 it stands for the clock's latitude and local sidereal time (the shared parameters' `DDW_StarPole`, the north celestial
 pole in the world, and `DDW_StarEquinox`, the March equinox), each as bright as its magnitude -- `StarContrast` sets how
 much brighter each magnitude is drawn (1 = 2.512 times, as in the sky; 0.8 by default keeps the faint ones in sight) --
-and in its own colour from its B-V index; the style's star intensity curve and `StarTwinkle` apply as before, and an
+and in its own colour from its B-V index; the style's star intensity curve and `StarTwinkle` apply as before (`StarTwinkleSpeed`, `StarSize` and, for the
+stylized scatter, `StarDimmest` too, `DDW_StarLook`), and an
 eclipse's totality still leaves only the brightest. *Stylized* is the scatter of stars of `StarDensity` the dome drew
 before (`DreamSky.StarField 0|1` picks either whatever the style says). The stars are read from a small map, `T_DreamStarMap` (512 x 512 cells on an octahedral map of the sphere, the
 brightest star nearest each), which Setup builds from the catalogue's file: `-StarCatalogue=<path>`, by default

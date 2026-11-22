@@ -705,6 +705,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
 
+	/** How fast the stars twinkle (1 = the look's own). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4"))
+	float StarTwinkleSpeed = 1.0f;
+
+	/** How big the stars are drawn (1 = the look's own; a star is never drawn smaller than about a pixel). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0.1", UIMax = "4"))
+	float StarSize = 1.0f;
+
+	/** The stylized scatter's dimmest stars, of its brightest. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "StarField == EDreamSkyStarField::Stylized"))
+	float StarDimmest = 0.35f;
+
 	// ---- Clouds -------------------------------------------------------------------------------
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (XAxisName = "Sun elevation", YAxisName = "Colour"))
