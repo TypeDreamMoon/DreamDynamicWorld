@@ -4,11 +4,14 @@
 // nothing smears it over frames):
 //   ScreenPS  rain drops: beads in two sizes that gather as the screen gets wet (UDreamSkySubsystem::GetScreenWetness),
 //             each living a while and drying off, and drops running down once it is wet through; each bends the picture
-//             behind it like a little lens.
+//             behind it like a little lens. And frost (GetScreenFrost): needles and ferns growing in from the rim,
+//             corners first, over a frosted film that blurs and whitens the picture.
 
 #include "/Engine/Private/Common.ush"
 
 float4 Screen;          // x wetness 0..1, y intensity, z drop size, w how far the drops bend the picture
+float4 Frost;           // x how frosted 0..1, y intensity, z crystal size, w how far the frost blurs the picture
+float4 FrostTint;       // rgb the frost's colour, w how far its crystals bend the picture
 Texture2D InputTexture;
 SamplerState InputSampler;
 float2 InputInvExtent;
@@ -79,6 +82,83 @@ void DSkyS_Runners(float2 P, float Wet, inout float2 Offset, inout float Shade)
 	Shade *= 1.0 - 0.3 * Drop * smoothstep(0.5, 1.0, length(D));
 }
 
+float DSkyS_Noise(float2 P)
+{
+	float2 I = floor(P);
+	float2 F = frac(P);
+	float2 U = F * F * (3.0 - 2.0 * F);
+	float A = DSkyS_Hash42(I).x;
+	float B = DSkyS_Hash42(I + float2(1.0, 0.0)).x;
+	float C = DSkyS_Hash42(I + float2(0.0, 1.0)).x;
+	float D = DSkyS_Hash42(I + 1.0).x;
+	return lerp(lerp(A, B, U.x), lerp(C, D, U.x), U.y);
+}
+
+float DSkyS_Fbm(float2 P)
+{
+	float Sum = 0.0;
+	float Amplitude = 0.5;
+	UNROLL
+	for (int Octave = 0; Octave < 4; ++Octave)
+	{
+		Sum += Amplitude * DSkyS_Noise(P);
+		P = P * 2.03 + 17.1;
+		Amplitude *= 0.5;
+	}
+	return Sum / 0.9375;
+}
+
+
+
+// A ridged noise: thin bright lines where the noise crosses its middle.
+float DSkyS_Ridge(float2 P)
+{
+	return 1.0 - abs(2.0 * DSkyS_Noise(P) - 1.0);
+}
+
+// The frost on the lens, Amount 0..1 of the way in from its rim (the corners first). Returns how thick it is here
+// (0..1); adds its crystals' bend of the picture to Offset, their sheen to Sheen and the glints of its grains to Sparkle.
+float DSkyS_Frost(float2 UV, float2 P, float Amount, float Size, inout float2 Offset, inout float Sheen, inout float Sparkle)
+{
+	// (How far out toward the rim: 0 in the middle, 1 at an edge's middle, a little more in the corners.)
+	float2 C = (UV - 0.5) * 2.0;
+	float Rim = 0.5 * (max(abs(C.x), abs(C.y)) + 0.75 * length(C)) / 0.875;
+	// (Which way out from the middle: noise on that circle runs in streaks from the rim, with no seam anywhere round.)
+	float2 Out = C / max(length(C), 1.0e-3);
+	// (A ragged front, feathered; it never quite closes over the middle.)
+	float Ragged = DSkyS_Fbm(P * 2.5 / Size);
+	float Feathers = DSkyS_Noise(Out * 7.0 / Size + Rim * 0.8);
+	float Front = Rim + (Ragged - 0.5) * 0.25 + (Feathers - 0.5) * 0.2;
+	float Edge = 1.0 - 0.85 * Amount;
+	float Thick = smoothstep(Edge - 0.05, Edge + 0.35, Front);
+	if (Thick <= 0.0)
+	{
+		return 0.0;
+	}
+	// (Needles growing in from the rim, branches off them and a fine fern over all, and a grain in the film between.)
+	// (The needles in clumps, bent as they grow, each clump its own length.)
+	float Clumps = smoothstep(0.4, 0.75, DSkyS_Noise(P * 5.0 / Size + 21.3));
+	float Needles = pow(DSkyS_Ridge(Out * 26.0 / Size + Rim * 3.0 + Ragged * 2.5), 7.0) * Clumps
+		* smoothstep(Edge, Edge + 0.25 + 0.3 * Clumps, Front);
+	float Branches = pow(DSkyS_Ridge(P * 18.0 / Size + float2(Needles, Ragged) * 1.5), 5.0);
+	float Fern = pow(DSkyS_Ridge(P * 60.0 / Size + Branches * 0.8), 4.0);
+	float Crystals = saturate(0.55 * Needles + 0.65 * Branches + 0.4 * Fern);
+	float Grain = 0.65 * DSkyS_Noise(P * 40.0 / Size) + 0.35 * DSkyS_Noise(P * 83.0 / Size + 5.1);
+	float Density = saturate(Thick * (0.15 + 0.3 * Grain + 0.65 * Crystals) + 0.35 * Thick * Thick);
+	Offset += (float2(DSkyS_Noise(P * 45.0 / Size), DSkyS_Noise(P * 45.0 / Size + 9.1)) - 0.5) * 0.008 * Thick
+		+ Out * (Crystals - 0.3) * 0.003 * Thick;
+	Sheen += Crystals * Thick;
+	float4 Grit = DSkyS_Hash42(floor(P * 260.0 / Size) + 0.5);
+	Sparkle += step(0.985, Grit.x) * step(frac(Grit.y + Seconds * (0.2 + 0.3 * Grit.z)), 0.25) * Thick;
+	return Density;
+}
+
+float3 DSkyS_Sample(float2 Pixel)
+{
+	Pixel = clamp(Pixel, InputRectMin + 0.5, InputRectMin + InputRectSize - 0.5);
+	return InputTexture.SampleLevel(InputSampler, Pixel * InputInvExtent, 0).rgb;
+}
+
 void ScreenPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 {
 	float2 UV = (SvPosition.xy - OutputRectMin) / OutputRectSize;
@@ -96,18 +176,49 @@ void ScreenPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		DSkyS_Beads(P, 15.0 / Size, 17.9, Wet * 0.9, 5.0, Offset, Shade, Glint);
 		DSkyS_Runners(P / Size, Wet, Offset, Shade);
 	}
-	float2 Bent = InPixel + Offset * Screen.w * float2(1.0 / Aspect, 1.0) * InputRectSize;
-	Bent = clamp(Bent, InputRectMin + 0.5, InputRectMin + InputRectSize - 0.5);
-	float3 C = InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent, 0).rgb;
-	if (any(Offset != 0.0))
+	float2 Bend = Offset * Screen.w;
+	float Frosted = 0.0;
+	float Sheen = 0.0;
+	float Sparkle = 0.0;
+	if (Frost.x > 0.0)
+	{
+		float2 FrostOffset = 0.0;
+		Frosted = saturate(DSkyS_Frost(UV, P, saturate(Frost.x), max(Frost.z, 0.1), FrostOffset, Sheen, Sparkle) * Frost.y);
+		Bend += FrostOffset * FrostTint.w;
+	}
+	float2 Bent = InPixel + Bend * float2(1.0 / Aspect, 1.0) * InputRectSize;
+	float3 C = DSkyS_Sample(Bent);
+	if (Frosted > 0.0)
+	{
+		// (Seen through the frost the picture is a blur: a disc of taps as wide as the frost is thick, turned at random
+		// pixel to pixel so it reads as a soft grain rather than a pattern.)
+		float Radius = Frosted * Frost.w * 0.007 * InputRectSize.y;
+		float Turn = DSkyS_Hash42(SvPosition.xy).x * 6.2831853;
+		float3 Sum = C;
+		UNROLL
+		for (int Tap = 1; Tap < 8; ++Tap)
+		{
+			float R = sqrt(Tap / 7.0) * Radius;
+			float A = Tap * 2.3999632 + Turn;
+			Sum += DSkyS_Sample(Bent + R * float2(cos(A), sin(A)));
+		}
+		C = Sum / 8.0;
+	}
+	else if (any(Offset != 0.0))
 	{
 		// (Softened through the water.)
-		float2 Step = 1.5 * InputInvExtent;
-		C = 0.4 * C + 0.15 * (InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent + float2(Step.x, 0), 0).rgb
-			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent - float2(Step.x, 0), 0).rgb
-			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent + float2(0, Step.y), 0).rgb
-			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent - float2(0, Step.y), 0).rgb);
+		float S = 1.5;
+		C = 0.4 * C + 0.15 * (DSkyS_Sample(Bent + float2(S, 0)) + DSkyS_Sample(Bent - float2(S, 0))
+			+ DSkyS_Sample(Bent + float2(0, S)) + DSkyS_Sample(Bent - float2(0, S)));
 	}
 	float Luma = dot(C, float3(0.2126, 0.7152, 0.0722));
-	Out = float4(C * Shade + Glint * 0.6 * max(Luma, 0.2), 1.0);
+	C = C * Shade + Glint * 0.6 * max(Luma, 0.2);
+	if (Frosted > 0.0)
+	{
+		// (The frost is lit by the light coming through it: a pale pane over the picture, its crystals' edges and grains
+		// catching more.)
+		float3 Ice = FrostTint.rgb * (Luma * 1.15 + 0.04);
+		C = lerp(C, Ice, Frosted * 0.75) + FrostTint.rgb * (Luma + 0.05) * (Sheen * Frosted * 0.35 + Sparkle * 1.5);
+	}
+	Out = float4(C, 1.0);
 }

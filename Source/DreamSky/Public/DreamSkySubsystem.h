@@ -152,6 +152,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetScreenWetness() const { return ScreenWetness; }
 
+	/**
+	 * How frosted the camera's lens is, 0..1 of the way in from its rim: growing while the view is out in the snow in
+	 * the cold, fading slowly out in the cold once it is over, melting indoors or in the warm (the style's ScreenFrost;
+	 * at once in cinematic updates and on clock jumps). Kept whether or not the frost is drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetScreenFrost() const { return ScreenFrost; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -235,6 +243,7 @@ private:
 	FDreamSkyLighting Applied;
 	FDreamSkyLook Look;
 	float ScreenWetness = 0.0f;
+	float ScreenFrost = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;

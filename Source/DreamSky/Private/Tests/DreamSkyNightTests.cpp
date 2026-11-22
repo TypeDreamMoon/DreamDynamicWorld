@@ -400,4 +400,69 @@ bool FDreamSkyScreenWetnessTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyScreenFrostTest, "DreamSky.ScreenFrost", DreamSky::NightTests::Flags)
+bool FDreamSkyScreenFrostTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	FNightWorld W(FDateTime(2026, 1, 15, 12, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("noon world"), W.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("frost on the lens is the project's choice: off by default"), !W.Sky->GetEffectiveStyle()->ScreenFrost.bEnabled);
+	TestEqual(TEXT("clear with no weather"), W.SkySubsystem->GetScreenFrost(), 0.0f);
+	auto Weather = [&W](float Precipitation, float Snow, float Temperature)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.Precipitation = Precipitation;
+		Env.SnowRatio = Snow;
+		Env.Temperature = Temperature;
+		W.Clock->SetEnvironment(Env);
+	};
+	auto Run = [&W](float Seconds)
+	{
+		for (float T = 0.0f; T < Seconds; T += 0.5f)
+		{
+			W.Clock->Tick(0.5f);
+		}
+	};
+	Weather(1.0f, 1.0f, 5.0f);
+	W.Clock->Tick(0.5f);
+	if (!W.Clock->GetEnvironment().bActive || W.Clock->GetEnvironment().Temperature != 5.0f)
+	{
+		AddWarning(TEXT("the world's weather was set over the test's: the lens is not checked"));
+		return true;
+	}
+	Run(20.0f);
+	TestEqual(TEXT("no frost in the warm, snow or not"), W.SkySubsystem->GetScreenFrost(), 0.0f);
+	Weather(1.0f, 1.0f, -12.0f);
+	W.Clock->Tick(0.5f);
+	const float Early = W.SkySubsystem->GetScreenFrost();
+	TestTrue(FString::Printf(TEXT("out in the snow in the cold it starts to grow (%.3f)"), Early), Early > 0.0f && Early < 0.1f);
+	Run(60.0f);
+	const float Frosted = W.SkySubsystem->GetScreenFrost();
+	TestTrue(FString::Printf(TEXT("and creeps in from the rim (%.3f)"), Frosted), Frosted > 0.6f);
+	TestTrue(FString::Printf(TEXT("frozen, not wet (%.3f)"), W.SkySubsystem->GetScreenWetness()), W.SkySubsystem->GetScreenWetness() < 0.05f);
+	Weather(0.0f, 0.0f, -12.0f);
+	Run(5.0f);
+	const float Lingering = W.SkySubsystem->GetScreenFrost();
+	TestTrue(FString::Printf(TEXT("the snow over, out in the cold it stays a long while (%.3f of %.3f)"), Lingering, Frosted), Lingering < Frosted && Lingering > 0.9f * Frosted);
+	Weather(0.0f, 0.0f, 10.0f);
+	Run(5.0f);
+	const float Melting = W.SkySubsystem->GetScreenFrost();
+	TestTrue(FString::Printf(TEXT("in the warm it melts (%.3f)"), Melting), Melting < 0.65f * Lingering);
+	TestTrue(FString::Printf(TEXT("into water on the lens (%.3f)"), W.SkySubsystem->GetScreenWetness()), W.SkySubsystem->GetScreenWetness() > 0.05f);
+	Weather(1.0f, 1.0f, -12.0f);
+	W.Clock->SetCinematicModeOverride(true);
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("a cinematic frame is where it is heading at once"), W.SkySubsystem->GetScreenFrost() > 0.6f);
+	Weather(0.0f, 0.0f, 10.0f);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("and at once clear in the warm"), W.SkySubsystem->GetScreenFrost(), 0.0f);
+	W.Clock->SetCinematicModeOverride(false);
+	return true;
+}
+
 #endif

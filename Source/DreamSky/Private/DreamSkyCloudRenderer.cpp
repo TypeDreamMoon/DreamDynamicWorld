@@ -87,6 +87,11 @@ static TAutoConsoleVariable<float> CVarDreamSkyScreenDroplets(
 	TEXT("The rain drops on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenDroplets."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<float> CVarDreamSkyScreenFrost(
+	TEXT("DreamSky.ScreenFrost"), -1.0f,
+	TEXT("The frost on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenFrost."),
+	ECVF_RenderThreadSafe);
+
 namespace DreamSkyCloudRender
 {
 	BEGIN_SHADER_PARAMETER_STRUCT(FCommonParameters, )
@@ -637,6 +642,18 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		{
 			Settings.Screen.bEnabled = true;
 			Settings.Screen.Screen = FVector4f(Wet, Drops, FMath::Max(D.DropSize, 0.25f), FMath::Max(D.Refraction, 0.0f));
+		}
+
+		// And the frost, while there is some.
+		const FDreamSkyScreenFrost& Fr = Style->ScreenFrost;
+		const float ForcedFrost = CVarDreamSkyScreenFrost.GetValueOnGameThread();
+		const float FrostStrength = ForcedFrost >= 0.0f ? ForcedFrost : (Fr.bEnabled ? FMath::Max(Fr.Intensity, 0.0f) : 0.0f);
+		const float Frosted = Sky->GetScreenFrost();
+		if (FrostStrength > 0.0f && Frosted > 1.0e-3f)
+		{
+			Settings.Screen.bEnabled = true;
+			Settings.Screen.Frost = FVector4f(Frosted, FrostStrength, FMath::Max(Fr.CrystalSize, 0.25f), FMath::Max(Fr.Blur, 0.0f));
+			Settings.Screen.FrostTint = FVector4f(Fr.Tint.R, Fr.Tint.G, Fr.Tint.B, FMath::Max(Fr.Refraction, 0.0f));
 		}
 	}
 

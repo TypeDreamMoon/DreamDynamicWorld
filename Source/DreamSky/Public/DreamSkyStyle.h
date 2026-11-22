@@ -263,6 +263,51 @@ struct DREAMSKY_API FDreamSkyScreenDroplets
 	float DrySeconds = 12.0f;
 };
 
+/**
+ * Frost on the camera's lens, over the finished picture: it grows in from the rim (the corners first) while the view
+ * is out in the snow in the cold, stays a long while out in the cold once the snow is over, and melts indoors or in the
+ * warm -- into drops on the lens, when those are drawn. A lens effect, so off unless the project turns it on.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyScreenFrost
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost")
+	bool bEnabled = false;
+
+	/** How thick the frost is drawn (1 = as the cold gives). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 1.0f;
+
+	/** How big its crystals are drawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0.25", UIMax = "3"))
+	float CrystalSize = 1.0f;
+
+	/** How much it blurs the picture behind it, and how far its crystals bend it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "3"))
+	float Blur = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "3"))
+	float Refraction = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (HideAlphaChannel))
+	FLinearColor Tint = FLinearColor(0.88f, 0.94f, 1.0f);
+
+	/** The air's temperature (degrees C) where frost starts to grow, and where it is as cold as it gets for it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (UIMin = "-30", UIMax = "5"))
+	float StartsBelow = 0.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (UIMin = "-40", UIMax = "0"))
+	float FullBelow = -8.0f;
+
+	/** How fast (s) it grows out in the snow, melts indoors or in the warm, and fades out in the cold with no snow. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "120"))
+	float FreezeSeconds = 25.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "60"))
+	float MeltSeconds = 8.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ClampMin = "0", UIMax = "600"))
+	float LingerSeconds = 90.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -432,6 +477,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ShowOnlyInnerProperties))
 	FDreamSkyScreenDroplets ScreenDroplets;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Frost", meta = (ShowOnlyInnerProperties))
+	FDreamSkyScreenFrost ScreenFrost;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

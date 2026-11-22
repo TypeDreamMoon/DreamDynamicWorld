@@ -243,15 +243,32 @@ void UDreamSkySubsystem::UpdateScreen(const UDreamWorldSubsystem& Clock, const U
 	const FDreamViewOcclusion& Occlusion = Clock.GetViewOcclusion();
 	const float Open = Occlusion.bValid ? 1.0f - FMath::Clamp(FMath::Max(Occlusion.Overhead, Occlusion.Interior), 0.0f, 1.0f) : 1.0f;
 	const float Facing = Clock.HasViewRotation() ? FMath::Clamp(0.55f + 0.75f * float(Clock.GetViewRotation().Vector().Z), 0.1f, 1.0f) : 0.6f;
-	const float Target = FMath::Clamp(Rain * Open * Facing * (1.0f + 0.5f * FMath::Clamp(Env.Wind, 0.0f, 1.0f)), 0.0f, 1.0f);
+	const float Wind = FMath::Clamp(Env.Wind, 0.0f, 1.0f);
+	float Target = FMath::Clamp(Rain * Open * Facing * (1.0f + 0.5f * Wind), 0.0f, 1.0f);
+
+	// The frost: the snow out under the open sky in the cold. Indoors or in the warm it melts (to drops on the lens);
+	// out in the cold with the snow over it stays a long while.
+	const FDreamSkyScreenFrost& F = Style.ScreenFrost;
+	const float Cold = Env.bActive ? 1.0f - FMath::SmoothStep(F.FullBelow, FMath::Max(F.StartsBelow, F.FullBelow + 0.1f), Env.Temperature) : 0.0f;
+	const float Snow = Env.bActive ? FMath::Clamp(Env.Precipitation, 0.0f, 1.0f) * FMath::Clamp(Env.SnowRatio, 0.0f, 1.0f) : 0.0f;
+	const float FrostTarget = FMath::Clamp(Cold * Open * FMath::Min(2.0f * Snow, 1.0f) * (0.8f + 0.4f * Wind), 0.0f, 1.0f);
+	const float Thaw = FMath::Max(1.0f - Open, 1.0f - Cold);
 	if (bAtOnce)
 	{
 		ScreenWetness = Target;
+		ScreenFrost = FrostTarget;
 		return;
 	}
+	const float Step = FMath::Max(DeltaTime, 0.0f);
+	const float FrostSeconds = FrostTarget > ScreenFrost ? F.FreezeSeconds : FMath::Lerp(F.LingerSeconds, F.MeltSeconds, Thaw);
+	const float Frost = FMath::Lerp(ScreenFrost, FrostTarget, 1.0f - FMath::Exp(-Step / FMath::Max(FrostSeconds, 0.01f)));
+	// (What melts is water on the lens a while.)
+	Target = FMath::Max(Target, 0.6f * ScreenFrost * Thaw);
+	ScreenFrost = Frost;
+
 	const FDreamSkyScreenDroplets& S = Style.ScreenDroplets;
 	const float Seconds = FMath::Max(Target > ScreenWetness ? S.WetSeconds : S.DrySeconds, 0.01f);
-	ScreenWetness = FMath::Lerp(ScreenWetness, Target, 1.0f - FMath::Exp(-FMath::Max(DeltaTime, 0.0f) / Seconds));
+	ScreenWetness = FMath::Lerp(ScreenWetness, Target, 1.0f - FMath::Exp(-Step / Seconds));
 }
 
 float UDreamSkySubsystem::GetLightShaftStrength() const
