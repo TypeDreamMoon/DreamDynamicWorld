@@ -381,7 +381,7 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 `UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
 in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves), a campfire
-(warm air), a storm that drifts in from the west on the morning of 21 June (over the area around ten, gone by half
+(warm air), crates the wind pushes, a storm that drifts in from the west on the morning of 21 June (over the area around ten, gone by half
 past twelve) and a storm spawner, under weather that runs clear → rain → storm → cloudy every three hours.
 `-ForceAudio` builds the graphs again, `-Force` the level.
 
@@ -446,6 +446,17 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
 * **Niagara** — `UNiagaraDataInterfaceDreamWind` (`SampleWind`, `GetGlobalWind`) on CPU VM and GPU, and the `DreamWindForce` module (DreamFXLang, `DFX/`)
 * **C++ / Blueprint** — `UDreamWindSubsystem::SampleWind`, no GPU read-back
 * **Everything that reads the engine's `WindDirectionalSource`** — SpeedTree, Chaos Cloth, AnimDynamics, Groom, Niagara *Wind Force* — through one driven engine wind component
+
+### Pushing things and shaking cameras
+
+**Wind pushes things** (`UDreamWindForceComponent`, module `DreamWind`): on an actor whose primitives simulate
+physics, aerodynamic drag from the wind field at each body (½ ρ C<sub>d</sub> A |v| v, A from the bounds facing the
+wind, the body's own velocity taken off), `ForceScale`, `MaxForce`, and with `bTestBlocking` a trace upwind for walls
+the wind field does not know of.
+
+**Camera shake** (`UDreamWindCameraModifier`, module `DreamWeatherFX`): from `Threshold` wind speed at the camera to
+`FullSpeed`, the view buffets (pitch, yaw, roll), in bursts with the gusts, calmed indoors by the view probe.
+*Dream Weather Effects ▸ Wind Camera Shake* adds it to every local player; `Enable(PlayerController)` does it by hand.
 
 ## Wind setup
 
