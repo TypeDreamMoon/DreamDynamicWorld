@@ -10,6 +10,7 @@
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
 #include "DreamWeatherStormSpawner.h"
+#include "DreamWeatherTemperature.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 
@@ -162,6 +163,14 @@ namespace DreamWorldPlay
 		AddHut(*World, FVector(1200.0, 0.0, 0.0));
 		AddPorch(*World, FVector(0.0, 0.0, 0.0));
 		AddGrove(*World, FVector(-1400.0, 0.0, 0.0));
+
+		// A campfire by the porch: warm air (a temperature volume) and a marker.
+		ADreamTemperatureVolume* Campfire = World->SpawnActor<ADreamTemperatureVolume>(FVector(0.0, -700.0, 50.0), FRotator::ZeroRotator);
+		Campfire->SetActorLabel(TEXT("Campfire_Warmth"));
+		Campfire->Volume->Temperature = 20.0f;
+		Campfire->Volume->Extent = FVector(150.0);
+		Campfire->Volume->Falloff = 350.0f;
+		AddShape(*World, Cylinder, TEXT("Campfire"), FVector(0.0, -700.0, 15.0), FVector(80.0, 80.0, 30.0));
 
 		// A storm that drifts in from the west on the morning of the showcase's day: over the area around ten, gone by
 		// half past twelve.
