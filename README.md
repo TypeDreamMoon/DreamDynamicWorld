@@ -420,6 +420,19 @@ registers in a game world, when it moves and on `CaptureNow`, so what lies benea
 shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
 per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
 
+**Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
+wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is
+there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow or dust, with the state, the puddle's depth
+and the snow's) and calls `OnContact` with it — the place for a footstep sound or a splash — then presses a print
+with `Stamp(Location, Radius, Strength)`. The prints go to a **trail map** around the camera
+(`RT_DreamSurfaceTrails`, 1024² over *Trail Extent*, 51.2 m; placed by `DDW_SurfaceTrails`): how deep a print is and
+how stirred the water. The materials sink the snow and the dust where it was trodden (the terrain function lowers
+its snow too, the toon function cuts hard-edged holes) and ring the puddles where a step went in. Prints fill in as
+fresh snow falls (*Print Fill Hours* of snow), the wind blows them over (*Print Wind Hours*) and they fade in any
+case (*Print Fade Hours*, in game hours); the stirred water settles in *Ripple Seconds*, real time. The map follows
+the camera in eighths of its size and keeps what it carried over; prints that leave it are gone. The trail map is
+for the look: `SampleSurface` does not see the prints.
+
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
 a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, realistic
 props (stone, metal, wood) and toon props and a toon figure, rolling ground,
@@ -427,7 +440,8 @@ and a snow zone far ahead whose border shows on the ground. The schedule is clea
 (`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
 
 Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
-`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration).
+`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration), `DreamSurface.Stamp <x> <y>
+[radius] [strength]` (one print) and `DreamSurface.Walk <x0> <y0> <x1> <y1> [stride]` (a line of footprints).
 
 The rest of this document is **Wind**.
 
