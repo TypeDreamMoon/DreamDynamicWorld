@@ -113,9 +113,31 @@ struct DREAMSKY_API FDreamSkyEclipse
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse")
 	bool bFromSunAndMoon = true;
 
-	/** How bright the corona is at totality, as a share of the sun disk's brightness. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.05"))
-	float Corona = 0.008f;
+	/** How bright the corona is at totality, as a share of the sun disk's brightness at its rim. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.2"))
+	float Corona = 0.05f;
+
+	/** How much of the sun's disk is covered before the sky and the exposure darken (the eye makes up for the sun's
+	 * failing light until then); the sun's light itself goes with the covered share all the way. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "0.99"))
+	float DarkensFrom = 0.8f;
+
+	/** At totality the sky, its light and the exposure are as the style has them with the sun this far (degrees) under the
+	 * horizon: a deep blue twilight. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "-18", ClampMax = "0"))
+	float TotalityTwilight = -5.0f;
+
+	/** The horizon all round at totality: the far air outside the moon's shadow, still in the sun, glowing orange. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (HideAlphaChannel))
+	FLinearColor TotalityRing = FLinearColor(0.60f, 0.34f, 0.12f, 1.0f);
+
+	/** How low the ring keeps to the horizon: the sky gradient's horizon exponent at totality (smaller: a thinner ring). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float TotalityRingExponent = 0.12f;
+
+	/** The share of the stars that come out at totality: the brightest only. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))
+	float TotalityStars = 0.04f;
 
 	/** How much of the moon's light is left at the middle of a total lunar eclipse. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))

@@ -150,9 +150,12 @@ by a volume over a town, say) and its *Airglow* scales the glow; `DreamSky.Modif
 
 **Eclipses.** In the realistic celestial mode the sky has its eclipses where the sun and the moon line up
 (`Eclipse.bFromSunAndMoon`; the maths in `DreamSkyEclipse.h`). In a solar eclipse the dome draws the moon's disk over
-the sun's at their true places (scaled to the drawn disks), the sun's light goes with the covered share of its
-disk, and near totality the sky and its light darken (never quite all: the horizon stays a twilight), the stars
-come out and the corona shows (`Eclipse.Corona`). In a lunar eclipse the earth's umbra crosses the moon at its
+the sun's at their true places (scaled to the drawn disks) and the sun's light goes with the covered share of its
+disk. The sky, its light and the exposure hold, as the eye makes up for the failing light, until most of the disk is
+gone (`Eclipse.DarkensFrom`, 80 %); toward totality they go to a deep blue twilight, the style's own with the sun
+`Eclipse.TotalityTwilight` under the horizon, while the horizon all round glows orange (`Eclipse.TotalityRing`: the
+far air outside the moon's shadow, still in the sun), only the brightest stars come out (`Eclipse.TotalityStars`) and
+the corona shows, streamers of uneven length reaching two or three sun radii (`Eclipse.Corona`). In a lunar eclipse the earth's umbra crosses the moon at its
 true place, turning it a dark copper, and the moon's light fails to `Eclipse.BloodMoonLight` of itself. A sky
 modifier's *Solar Eclipse* or *Lunar Eclipse* sets one by its coverage in any mode (`DreamSky.Modifier.Add Eclipse`,
 `BloodMoon`). Nothing is drawn, and nothing costs, without one.

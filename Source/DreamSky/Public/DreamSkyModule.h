@@ -21,7 +21,7 @@ namespace DreamSky::Names
 	inline const FName MPC_SunDisk(TEXT("DDW_SunDisk"));          // rgb (radiance), a = angular radius, degrees
 	inline const FName MPC_MoonDisk(TEXT("DDW_MoonDisk"));        // rgb, a = angular radius, degrees
 	inline const FName MPC_MoonHalo(TEXT("DDW_MoonHalo"));        // rgb, a = halo exponent
-	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, -
+	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, the share of them (dimmest first) hidden
 	inline const FName MPC_Cloud0(TEXT("DDW_Cloud0"));            // coverage, -, scale, bands
 	inline const FName MPC_Cloud1(TEXT("DDW_Cloud1"));            // drift x, drift y (in 2.2 km x scale), formation phase 0..1 (DreamSky::CloudFormation), -
 	inline const FName MPC_Cloud2(TEXT("DDW_Cloud2"));            // cumulus grown by the hour (0..1), erosion, detail near the view, -

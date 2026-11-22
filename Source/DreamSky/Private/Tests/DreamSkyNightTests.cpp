@@ -242,6 +242,8 @@ bool FDreamSkyEclipseTest::RunTest(const FString& Parameters)
 		}
 		const float Sun = W.Sky->SunLight->Intensity;
 		TestTrue(TEXT("no eclipse at noon on an ordinary day"), W.Parameter(MPC_Eclipse).R == 0.0f && Sun > 0.0f);
+		const FLinearColor DayZenith = W.SkySubsystem->GetLook().Zenith;
+		const float DayEV = W.SkySubsystem->GetLighting().ExposureEV100;
 		UDreamSkyModifier* Eclipse = NewObject<UDreamSkyModifier>(GetTransientPackage());
 		Eclipse->Settings.bOverride_SolarEclipse = true;
 		Eclipse->Settings.SolarEclipse = 1.0f;
@@ -252,12 +254,25 @@ bool FDreamSkyEclipseTest::RunTest(const FString& Parameters)
 		TestNearlyEqual(TEXT("the moon placed to cover that much"), DiskOverlap(FVector2D(Half.G, Half.B).Size(), float(MoonToSun)), 0.5f, 2e-3f);
 		TestNearlyEqual(TEXT("half the sun's light"), W.Sky->SunLight->Intensity, 0.5f * Sun, 0.01f * Sun);
 		TestEqual(TEXT("no corona yet"), Half.A, 0.0f);
+		TestTrue(TEXT("half covered: the sky as bright as ever (the eye makes up for it)"), W.SkySubsystem->GetLook().Zenith.Equals(DayZenith, 1e-4f));
+		TestNearlyEqual(TEXT("and the exposure as it was"), W.SkySubsystem->GetLighting().ExposureEV100, DayEV, 1e-4f);
 		W.SkySubsystem->SetModifierAlpha(Eclipse, 1.0f);
 		W.Clock->Tick(0.016f);
 		const FLinearColor Total = W.Parameter(MPC_Eclipse);
 		TestEqual(TEXT("total"), Total.R, 1.0f);
 		TestTrue(TEXT("the corona at totality"), Total.A > 0.0f);
 		TestTrue(TEXT("the sun's light gone"), W.Sky->SunLight->Intensity <= 1e-4f * FMath::Max(Sun, 1.0f));
+		const UDreamSkyStyle& Style = *W.Sky->GetEffectiveStyle();
+		const FLinearColor Ring = W.SkySubsystem->GetLook().Horizon;
+		TestTrue(TEXT("the horizon all round the orange ring"), Ring.Equals(FLinearColor(Style.Eclipse.TotalityRing.R, Style.Eclipse.TotalityRing.G, Style.Eclipse.TotalityRing.B, 1.0f), 1e-4f));
+		TestTrue(TEXT("the zenith a deep blue, darker than by day"), W.SkySubsystem->GetLook().Zenith.B < DayZenith.B && W.SkySubsystem->GetLook().Zenith.B > W.SkySubsystem->GetLook().Zenith.R);
+		TestTrue(TEXT("the exposure opened for the twilight"), W.SkySubsystem->GetLighting().ExposureEV100 < DayEV);
+		const FLinearColor Stars = W.Parameter(MPC_Stars);
+		TestTrue(TEXT("the stars out"), Stars.R > 0.99f);
+		TestNearlyEqual(TEXT("only the brightest"), Stars.A, 1.0f - Style.Eclipse.TotalityStars, 1e-4f);
+		W.SkySubsystem->SetModifierAlpha(Eclipse, 0.0f);
+		W.Clock->Tick(0.016f);
+		TestEqual(TEXT("over: every star again (none by day anyway)"), W.Parameter(MPC_Stars).A, 0.0f);
 	}
 	return true;
 }

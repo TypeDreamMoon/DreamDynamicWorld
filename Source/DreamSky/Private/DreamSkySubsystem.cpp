@@ -216,7 +216,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Applied = Eased;
 	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
 	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
-	ApplyEclipses(Applied, Look, *Style);
+	ApplyEclipses(Applied, Look, *Style, Celestial);
 	UpdateModifierPostProcess(Sky);
 
 	// A lightning flash goes on top, so it is as sudden as it should be.
@@ -245,7 +245,7 @@ float UDreamSkySubsystem::GetLightShaftStrength() const
 	return FMath::Max(Look.LightShafts, 0.0f) * Broken * Up;
 }
 
-void UDreamSkySubsystem::ApplyEclipses(FDreamSkyLighting& L, FDreamSkyLook& K, const UDreamSkyStyle& Style) const
+void UDreamSkySubsystem::ApplyEclipses(FDreamSkyLighting& L, FDreamSkyLook& K, const UDreamSkyStyle& Style, const FDreamCelestialState& Celestial) const
 {
 	using namespace DreamSky::Eclipse;
 	// A coverage a modifier set (or turned) gets the moon, or the umbra, a place where it covers that much: along the
@@ -264,24 +264,41 @@ void UDreamSkySubsystem::ApplyEclipses(FDreamSkyLighting& L, FDreamSkyLook& K, c
 	Place(K.SolarEclipse, K.SolarEclipseOffset, float(MoonToSun));
 	Place(K.LunarEclipse, K.LunarEclipseOffset, float(UmbraRadius / MoonRadius));
 
-	// The sun's light goes with its disk; the sky's, and the light it gives, near totality (never quite all of it: the
-	// horizon all round stays lit, a twilight glow).
+	// The sun's light goes with its disk. The sky, its light and the exposure hold (the eye makes up for the failing light)
+	// until DarkensFrom, then go toward a deep twilight -- the style's own with the sun TotalityTwilight under the
+	// horizon --, the horizon all round glowing orange (the far air outside the moon's shadow), the brightest stars out.
 	if (K.SolarEclipse > 0.0f)
 	{
-		const float Left = 1.0f - K.SolarEclipse;
-		const float Sky = FMath::Max(Left, 0.004f);
-		L.SunIlluminance *= Left;
-		L.SkyLightIntensity *= Sky;
-		L.AmbientSky *= Sky;
-		L.AmbientEquator *= Sky;
-		L.AmbientGround *= Sky;
-		K.Zenith *= Sky;
-		K.Horizon *= FMath::Max(Left, 0.02f);
-		K.Ground *= Sky;
-		K.SunHalo *= Sky;
-		K.CloudLit *= Sky;
-		K.CloudShadow *= Sky;
-		K.StarIntensity = FMath::Max(K.StarIntensity, FMath::SmoothStep(0.95f, 1.0f, K.SolarEclipse));
+		const FDreamSkyEclipse& E = Style.Eclipse;
+		L.SunIlluminance *= 1.0f - K.SolarEclipse;
+		const float Dark = FMath::SmoothStep(FMath::Min(E.DarkensFrom, 0.99f), 1.0f, K.SolarEclipse);
+		if (Dark > 0.0f)
+		{
+			FDreamCelestialState Dusk = Celestial;
+			Dusk.SunElevation = FMath::Clamp(E.TotalityTwilight, -18.0f, 0.0f);
+			const FDreamSkyLighting DuskLight = Style.EvaluateLighting(Dusk);
+			const FDreamSkyLook DuskLook = Style.EvaluateLook(Dusk);
+			// (The exposure as an offset: the modifiers' and the level's changes to it stay.)
+			L.ExposureEV100 += Dark * (DuskLight.ExposureEV100 - Style.EvaluateLighting(Celestial).ExposureEV100);
+			L.SkyLightIntensity = FMath::Lerp(L.SkyLightIntensity, DuskLight.SkyLightIntensity, Dark);
+			L.AmbientSky = FMath::Lerp(L.AmbientSky, DuskLight.AmbientSky, Dark);
+			L.AmbientEquator = FMath::Lerp(L.AmbientEquator, DuskLight.AmbientEquator, Dark);
+			L.AmbientGround = FMath::Lerp(L.AmbientGround, DuskLight.AmbientGround, Dark);
+			const FLinearColor Ring(E.TotalityRing.R, E.TotalityRing.G, E.TotalityRing.B, 1.0f);
+			L.FogColor = FMath::Lerp(L.FogColor, FLinearColor(Ring.R, Ring.G, Ring.B, L.FogColor.A) * Style.FogBrightness, Dark);
+			K.Zenith = FMath::Lerp(K.Zenith, DuskLook.Zenith, Dark);
+			K.Horizon = FMath::Lerp(K.Horizon, Ring, Dark);
+			K.HorizonExponent = FMath::Lerp(K.HorizonExponent, FMath::Clamp(E.TotalityRingExponent, 0.05f, 1.0f), Dark);
+			K.Ground = FMath::Lerp(K.Ground, DuskLook.Ground, Dark);
+			K.CloudLit = FMath::Lerp(K.CloudLit, DuskLook.CloudLit, Dark);
+			K.CloudShadow = FMath::Lerp(K.CloudShadow, DuskLook.CloudShadow, Dark);
+			K.SunHalo *= 1.0f - Dark;
+			if (Dark > K.StarIntensity)
+			{
+				K.StarIntensity = Dark;
+				K.StarsHidden = 1.0f - FMath::Clamp(E.TotalityStars, 0.0f, 1.0f);
+			}
+		}
 	}
 	// The moon in the umbra: its light failing to a dark copper.
 	if (K.LunarEclipse > 0.0f)
@@ -585,13 +602,13 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
 
 	Clock.SetVectorParameter(MPC_Zenith, With(Look.Zenith, 0.0f));
-	Clock.SetVectorParameter(MPC_Horizon, With(Look.Horizon, Style.HorizonExponent));
+	Clock.SetVectorParameter(MPC_Horizon, With(Look.Horizon, Look.HorizonExponent));
 	Clock.SetVectorParameter(MPC_Ground, With(Look.Ground, 0.0f));
 	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, Style.SunHaloExponent));
 	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize));
 	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
-	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, 0.0f));
+	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
 	// The aurora toward the magnetic pole (north, or south below the equator in the realistic mode), as bright as the
 	// night shows it.
 	{

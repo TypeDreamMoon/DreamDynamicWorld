@@ -205,7 +205,7 @@ private:
 	 * the sun's light taken as its disk is covered, the sky's with it near totality; the moon's failing in the umbra. A
 	 * coverage a modifier set gets the moon (or the umbra) a place to stand at.
 	 */
-	void ApplyEclipses(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, const UDreamSkyStyle& Style) const;
+	void ApplyEclipses(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, const UDreamSkyStyle& Style, const FDreamCelestialState& Celestial) const;
 	/** The modifiers' post processes on the sky actor, weighted by their alpha (made and dropped as they come and go). */
 	void UpdateModifierPostProcess(ADreamSky* Sky);
 	void CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const;

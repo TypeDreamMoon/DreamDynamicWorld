@@ -306,6 +306,10 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor CloudLit = FLinearColor::White;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor CloudShadow = FLinearColor::Gray;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float StarIntensity = 0.0f;
+	/** The share of the stars, the dimmest first, left out (a total eclipse shows only the brightest). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float StarsHidden = 0.0f;
+	/** The sky gradient's horizon exponent (the style's HorizonExponent; smaller keeps the horizon colour lower). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float HorizonExponent = 0.45f;
 	/** Cloud cover where the view is (the style's own, or the weather's). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudCoverage = 0.0f;
 	/** How dark the clouds are (storm), 0..1. */
