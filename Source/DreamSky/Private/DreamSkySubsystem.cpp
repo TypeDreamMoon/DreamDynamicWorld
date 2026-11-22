@@ -220,6 +220,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
 	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
 	ApplyEclipses(Applied, Look, *Style, Celestial);
+	UpdateScreen(Clock, *Style, DeltaTime, bJumped || Clock.IsCinematicMode());
 	UpdateModifierPostProcess(Sky);
 
 	// A lightning flash goes on top, so it is as sudden as it should be.
@@ -232,6 +233,25 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	WriteParameters(Clock, *Style, Sky->DrawsClouds());
 	LogLighting(Clock);
 	Applied = Modified;
+}
+
+void UDreamSkySubsystem::UpdateScreen(const UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, float DeltaTime, bool bAtOnce)
+{
+	// The rain (not the snow) where the view is out under the open sky, more of it looking up into it than down.
+	const FDreamWorldEnvironment& Env = Clock.GetEnvironment();
+	const float Rain = Env.bActive ? FMath::Clamp(Env.Precipitation, 0.0f, 1.0f) * (1.0f - FMath::Clamp(Env.SnowRatio, 0.0f, 1.0f)) : 0.0f;
+	const FDreamViewOcclusion& Occlusion = Clock.GetViewOcclusion();
+	const float Open = Occlusion.bValid ? 1.0f - FMath::Clamp(FMath::Max(Occlusion.Overhead, Occlusion.Interior), 0.0f, 1.0f) : 1.0f;
+	const float Facing = Clock.HasViewRotation() ? FMath::Clamp(0.55f + 0.75f * float(Clock.GetViewRotation().Vector().Z), 0.1f, 1.0f) : 0.6f;
+	const float Target = FMath::Clamp(Rain * Open * Facing * (1.0f + 0.5f * FMath::Clamp(Env.Wind, 0.0f, 1.0f)), 0.0f, 1.0f);
+	if (bAtOnce)
+	{
+		ScreenWetness = Target;
+		return;
+	}
+	const FDreamSkyScreenDroplets& S = Style.ScreenDroplets;
+	const float Seconds = FMath::Max(Target > ScreenWetness ? S.WetSeconds : S.DrySeconds, 0.01f);
+	ScreenWetness = FMath::Lerp(ScreenWetness, Target, 1.0f - FMath::Exp(-FMath::Max(DeltaTime, 0.0f) / Seconds));
 }
 
 float UDreamSkySubsystem::GetLightShaftStrength() const

@@ -1,0 +1,113 @@
+// Copyright DreamMoon. All Rights Reserved.
+
+// DreamSkyScreen.usf -- what the weather leaves on the camera's lens, over the finished picture (after the upscale, so
+// nothing smears it over frames):
+//   ScreenPS  rain drops: beads in two sizes that gather as the screen gets wet (UDreamSkySubsystem::GetScreenWetness),
+//             each living a while and drying off, and drops running down once it is wet through; each bends the picture
+//             behind it like a little lens.
+
+#include "/Engine/Private/Common.ush"
+
+float4 Screen;          // x wetness 0..1, y intensity, z drop size, w how far the drops bend the picture
+Texture2D InputTexture;
+SamplerState InputSampler;
+float2 InputInvExtent;
+float2 InputRectMin;
+float2 InputRectSize;
+float2 OutputRectMin;
+float2 OutputRectSize;
+float Seconds;
+
+float4 DSkyS_Hash42(float2 P)
+{
+	float4 Q = frac(float4(P.xyxy) * float4(0.1031, 0.1030, 0.0973, 0.1099));
+	Q += dot(Q, Q.wzxy + 33.33);
+	return frac((Q.xxyz + Q.yzzw) * Q.zywx);
+}
+
+// One layer of beads: Cells across the screen's height; each cell may hold a bead for a while (a life), then another
+// somewhere else in it. Adds the bead's bend of the picture to Offset and its shading to Shade.
+void DSkyS_Beads(float2 P, float Cells, float Seed, float Wet, float Life, inout float2 Offset, inout float Shade, inout float Glint)
+{
+	float2 G = P * Cells;
+	float2 Cell = floor(G);
+	float2 F = frac(G);
+	float4 H = DSkyS_Hash42(Cell + Seed);
+	float T = Seconds / Life + H.x;
+	float Cycle = floor(T);
+	float Age = frac(T);
+	float4 B = DSkyS_Hash42(Cell + Seed + Cycle * 1.37);
+	// (More cells hold one as the screen gets wetter; each fades in and dries off over its life.)
+	float Present = saturate((Wet * 1.15 - B.w) * 10.0) * smoothstep(0.0, 0.04, Age) * (1.0 - smoothstep(0.75, 1.0, Age));
+	if (Present <= 0.0)
+	{
+		return;
+	}
+	float2 Centre = 0.25 + 0.5 * B.xy;
+	float Radius = lerp(0.10, 0.24, B.z);
+	float2 D = (F - Centre) * float2(1.0, 0.85) / Radius;
+	float R = length(D);
+	float Inside = (1.0 - smoothstep(0.85, 1.0, R)) * Present;
+	// (The picture through a bead is drawn in from round it: as a lens would, the far side seen on the near.)
+	Offset += -D * sqrt(saturate(1.0 - R * R)) * (Radius / Cells) * Inside;
+	Shade *= 1.0 - 0.35 * Inside * smoothstep(0.55, 1.0, R);
+	Glint += Inside * pow(saturate(1.0 - length(D - float2(-0.35, -0.4)) * 2.5), 3.0);
+}
+
+// Drops running down a wet screen, with the thin wet trail they leave.
+void DSkyS_Runners(float2 P, float Wet, inout float2 Offset, inout float Shade)
+{
+	float Columns = 7.0;
+	float X = P.x * Columns;
+	float Column = floor(X);
+	float4 H = DSkyS_Hash42(float2(Column, 91.7));
+	float Run = saturate((Wet - 0.55) * 4.0) * step(H.w, 0.6);
+	if (Run <= 0.0)
+	{
+		return;
+	}
+	float Fx = frac(X) - (0.3 + 0.4 * H.x);
+	float Speed = 0.15 + 0.25 * H.y;
+	// (Down the screen and round again, the column's own phase.)
+	float Head = 1.0 - frac(Seconds * Speed + H.z);
+	float Dy = P.y - Head * 1.2 + 0.1;
+	float Width = 0.06 + 0.04 * H.z;
+	float2 D = float2(Fx / Width, Dy * Columns / (Width * 1.4));
+	float Drop = (1.0 - smoothstep(0.8, 1.0, length(D))) * Run;
+	float Trail = (1.0 - smoothstep(0.15, 0.35, abs(Fx) / Width)) * step(Dy, 0.0) * exp(Dy * 3.0) * 0.35 * Run;
+	Offset += -float2(D.x, D.y * 0.3) * (Width / Columns) * 0.5 * Drop + float2(Fx * 0.02, 0.0) * Trail;
+	Shade *= 1.0 - 0.3 * Drop * smoothstep(0.5, 1.0, length(D));
+}
+
+void ScreenPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
+{
+	float2 UV = (SvPosition.xy - OutputRectMin) / OutputRectSize;
+	float2 InPixel = InputRectMin + UV * InputRectSize;
+	float Aspect = OutputRectSize.x / OutputRectSize.y;
+	float2 P = float2(UV.x * Aspect, UV.y);
+	float Wet = saturate(Screen.x * Screen.y);
+	float2 Offset = 0.0;
+	float Shade = 1.0;
+	float Glint = 0.0;
+	if (Wet > 0.0)
+	{
+		float Size = max(Screen.z, 0.1);
+		DSkyS_Beads(P, 6.0 / Size, 3.1, Wet, 9.0, Offset, Shade, Glint);
+		DSkyS_Beads(P, 15.0 / Size, 17.9, Wet * 0.9, 5.0, Offset, Shade, Glint);
+		DSkyS_Runners(P / Size, Wet, Offset, Shade);
+	}
+	float2 Bent = InPixel + Offset * Screen.w * float2(1.0 / Aspect, 1.0) * InputRectSize;
+	Bent = clamp(Bent, InputRectMin + 0.5, InputRectMin + InputRectSize - 0.5);
+	float3 C = InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent, 0).rgb;
+	if (any(Offset != 0.0))
+	{
+		// (Softened through the water.)
+		float2 Step = 1.5 * InputInvExtent;
+		C = 0.4 * C + 0.15 * (InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent + float2(Step.x, 0), 0).rgb
+			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent - float2(Step.x, 0), 0).rgb
+			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent + float2(0, Step.y), 0).rgb
+			+ InputTexture.SampleLevel(InputSampler, Bent * InputInvExtent - float2(0, Step.y), 0).rgb);
+	}
+	float Luma = dot(C, float3(0.2126, 0.7152, 0.0722));
+	Out = float4(C * Shade + Glint * 0.6 * max(Luma, 0.2), 1.0);
+}

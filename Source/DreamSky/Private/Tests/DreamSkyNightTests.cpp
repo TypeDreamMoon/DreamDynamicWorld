@@ -337,7 +337,7 @@ bool FDreamSkyLensFlareTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	const FDreamSkyLensFlare& Flare = W.Sky->GetEffectiveStyle()->LensFlare;
-	TestTrue(TEXT("a flare by default"), Flare.Preset != EDreamSkyLensFlarePreset::None);
+	TestTrue(TEXT("a lens effect: none unless the project turns it on"), Flare.Preset == EDreamSkyLensFlarePreset::None);
 	TestNearlyEqual(TEXT("as bright as the style says"), W.SkySubsystem->GetLook().LensFlare, Flare.Intensity, 1e-5f);
 	UDreamSkyModifier* Dim = NewObject<UDreamSkyModifier>(GetTransientPackage());
 	Dim->Settings.bOverride_LensFlare = true;
@@ -346,6 +346,57 @@ bool FDreamSkyLensFlareTest::RunTest(const FString& Parameters)
 	W.Clock->Tick(0.016f);
 	TestNearlyEqual(TEXT("a modifier scales it"), W.SkySubsystem->GetLook().LensFlare, 0.25f * Flare.Intensity, 1e-4f);
 	W.SkySubsystem->RemoveModifier(Dim);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyScreenWetnessTest, "DreamSky.ScreenWetness", DreamSky::NightTests::Flags)
+bool FDreamSkyScreenWetnessTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	FNightWorld W(FDateTime(2026, 6, 21, 12, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("noon world"), W.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("drops on the lens are the project's choice: off by default"), !W.Sky->GetEffectiveStyle()->ScreenDroplets.bEnabled);
+	TestEqual(TEXT("dry with no weather"), W.SkySubsystem->GetScreenWetness(), 0.0f);
+	auto Weather = [&W](float Rain, float Snow)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.Precipitation = Rain;
+		Env.SnowRatio = Snow;
+		W.Clock->SetEnvironment(Env);
+	};
+	// (The clock is stopped and nothing jumps: the lens follows over its time.)
+	Weather(1.0f, 0.0f);
+	W.Clock->Tick(0.5f);
+	if (!W.Clock->GetEnvironment().bActive || W.Clock->GetEnvironment().Precipitation < 0.99f)
+	{
+		AddWarning(TEXT("the world's weather was set over the test's: the lens is not checked"));
+		return true;
+	}
+	const float Early = W.SkySubsystem->GetScreenWetness();
+	TestTrue(FString::Printf(TEXT("out in the rain it starts to gather (%.3f)"), Early), Early > 0.0f && Early < 0.5f);
+	for (int32 Step = 0; Step < 60; ++Step)
+	{
+		W.Clock->Tick(0.5f);
+	}
+	const float Wet = W.SkySubsystem->GetScreenWetness();
+	TestTrue(FString::Printf(TEXT("and gets wet through (%.3f)"), Wet), Wet > 0.4f);
+	Weather(0.0f, 0.0f);
+	W.Clock->Tick(0.5f);
+	const float Drying = W.SkySubsystem->GetScreenWetness();
+	TestTrue(FString::Printf(TEXT("the rain over: it dries off slowly (%.3f)"), Drying), Drying < Wet && Drying > 0.5f * Wet);
+	Weather(1.0f, 1.0f);
+	W.Clock->SetCinematicModeOverride(true);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("snow leaves no drops; a cinematic frame is where it is heading at once"), W.SkySubsystem->GetScreenWetness(), 0.0f);
+	Weather(1.0f, 0.0f);
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("and at once wet in the rain"), W.SkySubsystem->GetScreenWetness() > 0.4f);
+	W.Clock->SetCinematicModeOverride(false);
 	return true;
 }
 

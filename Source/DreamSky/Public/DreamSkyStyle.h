@@ -216,7 +216,7 @@ struct DREAMSKY_API FDreamSkyLensFlare
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare")
-	EDreamSkyLensFlarePreset Preset = EDreamSkyLensFlarePreset::Natural;
+	EDreamSkyLensFlarePreset Preset = EDreamSkyLensFlarePreset::None;
 
 	/** How bright the flare is drawn for the sun's brightness over the threshold. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ClampMin = "0", UIMax = "8"))
@@ -229,6 +229,38 @@ struct DREAMSKY_API FDreamSkyLensFlare
 	/** Over the sun's own colour. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (HideAlphaChannel))
 	FLinearColor Tint = FLinearColor::White;
+};
+
+/**
+ * Rain drops on the camera's lens, over the finished picture: they gather while the view is out in the rain facing
+ * into it (looking up catches more than looking down; a roof overhead or a room keeps them off) and dry off indoors
+ * or once the rain stops. A lens effect, so off unless the project turns it on.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyScreenDroplets
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets")
+	bool bEnabled = false;
+
+	/** How many drops a wet screen holds (1 = as the rain gives). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 1.0f;
+
+	/** How big the drops are drawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0.25", UIMax = "3"))
+	float DropSize = 1.0f;
+
+	/** How far a drop bends the picture behind it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "3"))
+	float Refraction = 1.0f;
+
+	/** How fast (s) the screen gets wet out in the rain, and dries off out of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "30"))
+	float WetSeconds = 4.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ClampMin = "0", UIMax = "60"))
+	float DrySeconds = 12.0f;
 };
 
 UCLASS(BlueprintType)
@@ -397,6 +429,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ShowOnlyInnerProperties))
 	FDreamSkyLensFlare LensFlare;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Screen Droplets", meta = (ShowOnlyInnerProperties))
+	FDreamSkyScreenDroplets ScreenDroplets;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

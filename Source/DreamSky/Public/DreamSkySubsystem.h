@@ -144,6 +144,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetLightShaftStrength() const;
 
+	/**
+	 * How wet the camera's lens is, 0..1: gathering while the view is out in the rain facing into it, drying off under
+	 * a roof, indoors or once it stops (the style's ScreenDroplets; at once in cinematic updates and on clock jumps).
+	 * Kept whether or not the drops are drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetScreenWetness() const { return ScreenWetness; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -205,6 +213,7 @@ private:
 	 * the sun's light taken as its disk is covered, the sky's with it near totality; the moon's failing in the umbra. A
 	 * coverage a modifier set gets the moon (or the umbra) a place to stand at.
 	 */
+	void UpdateScreen(const UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, float DeltaTime, bool bAtOnce);
 	void ApplyEclipses(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, const UDreamSkyStyle& Style, const FDreamCelestialState& Celestial) const;
 	/** The modifiers' post processes on the sky actor, weighted by their alpha (made and dropped as they come and go). */
 	void UpdateModifierPostProcess(ADreamSky* Sky);
@@ -225,6 +234,7 @@ private:
 	/** That with the modifiers on it: what the sky applies (and, for the frame, the flash). */
 	FDreamSkyLighting Applied;
 	FDreamSkyLook Look;
+	float ScreenWetness = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;

@@ -183,12 +183,24 @@ gets. They cost some 0.04 ms at 1080p, nothing under a clear sky or with the sun
 **Lens flare.** With the sun in view the sky draws its lens flare over the scene after the depth of field, in one of
 the style's `LensFlare.Preset`s: *Natural* (a soft glow, a faint ring and ghosts of a few colours along the line from
 the sun through the middle of the view), *Anamorphic* (a long blue streak across the sun) or *Stylized* (flat hexagons
-and a crisp ring, for the toon and painted looks); *None* draws none. It is as bright as the sun shows on screen over
+and a crisp ring, for the toon and painted looks); *None*, the default, draws none -- a lens flare is the project's
+choice to turn on. It is as bright as the sun shows on screen over
 `LensFlare.Threshold` (1 = white), times `Intensity`, in the sun's own colour times `Tint`: the brightness is measured
 from the frame itself over the sun's disk, so clouds drifting over the sun, a wall in front of it or an eclipse weaken
 it or take it away, and it fades as the sun leaves the view. Nothing builds up over frames. A sky modifier's *Lens
 Flare* scales it; `DreamSky.LensFlare` multiplies it (0 = none) and `DreamSky.LensFlare.Preset` forces a preset. It
 costs some 0.03 ms at 1080p, whatever draws the clouds.
+
+**Rain on the lens.** With the style's `ScreenDroplets.bEnabled` (off by default: a lens effect is the project's
+choice) rain drops gather on the camera's lens over the finished picture, after the upscale: beads in two sizes, each
+bending the picture behind it like a small lens, living a while and drying off, and drops running down once the screen
+is wet through. The lens gets wet while the view is out in the rain (not the snow) facing into it -- looking up catches
+more than looking down, wind more still -- and dries off under a roof, indoors (the view probe) or once the rain stops,
+over `WetSeconds` and `DrySeconds`; a cinematic frame or a jump of the clock shows it as it would be by then. How wet it
+is, `UDreamSkySubsystem::GetScreenWetness`, is kept whether or not the drops are drawn, for a game's own use. The style
+sets how many (`Intensity`), how big (`DropSize`) and how far they bend the picture (`Refraction`);
+`DreamSky.ScreenDroplets <intensity>` draws them whatever the style says (-1 = the style's). They cost some 0.05 ms at
+1080p while the lens is wet, nothing while it is dry.
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
