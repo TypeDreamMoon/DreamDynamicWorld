@@ -77,8 +77,11 @@ System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
             };
         }
 
+        // The debris' leaf material: unlit, lit by the sky like the rain and the snow, so the leaves dim under
+        // cloud and at night instead of glowing in a fixed colour.
         SpriteRenderer Leaf
         {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamWindDebris";
             Alignment  = Unaligned;
             FacingMode = FaceCamera;
             SortMode   = None;
