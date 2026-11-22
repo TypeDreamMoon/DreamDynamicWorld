@@ -162,9 +162,9 @@ void UDreamAtmosphereTables::EnsureTargets()
 			Target->AddressX = TA_Clamp;
 			Target->AddressY = TA_Clamp;
 		}
-		if (Target->SizeX != Size.X || Target->SizeY != Size.Y || Target->GetFormat() != PF_FloatRGBA || !Target->GetResource())
+		if (Target->SizeX != Size.X || Target->SizeY != Size.Y || Target->GetFormat() != PF_A32B32G32R32F || !Target->GetResource())
 		{
-			Target->InitCustomFormat(Size.X, Size.Y, PF_FloatRGBA, true);
+			Target->InitCustomFormat(Size.X, Size.Y, PF_A32B32G32R32F, true);
 			Target->UpdateResourceImmediate(true);
 		}
 	};
@@ -181,9 +181,9 @@ void UDreamAtmosphereTables::EnsureTargets()
 		Sky->ClearColor = FLinearColor::Black;
 		Sky->Filter = TF_Bilinear;
 	}
-	if (Sky->SizeX != SkySize.X || Sky->SizeY != SkySize.Y || Sky->SizeZ != SkySize.Z || !Sky->GetResource())
+	if (Sky->SizeX != SkySize.X || Sky->SizeY != SkySize.Y || Sky->SizeZ != SkySize.Z || Sky->OverrideFormat != PF_A32B32G32R32F || !Sky->GetResource())
 	{
-		Sky->Init(SkySize.X, SkySize.Y, SkySize.Z, PF_FloatRGBA);
+		Sky->Init(SkySize.X, SkySize.Y, SkySize.Z, PF_A32B32G32R32F);
 		Sky->UpdateResourceImmediate(true);
 	}
 }

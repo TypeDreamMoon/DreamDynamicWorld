@@ -71,7 +71,7 @@ void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
 	{
 		using namespace DreamAtmosphere::Names;
 		const FLinearColor Sun = GetSunLight();
-		const FLinearColor Moon = GetMoonLight();
+		const FLinearColor Moon = GetMoonSkyLight();
 		Clock->SetVectorParameter(MPC_AtmosphereSun, FLinearColor(Sun.R, Sun.G, Sun.B, IsSkyReady() ? 1.0f : 0.0f));
 		Clock->SetVectorParameter(MPC_AtmosphereMoon, FLinearColor(Moon.R, Moon.G, Moon.B, 0.0f));
 	}
@@ -93,6 +93,13 @@ FLinearColor UDreamAtmosphereSubsystem::GetMoonLight() const
 	FLinearColor C = S->MoonColor * (FMath::Max(S->MoonIlluminance, 0.0f) * Phase);
 	C.A = 1.0f;
 	return C;
+}
+
+FLinearColor UDreamAtmosphereSubsystem::GetMoonSkyLight() const
+{
+	const UDreamAtmosphereSettings* S = UDreamAtmosphereSettings::Get();
+	const float Full = FMath::Max(S->MoonIlluminance, 1.0e-6f);
+	return GetMoonLight() * (FMath::Max(S->MoonSkyIlluminance, 0.0f) / Full);
 }
 
 bool UDreamAtmosphereSubsystem::IsSkyReady() const

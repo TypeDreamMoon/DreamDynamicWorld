@@ -50,6 +50,9 @@ public:
 	FLinearColor GetSunLight() const;
 	FLinearColor GetMoonLight() const;
 
+	/** The moon's light in the sky's own colour (the real moon's share of the sun's; Moon Sky Illuminance), its phase in. */
+	FLinearColor GetMoonSkyLight() const;
+
 	/** Whether the physical sky can be drawn and read: the tables built, their copy on the CPU. */
 	bool IsSkyReady() const;
 

@@ -121,9 +121,8 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 
 	if (bPhysical)
 	{
-		const float B = Grade.GradientBlend;
 		const FLinearColor SunTop = Atmosphere->GetSunLight();
-		const FLinearColor MoonTop = Atmosphere->GetMoonLight();
+		const FLinearColor MoonTop = Atmosphere->GetMoonSkyLight();
 		auto SkyAlong = [&](const FVector& View)
 		{
 			return Opaque(Tables->SampleSky(View, Celestial.SunDirection) * SunTop + Tables->SampleSky(View, Celestial.MoonDirection) * MoonTop);
@@ -142,13 +141,18 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 
 		// As bright as the style's own sky (its curves, before the weather), the colours and their spread the air's: the
 		// style's exposure and its light and ambient stay as they were tuned, from noon to the night.
+		const FDreamSkyLook Curves = Style.EvaluateLook(Celestial);
+		const float Want = FMath::Max(0.5f * (Luma(Curves.Zenith) + Luma(Curves.Horizon)), 1.0e-9f);
+		const float Have = 0.5f * (Luma(Zenith) + Luma(Horizon));
 		if (Style.Grade.bMatchStyleBrightness)
 		{
-			const FDreamSkyLook Curves = Style.EvaluateLook(Celestial);
-			const float Want = 0.5f * (Luma(Curves.Zenith) + Luma(Curves.Horizon));
-			const float Have = 0.5f * (Luma(Zenith) + Luma(Horizon));
-			Grade.ExposureScale *= FMath::Clamp(Want / FMath::Max(Have, 1.0e-7f), 1.0f / 4096.0f, 4096.0f);
+			Grade.ExposureScale *= FMath::Clamp(Want / FMath::Max(Have, 1.0e-12f), 1.0f / 1.0e6f, 1.0e6f);
 		}
+		// When the air has next to no light of its own (the sun far under the horizon and the moon down), its colour is
+		// noise: the style's night takes over.
+		const float Night = 1.0f - FMath::SmoothStep(1.0e-6f, 1.0e-5f, Have / Want);
+		Grade.GradientBlend = FMath::Max(Grade.GradientBlend, Night);
+		const float B = Grade.GradientBlend;
 		const FLinearColor ZenithGraded = Opaque(Grade.Apply(Zenith, 1.0f));
 		const FLinearColor HorizonGraded = Opaque(Grade.Apply(Horizon, 0.05f));
 		const FLinearColor GroundGraded = Opaque(Grade.Apply(Ground, 0.0f));
