@@ -56,6 +56,21 @@ public:
 	/** The light's transmittance to the ground for its zenith cosine (none from under the horizon), from the built air. */
 	FLinearColor LightTransmittance(float LightZ) const;
 
+	/** The CPU's copy of the sky table (X fastest, then Y, then Z) and its size: what a bake writes out. */
+	const TArray<FLinearColor>& GetCpuSky() const { return CpuSky; }
+	FIntVector GetCpuSkySize() const { return CpuSkySize; }
+
+	/** The zenith and the horizon all round for each of the table's light elevations, from the CPU's copy (a bake's). */
+	bool MakeBakedSummary(FDreamAtmosphereBakedSky& Out) const;
+
+#if WITH_EDITOR
+	/**
+	 * The sky table baked into a volume texture (half floats, the values times Scale) in Outer (a package to save, or the
+	 * transient one), with its summary in OutBaked (its Table pointing at the texture). Null without a CPU copy.
+	 */
+	UVolumeTexture* BakeSky(UObject* Outer, FName Name, float Scale, FDreamAtmosphereBakedSky& OutBaked) const;
+#endif
+
 private:
 	void EnsureTargets();
 

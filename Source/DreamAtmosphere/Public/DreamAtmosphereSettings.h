@@ -60,6 +60,16 @@ public:
 	FLinearColor MoonColor = FLinearColor::White;
 
 	/**
+	 * The full moon's light as the sky's own colour sees it, in the scene's units: the real moon's share of the sun's, some
+	 * 2.5 millionths (the sun's 11.5 here). The scene's moonlight (Moon Illuminance) is far brighter than that, as a game's
+	 * night must be; in the sky's colour that would put a daylit blue over the twilight, whose own light falls a thousandfold.
+	 * The sky's brightness at night is the style's anyway (the grade's Match Style Brightness): this sets only whose colour
+	 * the sky takes, the twilight's or the moon's.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Lights", meta = (ClampMin = "0"))
+	float MoonSkyIlluminance = 2.875e-5f;
+
+	/**
 	 * The air between the eye and the scene: distant things fade into the sky's colour and take its light (a froxel
 	 * volume in front of the camera, laid over the opaque scene by its depth). The weather's fog stays the height fog's.
 	 */

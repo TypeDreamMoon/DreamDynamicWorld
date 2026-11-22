@@ -19,6 +19,8 @@ public class DreamWorldEditor : ModuleRules
 			"Engine",
 			"DreamDynamicWorld",
 			"DreamSky",
+			"DreamAtmosphere",
+			"RHI",
 			"DreamWeather",
 			"GameplayTags",
 		});

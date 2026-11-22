@@ -212,7 +212,7 @@ namespace DreamAtmosphere::Aerial
 		UTextureRenderTarget2D* Slice = NewObject<UTextureRenderTarget2D>(GetTransientPackage(), NAME_None, RF_Transient);
 		Slice->bSupportsUAV = true;
 		Slice->bCanCreateUAV = true;
-		Slice->InitCustomFormat(FMath::Max(Frame.VolumeSize.X, 1), FMath::Max(Frame.VolumeSize.Y, 1), PF_FloatRGBA, true);
+		Slice->InitCustomFormat(FMath::Max(Frame.VolumeSize.X, 1), FMath::Max(Frame.VolumeSize.Y, 1), PF_A32B32G32R32F, true);
 		Slice->UpdateResourceImmediate(true);
 		FTextureRenderTargetResource* SliceResource = Slice->GameThread_GetRenderTargetResource();
 		if (!SliceResource)

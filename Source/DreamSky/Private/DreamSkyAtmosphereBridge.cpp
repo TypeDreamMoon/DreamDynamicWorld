@@ -68,9 +68,9 @@ namespace DreamSkyAtmosphereBridgeImpl
 		return C;
 	}
 
-	void BindDome(ADreamSky& Sky, const UDreamAtmosphereTables* Tables)
+	void BindDome(ADreamSky& Sky, const UDreamAtmosphereSubsystem* Atmosphere)
 	{
-		UTextureRenderTargetVolume* Table = Tables ? Tables->GetSky() : nullptr;
+		UTexture* Table = Atmosphere ? Atmosphere->GetSkyTexture() : nullptr;
 		UStaticMeshComponent* Dome = Sky.SkyDome;
 		if (!Table || !Dome)
 		{
@@ -108,7 +108,11 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 	{
 		Atmosphere->SetParameters(Style.Atmosphere);
 	}
-	const UDreamAtmosphereTables* Tables = Atmosphere ? Atmosphere->GetTables() : nullptr;
+	if (Atmosphere && !UDreamAtmosphereSubsystem::CanBuildTables())
+	{
+		// (Mobile, no Shader Model 5: the style's sky baked ahead.)
+		Atmosphere->SetBakedSky(Style.BakedSky);
+	}
 	const FDreamCelestialState& Celestial = Clock.GetCelestial();
 	const FDreamWorldEnvironment& Environment = Clock.GetEnvironment();
 	const float E = Celestial.SunElevation;
@@ -117,38 +121,32 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 	{
 		Grade.GradientBlend = FMath::Clamp(CVarDreamSkyGradientBlendOverride.GetValueOnGameThread(), 0.0f, 1.0f);
 	}
-	const bool bPhysical = CVarDreamSkyPhysicalSky.GetValueOnGameThread() != 0 && Atmosphere && Tables && Atmosphere->IsSkyReady() && Grade.GradientBlend < 1.0f;
+	const bool bPhysical = CVarDreamSkyPhysicalSky.GetValueOnGameThread() != 0 && Atmosphere && Atmosphere->IsSkyReady() && Grade.GradientBlend < 1.0f;
 
 	if (bPhysical)
 	{
-		const float B = Grade.GradientBlend;
 		const FLinearColor SunTop = Atmosphere->GetSunLight();
-		const FLinearColor MoonTop = Atmosphere->GetMoonLight();
-		auto SkyAlong = [&](const FVector& View)
-		{
-			return Opaque(Tables->SampleSky(View, Celestial.SunDirection) * SunTop + Tables->SampleSky(View, Celestial.MoonDirection) * MoonTop);
-		};
-		// The zenith, and the horizon all round (a little over it, where the dome's horizon colour sits).
-		const FLinearColor Zenith = SkyAlong(FVector::UpVector);
-		FLinearColor Horizon = FLinearColor::Black;
-		for (int32 i = 0; i < 4; ++i)
-		{
-			const double Az = i * UE_HALF_PI;
-			Horizon += SkyAlong(FVector(FMath::Cos(Az) * 0.99875, FMath::Sin(Az) * 0.99875, 0.05));
-		}
-		Horizon = Opaque(Horizon * 0.25f);
+		const FLinearColor MoonTop = Atmosphere->GetMoonSkyLight();
+		// The zenith, and the horizon all round (a little over it, where the dome's horizon colour sits), lit by both.
+		const FLinearColor Zenith = Opaque(Atmosphere->SkyZenith(Celestial.SunDirection) * SunTop + Atmosphere->SkyZenith(Celestial.MoonDirection) * MoonTop);
+		const FLinearColor Horizon = Opaque(Atmosphere->SkyHorizon(Celestial.SunDirection) * SunTop + Atmosphere->SkyHorizon(Celestial.MoonDirection) * MoonTop);
 		const FLinearColor GroundAlbedo(Style.Atmosphere.GroundAlbedo.R, Style.Atmosphere.GroundAlbedo.G, Style.Atmosphere.GroundAlbedo.B, 1.0f);
 		const FLinearColor Ground = Opaque(Horizon * GroundAlbedo);
 
 		// As bright as the style's own sky (its curves, before the weather), the colours and their spread the air's: the
 		// style's exposure and its light and ambient stay as they were tuned, from noon to the night.
+		const FDreamSkyLook Curves = Style.EvaluateLook(Celestial);
+		const float Want = FMath::Max(0.5f * (Luma(Curves.Zenith) + Luma(Curves.Horizon)), 1.0e-9f);
+		const float Have = 0.5f * (Luma(Zenith) + Luma(Horizon));
 		if (Style.Grade.bMatchStyleBrightness)
 		{
-			const FDreamSkyLook Curves = Style.EvaluateLook(Celestial);
-			const float Want = 0.5f * (Luma(Curves.Zenith) + Luma(Curves.Horizon));
-			const float Have = 0.5f * (Luma(Zenith) + Luma(Horizon));
-			Grade.ExposureScale *= FMath::Clamp(Want / FMath::Max(Have, 1.0e-7f), 1.0f / 4096.0f, 4096.0f);
+			Grade.ExposureScale *= FMath::Clamp(Want / FMath::Max(Have, 1.0e-12f), 1.0f / 1.0e6f, 1.0e6f);
 		}
+		// When the air has next to no light of its own (the sun far under the horizon and the moon down), its colour is
+		// noise: the style's night takes over.
+		const float Night = 1.0f - FMath::SmoothStep(1.0e-6f, 1.0e-5f, Have / Want);
+		Grade.GradientBlend = FMath::Max(Grade.GradientBlend, Night);
+		const float B = Grade.GradientBlend;
 		const FLinearColor ZenithGraded = Opaque(Grade.Apply(Zenith, 1.0f));
 		const FLinearColor HorizonGraded = Opaque(Grade.Apply(Horizon, 0.05f));
 		const FLinearColor GroundGraded = Opaque(Grade.Apply(Ground, 0.0f));
@@ -178,7 +176,7 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 		// The sun's light through the air: its strength (the weather's dimming kept), its colour (the style's light
 		// saturation, the grade's tint, the dust's among it).
 		const float SunZ = float(Celestial.SunDirection.GetSafeNormal().Z);
-		const FLinearColor Through = Tables->LightTransmittance(SunZ);
+		const FLinearColor Through = Atmosphere->LightTransmittance(SunZ);
 		const float CurveSun = FMath::Max(Eval(Style.SunIlluminance, E, 0.0f), 0.0f);
 		const float Weather = CurveSun > 0.01f ? L.SunIlluminance / CurveSun : 1.0f;
 		const float PhysicalSun = Luma(SunTop) * Luma(Through) * Weather;
@@ -205,5 +203,5 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 	{
 		Clock.SetVectorParameter(SkyGrade[i], FLinearColor(Packed[i].X, Packed[i].Y, Packed[i].Z, Packed[i].W));
 	}
-	BindDome(Sky, Tables);
+	BindDome(Sky, Atmosphere);
 }

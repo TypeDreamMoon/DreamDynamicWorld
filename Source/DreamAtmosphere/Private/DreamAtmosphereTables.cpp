@@ -7,6 +7,7 @@
 #include "DataDrivenShaderPlatformInfo.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/TextureRenderTargetVolume.h"
+#include "Engine/VolumeTexture.h"
 #include "GlobalShader.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
@@ -162,9 +163,9 @@ void UDreamAtmosphereTables::EnsureTargets()
 			Target->AddressX = TA_Clamp;
 			Target->AddressY = TA_Clamp;
 		}
-		if (Target->SizeX != Size.X || Target->SizeY != Size.Y || Target->GetFormat() != PF_FloatRGBA || !Target->GetResource())
+		if (Target->SizeX != Size.X || Target->SizeY != Size.Y || Target->GetFormat() != PF_A32B32G32R32F || !Target->GetResource())
 		{
-			Target->InitCustomFormat(Size.X, Size.Y, PF_FloatRGBA, true);
+			Target->InitCustomFormat(Size.X, Size.Y, PF_A32B32G32R32F, true);
 			Target->UpdateResourceImmediate(true);
 		}
 	};
@@ -181,9 +182,9 @@ void UDreamAtmosphereTables::EnsureTargets()
 		Sky->ClearColor = FLinearColor::Black;
 		Sky->Filter = TF_Bilinear;
 	}
-	if (Sky->SizeX != SkySize.X || Sky->SizeY != SkySize.Y || Sky->SizeZ != SkySize.Z || !Sky->GetResource())
+	if (Sky->SizeX != SkySize.X || Sky->SizeY != SkySize.Y || Sky->SizeZ != SkySize.Z || Sky->OverrideFormat != PF_A32B32G32R32F || !Sky->GetResource())
 	{
-		Sky->Init(SkySize.X, SkySize.Y, SkySize.Z, PF_FloatRGBA);
+		Sky->Init(SkySize.X, SkySize.Y, SkySize.Z, PF_A32B32G32R32F);
 		Sky->UpdateResourceImmediate(true);
 	}
 }
@@ -294,6 +295,69 @@ FLinearColor UDreamAtmosphereTables::SampleSky(const FVector& View, const FVecto
 	C.A = 1.0f;
 	return C;
 }
+
+bool UDreamAtmosphereTables::MakeBakedSummary(FDreamAtmosphereBakedSky& Out) const
+{
+	using namespace DreamWind::Hlsl;
+	if (CpuSky.Num() == 0)
+	{
+		return false;
+	}
+	const int32 D = CpuSkySize.Z;
+	Out.Zenith.SetNum(D);
+	Out.Horizon.SetNum(D);
+	for (int32 k = 0; k < D; ++k)
+	{
+		// The light at the slice's elevation, as the table stores it.
+		const float LightZ = DSA_SkyDirections(float3(0.0f, 0.0f, DSA_TableParam(float(k), float(D)))).z;
+		const FVector Light(FMath::Sqrt(FMath::Max(1.0f - LightZ * LightZ, 0.0f)), 0.0, LightZ);
+		Out.Zenith[k] = SampleSky(FVector::UpVector, Light);
+		FLinearColor Round = FLinearColor::Black;
+		for (int32 i = 0; i < 8; ++i)
+		{
+			const double Az = i * UE_PI / 4.0;
+			Round += SampleSky(FVector(FMath::Cos(Az) * 0.99875, FMath::Sin(Az) * 0.99875, 0.05), Light);
+		}
+		Out.Horizon[k] = Round * 0.125f;
+		Out.Horizon[k].A = 1.0f;
+	}
+	Out.BakedFor = Built;
+	return true;
+}
+
+#if WITH_EDITOR
+UVolumeTexture* UDreamAtmosphereTables::BakeSky(UObject* Outer, FName Name, float Scale, FDreamAtmosphereBakedSky& OutBaked) const
+{
+	if (CpuSky.Num() == 0 || !Outer || !MakeBakedSummary(OutBaked))
+	{
+		return nullptr;
+	}
+	UVolumeTexture* Texture = FindObject<UVolumeTexture>(Outer, *Name.ToString());
+	if (!Texture)
+	{
+		Texture = NewObject<UVolumeTexture>(Outer, Name, Outer == GetTransientPackage() ? RF_Transient : (RF_Public | RF_Standalone));
+	}
+	const FIntVector N = CpuSkySize;
+	const TArray<FLinearColor>& Voxels = CpuSky;
+	Texture->UpdateSourceFromFunction([&Voxels, N, Scale](int32 X, int32 Y, int32 Z, void* Out)
+	{
+		const FLinearColor C = Voxels[(Z * N.Y + Y) * N.X + X] * Scale;
+		*static_cast<FFloat16Color*>(Out) = FFloat16Color(FLinearColor(C.R, C.G, C.B, 1.0f));
+	}, N.X, N.Y, N.Z, TSF_RGBA16F);
+	Texture->PreEditChange(nullptr);
+	Texture->SRGB = false;
+	Texture->CompressionSettings = TC_HDR;
+	Texture->MipGenSettings = TMGS_NoMipmaps;
+	Texture->LODGroup = TEXTUREGROUP_World;
+	Texture->NeverStream = true;
+	Texture->AddressMode = TA_Clamp;
+	Texture->Filter = TF_Bilinear;
+	Texture->PostEditChange();
+	OutBaked.Table = Texture;
+	OutBaked.Scale = Scale;
+	return Texture;
+}
+#endif
 
 FLinearColor UDreamAtmosphereTables::LightTransmittance(float LightZ) const
 {
