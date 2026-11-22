@@ -301,6 +301,56 @@ bool FDreamSurfaceGlassRainTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWhereWaterTest, "DreamSurface.WhereWaterAndSnowLie", DreamSurface::Tests::Flags)
+bool FDreamSurfaceWhereWaterTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+
+	// The ground's lows: a dip is low, a rise is not, a box beside the point does not make it a dip.
+	TestTrue(TEXT("a dip lies low"), DSF_GroundLow(-20.0f, float4(0, 0, 0, 0), float4(0, 0, 0, 0)) > 15.0f);
+	TestTrue(TEXT("a crest does not"), DSF_GroundLow(20.0f, float4(0, 0, 0, 0), float4(0, 0, 0, 0)) < 0.0f);
+	TestTrue(TEXT("a box beside flat ground is no dip"), FMath::Abs(DSF_GroundLow(0.0f, float4(100, 0, 0, 0), float4(0, 0, 120, 0))) < 1.0f);
+
+	// Full of water, flat hard ground holds puddles only in its deepest hollows; a real dip all over; soft ground faintly.
+	int32 Count = 0;
+	float Flat = 0.0f, InDip = 0.0f, Soft = 0.0f;
+	for (float Y = 0.0f; Y < 3000.0f; Y += 10.0f)
+	{
+		for (float X = 0.0f; X < 3000.0f; X += 10.0f)
+		{
+			const float Hollow = DSF_Hollow(X, Y, 150.0f);
+			Flat += DSF_PuddleCover(1.0f, 1.0f, DSF_PuddleDepth(Hollow, 0.0f), 0.0f);
+			InDip += DSF_PuddleCover(1.0f, 1.0f, DSF_PuddleDepth(Hollow, 30.0f), 0.0f);
+			Soft += DSF_PuddleCover(1.0f, 1.0f, DSF_PuddleDepth(Hollow, 0.0f), 1.0f);
+			++Count;
+		}
+	}
+	Flat /= Count;
+	InDip /= Count;
+	Soft /= Count;
+	AddInfo(FString::Printf(TEXT("puddles when full: flat %.3f, in a dip %.3f, flat soft ground %.3f"), Flat, InDip, Soft));
+	TestTrue(TEXT("flat ground: puddles in the deepest hollows, not everywhere"), Flat > 0.02f && Flat < 0.2f);
+	TestTrue(TEXT("a dip a quarter of a metre deep holds water all over"), InDip > 0.95f);
+	TestTrue(TEXT("soft ground's puddles are faint"), Soft < Flat * 0.4f);
+	TestTrue(TEXT("no water, no puddles"), DSF_PuddleCover(0.0f, 1.0f, 1.0f, 0.0f) < 0.01f);
+
+	// Snow: a full cover is whole on what faces up, a steep slope keeps less; where it thins out it breaks up over
+	// metres (soft, patchy), not along one line.
+	float MinFull = 1.0f;
+	int32 Partial = 0, Thin = 0;
+	for (float X = 0.0f; X < 6000.0f; X += 25.0f)
+	{
+		MinFull = FMath::Min(MinFull, DSF_SnowCover(1.0f, 1.0f, DSF_Hollow(X, 0.0f, 260.0f), DSF_SnowEdge(X, 0.0f)));
+		const float Half = DSF_SnowCover(0.4f, 1.0f, DSF_Hollow(X, 0.0f, 260.0f), DSF_SnowEdge(X, 0.0f));
+		Partial += (Half > 0.1f && Half < 0.9f) ? 1 : 0;
+		++Thin;
+	}
+	TestTrue(TEXT("a full cover is whole on flat ground"), MinFull > 0.99f);
+	TestTrue(TEXT("a thinning cover is soft and patchy"), Partial > Thin / 5);
+	TestTrue(TEXT("a steep slope keeps less snow"), DSF_SnowCover(0.6f, 0.5f, 0.5f, 0.5f) < DSF_SnowCover(0.6f, 1.0f, 0.5f, 0.5f));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWeatherAtTest, "DreamSurface.WeatherAtTime", DreamSurface::Tests::Flags)
 bool FDreamSurfaceWeatherAtTest::RunTest(const FString& Parameters)
 {
@@ -653,7 +703,8 @@ bool FDreamSurfaceInteractionTest::RunTest(const FString& Parameters)
 		for (int32 i = 0; i < 400; ++i)
 		{
 			const FVector P(i * 37.0, i * 11.0, 0.0);
-			const float H = DreamWind::Hlsl::DSF_Hollow(float(P.X), float(P.Y), 260.0f);
+			// The materials' puddle pattern (DSM_Realistic): small hollows of Puddle Scale.
+			const float H = DreamWind::Hlsl::DSF_Hollow(float(P.X) + 57.0f, float(P.Y) - 23.0f, UDreamSurfaceSettings::Get()->PuddleScale);
 			if (H > Deepest) { Deepest = H; Dip = P; }
 			if (H < Highest) { Highest = H; Crest = P; }
 		}
