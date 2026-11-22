@@ -768,10 +768,14 @@ twilight, where the earth's shadow edge is read from tables of finite resolution
 the moon and what it lets through, from the same model and tables
 (`Shaders/Private/DreamAtmosphereAerial.usf`); a full-screen pass lays it over the opaque scene by its depth, before the
 depth of field. Distant land turns blue and pale and meets the sky at the horizon; at night only the moon's faint light
-is in it. The sky dome (beyond *Sky Distance*) is left alone: it carries the air already. The world's own view
-extension draws it (`FDreamAtmosphereViewExtension`, ahead of the sky's passes there); no extension hook comes between
-the lighting and the translucency, where the engine's fog goes, so near translucency takes the air of what stands behind
-it (little, that near). *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
+is in it. The sky is left alone (the far plane, and the dome beyond *Sky Distance*): the dome carries the air already,
+and the sky cloud renderer lays its own haze over its clouds by their depth. The world's own view extension draws it
+(`FDreamAtmosphereViewExtension`, priority 10: extensions run highest first, so it comes before every pass the sky's
+extension adds there, the clouds it lays over the scene from above the cloud base among them, which therefore never
+take this air twice). No extension hook comes between the lighting and the translucency, where the engine's fog goes
+(`PrePostProcessPass` takes the renderer's internal inputs, out of a plugin's reach), so near translucency takes the air
+of what stands behind it: little, that near. The way to have it exact later: a material function for translucent
+materials that reads the volume at the pixel's own depth, and the composite leaving those pixels to it. *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
 Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea level, the volume's cells and steps;
 `r.DreamAtmosphere.AerialPerspective 0` turns it off to compare. **The height fog is the weather's**: the air itself is
 the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
