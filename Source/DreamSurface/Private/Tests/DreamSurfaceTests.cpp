@@ -168,7 +168,9 @@ bool FDreamSurfaceFormulaTest::RunTest(const FString& Parameters)
 	// Snow: settles in the cold, not on warm ground; melts above freezing and the melt wets.
 	const FDreamSurfaceState Snowed = Run(Dry, Drive(0, 1, -5, 0, 0, 0), 6.0f, 24);
 	TestTrue(TEXT("six hours of heavy snow lay a full cover"), Snowed.Snow > 0.95f);
-	TestTrue(TEXT("snow on warm ground melts as it lands"), Run(Dry, Drive(0, 1, 6, 0, 0, 0), 2.0f, 8).Snow < 0.01f);
+	const FDreamSurfaceState WarmSnow = Run(Dry, Drive(0, 1, 6, 0, 0, 0), 2.0f, 8);
+	TestTrue(TEXT("snow on warm ground melts as it lands"), WarmSnow.Snow < 0.01f);
+	TestTrue(TEXT("and wets it as rain would"), WarmSnow.Wetness > 0.99f);
 	TestTrue(TEXT("snow holds below freezing"), Run(Snowed, Drive(0, 0, -5, 0, 1, 0), 12.0f, 48).Snow > 0.95f);
 	const FDreamSurfaceState Thawed = Run(Snowed, Drive(0, 0, 10, 0, 1, 0), 4.0f, 16);
 	TestTrue(TEXT("a sunny thaw melts it"), Thawed.Snow < Snowed.Snow - 0.3f);
@@ -361,6 +363,13 @@ bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
 	Dry->Zone->Extent = FVector2D(1500, 1500);
 	Dry->Zone->BlendDistance = 600.0f;
 	Dry->Zone->Channels.Add(Channel_Precipitation, 0.0f);
+	// And a cold zone 40 m west where what falls is snow: its snow ratio and temperature reach the map too.
+	ADreamWeatherZone* Cold = W.World->SpawnActor<ADreamWeatherZone>(FVector(-4000, 0, 0), FRotator::ZeroRotator, Params);
+	Cold->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Cold->Zone->Extent = FVector2D(1500, 1500);
+	Cold->Zone->BlendDistance = 600.0f;
+	Cold->Zone->Channels.Add(Channel_SnowRatio, 1.0f);
+	Cold->Zone->Channels.Add(Channel_Temperature, -25.0f);
 
 	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
 	// An hour and a bit after the rain: drying, the water still standing (values between the ends).
@@ -400,7 +409,9 @@ bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
 	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(-1200, 300), TEXT("near, in the rain"));
 	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(4000, 0), TEXT("near, in the dry zone"));
 	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(5800, 0), TEXT("near, at the zone's edge"));
+	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(-4000, 200), TEXT("near, in the cold zone"));
 	Check(Far, Maps->GetFarCenter(), Maps->GetFarExtent(), FVector2D(0, 0), TEXT("far, at the view"));
+	TestTrue(TEXT("the cold zone holds snow"), W.Surface->SampleSurface(FVector(-4000, 200, 0)).Snow > 0.3f);
 	return true;
 }
 

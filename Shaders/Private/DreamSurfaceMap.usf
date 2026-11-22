@@ -4,22 +4,32 @@
 // DreamSurfaceShared.h), and how high something covers it (the cover map).
 //
 // The state is the same integral a CPU query runs (UDreamSurfaceSubsystem::SampleSurface): the weather of every step of
-// the memory, the zones applied to it where the texel is (DreamWeatherShared.h, as the weather map does), then the
-// surface formula. The whole steps are integrated when a step goes by or the map moves (into StepStart); each update in
-// between only adds the part of the current step gone by. What the map does not know is the cover: it holds the state
-// in the open, and a material lowers it where the cover map says something is overhead.
+// the memory, the zones applied to it where the texel is (their footprint is DreamWeatherShared.h's, as the weather map
+// applies them, and here they bend the snow ratio, temperature, dust and wind too), then the surface formula. The whole
+// steps are integrated when a step goes by or the map moves (into StepStart); each update in between only adds the part
+// of the current step gone by. What the map does not know is the cover: it holds the state in the open, and a material
+// lowers it where the cover map says something is overhead.
 
 #include "/Engine/Private/Common.ush"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamWeatherShared.h"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
 
+// A zone here is four float4s: DreamWeatherShared.h's three, then (snow ratio, temperature offset, dust, wind), a value
+// below DSM_UNSET meaning "not set here".
+#define DSM_ZONE_FLOAT4S 4
+#define DSM_UNSET -9999.0f
+// A step is three float4s: the global weather (coverage, darkness, precipitation, snow ratio), the global channels
+// (temperature offset, dust, wind, -), the air (the view's temperature less its offset, the sun's Z, -, -).
+#define DSM_STEP_FLOAT4S 3
+
 float4 Rates0;
 float4 Rates1;
 float4 Rates2;
-uint NumSteps;          // whole steps in Steps (two float4 each: weather, air)
+uint NumSteps;          // whole steps in Steps
 float StepHours;
-float4 PartialWeather;  // the current step's weather and air
+float4 PartialWeather;  // the current step's three float4s
+float4 PartialChannels;
 float4 PartialAir;
 float PartialHours;     // how much of the current step has gone by
 float2 PrecipitationGate;
@@ -40,16 +50,46 @@ float2 TexelWorld(uint2 Id)
 	return MapCenter + (UV - 0.5f) * MapExtent;
 }
 
-// A step's weather at the texel: the zones there, then the cloud gate on the precipitation (DreamWeatherMap.usf's way).
-float4 WeatherHere(float4 Global, float2 P)
+float DSM_Pull(float Current, float ZoneValue, float W)
+{
+	return ZoneValue < DSM_UNSET ? Current : lerp(Current, ZoneValue, W);
+}
+
+struct FDreamSurfaceTexelDrive
+{
+	float4 D0;
+	float4 D1;
+};
+
+// A step's drive in the open at the texel: the zones there (in priority order), the cloud gate on the precipitation,
+// the temperature of the view's hour with the offset there, then DreamSurfaceShared.h's open drive.
+FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, float2 P)
 {
 	float3 V = Global.xyz;
+	float SnowRatio = Global.w;
+	float TempOffset = Channels.x;
+	float Dust = Channels.y;
+	float Wind = Channels.z;
 	for (uint i = 0; i < NumZones; ++i)
 	{
-		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2]);
+		float4 Z0 = Zones[i * DSM_ZONE_FLOAT4S + 0];
+		float4 Z1 = Zones[i * DSM_ZONE_FLOAT4S + 1];
+		float4 Z2 = Zones[i * DSM_ZONE_FLOAT4S + 2];
+		float4 Z3 = Zones[i * DSM_ZONE_FLOAT4S + 3];
+		V = DWX_ApplyZone(V, P, Z0, Z1, Z2);
+		float W = DWX_ZoneWeight(P, Z0, Z1, Z2.w);
+		SnowRatio = DSM_Pull(SnowRatio, Z3.x, W);
+		TempOffset = DSM_Pull(TempOffset, Z3.y, W);
+		Dust = DSM_Pull(Dust, Z3.z, W);
+		Wind = DSM_Pull(Wind, Z3.w, W);
 	}
 	V = DWX_GatePrecipitation(V, PrecipitationGate);
-	return float4(V, Global.w);
+	float4 Weather = float4(V.x, V.y, V.z, SnowRatio);
+	float4 Here = float4(Air.x + TempOffset, Wind, Dust, Air.y);
+	FDreamSurfaceTexelDrive D;
+	D.D0 = DSF_OpenD0(Weather, Here);
+	D.D1 = DSF_OpenD1(Weather, Here);
+	return D;
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -66,9 +106,8 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		S = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		for (uint k = 0; k < NumSteps; ++k)
 		{
-			float4 W = WeatherHere(Steps[k * 2 + 0], P);
-			float4 A = Steps[k * 2 + 1];
-			S = DSF_Step(S, DSF_OpenD0(W, A), DSF_OpenD1(W, A), Rates0, Rates1, Rates2, StepHours);
+			FDreamSurfaceTexelDrive D = DriveHere(Steps[k * DSM_STEP_FLOAT4S + 0], Steps[k * DSM_STEP_FLOAT4S + 1], Steps[k * DSM_STEP_FLOAT4S + 2], P);
+			S = DSF_Step(S, D.D0, D.D1, Rates0, Rates1, Rates2, StepHours);
 		}
 		StepStart[DispatchThreadId.xy] = S;
 	}
@@ -76,8 +115,8 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	{
 		S = StepStart[DispatchThreadId.xy];
 	}
-	float4 W = WeatherHere(PartialWeather, P);
-	OutMap[DispatchThreadId.xy] = DSF_Step(S, DSF_OpenD0(W, PartialAir), DSF_OpenD1(W, PartialAir), Rates0, Rates1, Rates2, PartialHours);
+	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, P);
+	OutMap[DispatchThreadId.xy] = DSF_Step(S, D.D0, D.D1, Rates0, Rates1, Rates2, PartialHours);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

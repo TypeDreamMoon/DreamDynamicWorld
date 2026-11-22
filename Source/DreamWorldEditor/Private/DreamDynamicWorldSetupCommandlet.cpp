@@ -442,6 +442,10 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 			bOk &= BuildCloudTestMap(Style, Presets.FindRef(TEXT("WP_Clear")));
 		}
 	}
+	if (FParse::Param(*Params, TEXT("SurfaceTestMap")))
+	{
+		bOk &= BuildSurfaceTestMap(Style);
+	}
 	UE_LOG(LogDreamWorld, Display, TEXT("DreamDynamicWorldSetup: %s"), bOk ? TEXT("done") : TEXT("FAILED"));
 	return bOk ? 0 : 1;
 }

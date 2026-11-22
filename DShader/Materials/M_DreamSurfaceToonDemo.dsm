@@ -1,0 +1,65 @@
+// DreamSurface demo: a toon material with the weather on it. A minimal cel look of its own (unlit: two bands of the sun,
+// a sky-tinted shade, one highlight band whose width the roughness sets - lower roughness, wider band), fed by the toon
+// weather function's attributes, so the weather shifts the bands rather than darkening the surface.
+
+VirtualFunction(Name="MF_DreamSurfaceWeatherToon")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon");
+		Description = "DreamSurface: the weather on a toon surface.";
+	}
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+	Outputs = {
+		MaterialAttributes Result;
+	}
+}
+
+Function float3 DreamSurfaceToonDemo_Cel(in float3 Color, in float Rough, in float3 N, in float3 V, in float4 Sun, in float3 Zenith)
+{
+	float3 L = normalize(Sun.xyz + float3(0.0f, 0.0f, 1.0e-4f));
+	float Day = saturate(L.z * 6.0f + 0.3f);
+	float NdotL = dot(N, L);
+	float Lit = smoothstep(0.02f, 0.08f, NdotL) * Day;
+	float3 Shade = Color * lerp(float3(0.42f, 0.45f, 0.55f), Zenith * 1.4f, 0.35f);
+	float3 Base = lerp(Shade, Color, Lit);
+	float3 H = normalize(L + V);
+	float Width = lerp(0.015f, 0.12f, saturate(1.0f - Rough));
+	float Spec = smoothstep(1.0f - Width - 0.004f, 1.0f - Width + 0.004f, dot(N, H)) * Lit;
+	return Base + Spec * 0.45f;
+}
+
+Shader(Name="Surface/Materials/M_DreamSurfaceToonDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  Tint      = vec3(0.85, 0.42, 0.32) [Group="Toon"];
+		float Roughness = 0.6                    [Group="Toon"];
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SunDir") SunDir;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyZenith") Zenith;
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "Unlit";
+	}
+
+	Outputs = {
+		MaterialAttributes Attrs;
+		Base.MaterialAttributes = Attrs;
+	}
+
+	Graph = {
+		MaterialAttributes Dry;
+		Dry.BaseColor = Tint;
+		Dry.Roughness = Roughness;
+		MaterialAttributes Wet;
+		MF_DreamSurfaceWeatherToon(Dry, Wet);
+		float3 N = UE.VertexNormalWS();
+		float3 V = UE.CameraVectorWS();
+		Attrs = Wet;
+		Attrs.EmissiveColor = DreamSurfaceToonDemo_Cel(Wet.BaseColor, Wet.Roughness, N, V, SunDir, Zenith.rgb);
+	}
+}

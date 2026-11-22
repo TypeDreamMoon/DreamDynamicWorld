@@ -6,9 +6,11 @@
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
 
+#include "DreamWeatherChannels.h"
 #include "DreamWeatherSettings.h"
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherSubsystem.h"
+#include "DreamWeatherZone.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWorldSubsystem.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -35,6 +37,52 @@ namespace DreamSurface::Maps
 			RT->UpdateResourceImmediate(false);
 		}
 		return RT;
+	}
+
+	/**
+	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf, four float4 each), in the order the weather
+	 * applies them: the weather map's three (footprint and coverage, darkness, precipitation), then the snow ratio,
+	 * temperature offset, dust and wind (below -9999: not set). Override zones only, as the weather map takes them.
+	 */
+	TArray<FVector4f> GatherZones(const UWorld* World, int32 MaxZones)
+	{
+		using C = FDreamWeatherChannels;
+		TArray<const UDreamWeatherZoneComponent*> Zones;
+		for (TObjectIterator<UDreamWeatherZoneComponent> It; It; ++It)
+		{
+			const UDreamWeatherZoneComponent* Zone = *It;
+			if (Zone && Zone->GetWorld() == World && Zone->IsRegistered() && Zone->bDrawIntoWeatherMap && Zone->Blend == EDreamWeatherBlend::Override && Zone->Weight > 0.0f)
+			{
+				Zones.Add(Zone);
+			}
+		}
+		Zones.StableSort([](const UDreamWeatherZoneComponent& A, const UDreamWeatherZoneComponent& B)
+		{
+			const int32 PA = A.GetWeatherInfluencePriority();
+			const int32 PB = B.GetWeatherInfluencePriority();
+			return PA != PB ? PA < PB : A.GetWeatherInfluenceStableId() < B.GetWeatherInfluenceStableId();
+		});
+		// Too many: keep the highest priorities, which are last.
+		if (Zones.Num() > MaxZones)
+		{
+			Zones.RemoveAt(0, Zones.Num() - MaxZones);
+		}
+		TArray<FVector4f> Out;
+		for (const UDreamWeatherZoneComponent* Zone : Zones)
+		{
+			auto Value = [Zone](int32 Channel, float Unset)
+			{
+				float V;
+				return Zone->GetChannelValue(Channel, V) ? V : Unset;
+			};
+			const FVector Location = Zone->GetComponentLocation();
+			const double Yaw = FMath::DegreesToRadians(Zone->GetComponentRotation().Yaw);
+			Out.Add(FVector4f(float(Location.X), float(Location.Y), float(FMath::Cos(Yaw)), float(FMath::Sin(Yaw))));
+			Out.Add(FVector4f(float(Zone->Extent.X), float(Zone->Extent.Y), Zone->BlendDistance, Zone->Shape == EDreamWeatherZoneShape::Circle ? 1.0f : 0.0f));
+			Out.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), FMath::Clamp(Zone->Weight, 0.0f, 1.0f)));
+			Out.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
+		}
+		return Out;
 	}
 
 	/** Minus the centre (add a world position), 1 / extent, 1 when live: what a material needs to find its texel. */
@@ -127,7 +175,7 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	}
 
 	const double Now = FPlatformTime::Seconds();
-	const TArray<FVector4f>& Zones = Weather.GetMapZones();
+	const TArray<FVector4f> Zones = DreamSurface::Maps::GatherZones(World, FMath::Max(1, UDreamWeatherSettings::Get()->MaxMapZones));
 	const bool bZonesChanged = Zones != LastZones || bIntegrateRequested || DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0;
 	LastZones = Zones;
 	bIntegrateRequested = false;
@@ -173,6 +221,7 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	}
 	Args.StepHours = float(UDreamSurfaceSubsystem::StepSeconds() / 3600.0);
 	Args.PartialWeather = Steps.PartialWeather;
+	Args.PartialChannels = Steps.PartialChannels;
 	Args.PartialAir = Steps.PartialAir;
 	Args.PartialHours = Steps.PartialHours;
 	const FDreamSurfaceRates& Rates = UDreamSurfaceSettings::Get()->Rates;
@@ -180,7 +229,7 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.Rates[1] = Rates.R1();
 	Args.Rates[2] = Rates.R2();
 	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
-	Args.Zones = Weather.GetMapZones();
+	Args.Zones = LastZones;
 	Renderer->EnqueueState(Slot, MoveTemp(Args));
 	Map.Center = Center;
 	Map.Extent = Extent;

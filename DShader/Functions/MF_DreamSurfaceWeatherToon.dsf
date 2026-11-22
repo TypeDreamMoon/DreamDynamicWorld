@@ -1,0 +1,126 @@
+// DreamSurface - the weather on a surface, toon: colour bands shift instead of the physical darkening.
+//
+// MF_DreamSurfaceWeatherToon(Attributes) -> Attributes
+//
+// A toon surface keeps its flat colour blocks; the weather moves them:
+//   wet     the block's value drops a little and its saturation rises; the roughness drops, which a toon material reads
+//           as a wider highlight band
+//   water   puddles with a hard (antialiased) edge: a cheap reflection of the sky's colour, a bright ring at the rim,
+//           and while it rains hard-edged ripple rings on them and wet dots where the surface is not soaked
+//   snow    a hard-edged cover, pale blue-white
+//   dust    the block shifts toward the dust's colour, with a hard edge
+// The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
+// DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
+
+Function float4 DreamSurfaceToon_Shown(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params,
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler);
+	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float4 DreamSurfaceToon_Covers(in float3 WorldPos, in float4 State, in float Up)
+{
+	// (puddle, snow, dust) covers, soft; the graph hardens their edges.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
+	float Snow = DSF_SnowCover(State.z, Up, Hollow);
+	return float4(DSF_PuddleCover(State.y, Up, Hollow), Snow, State.w * saturate(Up * 1.2f + 0.1f), 0.0f);
+}
+
+Function float DreamSurfaceToon_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_RainHere(Weather0, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float2 DreamSurfaceToon_Drops(in float3 WorldPos, in float Time, in float Rain)
+{
+	// The rain's rings on the puddles (their brightness) and its wet spots, for hard-edged lines and dots.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	if (Rain <= 0.0f)
+	{
+		return float2(0.0f, 0.0f);
+	}
+	return float2(DSM_Ripples(WorldPos.xy, Time, Rain, 22.0f).z, DSM_WetSpots(WorldPos.xy, Time, Rain));
+}
+
+Function float3 DreamSurfaceToon_Shift(in float3 Color, in float Wet)
+{
+	// Value down a little, saturation up: the block stays a block.
+	float Luma = dot(Color, float3(0.299f, 0.587f, 0.114f));
+	return max(lerp(float3(Luma, Luma, Luma), Color, 1.0f + 0.35f * Wet) * (1.0f - 0.18f * Wet), 0.0f);
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: the weather on a toon surface - colour bands shift (no physical darkening), hard-edged puddles and snow. Attributes in, attributes out: put it last.";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
+		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
+		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyZenith") Zenith;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyHorizon") Horizon;
+	}
+
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+
+	Outputs = {
+		MaterialAttributes Result;
+	}
+
+	Graph = {
+		float3 WP = UE.WorldPosition();
+		float Up = saturate(UE.VertexNormalWS().z);
+		float4 State = DreamSurfaceToon_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap);
+		float4 Covers = DreamSurfaceToon_Covers(WP, State, Up);
+		float3 Color = Attributes.BaseColor;
+		float Rough = Attributes.Roughness;
+
+		// The rain landing now: hard-edged wet dots where the surface is not soaked yet, rings on the puddles.
+		float Rain = DreamSurfaceToon_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
+		float2 Drops = DreamSurfaceToon_Drops(WP, UE.Time(), Rain);
+		float Wet = max(State.x, smoothstep(0.45, 0.55, Drops.y) * 0.8 * saturate(Up * 2.0));
+
+		// Wet: the block shifts, the highlight band widens.
+		Color = DreamSurfaceToon_Shift(Color, Wet);
+		Rough = lerp(Rough, Rough * 0.35, Wet);
+
+		// Puddles: a hard edge, the sky's colour for a reflection, a bright ring at the rim.
+		float Puddle = smoothstep(0.45, 0.55, Covers.x);
+		float Rim = smoothstep(0.3, 0.42, Covers.x) - Puddle;
+		float3 Sky = lerp(Horizon.rgb, Zenith.rgb, 0.5);
+		Color = lerp(Color, lerp(Color * 0.45, Sky, 0.55), Puddle);
+		Color = Color + Rim * 0.12 + smoothstep(0.4, 0.6, Drops.x) * Puddle * 0.18;
+		Rough = lerp(Rough, 0.05, Puddle);
+
+		// Snow: a hard-edged cover.
+		float SnowCover = smoothstep(0.45, 0.55, Covers.y);
+		Color = lerp(Color, float3(0.9, 0.93, 1.0), SnowCover);
+		Rough = lerp(Rough, 0.7, SnowCover);
+
+		// Dust under the snow, hard-edged too.
+		float DustCover = smoothstep(0.35, 0.45, Covers.z) * (1.0 - SnowCover);
+		Color = lerp(Color, float3(0.6, 0.5, 0.36), DustCover * 0.8);
+		Rough = lerp(Rough, 0.95, DustCover);
+
+		Result = Attributes;
+		Result.BaseColor = Color;
+		Result.Roughness = Rough;
+	}
+}

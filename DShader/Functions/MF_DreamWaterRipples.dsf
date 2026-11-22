@@ -1,0 +1,48 @@
+// DreamSurface - rain ripples on any water surface (a pond, a fountain, a project's own puddle mesh).
+//
+// MF_DreamWaterRipples(Normal, WorldPosition, Scale, Intensity) -> Normal
+//
+// Rings spreading from where the drops land, more of them the harder it rains at the view (DDW_Weather0), none once
+// the rain stops. Every ring has the same rhythm, so the pattern does not shimmer under a temporal filter. Scale is the
+// size of a ring's cell (cm, some 20); Intensity scales the slope (1 = the surface functions' puddles). The same rings
+// as the puddles of MF_DreamSurfaceWeather (Shaders/Private/DreamSurfaceMaterial.ush, DSM_Ripples).
+
+Function float3 DreamWaterRipples_Normal(in float3 Normal, in float3 WorldPos, in float Scale, in float Intensity, in float4 Weather0, in float Time)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Rain = DSM_RainHere(Weather0, 1.0f);
+	if (Rain <= 0.0f)
+	{
+		return Normal;
+	}
+	float3 R = DSM_Ripples(WorldPos.xy, Time, Rain, Scale);
+	return normalize(Normal + float3(-R.x, -R.y, 0.0f) * (0.35f * Intensity));
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamWaterRipples", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: rain ripples on a water surface (tangent-space normal in and out), as many as the rain at the view brings.";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
+	}
+
+	Inputs = {
+		vec3  Normal;
+		vec3  WorldPosition;
+		float Scale;
+		float Intensity;
+	}
+
+	Outputs = {
+		vec3 Result;
+	}
+
+	Graph = {
+		Result = DreamWaterRipples_Normal(Normal, WorldPosition, Scale, Intensity, Weather0, UE.Time());
+	}
+}

@@ -25,15 +25,16 @@ public:
 		float Extent = 12800.0f;
 		/** Integrate the whole steps first (a step went by, the map moved, the zones changed). */
 		bool bIntegrate = true;
-		/** Two float4 per whole step: the global weather (coverage, darkness, precipitation, snow ratio), the air. */
+		/** Three float4 per whole step (FDreamSurfaceMapSteps::Steps). */
 		TArray<FVector4f> Steps;
 		float StepHours = 0.25f;
 		FVector4f PartialWeather = FVector4f::Zero();
+		FVector4f PartialChannels = FVector4f::Zero();
 		FVector4f PartialAir = FVector4f::Zero();
 		float PartialHours = 0.0f;
 		FVector4f Rates[3];
 		FVector2f PrecipitationGate = FVector2f::ZeroVector;
-		/** DWX_ZONE_FLOAT4S per zone, lowest priority first. */
+		/** Four float4 per zone (DreamSurfaceMap.usf), lowest priority first. */
 		TArray<FVector4f> Zones;
 	};
 
