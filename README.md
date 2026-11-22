@@ -143,7 +143,10 @@ captured light has no hot spot.
 many as wanted, each where it changes, how softly and to which tone, or a free `ToneCurve` in their place -- the half
 tone (`HalfToneMix`, `HalfToneTint`), an underside's own steps and deepest shade (`UndersideBands`,
 `UndersideDeepTint`), how the light on a billow is reckoned (`KeyFacing`, `KeyUp`, `KeyHeight`, `KeyHeightPivot`,
-`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side.
+`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side; its `Advanced` group has the rest -- how deep a cloud toward the light casts
+its shade, the shade's own light (base, facing up, thin, high), the low sun's colour, an underside's glow, a deck's
+sunlit top, where the silver lining comes on, how much of a storm's darkening the tops keep, how far clouds sink into
+the sky's colour, and the size and tearing of the cracks in a thinning deck.
 The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
 and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
 of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of

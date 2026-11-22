@@ -524,7 +524,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2, "the toon ramps, two samples a vector, after the 18 looks' vectors");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7, "the toon ramps, two samples a vector, after the 18 looks' vectors; then the toon's finer settings");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -555,6 +555,10 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	{
 		const FVector2f A = Toon.Ramp[2 * Index], B = Toon.Ramp[2 * Index + 1];
 		Out[18 + Index] = FVector4f(A.X, A.Y, B.X, B.Y);
+	}
+	for (int32 Index = 0; Index < 7; ++Index)
+	{
+		Out[18 + FDreamSkyToonBaked::RampSize / 2 + Index] = Toon.Advanced[Index];
 	}
 }
 

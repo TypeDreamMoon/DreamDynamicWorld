@@ -677,6 +677,14 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("and its own half tone, underside, key and rim"), Baked.Half == FVector4f(0.96f, 0.97f, 1.03f, 0.55f)
 		&& Baked.Deep == FVector4f(0.62f, 0.64f, 0.7f, 0.35f) && Baked.Key == FVector4f(0.7f, 0.45f, 0.5f, 0.55f)
 		&& Baked.Key2 == FVector4f(-0.3f, 0.6f, 3.0f, 2.0f) && Baked.RimFocus == 4.0f);
+	const FDreamSkyToonBaked Fixed;
+	bool bAdvanced = true;
+	for (int32 Index = 0; Index < 7; ++Index)
+	{
+		const FVector4f D = Baked.Advanced[Index] - Fixed.Advanced[Index];
+		bAdvanced &= FMath::Max(FMath::Max(FMath::Abs(D.X), FMath::Abs(D.Y)), FMath::Max(FMath::Abs(D.Z), FMath::Abs(D.W))) < 1.0e-3f;
+	}
+	TestTrue(TEXT("and its own finer settings"), bAdvanced);
 
 	// A curve in place of the bands.
 	FDreamSkyToonClouds Curved;

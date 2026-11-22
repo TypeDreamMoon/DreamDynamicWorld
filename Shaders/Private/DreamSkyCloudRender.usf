@@ -60,7 +60,7 @@ float4 Parameters[21];
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[146];
+float4 LookParameters[153];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -82,6 +82,13 @@ float DSkyR_ToonRamp(float X, int Channel)
 #define DSKY_TOON_KEY LookParameters[13]
 #define DSKY_TOON_KEY2 LookParameters[14]
 #define DSKY_TOON_RIM LookParameters[15].x
+#define DSKY_TOON_ADV0 LookParameters[146]
+#define DSKY_TOON_ADV1 LookParameters[147]
+#define DSKY_TOON_ADV2 LookParameters[148]
+#define DSKY_TOON_ADV3 LookParameters[149]
+#define DSKY_TOON_ADV4 LookParameters[150]
+#define DSKY_TOON_ADV5 LookParameters[151]
+#define DSKY_TOON_ADV6 LookParameters[152]
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"

@@ -427,6 +427,14 @@ void FDreamSkyToonClouds::Bake(FDreamSkyToonBaked& Out) const
 	Out.Key = FVector4f(KeyFacing, KeyUp, KeyHeight, FMath::Clamp(StormLitDarkening, 0.0f, 1.0f));
 	Out.Key2 = FVector4f(KeyLow, FMath::Max(KeyRange, 0.01f), FMath::Max(RimPower, 0.5f), FMath::Max(RimStrength, 0.0f));
 	Out.RimFocus = FMath::Max(RimFocus, 0.5f);
+	const FDreamSkyToonAdvanced& A = Advanced;
+	Out.Advanced[0] = FVector4f(FMath::Max(A.CastDepth, 1.0f) * 100.0f, A.CastFrom, FMath::Max(A.CastTo, A.CastFrom + 0.001f), FMath::Max(A.ThinColumn, 1.0f) * 100.0f);
+	Out.Advanced[1] = FVector4f(A.AmbientBase, A.AmbientUp, A.AmbientThin, A.AmbientHeight);
+	Out.Advanced[2] = FVector4f(A.UndersideSelfShade, A.WarmFrom, FMath::Max(A.WarmTo, A.WarmFrom + 0.001f), A.WarmTowardSun);
+	Out.Advanced[3] = FVector4f(A.UndersideGaps, A.UndersideFlanks, A.UndersideTowardSun, A.UndersideInStorm);
+	Out.Advanced[4] = FVector4f(A.DeckLitFrom, FMath::Max(A.DeckLitTo, A.DeckLitFrom + 0.001f), A.DeckTopFrom, FMath::Max(A.DeckTopTo, A.DeckTopFrom + 0.001f));
+	Out.Advanced[5] = FVector4f(A.RimHeightFrom, FMath::Max(A.RimHeightTo, A.RimHeightFrom + 0.001f), A.StormTopDarkening, FMath::Max(A.CrackScale, 0.1f));
+	Out.Advanced[6] = FVector4f(FMath::Max(A.VeilPower, 0.1f), FMath::Max(A.VeilStormPower, 0.0f), FMath::Max(A.CrackTear, 0.0f), 0.0f);
 }
 
 void FDreamSkyToonBaked::BlendToward(const FDreamSkyToonBaked& To, float Alpha)
@@ -449,4 +457,8 @@ void FDreamSkyToonBaked::BlendToward(const FDreamSkyToonBaked& To, float Alpha)
 	Key = FMath::Lerp(Key, To.Key, Alpha);
 	Key2 = FMath::Lerp(Key2, To.Key2, Alpha);
 	RimFocus = FMath::Lerp(RimFocus, To.RimFocus, Alpha);
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Advanced); ++Index)
+	{
+		Advanced[Index] = FMath::Lerp(Advanced[Index], To.Advanced[Index], Alpha);
+	}
 }
