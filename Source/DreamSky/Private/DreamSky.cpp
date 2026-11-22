@@ -427,6 +427,14 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.BillowShade = P.BillowShade;
 		Out.PaintLitTint = P.LitTint;
 		Out.PaintShadeTint = P.ShadeTint;
+		Out.PaintHalfToneMix = P.HalfToneMix;
+		Out.PaintHalfToneTint = P.HalfToneTint;
+		Out.PaintKeyFalloff = P.KeyFalloff;
+		Out.PaintRimFalloff = P.RimFalloff;
+		Out.PaintRimPower = P.RimPower;
+		Out.PaintShadeAtBase = P.ShadeAtBase;
+		Out.PaintBaseFloor = P.BaseFloor;
+		Effective->ToonClouds.Bake(Out.Toon);
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}
 	Out.SunScattering = CloudSunScattering;

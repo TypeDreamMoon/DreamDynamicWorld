@@ -93,6 +93,25 @@ namespace DreamSky::Console
 			S.bOverride_LunarEclipse = true;
 			S.LunarEclipse = 1.0f;
 		}
+		else if (Name.Equals(TEXT("ToonSteps"), ESearchCase::IgnoreCase))
+		{
+			// The toon clouds in four hard steps, the half tones warmer, a brighter silver lining.
+			S.bOverride_ToonClouds = true;
+			S.ToonClouds.Bands = { FDreamSkyToneBand(0.18f, 0.0f, 0.33f), FDreamSkyToneBand(0.42f, 0.0f, 0.66f), FDreamSkyToneBand(0.7f, 0.0f, 1.0f) };
+			S.ToonClouds.HalfToneTint = FLinearColor(1.06f, 0.96f, 0.9f);
+			S.ToonClouds.RimStrength = 4.0f;
+		}
+		else if (Name.Equals(TEXT("ToonSoft"), ESearchCase::IgnoreCase))
+		{
+			// The toon clouds shaded smoothly along a curve, their undersides deeper.
+			S.bOverride_ToonClouds = true;
+			S.ToonClouds.bUseToneCurve = true;
+			S.ToonClouds.ToneCurve.GetRichCurve()->Reset();
+			S.ToonClouds.ToneCurve.GetRichCurve()->AddKey(0.0f, 0.0f);
+			S.ToonClouds.ToneCurve.GetRichCurve()->AddKey(0.75f, 1.0f);
+			S.ToonClouds.UndersideDeepTint = FLinearColor(0.4f, 0.42f, 0.52f);
+			S.ToonClouds.UndersideBands = { FDreamSkyToneBand(0.4f, 0.6f, 0.5f), FDreamSkyToneBand(0.85f, 0.3f, 1.0f) };
+		}
 		else if (Name.Equals(TEXT("Clear"), ESearchCase::IgnoreCase))
 		{
 			S.bOverride_CloudCoverage = true;
@@ -106,7 +125,7 @@ namespace DreamSky::Console
 		}
 		else
 		{
-			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear, Aurora, City, Eclipse, BloodMoon)."), *Name);
+			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear, Aurora, City, Eclipse, BloodMoon, ToonSteps, ToonSoft)."), *Name);
 			return nullptr;
 		}
 		return M;
@@ -128,7 +147,7 @@ namespace DreamSky::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs AddCommand(
 		TEXT("DreamSky.Modifier.Add"),
-		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear | Aurora | City | Eclipse | BloodMoon> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
+		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear | Aurora | City | Eclipse | BloodMoon | ToonSteps | ToonSoft> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamSkySubsystem* Sky = Find(World);

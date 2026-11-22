@@ -655,4 +655,58 @@ bool FDreamSkyCatalogueStarsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyToonTonesTest, "DreamSky.ToonTones", DreamSky::NightTests::Flags)
+bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	// The defaults bake the look's own tones: its fixed steps before they could be set.
+	const FDreamSkyToonClouds Defaults;
+	FDreamSkyToonBaked Baked;
+	Defaults.Bake(Baked);
+	TestEqual(TEXT("a ramp of 256 samples"), Baked.Ramp.Num(), FDreamSkyToonBaked::RampSize);
+	float Worst = 0.0f;
+	for (int32 Index = 0; Index < Baked.Ramp.Num(); ++Index)
+	{
+		const float X = float(Index) / 255.0f;
+		const float Tone = 0.5f * FMath::SmoothStep(0.24f, 0.28f, X) + 0.5f * FMath::SmoothStep(0.56f, 0.6f, X);
+		const float Under = 0.5f * FMath::SmoothStep(0.05f, 0.35f, X) + 0.5f * FMath::SmoothStep(0.45f, 0.8f, X);
+		Worst = FMath::Max(Worst, FMath::Max(FMath::Abs(Baked.Ramp[Index].X - Tone), FMath::Abs(Baked.Ramp[Index].Y - Under)));
+	}
+	TestTrue(FString::Printf(TEXT("the defaults are the look's own steps (%.2e)"), Worst), Worst < 1.0e-5f);
+	TestTrue(TEXT("and its own half tone, underside, key and rim"), Baked.Half == FVector4f(0.96f, 0.97f, 1.03f, 0.55f)
+		&& Baked.Deep == FVector4f(0.62f, 0.64f, 0.7f, 0.35f) && Baked.Key == FVector4f(0.7f, 0.45f, 0.5f, 0.55f)
+		&& Baked.Key2 == FVector4f(-0.3f, 0.6f, 3.0f, 2.0f) && Baked.RimFocus == 4.0f);
+
+	// A curve in place of the bands.
+	FDreamSkyToonClouds Curved;
+	Curved.bUseToneCurve = true;
+	Curved.ToneCurve.GetRichCurve()->Reset();
+	Curved.ToneCurve.GetRichCurve()->AddKey(0.0f, 0.0f);
+	Curved.ToneCurve.GetRichCurve()->AddKey(1.0f, 1.0f);
+	FDreamSkyToonBaked FromCurve;
+	Curved.Bake(FromCurve);
+	TestNearlyEqual(TEXT("a curve drawn instead of the bands"), FromCurve.Ramp[128].X, 128.0f / 255.0f, 0.02f);
+
+	// A sky modifier blends to its own tones as it fades in.
+	FNightWorld W(FDateTime(2026, 6, 21, 12, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("noon world"), W.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("the sky's look carries the style's tones"), W.SkySubsystem->GetLook().Toon.IsValid()
+		&& FMath::IsNearlyEqual(W.SkySubsystem->GetLook().Toon.Ramp[100].X, Baked.Ramp[100].X));
+	UDreamSkyModifier* Flat = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Flat->Settings.bOverride_ToonClouds = true;
+	Flat->Settings.ToonClouds.Bands = { FDreamSkyToneBand(0.1f, 0.0f, 1.0f) };
+	Flat->Settings.ToonClouds.HalfToneMix = 0.95f;
+	W.SkySubsystem->SetModifierAlpha(Flat, 0.5f);
+	W.Clock->Tick(0.016f);
+	const FDreamSkyToonBaked& Half = W.SkySubsystem->GetLook().Toon;
+	TestNearlyEqual(TEXT("halfway to its tones at half strength"), Half.Ramp[100].X, 0.5f * (Baked.Ramp[100].X + 1.0f), 1.0e-4f);
+	TestNearlyEqual(TEXT("and halfway to its half tone"), Half.Half.W, 0.5f * (0.55f + 0.95f), 1.0e-4f);
+	W.SkySubsystem->RemoveModifier(Flat);
+	return true;
+}
+
 #endif

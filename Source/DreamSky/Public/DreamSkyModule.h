@@ -23,6 +23,7 @@ namespace DreamSky::Names
 	inline const FName MPC_MoonHalo(TEXT("DDW_MoonHalo"));        // rgb, a = halo exponent
 	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, the share of them (dimmest first) hidden
 	inline const FName MPC_StarPole(TEXT("DDW_StarPole"));        // xyz the north celestial pole in the world, w 1 = the catalogue's stars (T_DreamStarMap), 0 = the stylized ones
+	inline const FName MPC_AuroraTones(TEXT("DDW_AuroraTones"));  // the banded aurora's three steps, how soft their edges
 	inline const FName MPC_MilkyWay(TEXT("DDW_MilkyWay"));        // rgb its tint times how bright it shows (0 = not drawn), a contrast (a power)
 	inline const FName MPC_MilkyWayDust(TEXT("DDW_MilkyWayDust")); // x how dark its dust lanes, y saturation, -, -
 	inline const FName MPC_StarEquinox(TEXT("DDW_StarEquinox"));  // xyz the March equinox (0 h, 0 degrees) in the world, w how much brighter a magnitude is (1 = 2.512x)
