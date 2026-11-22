@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceMaps.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
 
@@ -10,10 +11,15 @@
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherSubsystem.h"
+#include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
 
+#include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "Misc/App.h"
+#include "RenderingThread.h"
+#include "TextureResource.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/Package.h"
 
@@ -330,6 +336,71 @@ bool FDreamSurfaceForcedTest::RunTest(const FString& Parameters)
 	const FDreamSurfaceState Forced = W.Surface->SampleSurface(P);
 	TestTrue(TEXT("forced rain wets the ground"), Forced.Wetness > 0.9f);
 	TestTrue(TEXT("asked again, the same"), Forced.Equals(W.Surface->SampleSurface(P), 0.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuTest, "DreamSurface.Gpu.MatchesCpu", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	FSurfaceWorld W(Sequence({ { Clear(), 6.0f }, { Rain(), 6.0f } }));
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	// A zone that keeps the rain off a circle 40 m east: the map applies it per texel, the query at its point.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherZone* Dry = W.World->SpawnActor<ADreamWeatherZone>(FVector(4000, 0, 0), FRotator::ZeroRotator, Params);
+	Dry->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Dry->Zone->Extent = FVector2D(1500, 1500);
+	Dry->Zone->BlendDistance = 600.0f;
+	Dry->Zone->Channels.Add(Channel_Precipitation, 0.0f);
+
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	// An hour and a bit after the rain: drying, the water still standing (values between the ends).
+	W.GoTo(At(37.3));
+	W.Clock->Tick(0.0f);
+	FlushRenderingCommands();
+
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Near = Maps ? Maps->GetNearMap() : nullptr;
+	UTextureRenderTarget2D* Far = Maps ? Maps->GetFarMap() : nullptr;
+	if (!TestNotNull(TEXT("near map (run the Setup)"), Near) || !TestNotNull(TEXT("far map"), Far))
+	{
+		return false;
+	}
+	TestTrue(TEXT("the maps were drawn and integrated"), Maps->GetIntegrateCount() >= 2);
+
+	auto Check = [this, &W](UTextureRenderTarget2D* Map, const FVector2D& Center, float Extent, const FVector2D& Point, const TCHAR* What)
+	{
+		TArray<FLinearColor> Pixels;
+		Map->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+		const int32 Size = Map->SizeX;
+		if (!TestEqual(TEXT("map size"), Pixels.Num(), Size * Map->SizeY))
+		{
+			return;
+		}
+		const FVector2D UV = (Point - Center) / Extent + 0.5;
+		const int32 X = FMath::Clamp(FMath::FloorToInt32(UV.X * Size), 0, Size - 1);
+		const int32 Y = FMath::Clamp(FMath::FloorToInt32(UV.Y * Size), 0, Size - 1);
+		const FVector2D Texel = Center + (FVector2D(X + 0.5, Y + 0.5) / Size - 0.5) * Extent;
+		const FLinearColor Gpu = Pixels[Y * Size + X];
+		const FDreamSurfaceState Cpu = W.Surface->SampleSurface(FVector(Texel, 0.0));
+		AddInfo(FString::Printf(TEXT("%s: GPU wet %.3f water %.3f snow %.3f dust %.3f / CPU %.3f %.3f %.3f %.3f"), What,
+			Gpu.R, Gpu.G, Gpu.B, Gpu.A, Cpu.Wetness, Cpu.Water, Cpu.Snow, Cpu.Dust));
+		TestTrue(FString::Printf(TEXT("%s: the map holds the query's state"), What),
+			Cpu.Equals(FDreamSurfaceState::FromVector(FVector4f(Gpu.R, Gpu.G, Gpu.B, Gpu.A)), 0.01f));
+	};
+	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(-1200, 300), TEXT("near, in the rain"));
+	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(4000, 0), TEXT("near, in the dry zone"));
+	Check(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(5800, 0), TEXT("near, at the zone's edge"));
+	Check(Far, Maps->GetFarCenter(), Maps->GetFarExtent(), FVector2D(0, 0), TEXT("far, at the view"));
 	return true;
 }
 

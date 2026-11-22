@@ -3,6 +3,7 @@
 #include "DreamDynamicWorldSetupCommandlet.h"
 #include "DreamCloudNoise.h"
 #include "DreamCloudTestMap.h"
+#include "DreamSurfaceSetup.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
@@ -413,6 +414,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	UDreamSkyStyle* Style = EnsureDefaultStyle(FParse::Param(*Params, TEXT("ForceStyle")));
 	bOk &= Style != nullptr;
 	bOk &= EnsureWeatherMap();
+	bOk &= EnsureSurfaceMaps();
 	bOk &= EnsureCloudPanorama();
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));

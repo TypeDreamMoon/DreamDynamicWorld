@@ -8,8 +8,22 @@
 #include "DreamWeatherTypes.h"
 #include "DreamSurfaceSubsystem.generated.h"
 
+class FDreamSurfaceMaps;
 class UDreamWeatherSubsystem;
 class UDreamWorldSubsystem;
+
+/** The steps the surface maps integrate (DreamSurfaceMap.usf), rebuilt when a step goes by or the view moves away. */
+struct FDreamSurfaceMapSteps
+{
+	/** The step they lead up to (the one in progress). */
+	int64 Step = TNumericLimits<int64>::Min();
+	/** Two float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the air at the view (temperature, wind, dust, the sun's Z). */
+	TArray<FVector4f> Steps;
+	/** The step in progress, and how much of it has gone by. */
+	FVector4f PartialWeather = FVector4f::Zero();
+	FVector4f PartialAir = FVector4f::Zero();
+	float PartialHours = 0.0f;
+};
 
 /**
  * What the weather has left on the surfaces of a world: wet, standing water, snow, dust.
@@ -79,8 +93,19 @@ public:
 	/** Runs one frame now (tests; the weather's frame normally does it). */
 	void TickForTest(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather) { OnWeatherFrame(Clock, Weather, FDreamWeatherSample(), 0.0f); }
 
+	/** The steps the surface maps integrate this frame. */
+	const FDreamSurfaceMapSteps& GetMapSteps() const { return MapSteps; }
+
+	/** The surface maps around the camera (render targets, placement); null before Initialize. */
+	const FDreamSurfaceMaps* GetMaps() const { return Maps.Get(); }
+	FDreamSurfaceMaps* GetMaps() { return Maps.Get(); }
+
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
+
 private:
 	void OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float RealDeltaSeconds);
+	void MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutAir) const;
+	void BuildMapSteps(int64 StepIndex);
 	void Record(int64 StepIndex, const FDreamWeatherValues& Global);
 	FDreamSurfaceState IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky = false) const;
 
@@ -92,6 +117,9 @@ private:
 	FDreamSurfaceState ViewStepStart;
 	int64 ViewStep = TNumericLimits<int64>::Min();
 	FVector ViewAnchor = FVector(1.0e30);
+
+	FDreamSurfaceMapSteps MapSteps;
+	TSharedPtr<FDreamSurfaceMaps> Maps;
 
 	TWeakObjectPtr<UDreamWeatherSubsystem> WeatherSubsystem;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

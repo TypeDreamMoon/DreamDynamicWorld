@@ -1,0 +1,135 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The surface maps around the camera: what the weather has left on the ground at every texel (wet, water, snow, dust,
+// DreamSurfaceShared.h), and how high something covers it (the cover map).
+//
+// The state is the same integral a CPU query runs (UDreamSurfaceSubsystem::SampleSurface): the weather of every step of
+// the memory, the zones applied to it where the texel is (DreamWeatherShared.h, as the weather map does), then the
+// surface formula. The whole steps are integrated when a step goes by or the map moves (into StepStart); each update in
+// between only adds the part of the current step gone by. What the map does not know is the cover: it holds the state
+// in the open, and a material lowers it where the cover map says something is overhead.
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWeatherShared.h"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
+
+float4 Rates0;
+float4 Rates1;
+float4 Rates2;
+uint NumSteps;          // whole steps in Steps (two float4 each: weather, air)
+float StepHours;
+float4 PartialWeather;  // the current step's weather and air
+float4 PartialAir;
+float PartialHours;     // how much of the current step has gone by
+float2 PrecipitationGate;
+float2 MapCenter;       // world cm
+float MapExtent;        // world cm the map spans
+uint NumZones;
+uint bIntegrate;        // 1: integrate the whole steps into StepStart first
+int2 Resolution;
+
+StructuredBuffer<float4> Steps;
+StructuredBuffer<float4> Zones;
+RWTexture2D<float4> StepStart;
+RWTexture2D<float4> OutMap;
+
+float2 TexelWorld(uint2 Id)
+{
+	float2 UV = (float2(Id) + 0.5f) / float2(Resolution);
+	return MapCenter + (UV - 0.5f) * MapExtent;
+}
+
+// A step's weather at the texel: the zones there, then the cloud gate on the precipitation (DreamWeatherMap.usf's way).
+float4 WeatherHere(float4 Global, float2 P)
+{
+	float3 V = Global.xyz;
+	for (uint i = 0; i < NumZones; ++i)
+	{
+		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2]);
+	}
+	V = DWX_GatePrecipitation(V, PrecipitationGate);
+	return float4(V, Global.w);
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= (uint)Resolution.x || DispatchThreadId.y >= (uint)Resolution.y)
+	{
+		return;
+	}
+	float2 P = TexelWorld(DispatchThreadId.xy);
+	float4 S;
+	if (bIntegrate != 0)
+	{
+		S = float4(0.0f, 0.0f, 0.0f, 0.0f);
+		for (uint k = 0; k < NumSteps; ++k)
+		{
+			float4 W = WeatherHere(Steps[k * 2 + 0], P);
+			float4 A = Steps[k * 2 + 1];
+			S = DSF_Step(S, DSF_OpenD0(W, A), DSF_OpenD1(W, A), Rates0, Rates1, Rates2, StepHours);
+		}
+		StepStart[DispatchThreadId.xy] = S;
+	}
+	else
+	{
+		S = StepStart[DispatchThreadId.xy];
+	}
+	float4 W = WeatherHere(PartialWeather, P);
+	OutMap[DispatchThreadId.xy] = DSF_Step(S, DSF_OpenD0(W, PartialAir), DSF_OpenD1(W, PartialAir), Rates0, Rates1, Rates2, PartialHours);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The cover map: per texel, the height (world cm) up to which something overhead keeps the sky off, and how fully
+// (R = height, G = 0..1). The wind's baked level heights are the level's top surfaces, so what lies below the top
+// surface at a texel lies under a roof (UDreamWeatherSubsystem::GetExposureAt asks the same); shelter boxes cover up to
+// their top. A material compares its own height with it (DreamSurface's MF_DreamSurfaceSample).
+
+float4 Terrain0;        // DW_UnpackTerrain
+float4 Terrain1;
+float4 Terrain2;
+uint NumShelters;
+Texture2D TerrainTexture;
+SamplerState TerrainSampler;
+StructuredBuffer<float4> Shelters;  // three float4 each: (centre x, y, cos yaw, sin yaw), (half x, half y, top z, fade), (strength, -, -, -)
+RWTexture2D<float2> OutCover;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= (uint)Resolution.x || DispatchThreadId.y >= (uint)Resolution.y)
+	{
+		return;
+	}
+	float2 P = TexelWorld(DispatchThreadId.xy);
+	float Height = -1.0e9f;
+	float Strength = 0.0f;
+
+	FDreamWindTerrainParams T = DW_UnpackTerrain(Terrain0, Terrain1, Terrain2);
+	float2 UV = DW_TerrainUV(float3(P.x, P.y, 0.0f), T);
+	if (DW_TerrainInside(UV, T) > 0.5f)
+	{
+		float4 Texel = TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0);
+		Height = DW_TerrainHeight(Texel, T);
+		Strength = 1.0f;
+	}
+	for (uint i = 0; i < NumShelters; ++i)
+	{
+		float4 S0 = Shelters[i * 3 + 0];
+		float4 S1 = Shelters[i * 3 + 1];
+		float4 S2 = Shelters[i * 3 + 2];
+		float dx = P.x - S0.x;
+		float dy = P.y - S0.y;
+		float lx = abs(dx * S0.z + dy * S0.w) - S1.x;
+		float ly = abs(-dx * S0.w + dy * S0.z) - S1.y;
+		float Outside = length(max(float2(lx, ly), 0.0f));
+		float Covered = (1.0f - smoothstep(0.0f, max(S1.w, 1.0f), Outside)) * saturate(S2.x);
+		if (Covered > 0.0f)
+		{
+			Height = max(Height, S1.z);
+			Strength = max(Strength, Covered);
+		}
+	}
+	OutCover[DispatchThreadId.xy] = float2(Height, Strength);
+}
