@@ -241,7 +241,7 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		float4 M0 = Masks[m * 3 + 0];
 		float4 M1 = Masks[m * 3 + 1];
 		float4 M2 = Masks[m * 3 + 2];
-		float W = 1.0f - smoothstep(0.0f, max(M1.z, 1.0f), DWX_ZoneSignedDistance(P, M0, M1));
+		float W = 1.0f - smoothstep(0.0f, max(M1.z, 1.0f), DWX_ShapeSignedDistance(P, M0, M1));
 		Mask *= lerp(float4(1.0f, 1.0f, 1.0f, 1.0f), M2, W);
 	}
 	OutMask[DispatchThreadId.xy] = Mask;

@@ -29,7 +29,7 @@ FVector4f UDreamSurfaceMaskComponent::GetMultipliersAt(const FVector& Position) 
 	TArray<FVector4f> Record;
 	MakeMapRecord(Record);
 	using namespace DreamWind::Hlsl;
-	const float Distance = DWX_ZoneSignedDistance(float2(float(Position.X), float(Position.Y)),
+	const float Distance = DWX_ShapeSignedDistance(float2(float(Position.X), float(Position.Y)),
 		float4(Record[0].X, Record[0].Y, Record[0].Z, Record[0].W), float4(Record[1].X, Record[1].Y, Record[1].Z, Record[1].W));
 	const float W = 1.0f - smoothstep(0.0f, FMath::Max(FadeDistance, 1.0f), Distance);
 	return FVector4f(FMath::Lerp(1.0f, Record[2].X, W), FMath::Lerp(1.0f, Record[2].Y, W), FMath::Lerp(1.0f, Record[2].Z, W), FMath::Lerp(1.0f, Record[2].W, W));

@@ -74,41 +74,53 @@ DWX_FN float DWX_PolygonSignedDistance(float lx, float ly, DWX_POINTS Points, in
 	return s * sqrt(d);
 }
 
-// Signed horizontal distance from a point to the zone's footprint: negative inside, cm. Points: where a polygon's
-// points are (box and circle do not read it). Farther than the blend distance from a polygon's farthest point it
-// gives that bound instead (the weight there is nothing either way).
-DWX_FN float DWX_ZoneSignedDistance(float2 P, float4 Z0, float4 Z1, DWX_POINTS Points)
+// Signed horizontal distance from a point to a box or circle footprint (Z1.w 0 box, 1 circle): negative inside, cm.
+// For shapes that never carry an outline (the surface's mask brushes), with no polygon points to pass.
+DWX_FN float DWX_ShapeSignedDistance(float2 P, float4 Z0, float4 Z1)
 {
 	float dx = P.x - Z0.x;
 	float dy = P.y - Z0.y;
 	// into the zone's frame: rotate by -yaw
 	float lx = dx * Z0.z + dy * Z0.w;
 	float ly = -dx * Z0.w + dy * Z0.z;
-	float r = sqrt(lx * lx + ly * ly);
-	if (Z1.w > 1.5f)
-	{
-		int First = (int)Z1.x;
-		int Count = min((int)Z1.y, DWX_MAX_POLYGON_POINTS);
-		if (Count < 3)
-		{
-			return 1.0e30f;
-		}
-		float Bound = r - Points[First].z;
-		if (Bound >= max(Z1.z, 1.0f))
-		{
-			return Bound;
-		}
-		return DWX_PolygonSignedDistance(lx, ly, Points, First, Count);
-	}
 	if (Z1.w > 0.5f)
 	{
-		return r - Z1.x;
+		return sqrt(lx * lx + ly * ly) - Z1.x;
 	}
 	float qx = abs(lx) - Z1.x;
 	float qy = abs(ly) - Z1.y;
 	float ox = max(qx, 0.0f);
 	float oy = max(qy, 0.0f);
 	return sqrt(ox * ox + oy * oy) + min(max(qx, qy), 0.0f);
+}
+
+// Signed horizontal distance from a point to the zone's footprint: negative inside, cm. Points: where a polygon's
+// points are (box and circle do not read it). Farther than the blend distance from a polygon's farthest point it
+// gives that bound instead (the weight there is nothing either way).
+DWX_FN float DWX_ZoneSignedDistance(float2 P, float4 Z0, float4 Z1, DWX_POINTS Points)
+{
+	if (Z1.w <= 1.5f)
+	{
+		return DWX_ShapeSignedDistance(P, Z0, Z1);
+	}
+	float dx = P.x - Z0.x;
+	float dy = P.y - Z0.y;
+	// into the zone's frame: rotate by -yaw
+	float lx = dx * Z0.z + dy * Z0.w;
+	float ly = -dx * Z0.w + dy * Z0.z;
+	float r = sqrt(lx * lx + ly * ly);
+	int First = (int)Z1.x;
+	int Count = min((int)Z1.y, DWX_MAX_POLYGON_POINTS);
+	if (Count < 3)
+	{
+		return 1.0e30f;
+	}
+	float Bound = r - Points[First].z;
+	if (Bound >= max(Z1.z, 1.0f))
+	{
+		return Bound;
+	}
+	return DWX_PolygonSignedDistance(lx, ly, Points, First, Count);
 }
 
 // How much the zone has its way at a point: Weight inside, fading to nothing BlendDistance outside.
