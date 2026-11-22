@@ -15,7 +15,7 @@ struct DREAMSURFACE_API FDreamSurfaceState
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float Wetness = 0.0f;
 
-	/** Water standing in its hollows, 0 none .. 1 puddles everywhere it can stand (the low half fills the small dips). */
+	/** Water standing in its hollows, 0 none .. 1 full (the deepest dips fill first; full puddles cover some two fifths of a flat surface). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface")
 	float Water = 0.0f;
 

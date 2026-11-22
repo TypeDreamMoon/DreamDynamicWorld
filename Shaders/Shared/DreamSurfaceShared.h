@@ -8,7 +8,7 @@
 //
 // A surface's state is four amounts, each 0..1, packed in a float4:
 //   x  Wet    the film of water on it: dark, glossy
-//   y  Water  water standing in its hollows: the low half fills the small dips, the high half makes puddles
+//   y  Water  water standing in its hollows: rising, it fills the deepest dips first, then spreads into puddles
 //   z  Snow   lying snow (0..1 of the deepest cover the settings allow)
 //   w  Dust   dust or sand settled on it
 // What drives it over a step, two float4s:
@@ -49,13 +49,13 @@ DSF_FN float DSF_Sunlight(float SunZ, float CloudCoverage)
 	return smoothstep(-0.02f, 0.35f, SunZ) * (1.0f - 0.8f * saturate(CloudCoverage));
 }
 
-// How fast a surface dries, 0..: the sun and the wind dry it, the warmth helps, and while rain keeps falling on it
+// How fast a surface dries, 0..: the sun and the wind dry it, the warmth helps, and while rain or snow keeps falling on it
 // nothing dries.
 DSF_FN float DSF_DryFactor(float4 D0, float4 D1)
 {
 	float Warm = clamp((D0.z + 10.0f) / 30.0f, 0.1f, 1.5f);
 	float Air = (0.25f + 0.75f * saturate(D1.x)) * (1.0f + saturate(D0.w));
-	return Warm * Air * (1.0f - saturate(D0.x * 20.0f));
+	return Warm * Air * (1.0f - saturate((D0.x + D0.y) * 20.0f));
 }
 
 // How much of the lying snow melts over Hours (0..1 of a full cover): above freezing, faster in the sun and the rain.
@@ -74,12 +74,14 @@ DSF_FN float4 DSF_Step(float4 S, float4 D0, float4 D1, float4 R0, float4 R1, flo
 	float SnowFall = saturate(D0.y);
 	float Dry = DSF_DryFactor(D0, D1) * Hours;
 
-	// Snow first: what melts runs into the film and the hollows.
-	float SettleWarm = 1.0f - smoothstep(0.5f, 3.0f, D0.z); // warm ground melts the flakes as they land
-	float SnowIn = saturate(S.z + SnowFall * SettleWarm * Hours / max(R1.x, 1.0e-3f));
+	// Snow first: what melts runs into the film and the hollows. Warm ground melts the flakes as they land: what does not
+	// settle wets the surface as rain would.
+	float Settle = 1.0f - smoothstep(0.5f, 3.0f, D0.z);
+	float SnowIn = saturate(S.z + SnowFall * Settle * Hours / max(R1.x, 1.0e-3f));
 	float Melted = min(SnowIn, DSF_Melt(D0, D1, R1, Hours));
 	float Snow = SnowIn - Melted;
 	float MeltWater = Melted * R1.z;
+	Rain = saturate(Rain + SnowFall * (1.0f - Settle));
 
 	// The film wets fast and dries by the weather (not under lying snow); the hollows fill once the film is soaked and
 	// drain slower.
@@ -110,11 +112,57 @@ DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air)
 }
 
 // The water a point holds at a hollow this deep (0 on a crest .. 1 at the bottom of a dip): how much of a puddle stands
-// there, 0..1. The low half of Water fills the deepest dips, the high half spreads to shallower ones.
+// there, 0..1. Rising Water fills the deepest dips first and spreads to shallower ones; full, it stands in the deepest
+// half of the hollow pattern (some two fifths of a flat surface), never everywhere.
 DSF_FN float DSF_PuddleAt(float Water, float Hollow, float Softness)
 {
-	float Level = 1.0f - Water;
+	float Level = 1.0f - 0.5f * saturate(Water);
 	return smoothstep(Level - Softness, Level + Softness, saturate(Hollow));
+}
+
+// A hash of a lattice point, 0..1.
+DSF_FN float DSF_Hash(float X, float Y)
+{
+	return frac(sin(X * 127.1f + Y * 311.7f) * 43758.5453f);
+}
+
+// The ground's hollow pattern at a world point (cm): 1 at the bottom of a dip, 0 on a crest. Two octaves of value
+// noise Scale cm across: where the standing water gathers first (DSF_PuddleAt) and where snow lies thinnest last.
+DSF_FN float DSF_Hollow(float WorldX, float WorldY, float Scale)
+{
+	float X = WorldX / max(Scale, 1.0f);
+	float Y = WorldY / max(Scale, 1.0f);
+	float N = 0.0f;
+	float A = 0.65f;
+	for (int Octave = 0; Octave < 2; ++Octave)
+	{
+		float IX = floor(X);
+		float IY = floor(Y);
+		float FX = X - IX;
+		float FY = Y - IY;
+		float UX = FX * FX * (3.0f - 2.0f * FX);
+		float UY = FY * FY * (3.0f - 2.0f * FY);
+		float Bottom = lerp(DSF_Hash(IX, IY), DSF_Hash(IX + 1.0f, IY), UX);
+		float Top = lerp(DSF_Hash(IX, IY + 1.0f), DSF_Hash(IX + 1.0f, IY + 1.0f), UX);
+		N += A * lerp(Bottom, Top, UY);
+		X = X * 2.03f + 17.0f;
+		Y = Y * 2.03f + 17.0f;
+		A *= 0.5f;
+	}
+	return saturate(1.0f - N / 0.975f);
+}
+
+// How much of a surface the lying snow covers: thicker the more it faces up (Up = the normal's Z), the hollow pattern
+// breaking the edge.
+DSF_FN float DSF_SnowCover(float Snow, float Up, float Hollow)
+{
+	return saturate((Snow * 1.4f - (1.0f - Up) * 1.6f - (1.0f - Hollow) * 0.25f) * 6.0f);
+}
+
+// How much of a surface the standing water covers: in the hollows of what faces up.
+DSF_FN float DSF_PuddleCover(float Water, float Up, float Hollow)
+{
+	return DSF_PuddleAt(Water, Hollow, 0.06f) * smoothstep(0.88f, 0.97f, Up);
 }
 
 #endif // DREAMSURFACE_SHARED_H
