@@ -12,6 +12,7 @@
 #include "DreamWeatherStormSpawner.h"
 #include "DreamWeatherTemperature.h"
 #include "DreamWindForceComponent.h"
+#include "DreamWeatherStatusComponent.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 
@@ -173,6 +174,23 @@ namespace DreamWorldPlay
 		Campfire->Volume->Falloff = 350.0f;
 		AddShape(*World, Cylinder, TEXT("Campfire"), FVector(0.0, -700.0, 15.0), FVector(80.0, 80.0, 30.0));
 
+		// Someone standing in a cold spot (a temperature volume at -6 degrees), breathing out mist that the wind takes.
+		if (AStaticMeshActor* Breather = AddShape(*World, Cylinder, TEXT("Breather"), FVector(300.0, -1500.0, 85.0), FVector(40.0, 40.0, 170.0)))
+		{
+			Breather->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			UDreamWeatherStatusComponent* Status = NewObject<UDreamWeatherStatusComponent>(Breather, TEXT("WeatherStatus"));
+			Status->bFreezingBreath = true;
+			Status->bWriteMaterialParameters = false;
+			Status->BreathOffset = FVector(25.0, 0.0, 70.0);
+			Breather->AddInstanceComponent(Status);
+		}
+		ADreamTemperatureVolume* ColdSpot = World->SpawnActor<ADreamTemperatureVolume>(FVector(300.0, -1500.0, 100.0), FRotator::ZeroRotator);
+		ColdSpot->SetActorLabel(TEXT("ColdSpot"));
+		ColdSpot->Volume->Mode = EDreamTemperatureMode::Replace;
+		ColdSpot->Volume->Temperature = -6.0f;
+		ColdSpot->Volume->Extent = FVector(250.0);
+		ColdSpot->Volume->Falloff = 200.0f;
+
 		// Crates the wind pushes about, in the open before the hut.
 		for (int32 i = 0; i < 5; ++i)
 		{
@@ -183,9 +201,10 @@ namespace DreamWorldPlay
 				UStaticMeshComponent* Mesh = Crate->GetStaticMeshComponent();
 				Mesh->SetMobility(EComponentMobility::Movable);
 				Mesh->SetSimulatePhysics(true);
-				Mesh->SetMassOverrideInKg(NAME_None, 4.0f + 2.0f * i, true);
+				// Wooden crates of 15-25 kg: a gale slides and tips them, it does not throw them.
+				Mesh->SetMassOverrideInKg(NAME_None, 25.0f - 2.5f * i, true);
 				UDreamWindForceComponent* Force = NewObject<UDreamWindForceComponent>(Crate, TEXT("WindForce"));
-				Force->ForceScale = 3.0f;
+				Force->ForceScale = 1.0f;
 				Crate->AddInstanceComponent(Force);
 			}
 		}

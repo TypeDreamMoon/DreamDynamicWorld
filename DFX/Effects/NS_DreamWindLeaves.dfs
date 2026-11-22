@@ -1,12 +1,17 @@
-// DreamWind demo: leaves carried by the world wind (GPU).
+// DreamWind: leaves and debris carried by the world wind (GPU).
 //
-// Spawns leaves in a box around the system, lets DreamWindForce pull them along the wind (analytic
+// Leaves: spawns leaves in a box around the system, lets DreamWindForce pull them along the wind (analytic
 // gusts and turbulence, sources, and the dynamic volume near the camera), adds a little gravity and a
 // tumble. Drop it in a level, set the global wind, fire an impulse: the leaves answer.
+//
+// Debris: in a strong wind UDreamWeatherFXSubsystem spawns this system around the view (its leaf box off) and
+// hands it the dust layer's fall paths (nearly flat, downwind, ending at walls and shelters): pieces start along
+// them, so none blow in indoors, then the wind field carries them. DebrisRate comes from the wind's speed and the
+// season, DebrisColor from the season; a sprite stretched long reads as a twig.
 System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
-        ModulePaths = ["/DreamDynamicWorld/Wind/Modules"];
+        ModulePaths = ["/DreamDynamicWorld/Wind/Modules", "/DreamDynamicWorld/Weather/Modules"];
         WarmupTime  = 0.0;
         FixedBounds = box(-8000, -8000, -4000, 8000, 8000, 4000);
     }
@@ -21,6 +26,12 @@ System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
         float  Drag        = 1.8              [ Group="Wind"; Description="1/s, how tightly leaves follow the air." ];
         float  Lift        = 60.0             [ Group="Wind"; Description="cm/s of extra lift per unit of gust." ];
         float  Gravity     = -140.0           [ Group="Wind"; Description="cm/s^2; light leaves sink slowly." ];
+        DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Normals;
+        Vector FallVelocity = (1200, 0, -100)  [ Group="Debris"; Description="The dust layer's path velocity, cm/s." ];
+        float  DebrisRate  = 0.0              [ Group="Debris"; Description="Pieces spawned per second along the paths." ];
+        float  DebrisSize  = 9.0              [ Group="Debris"; Description="Piece size, cm." ];
+        Color  DebrisColor = (0.75, 0.42, 0.10, 1.0) [ Group="Debris" ];
     }
 
     Emitter Leaves
@@ -68,6 +79,65 @@ System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
 
         SpriteRenderer Leaf
         {
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+
+    Emitter Debris
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 2048;
+            FixedBounds        = box(-12000, -12000, -4000, 12000, 12000, 4000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.DebrisRate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = 6.0,
+                ColorMode            = DirectSet,
+                Color                = User.DebrisColor,
+                SpriteSizeMode       = Uniform,
+                UniformSpriteSize    = User.DebrisSize,
+                SpriteRotationMode   = Random
+            );
+            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = false, Anywhere = 1.0);
+            // Leaves mostly, a twig now and then (a long thin sprite); shades of the season's colour.
+            Vector2 Particles.SpriteSize = hlsl {
+                float2(User.DebrisSize * lerp(0.7, 1.3, rand(1.0)) * (rand(1.0) < 0.2 ? 3.0 : 1.2), User.DebrisSize * lerp(0.6, 1.0, rand(1.0)))
+            };
+            Color Particles.Color = hlsl { float4(User.DebrisColor.rgb * lerp(0.7, 1.15, rand(1.0)), 1.0) };
+            float Particles.Lifetime = hlsl { max(Particles.Lifetime, 2.5) };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            DreamWindForce(Wind = User.Wind, Drag = 1.2, Strength = 1.0, Lift = 80.0);
+            GravityForce(Gravity = hlsl { float3(0.0, 0.0, -220.0) });
+            SolveForcesAndVelocity();
+            SpriteRotationRate(RotationRate = 220.0);
+            Color Particles.Color = hlsl {
+                float4(Particles.Color.rgb, saturate(Particles.NormalizedAge * 10.0) * saturate((1.0 - Particles.NormalizedAge) * 5.0))
+            };
+        }
+
+        SpriteRenderer Piece
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamWindDebris";
             Alignment  = Unaligned;
             FacingMode = FaceCamera;
             SortMode   = None;

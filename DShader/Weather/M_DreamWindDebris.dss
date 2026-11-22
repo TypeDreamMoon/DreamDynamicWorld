@@ -1,0 +1,47 @@
+// M_DreamWindDebris.dss -- a piece of wind-blown debris on a camera-facing Niagara sprite: a leaf, or (on a sprite
+// stretched long) a twig or a scrap.
+//
+// A pointed leaf shape with a midrib, cut out (masked, so it sorts like geometry), lit by the sky like the rain and
+// the snow (ambient plus a share of the main light); the particle colour is its colour (the season's), its alpha
+// fades it by dithering.
+#pragma material(ShadingModel = Unlit, BlendMode = Masked, TwoSided = true, bUsedWithNiagaraSprites = true)
+
+/// @group Look @desc How bright a piece is against the light around it
+uniform float Brightness = 0.7;
+
+/// @group Look @desc Share of the main (sun / moon) light a piece catches
+uniform float MainLightShare = 0.2;
+
+/// @custom
+float LeafMask(float2 UV)
+{
+    // A lens: two arcs meeting at the tips, along U; a darker midrib along it.
+    float2 P = UV * 2.0 - 1.0;
+    float Half = 1.0 - P.x * P.x;
+    // Written out rather than with step(): inside the lens is where |y| is below its half width.
+    return saturate((Half * 0.85 - abs(P.y)) * 40.0);
+}
+
+/// @custom
+float LeafShade(float2 UV)
+{
+    float2 P = UV * 2.0 - 1.0;
+    float Rib = 1.0 - 0.35 * saturate(1.0 - abs(P.y) * 14.0);
+    // A little darker toward the edge, so a leaf reads as a leaf at a glance.
+    return Rib * lerp(0.75, 1.0, saturate(1.0 - abs(P.y) * 1.4));
+}
+
+export void M_DreamWindDebris(inout material m)
+{
+    float2 UV = UE.TexCoord(Index = 0);
+    float4 Particle = UE.VertexColor();
+    float4 Ambient   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
+    float4 MainLight = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+    float4 MainColor = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLightColor");
+
+    float3 Light = Ambient.rgb + MainColor.rgb * MainLight.w * MainLightShare;
+    m.EmissiveColor = Particle.rgb * LeafShade(UV) * Light * Brightness;
+    // Fade by dithering: a mask against the screen's noise, so masked pieces still fade in and out.
+    float Noise = frac(sin(dot(floor(UE.ScreenPosition().PixelPosition), float2(12.9898, 78.233))) * 43758.5453);
+    m.OpacityMask = LeafMask(UV) * saturate((Particle.a - Noise) * 40.0);
+}

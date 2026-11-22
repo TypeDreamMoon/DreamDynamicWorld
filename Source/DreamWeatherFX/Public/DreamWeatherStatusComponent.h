@@ -187,6 +187,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Breath", meta = (EditCondition = "bFreezingBreath"))
 	FName BreathSocket = TEXT("head");
 
+	/** Where the mouth is relative to the actor (+X forward) when there is no such socket. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Breath", meta = (EditCondition = "bFreezingBreath"))
+	FVector BreathOffset = FVector(15.0, 0.0, 70.0);
+
 	/** The effect: given User.Intensity (0..1, how cold) every update. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Breath", meta = (EditCondition = "bFreezingBreath", AllowedClasses = "/Script/Niagara.NiagaraSystem"))
 	FSoftObjectPath BreathEffect = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamFreezingBreath.NS_DreamFreezingBreath"));

@@ -35,25 +35,34 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	/** Rain is layer 0, snow layer 1. */
+	/** Rain is layer 0, snow layer 1, blown dust (and the debris on its paths) layer 2. */
 	static constexpr int32 RainLayer = 0;
 	static constexpr int32 SnowLayer = 1;
+	static constexpr int32 DustLayer = 2;
+	static constexpr int32 NumLayers = 3;
 
 	/** The fall paths of a layer. */
-	const FDreamWeatherFallPaths& GetPaths(int32 Layer) const { return States[FMath::Clamp(Layer, 0, 1)].Paths; }
+	const FDreamWeatherFallPaths& GetPaths(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].Paths; }
 
 	/** The effect of a layer, when one is alive. */
 	UNiagaraComponent* GetEffect(int32 Layer) const;
 
 	/** Drops and splashes per second being spawned now. */
-	float GetDropRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, 1)].DropRate; }
-	float GetSplashRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, 1)].SplashRate; }
+	float GetDropRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].DropRate; }
+	float GetSplashRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].SplashRate; }
 
 	/** Drops the last fill put in the air at once (when the effect started or the view jumped). */
-	float GetFillCount(int32 Layer) const { return States[FMath::Clamp(Layer, 0, 1)].FillCount; }
+	float GetFillCount(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].FillCount; }
 
 	/** The drops' velocity now (down and downwind), cm/s. */
-	FVector GetFallVelocity(int32 Layer) const { return States[FMath::Clamp(Layer, 0, 1)].FallVelocity; }
+	FVector GetFallVelocity(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].FallVelocity; }
+
+	/** The wind debris effect, when one is alive, and the pieces it spawns per second now. */
+	UNiagaraComponent* GetDebrisEffect() const { return DebrisEffect; }
+	float GetDebrisRate() const { return DebrisRate; }
+
+	/** How much debris the season brings now (spring .. winter blended), and its colour. */
+	static float SeasonDebris(const FDateTime& Date, bool bSouthernHemisphere, FLinearColor& OutColor);
 
 	/** Stop spawning; what is falling finishes. */
 	void StopPrecipitation();
@@ -97,14 +106,20 @@ private:
 
 	void HandleWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float DeltaTime);
 	void UpdateLayer(int32 Index, const FDreamPrecipitationLayer& Layer, float Strength, UDreamWeatherSubsystem& Weather,
-		const FVector& ViewLocation, const FVector& Forward, const FVector& Wind, float DeltaTime);
+		const FVector& ViewLocation, const FVector& Forward, const FVector& Wind, float DeltaTime, float DropShare = 1.0f);
+	void UpdateDebris(UDreamWorldSubsystem& Clock, float Strength, const FVector& ViewLocation);
 	UNiagaraComponent* EnsureEffect(int32 Index, const FDreamPrecipitationLayer& Layer, const FVector& ViewLocation);
 
-	FLayerState States[2];
+	FLayerState States[NumLayers];
 
 	/** Rain, snow (created when they first fall). */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UNiagaraComponent>> Effects;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraComponent> DebrisEffect;
+	float DebrisRate = 0.0f;
+	uint32 DebrisUploaded = 0;
 
 	TWeakObjectPtr<UDreamWeatherSubsystem> WeatherSubsystem;
 	FDelegateHandle FrameHandle;

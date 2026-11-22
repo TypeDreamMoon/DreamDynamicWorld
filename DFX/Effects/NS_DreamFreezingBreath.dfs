@@ -1,19 +1,24 @@
 // DreamWeather: a breath of mist in the cold (CPU, a handful of particles).
 //
-// UDreamWeatherStatusComponent attaches it at the head and sets User.Intensity (0..1, how cold it feels): a puff
-// every few seconds, out and slightly up, growing and fading as it drifts.
+// UDreamWeatherStatusComponent attaches it at the mouth and sets User.Intensity (0..1, how cold it feels): a puff
+// every few seconds, out forward (+X of what it is attached to) and slightly up, growing and fading as the wind
+// carries it off (the wind field, so it is still in shelter and streams away in a gale).
 System(Name="Weather/Effects/NS_DreamFreezingBreath", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
+        ModulePaths = ["/DreamDynamicWorld/Wind/Modules"];
         WarmupTime  = 0.0;
-        FixedBounds = box(-200, -200, -200, 200, 200, 200);
+        FixedBounds = box(-400, -400, -200, 400, 400, 300);
     }
 
     Properties = {
         float  Intensity = 1.0                 [ Group="Breath"; Description="0..1, how cold it feels." ];
         float  Period    = 3.2                 [ Group="Breath"; Description="Seconds between breaths." ];
-        Vector Out       = (0, 45, 12)         [ Group="Breath"; Description="Velocity of the breath, cm/s, in the socket's space." ];
-        Color  Tint      = (0.92, 0.95, 1.0, 0.22) [ Group="Look" ];
+        DI<DreamWind> Wind;
+        Vector Out       = (45, 0, 12)         [ Group="Breath"; Description="Velocity of the breath, cm/s, in the space of what it is attached to (+X forward)." ];
+        float  WindDrag  = 0.7                 [ Group="Breath"; Description="How fast the mist takes up the wind, 1/s." ];
+        float  Reach     = 120.0               [ Group="Breath"; Description="The mist has thinned out this far (cm) from the mouth: in a gale it is gone within a step." ];
+        Color  Tint      = (1.15, 1.18, 1.22, 0.16) [ Group="Look"; Description="A little brighter than white: the mist is lit only by the sky around it." ];
     }
 
     Emitter Puff
@@ -23,41 +28,47 @@ System(Name="Weather/Effects/NS_DreamFreezingBreath", Root="Plugin.DreamDynamicW
             LocalSpace         = false;
             Determinism        = false;
             AllocationMode     = Fixed;
-            PreAllocationCount = 128;
+            PreAllocationCount = 256;
         }
 
         EmitterUpdate = {
             EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
             // A breath: a quarter of each period breathing out.
-            SpawnRate(SpawnRate = hlsl { User.Intensity * 40.0 * step(frac(Emitter.Age / max(User.Period, 0.5)), 0.25) });
+            SpawnRate(SpawnRate = hlsl { User.Intensity * 80.0 * step(frac(Emitter.Age / max(User.Period, 0.5)), 0.25) });
         }
 
         ParticleSpawn = {
             Spawn/Initialization/V2/InitializeParticle(
                 LifetimeMode         = DirectSet,
-                Lifetime             = 1.4,
+                Lifetime             = 2.0,
                 ColorMode            = DirectSet,
                 Color                = User.Tint,
                 SpriteSizeMode       = Uniform,
                 UniformSpriteSize    = 4.0,
                 SpriteRotationMode   = Random
             );
+            // At the mouth (the system's place), not wherever the particle attributes start out.
+            Position Particles.Position = hlsl { Engine.Owner.Position };
+            Position Particles.BreathStart = hlsl { Engine.Owner.Position };
             Vector Particles.Velocity = hlsl { mul(float4(User.Out, 0.0), Engine.Owner.SystemLocalToWorld).xyz + float3(rand(10.0) - 5.0, rand(10.0) - 5.0, rand(6.0)) };
         }
 
         ParticleUpdate = {
             ParticleState();
-            Drag(Drag = 1.5);
+            DreamWindForce(Wind = User.Wind, Drag = User.WindDrag, Strength = 1.0, Lift = 0.0);
+            // Breath drifts along with the wind but does not ride its updraughts: the vertical part settles.
+            Vector Particles.Velocity = hlsl { float3(Particles.Velocity.x, Particles.Velocity.y, Particles.Velocity.z * exp(-3.0 * Engine.DeltaTime)) };
             SolveForcesAndVelocity();
-            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * lerp(4.0, 30.0, Particles.NormalizedAge) };
+            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * lerp(10.0, 55.0, Particles.NormalizedAge) };
             Color Particles.Color = hlsl {
-                float4(User.Tint.rgb, User.Tint.a * User.Intensity * saturate(Particles.NormalizedAge * 6.0) * (1.0 - Particles.NormalizedAge))
+                float4(User.Tint.rgb, User.Tint.a * User.Intensity * saturate(Particles.NormalizedAge * 6.0) * (1.0 - Particles.NormalizedAge)
+                       * saturate(1.0 - length(Particles.Position - Particles.BreathStart) / max(User.Reach, 1.0)))
             };
         }
 
         SpriteRenderer Mist
         {
-            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamSnowFlake";
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamDustPuff";
             Alignment  = Unaligned;
             FacingMode = FaceCamera;
             SortMode   = ViewDepth;
