@@ -30,6 +30,13 @@
 //               front of it). Upsampled taking only the rays whose clouds stand nearer than the pixel's scene.
 
 #include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
+
+// The atmosphere (DreamAtmosphere): its transmittance table (TransmittanceSize 0 until it is built) and its air.
+Texture2D TransmittanceLut;
+SamplerState TransmittanceSampler;
+int2 TransmittanceSize;
+float4 Atmosphere[5];
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
 // its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
@@ -400,6 +407,19 @@ float DSkyR_SunTau(float3 World, float Z)
 // the elevation counted from the horizon's dip at that height.)
 float3 DSkyR_AirTransmittance(float Height, float LightZ)
 {
+	// (The atmosphere's own table once built: the light through the same air the sky is made of.)
+	if (TransmittanceSize.x > 0)
+	{
+		FDSA_Atmosphere A = DSA_Unpack(Atmosphere[0], Atmosphere[1], Atmosphere[2], Atmosphere[3], Atmosphere[4]);
+		float r = A.BottomRadius + max(Height, 0.0) * 1.0e-5;
+		float mu = clamp(LightZ, -1.0, 1.0);
+		if (DSA_HitsGround(A, r, mu))
+		{
+			return 0.0;
+		}
+		float2 P = DSA_TransmittanceUv(A, r, mu);
+		return TransmittanceLut.SampleLevel(TransmittanceSampler, float2(DSA_TableTexcoord(P.x, float(TransmittanceSize.x)), DSA_TableTexcoord(P.y, float(TransmittanceSize.y))), 0).rgb;
+	}
 	float Km = max(Height, 0.0) * 1.0e-5;
 	float Dip = sqrt(2.0 * max(Height, 0.0) / DSky_PlanetRadius);
 	float Elevation = degrees(asin(clamp(LightZ, -1.0, 1.0)) + Dip);
