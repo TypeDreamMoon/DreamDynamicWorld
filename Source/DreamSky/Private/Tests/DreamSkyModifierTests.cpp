@@ -214,6 +214,36 @@ bool FDreamSkyModifierStackTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyModifierCinematicTest, "DreamSky.Modifiers.CinematicTakesTheTarget", DreamSky::ModifierTests::Flags)
+bool FDreamSkyModifierCinematicTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::ModifierTests;
+	FSkyWorld W;
+	if (!TestTrue(TEXT("test world"), W.IsValid()))
+	{
+		return false;
+	}
+	// In cinematic updates each frame stands on its own: a fade is where it is heading at once, in and out.
+	W.Clock->SetCinematicModeOverride(true);
+	UDreamSkyModifier* Slow = MakeModifier(10.0f);
+	Slow->MaxAlpha = 0.7f;
+	Slow->Settings.bOverride_SkyLightIntensity = true;
+	Slow->Settings.SkyLightIntensity = 2.0f;
+	W.SkySubsystem->AddModifier(Slow);
+	W.Clock->Tick(1.0f / 24.0f);
+	TestNearlyEqual(TEXT("in at once"), W.SkySubsystem->GetModifierAlpha(Slow), 0.7f, 1e-5f);
+	W.SkySubsystem->RemoveModifier(Slow);
+	W.Clock->Tick(1.0f / 24.0f);
+	TestEqual(TEXT("out at once"), W.SkySubsystem->GetModifiers().Num(), 0);
+
+	// Outside it the fade takes its time.
+	W.Clock->SetCinematicModeOverride(false);
+	W.SkySubsystem->AddModifier(Slow);
+	W.Clock->Tick(1.0f);
+	TestTrue(TEXT("fading as ever"), W.SkySubsystem->GetModifierAlpha(Slow) < 0.1f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyModifierWeatherTest, "DreamSky.Modifiers.FollowTheWeather", DreamSky::ModifierTests::Flags)
 bool FDreamSkyModifierWeatherTest::RunTest(const FString& Parameters)
 {

@@ -3,6 +3,7 @@
 // Console commands for the sky modifiers: add, remove, list and clear them, and three ready-made ones (a storm's gloom,
 // a red sky, a clear bright day) to try the stack without an asset of one's own.
 
+#include "DreamSky.h"
 #include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkySubsystem.h"
@@ -153,6 +154,62 @@ namespace DreamSky::Console
 			{
 				Sky->ClearModifiers(SecondsArg(Args, 0));
 			}
+		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs ConditionsDemoCommand(
+		TEXT("DreamSky.Conditions.Demo"),
+		TEXT("DreamSky.Conditions.Demo [Off]: gives the level's sky two conditional entries to try them: a grey, cool grade while it")
+		TEXT(" rains outdoors, and a blue night (20:00 to 05:00, the stars brighter). Off takes them away again."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamSkySubsystem* Subsystem = Find(World);
+			ADreamSky* Sky = Subsystem ? Subsystem->GetSky() : nullptr;
+			if (!Sky)
+			{
+				return;
+			}
+			static const FName Name(TEXT("DemoRainGrade"));
+			Sky->PostProcesses.RemoveAll([](const FDreamSkyConditionalPostProcess& E) { return E.Name == Name; });
+			UDreamSkyModifier* NightBlue = nullptr;
+			{
+				const TCHAR* ObjectName = TEXT("DreamSkyDemoModifier_NightBlue");
+				NightBlue = FindObject<UDreamSkyModifier>(GetTransientPackage(), ObjectName);
+				if (!NightBlue)
+				{
+					NightBlue = NewObject<UDreamSkyModifier>(GetTransientPackage(), ObjectName, RF_Transient);
+					NightBlue->Settings.bOverride_SkyTint = true;
+					NightBlue->Settings.SkyTint = FLinearColor(0.55f, 0.75f, 1.35f);
+					NightBlue->Settings.bOverride_StarIntensity = true;
+					NightBlue->Settings.StarIntensity = 2.0f;
+					NightBlue->Settings.bOverride_MoonTint = true;
+					NightBlue->Settings.MoonTint = FLinearColor(0.7f, 0.85f, 1.2f);
+				}
+			}
+			Sky->ConditionalModifiers.RemoveAll([NightBlue](const FDreamSkyConditionalModifier& E) { return E.Modifier == NightBlue; });
+			if (Args.Num() > 0 && Args[0].Equals(TEXT("Off"), ESearchCase::IgnoreCase))
+			{
+				return;
+			}
+			FDreamSkyConditionalPostProcess& Grade = Sky->PostProcesses.AddDefaulted_GetRef();
+			Grade.Name = Name;
+			FDreamSkyWeatherRange& Rain = Grade.Condition.Weather.AddDefaulted_GetRef();
+			Rain.Value = EDreamSkyWeatherValue::Rain;
+			Rain.Min = 0.2f;
+			Rain.Soft = 0.3f;
+			Grade.Condition.Place = EDreamSkyPlace::Outdoors;
+			Grade.BlendSeconds = 2.0f;
+			Grade.Settings.bOverride_ColorSaturation = true;
+			Grade.Settings.ColorSaturation = FVector4(0.55f, 0.6f, 0.7f, 1.0f);
+			Grade.Settings.bOverride_ColorGain = true;
+			Grade.Settings.ColorGain = FVector4(0.9f, 0.95f, 1.08f, 1.0f);
+			Grade.Settings.bOverride_ColorContrast = true;
+			Grade.Settings.ColorContrast = FVector4(1.1f, 1.1f, 1.1f, 1.0f);
+			FDreamSkyConditionalModifier& Night = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Night.Modifier = NightBlue;
+			Night.Condition.bHours = true;
+			Night.Condition.StartHour = 20.0f;
+			Night.Condition.EndHour = 5.0f;
+			Night.Condition.FadeHours = 1.0f;
 		}));
 
 	static FAutoConsoleCommandWithWorldAndArgs ListCommand(

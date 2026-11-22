@@ -181,6 +181,16 @@ snapshots (`FDreamWorldSnapshot`), so a save restores it mid-fade. Console: `Dre
 *Sky Modifier*): the sky then holds it at that weather's weight at the view, apart from the scripted stack and
 not saved with it (the weather gives it again).
 
+**By condition.** The sky actor's *Post Processes* list blends post processes in by a condition (a cold grade on
+snowy nights, a warm one at dusk, a soft bloom in fog), and its *Conditional Modifiers* list holds sky modifiers
+the same way. A condition (`FDreamSkyCondition`) is any of: an hour window (it may run past midnight, faded at
+each end), weather values at the view within a range with soft edges (cloud cover, darkness, rain, snow,
+precipitation, fog, dust, wind, lightning, temperature), and indoors or outdoors (the view probe); the parts
+multiply. Each entry's weight follows its condition over its *Blend Seconds*, with the clock stopped too, and
+cuts on a jump of the clock (and every frame in cinematic updates). `GetPostProcessWeight(Index)` reads one; a
+conditional modifier is not kept in snapshots (its condition gives it again). `DreamSky.Conditions.Demo [Off]`
+gives the level's sky a rain grade and a blue night to try them.
+
 **For any material or character shader** the collection carries the lighting: `DDW_MainLight` (direction
 toward the main light, illuminance), `DDW_MainLightColor` (rgb, 0 sun / 1 moon), `DDW_AmbientSky /
 Equator / Ground`, `DDW_DayPhase` (day, twilight, night weights and the sun's elevation), plus `DDW_SunDir`,

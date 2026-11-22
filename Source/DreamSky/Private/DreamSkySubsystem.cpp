@@ -180,8 +180,10 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).
 	Sky->ApplyLightingOverrides(Target);
 
-	// Ease while the clock runs; snap on jumps (scrubbing, set time, snapshots) and while it stands still.
-	const bool bSnap = !bHasApplied || Clock.GetTimeJumpSerial() != LastJumpSerial || !Clock.IsClockRunning() || Style->LightResponseTime <= 0.0f;
+	// Ease while the clock runs; snap on jumps (scrubbing, set time, snapshots; every frame in cinematic updates) and while
+	// it stands still.
+	const bool bJumped = !bHasApplied || Clock.GetTimeJumpSerial() != LastJumpSerial;
+	const bool bSnap = bJumped || !Clock.IsClockRunning() || Style->LightResponseTime <= 0.0f;
 	LastJumpSerial = Clock.GetTimeJumpSerial();
 	if (bSnap)
 	{
@@ -194,11 +196,15 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	bHasApplied = true;
 
-	// The sky modifiers over the eased lighting (they fade in and out themselves), the weather's among them.
+	// The sky modifiers over the eased lighting (they fade in and out themselves), the weather's and those the sky holds by
+	// a condition among them; and the sky's conditional post processes. (Those follow their conditions with the clock
+	// stopped as well: a door walked through still fades; a jump of the clock cuts them.)
 	++UpdateSerial;
 	TakeWeatherModifiers(Clock.GetEnvironment());
+	Sky->UpdateConditions(*this, Clock.GetTimeOfDay(), Clock.GetEnvironment(), Clock.GetViewOcclusion(), DeltaTime, bJumped);
 	Applied = Eased;
-	ApplyModifiers(Applied, Look, DeltaTime);
+	// (In cinematic updates every frame stands on its own: the fades are where they are heading.)
+	ApplyModifiers(Applied, Look, DeltaTime, Clock.IsCinematicMode());
 	UpdateModifierPostProcess(Sky);
 
 	// A lightning flash goes on top, so it is as sudden as it should be.
@@ -347,7 +353,7 @@ TArray<UDreamSkyModifier*> UDreamSkySubsystem::GetModifiers() const
 	return Out;
 }
 
-void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime)
+void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime, bool bAtOnce)
 {
 	const float Dt = FMath::Max(DeltaTime, 0.0f);
 	for (int32 Index = Modifiers.Num() - 1; Index >= 0; --Index)
@@ -362,7 +368,7 @@ void UDreamSkySubsystem::ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLo
 			Modifiers.RemoveAt(Index);
 			continue;
 		}
-		M.Progress = M.Rate > 0.0f ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
+		M.Progress = M.Rate > 0.0f && !bAtOnce ? FMath::FInterpConstantTo(M.Progress, M.Target, Dt, M.Rate) : M.Target;
 		const bool bLetGo = M.Source != EDreamSkyModifierSource::Script && M.DrivenSerial != UpdateSerial;
 		if ((M.bRemoving && M.Progress <= 0.0f) || bLetGo)
 		{

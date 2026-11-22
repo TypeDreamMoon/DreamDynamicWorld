@@ -177,8 +177,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky|Modifiers")
 	TArray<UDreamSkyModifier*> GetModifiers() const;
 
-	/** Advances the modifiers' fades by DeltaTime seconds and applies those in effect, lowest priority first. */
-	void ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime);
+	/**
+	 * Advances the modifiers' fades by DeltaTime seconds (with bAtOnce, as in cinematic updates, each is where it is
+	 * heading at once) and applies those in effect, lowest priority first.
+	 */
+	void ApplyModifiers(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, float DeltaTime, bool bAtOnce = false);
 
 	/**
 	 * Holds a modifier at Alpha for this update on behalf of Source (the weather, the sky actor's conditions): one not

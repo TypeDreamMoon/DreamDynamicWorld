@@ -870,6 +870,66 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 	}
 }
 
+void ADreamSky::UpdateConditions(UDreamSkySubsystem& Subsystem, float Hours, const FDreamWorldEnvironment& Environment,
+	const FDreamViewOcclusion& View, float DeltaTime, bool bSnap)
+{
+	using DreamSky::Conditions::Follow;
+	const int32 Num = PostProcesses.Num();
+	ConditionalPostProcessWeights.SetNumZeroed(Num);
+	while (ConditionalPostProcessComponents.Num() > Num)
+	{
+		if (UPostProcessComponent* Gone = ConditionalPostProcessComponents.Pop())
+		{
+			Gone->DestroyComponent();
+		}
+	}
+	ConditionalPostProcessComponents.SetNum(Num);
+	for (int32 Index = 0; Index < Num; ++Index)
+	{
+		const FDreamSkyConditionalPostProcess& Entry = PostProcesses[Index];
+		const float Target = Entry.bEnabled ? Entry.Condition.Evaluate(Hours, Environment, View) * FMath::Clamp(Entry.MaxWeight, 0.0f, 1.0f) : 0.0f;
+		float& Weight = ConditionalPostProcessWeights[Index];
+		Weight = Follow(Weight, Target, Entry.BlendSeconds, DeltaTime, bSnap);
+		TObjectPtr<UPostProcessComponent>& Component = ConditionalPostProcessComponents[Index];
+		if (Weight <= 1.0e-4f)
+		{
+			if (Component)
+			{
+				Component->bEnabled = false;
+			}
+			continue;
+		}
+		if (!Component)
+		{
+			Component = NewObject<UPostProcessComponent>(this, NAME_None, RF_Transient);
+			Component->bUnbound = true;
+			Component->RegisterComponent();
+		}
+		Component->Settings = Entry.Settings;
+		Component->Priority = Entry.Priority;
+		Component->BlendWeight = Weight;
+		Component->bEnabled = true;
+	}
+
+	ConditionalModifierWeights.SetNumZeroed(ConditionalModifiers.Num());
+	for (int32 Index = 0; Index < ConditionalModifiers.Num(); ++Index)
+	{
+		const FDreamSkyConditionalModifier& Entry = ConditionalModifiers[Index];
+		if (!Entry.Modifier)
+		{
+			continue;
+		}
+		float& Weight = ConditionalModifierWeights[Index];
+		Weight = Follow(Weight, Entry.Condition.Evaluate(Hours, Environment, View), Entry.BlendSeconds, DeltaTime, bSnap);
+		Subsystem.SetDrivenModifier(Entry.Modifier, Weight, EDreamSkyModifierSource::Condition);
+	}
+}
+
+float ADreamSky::GetPostProcessWeight(int32 Index) const
+{
+	return ConditionalPostProcessWeights.IsValidIndex(Index) ? ConditionalPostProcessWeights[Index] : 0.0f;
+}
+
 void ADreamSky::RecaptureSkyLight()
 {
 	if (SkyLight && !SkyLight->bRealTimeCapture)
