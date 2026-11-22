@@ -535,8 +535,9 @@ shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow
 day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
 sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
 <screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
-files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines);
-`DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera. `DreamWorld.Showcase.Contents` and
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
+wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
+indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera. `DreamWorld.Showcase.Contents` and
 `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
 
 ## Surfaces

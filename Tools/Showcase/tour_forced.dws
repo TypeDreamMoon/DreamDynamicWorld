@@ -8,6 +8,7 @@ wait 187
 DreamWorld.Pause 1
 time 12.5
 settle 20
+wait 120
 move 200 -300 320
 aim -10 18
 wait 3
@@ -20,7 +21,7 @@ settle 8
 shot SHOW_SnowDay_Toon
 move 2680 850 160
 aim -6 -140
-wait 3
+wait 60
 settle 8
 shot SHOW_SnowDay_Inside
 move 2120 700 165
@@ -51,6 +52,7 @@ wait 150
 DreamWorld.Pause 1
 time 12
 settle 20
+wait 120
 move 200 -300 320
 aim -10 18
 wait 3
@@ -63,7 +65,7 @@ settle 8
 shot SHOW_DustDay_Toon
 move 2680 850 160
 aim -6 -140
-wait 3
+wait 60
 settle 8
 shot SHOW_DustDay_Inside
 move 2120 700 165
@@ -94,6 +96,7 @@ wait 112
 DreamWorld.Pause 1
 time 22.5
 settle 20
+wait 120
 move 200 -300 320
 aim -10 18
 wait 3
@@ -106,7 +109,7 @@ settle 8
 shot SHOW_StormNight_Toon
 move 2680 850 160
 aim -6 -140
-wait 3
+wait 60
 settle 8
 shot SHOW_StormNight_Inside
 move 2120 700 165
