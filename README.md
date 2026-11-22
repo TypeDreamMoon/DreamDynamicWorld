@@ -59,8 +59,10 @@ work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
-`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, high cloud and rain
-shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
+moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full,
+`DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too

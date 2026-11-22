@@ -600,6 +600,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon")
 	bool bNightLightAlwaysUp = true;
 
+	/** How soft the moon's terminator is (in the sunlight's cosine across it; small = a crisp edge). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0.002", UIMax = "0.5"))
+	float MoonTerminatorSoftness = 0.12f;
+
+	/** The earthshine on the moon's dark side at its strongest (near the new moon), of the lit side's brightness. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
+	float MoonEarthshine = 0.06f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
 
