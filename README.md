@@ -137,6 +137,17 @@ deep blue overhead) and catch the sun's glow beside it. The sun's halo spreads a
 low. When the sky light captures the dome it sees no stars and only `SunDiskInSkyLight` of the sun disk, so the
 captured light has no hot spot.
 
+**Cloud tones.** The toon and painted looks' tones are the style's to set, none fixed in the shaders. The toon look
+(`ToonClouds`): the steps from the shade through the half tone to the lit tone by the light on a billow -- `Bands`, as
+many as wanted, each where it changes, how softly and to which tone, or a free `ToneCurve` in their place -- the half
+tone (`HalfToneMix`, `HalfToneTint`), an underside's own steps and deepest shade (`UndersideBands`,
+`UndersideDeepTint`), how the light on a billow is reckoned (`KeyFacing`, `KeyUp`, `KeyHeight`, `KeyHeightPivot`,
+`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side.
+The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
+and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
+of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of
+it as over the rest of the style. The renderer takes them with its own parameters; no shared parameter, no texture.
+
 **Aurora.** The dome draws the aurora as curtains of soft light over the auroral oval toward the magnetic pole
 (north, or south below the equator), from a sharp, brighter lower edge some 95 km up fading out by 320 km, green
 low down going to violet at the top. Where the curtains stand is drawn as thin ribbons that wander, fold and slowly
@@ -144,7 +155,7 @@ change shape (two copies of one smooth noise field drifting apart, lit where the
 oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
 heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
 this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
-clean tones there instead. The clouds
+clean tones there instead, at `ToneStep1..3` with `ToneSoftness` (`DDW_AuroraTones`). The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's

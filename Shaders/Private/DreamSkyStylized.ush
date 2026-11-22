@@ -306,8 +306,9 @@ float3 DSky_MilkyWay(float3 V, float4 Pole, float4 Equinox, Texture2D Galaxy, Sa
 // through the shell at fourteen heights (dithered, so the steps blend over frames): a ribbon on the ground is a
 // curtain standing over it, and fine noise along its length (the same at every height) striates it with rays.
 // A negative strength draws it for the stylized looks: its light banded in three clean tones.
-// Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km).
-float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Seconds, Texture3D Noise, SamplerState NoiseSampler, float2 ScreenUV)
+// Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km),
+// Tones = (the three steps of the banded tones, how soft their edges).
+float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float4 Tones, float Seconds, Texture3D Noise, SamplerState NoiseSampler, float2 ScreenUV)
 {
 	if (Aurora.x == 0.0 || V.z <= 0.0)
 	{
@@ -360,9 +361,11 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Secon
 	Sum *= Strength * (7.5 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
 	if (Aurora.x < 0.0)
 	{
-		// The stylized looks: three tones with clean edges, the hue kept.
+		// The stylized looks: three tones with clean edges, the hue kept (Tones: the three steps, how soft).
 		float Level = dot(Sum, float3(0.3, 0.6, 0.1)) / Strength;
-		float Stepped = 0.22 * smoothstep(0.13, 0.15, Level) + 0.33 * smoothstep(0.28, 0.31, Level) + 0.45 * smoothstep(0.5, 0.54, Level);
+		float Soft = max(Tones.w, 0.001);
+		float Stepped = 0.22 * smoothstep(Tones.x - 0.01 * Soft, Tones.x + 0.01 * Soft, Level) + 0.33 * smoothstep(Tones.y - 0.015 * Soft, Tones.y + 0.015 * Soft, Level)
+			+ 0.45 * smoothstep(Tones.z - 0.02 * Soft, Tones.z + 0.02 * Soft, Level);
 		Sum *= Stepped / max(Level, 1.0e-4);
 	}
 	return Sum;
@@ -846,6 +849,22 @@ void DSky_WalkSurface(inout FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, flo
 	W.bHit = bHit;
 }
 
+// The toon look's tones (the style's ToonClouds): the sky cloud renderer defines these from its parameters before it
+// includes this file; anywhere else they are the look's own defaults. TONE: the light on a billow to its tone (0 shade,
+// 0.5 half, 1 lit); UNDER: an underside's glow to its tone (0 deepest, 0.5 shade, 1 half); HALF = (half tone tint, how far
+// toward the lit), DEEP = (deepest underside, of the shade; the key's height pivot), KEY = (weights: facing the light,
+// facing up, height; a storm's darkening of the lit side), KEY2 = (where the light starts, its ramp; rim power,
+// strength), RIM = how tightly the rim glows toward the light behind.
+#ifndef DSKY_TOON_TONE
+#define DSKY_TOON_TONE(Light) (0.5 * smoothstep(0.24, 0.28, Light) + 0.5 * smoothstep(0.56, 0.6, Light))
+#define DSKY_TOON_UNDER(Glow) (0.5 * smoothstep(0.05, 0.35, Glow) + 0.5 * smoothstep(0.45, 0.8, Glow))
+#define DSKY_TOON_HALF float4(0.96, 0.97, 1.03, 0.55)
+#define DSKY_TOON_DEEP float4(0.62, 0.64, 0.7, 0.35)
+#define DSKY_TOON_KEY float4(0.7, 0.45, 0.5, 0.55)
+#define DSKY_TOON_KEY2 float4(-0.3, 0.6, 3.0, 2.0)
+#define DSKY_TOON_RIM 4.0
+#endif
+
 // Paints the surface a walk found: the toon tones, the undersides, the silver lining, the veil of the air between, how
 // see-through it is; returns the colour (premultiplied) and the cover, Core = how deep the cloud is (for the lightning).
 float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3 Ld, float Merging, float3 LightDir,
@@ -906,8 +925,12 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	// them: the tone goes by how a billow faces the sun, how much it faces up (the sky lights the tops, the cloud's own
 	// shade its underside) and how high in the cloud it sits, and the tones part around where that crosses zero.
 	float NdL = dot(N, Ld);
-	float Key = 0.7 * NdL + 0.45 * N.z + 0.5 * (Here.Height - 0.35);
-	float Light = saturate((Key + 0.3) / 0.6) * (1.0 - Cast) * SunLit;
+	float4 ToonKey = DSKY_TOON_KEY;
+	float4 ToonKey2 = DSKY_TOON_KEY2;
+	float4 ToonDeep = DSKY_TOON_DEEP;
+	float4 ToonHalf = DSKY_TOON_HALF;
+	float Key = ToonKey.x * NdL + ToonKey.y * N.z + ToonKey.z * (Here.Height - ToonDeep.w);
+	float Light = saturate((Key - ToonKey2.x) / ToonKey2.y) * (1.0 - Cast) * SunLit;
 	float Thin = exp(-Here.Column / 120000.0);
 	float Ambient = 0.94 + 0.04 * N.z + 0.12 * Thin + 0.05 * Here.Height;
 	// The underside sits in the cloud's own shade and sees little of the sky: darker low in the cloud, the more so where
@@ -925,7 +948,7 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	// colour is the sun's, still a sunset pink while the moon has already taken over in the dusk.)
 	float3 LitColor = lerp(CloudLit.rgb * lerp(1.0, SunHue, Warmth), CloudShadow.rgb * 1.8 * SunHue, LightColor.a);
 	float3 Lit = LitColor * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
-	float3 Half = lerp(Shadow, Lit, 0.55) * float3(0.96, 0.97, 1.03);
+	float3 Half = lerp(Shadow, Lit, ToonHalf.w) * ToonHalf.rgb;
 	float3 Color = Shadow;
 	if (Cloud0.w < 1.0)
 	{
@@ -933,8 +956,9 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	}
 	else
 	{
-		Color = lerp(Color, Half, smoothstep(0.24, 0.28, Light));
-		Color = lerp(Color, Lit, smoothstep(0.56, 0.6, Light));
+		// (The ramp's tone: from the shade to the half tone over its first half, on to the lit tone over its second.)
+		float Tone = DSKY_TOON_TONE(Light);
+		Color = Tone < 0.5 ? lerp(Shadow, Half, 2.0 * Tone) : lerp(Half, Lit, 2.0 * Tone - 1.0);
 	}
 	// Undersides, painted soft: from below the lobes of a deck, the base of a cumulus, the underside of a storm's anvil
 	// and its mammatus read by their shapes, not as one shade: dark where the cloud is thick over them, light where it
@@ -962,8 +986,8 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	// (A storm's underside is heavy: its lightest is well short of the half tone.)
 	float Glow = saturate((0.45 * Gap + 0.45 * Flank + 0.3 * saturate((dot(NForm, Ld) + 0.45) / 0.6) * SunLit) * lerp(1.0, 0.65, Deep)
 		+ 0.5 * (1.0 - Sliver) * Anvil);
-	float3 Underside = lerp(Shadow * float3(0.62, 0.64, 0.7), Shadow, smoothstep(0.05, 0.35, Glow));
-	Underside = lerp(Underside, Half, smoothstep(0.45, 0.8, Glow));
+	float UnderTone = DSKY_TOON_UNDER(Glow);
+	float3 Underside = UnderTone < 0.5 ? lerp(Shadow * ToonDeep.rgb, Shadow, 2.0 * UnderTone) : lerp(Shadow, Half, 2.0 * UnderTone - 1.0);
 	Underside = lerp(Underside, max(Underside, Shadow), Weak);
 	Color = lerp(Color, Underside, smoothstep(-0.25, -0.65, NForm.z) * (1.0 - smoothstep(0.35, 0.6, Light)));
 	// A deck is painted soft, the way an overcast is in anime backgrounds: no bands. Its upper side, seen from above, is
@@ -974,10 +998,10 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	Color = lerp(Color, lerp(Underside, DeckOver, smoothstep(0.3, 0.7, Here.Height) * FromAbove), Here.Deck);
 	// Silver lining: edges turned from the view, with the light behind them; grazed edges glow the most. Only on
 	// the upper sides (the lobes of an underside face away from the light), and not round a hole in a deck.
-	float Rim = pow(1.0 - saturate(abs(dot(N, V))), 3.0) * smoothstep(0.1, 0.5, Here.Height) * SunLit * (1.0 - Here.Deck);
-	Color += CloudLit.rgb * CloudLit.a * Rim * pow(saturate(dot(V, LightDir)), 4.0) * 2.0;
+	float Rim = pow(1.0 - saturate(abs(dot(N, V))), ToonKey2.z) * smoothstep(0.1, 0.5, Here.Height) * SunLit * (1.0 - Here.Deck);
+	Color += CloudLit.rgb * CloudLit.a * Rim * pow(saturate(dot(V, LightDir)), DSKY_TOON_RIM) * ToonKey2.w;
 	// Storm clouds are dark below; their lit tops much less so.
-	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(0.55, 1.0, 1.0 - Light) * lerp(1.0, 0.3, Here.Height));
+	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(ToonKey.w, 1.0, 1.0 - Light) * lerp(1.0, 0.3, Here.Height));
 	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops. Painted,
 	// the near ones keep their tones (a base a few kilometres overhead stays dark, not the sky's grey) and the haze closes
 	// in with distance: the veil eases in, the more slowly under a storm (its low dark base looms through the rain).
@@ -1120,7 +1144,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
 	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
-	SamplerState PanoramaSampler, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
+	SamplerState PanoramaSampler, float4 AuroraTones, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
 	V = normalize(V);
@@ -1186,7 +1210,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare * SunShows;
 	Sky += Corona * Clear * (1.0 - Capture);
 	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
-	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds, Noise, NoiseSampler, ScreenUV);
+	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
 

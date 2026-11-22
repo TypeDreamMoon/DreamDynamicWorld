@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Curves/CurveFloat.h"
 #include "DreamWorldTypes.h"
 #include "DreamSkyTypes.generated.h"
 
@@ -108,6 +109,119 @@ struct DREAMSKY_API FDreamSkyRealisticClouds
 };
 
 /**
+ * One step of a tone ramp: where (the light, 0..1) the tone changes, how soft the change is, and the tone it reaches
+ * there (0 the shade, 0.5 the half tone, 1 the lit tone; for an underside: 0 its deepest shade, 0.5 the shade, 1 the
+ * half tone).
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyToneBand
+{
+	GENERATED_BODY()
+
+	FDreamSkyToneBand() = default;
+	FDreamSkyToneBand(float InAt, float InSoftness, float InTone) : At(InAt), Softness(InSoftness), Tone(InTone) {}
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float At = 0.5f;
+
+	/** How wide the change from the tone before is (0 = a hard edge). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", UIMax = "0.5"))
+	float Softness = 0.04f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float Tone = 1.0f;
+};
+
+/** The toon look's tones baked for the renderer: the ramps sampled 256 times over 0..1, and its constants. */
+struct DREAMSKY_API FDreamSkyToonBaked
+{
+	static constexpr int32 RampSize = 256;
+	/** x the tone by the light, y an underside's tone by its glow. */
+	TArray<FVector2f> Ramp;
+	FVector4f Half = FVector4f(0.96f, 0.97f, 1.03f, 0.55f);    // rgb the half tone's tint, a how far it goes toward the lit
+	FVector4f Deep = FVector4f(0.62f, 0.64f, 0.7f, 0.35f);     // rgb an underside's deepest shade (of the shade), a the key's height pivot
+	FVector4f Key = FVector4f(0.7f, 0.45f, 0.5f, 0.55f);       // the key's weights: facing the light, facing up, height; a storm's darkening of the lit side
+	FVector4f Key2 = FVector4f(-0.3f, 0.6f, 3.0f, 2.0f);       // where the light starts, how far it ramps; the rim's power and strength
+	float RimFocus = 4.0f;                                       // how tightly the rim glows toward the light behind
+	bool IsValid() const { return Ramp.Num() == RampSize; }
+	/** Blends toward another bake (a sky modifier's), by Alpha. */
+	void BlendToward(const FDreamSkyToonBaked& To, float Alpha);
+};
+
+/**
+ * The sky cloud renderer's toon look (ADreamSky::CloudLook = Toon): the clouds' surface painted in the style's tones, each
+ * billow by its own normal. How the light on a billow is reckoned (the key), the ramp from it to the tones -- the bands,
+ * or a curve -- the half tone, an underside's own ramp and deepest shade, the silver lining. The defaults are the look's
+ * own; a sky modifier may bring another set and blend to it.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyToonClouds
+{
+	GENERATED_BODY()
+
+	FDreamSkyToonClouds();
+
+	/** The steps from the shade to the lit tone by the light on a billow (sorted by At; as many as wanted). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones")
+	TArray<FDreamSkyToneBand> Bands;
+
+	/** Use the curve below instead of the bands. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones")
+	bool bUseToneCurve = false;
+
+	/** The light on a billow (0..1) to its tone (0 shade, 0.5 half, 1 lit). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (EditCondition = "bUseToneCurve", XAxisName = "Light", YAxisName = "Tone"))
+	FRuntimeFloatCurve ToneCurve;
+
+	/** How far the half tone lies from the shade toward the lit tone, and its tint. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float HalfToneMix = 0.55f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (HideAlphaChannel))
+	FLinearColor HalfToneTint = FLinearColor(0.96f, 0.97f, 1.03f);
+
+	/** An underside's steps from its deepest shade (0) through the shade (0.5) to the half tone (1), by how much it glows. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones")
+	TArray<FDreamSkyToneBand> UndersideBands;
+
+	/** An underside's deepest shade, of the shade. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (HideAlphaChannel))
+	FLinearColor UndersideDeepTint = FLinearColor(0.62f, 0.64f, 0.7f);
+
+	/** The light on a billow: how much facing the light, facing up and standing high in the cloud count. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (UIMin = "0", UIMax = "2"))
+	float KeyFacing = 0.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (UIMin = "0", UIMax = "2"))
+	float KeyUp = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (UIMin = "0", UIMax = "2"))
+	float KeyHeight = 0.5f;
+	/** The height in the cloud (0 base .. 1 top) where standing high starts to count for more light. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (ClampMin = "0", ClampMax = "1"))
+	float KeyHeightPivot = 0.35f;
+	/** The key where the light starts (0), and how far on it is full (1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (UIMin = "-1", UIMax = "1"))
+	float KeyLow = -0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Key", meta = (ClampMin = "0.01", UIMax = "2"))
+	float KeyRange = 0.6f;
+
+	/** The silver lining: how close to the outline it stays (a power), how bright, how tightly toward the light behind. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0.5", UIMax = "8"))
+	float RimPower = 3.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0", UIMax = "8"))
+	float RimStrength = 2.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0.5", UIMax = "16"))
+	float RimFocus = 4.0f;
+
+	/** How dark a storm leaves the lit side (the shade goes all the way). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float StormLitDarkening = 0.55f;
+
+	/** The ramps sampled, and the constants, for the renderer. */
+	void Bake(FDreamSkyToonBaked& Out) const;
+	/** A ramp of bands at X (0..1). */
+	static float EvaluateBands(const TArray<FDreamSkyToneBand>& InBands, float X);
+};
+
+/**
  * The sky cloud renderer's painted look (ADreamSky::CloudLook = Painted): the clouds' density painted in the style's
  * three tones by the light through it, hard-edged, as an anime background's.
  */
@@ -155,6 +269,30 @@ struct DREAMSKY_API FDreamSkyPaintedClouds
 	/** Multiplies the style's shade colour: blue-lavender, which it keeps where the weather greys the style's colours. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones")
 	FLinearColor ShadeTint = FLinearColor(0.86f, 0.84f, 1.02f, 1.0f);
+
+	/** How far the half tone lies from the shade toward the lit tone, and its tint. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float HalfToneMix = 0.55f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (HideAlphaChannel))
+	FLinearColor HalfToneTint = FLinearColor(0.97f, 0.97f, 1.02f);
+
+	/** How fast the light falls off into a cloud toward the sun (smaller = the shade comes on sooner). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0.005", UIMax = "0.2"))
+	float KeyFalloff = 0.04f;
+
+	/** The silver lining's falloff off the outline and its power. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0.001", UIMax = "0.2"))
+	float RimFalloff = 0.025f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0.5", UIMax = "8"))
+	float RimPower = 4.0f;
+
+	/** How dark the shade is at a cloud's base, of its shade at the top. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShadeAtBase = 0.84f;
+
+	/** The least a cloud's base keeps of its shade, however deep in the cloud's own shadow (from below a cloud is never black). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
+	float BaseFloor = 0.85f;
 };
 
 /**
@@ -191,6 +329,15 @@ struct FDreamSkyCloudLookParameters
 	float BillowShade = 0.3f;
 	FLinearColor PaintLitTint = FLinearColor(1.0f, 0.975f, 0.93f, 1.0f);
 	FLinearColor PaintShadeTint = FLinearColor(0.86f, 0.84f, 1.02f, 1.0f);
+	float PaintHalfToneMix = 0.55f;
+	FLinearColor PaintHalfToneTint = FLinearColor(0.97f, 0.97f, 1.02f, 1.0f);
+	float PaintKeyFalloff = 0.04f;
+	float PaintRimFalloff = 0.025f;
+	float PaintRimPower = 4.0f;
+	float PaintShadeAtBase = 0.84f;
+	float PaintBaseFloor = 0.85f;
+	// Toon (FDreamSkyToonClouds, baked; the sky modifiers' blend of it).
+	FDreamSkyToonBaked Toon;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -337,6 +484,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LensFlare = 0.0f;
 	/** How bright the Milky Way is drawn on the darkest night (the style's MilkyWay.Intensity, a modifier's scale on it). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MilkyWay = 0.0f;
+	/** The toon clouds' tones baked (the style's ToonClouds, the sky modifiers' blended toward theirs). */
+	FDreamSkyToonBaked Toon;
 	/** How much of the sun's disk the moon covers, 0..1, and where the moon's centre stands on it (sun radii, DreamSky::Eclipse). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SolarEclipse = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D SolarEclipseOffset = FVector2D(1000.0, 0.0);

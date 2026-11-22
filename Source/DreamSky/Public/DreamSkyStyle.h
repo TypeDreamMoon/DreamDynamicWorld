@@ -57,6 +57,16 @@ struct DREAMSKY_API FDreamSkyAurora
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora")
 	bool bStylizedTones = false;
 
+	/** The banded tones' three steps (of its brightness), and how soft their edges are (1 = the look's own). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep1 = 0.14f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep2 = 0.295f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneStep3 = 0.52f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "4", EditCondition = "bStylizedTones"))
+	float ToneSoftness = 1.0f;
+
 	/** Artistic mode (no latitude): how present it is, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))
 	float ArtisticPresence = 0.0f;
@@ -743,6 +753,9 @@ public:
 	/** The sky cloud renderer's painted look (ADreamSky::CloudLook = Painted). The level's cloud overrides go over it. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Painted", meta = (ShowOnlyInnerProperties))
 	FDreamSkyPaintedClouds PaintedClouds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds|Toon", meta = (ShowOnlyInnerProperties))
+	FDreamSkyToonClouds ToonClouds;
 
 	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades

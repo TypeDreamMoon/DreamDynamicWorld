@@ -141,6 +141,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LensFlare", ClampMin = "0", UIMax = "8"))
 	float LensFlare = 1.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_ToonClouds = false;
+	/** The toon clouds' tones to blend to (the bands or curve, the half tone, the underside, the key, the rim). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_ToonClouds"))
+	FDreamSkyToonClouds ToonClouds;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_MilkyWay = false;
 	/** Multiplies how bright the Milky Way is drawn. */
