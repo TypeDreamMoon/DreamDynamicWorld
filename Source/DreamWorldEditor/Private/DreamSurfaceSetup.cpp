@@ -374,6 +374,11 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SurfaceSetup::AddMesh(*World, Cone, ToonRed, FVector(1450.0, 350.0, 50.0), FVector(0.8), FRotator::ZeroRotator, TEXT("ToonCone"));
 	SurfaceSetup::AddMesh(*World, Figure, ToonBlue, FVector(950.0, 250.0, 5.0), FVector(1.0), FRotator(0.0, 200.0, 0.0), TEXT("ToonFigure"));
 
+	// A pond in the dip to the left: its own water material, rippled while it rains (MF_DreamWaterRipples).
+	UMaterialInterface* Water = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceWaterDemo.M_DreamSurfaceWaterDemo"));
+	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -38.0), FVector(3.5, 3.5, 1.0),
+		FRotator::ZeroRotator, TEXT("Pond"));
+
 	// Far ahead right: a snow zone; its border lies on the ground.
 	ADreamWeatherZone* SnowZone = World->SpawnActor<ADreamWeatherZone>(FVector(5200.0, -2600.0, 0.0), FRotator::ZeroRotator);
 	SnowZone->Zone->Shape = EDreamWeatherZoneShape::Circle;
