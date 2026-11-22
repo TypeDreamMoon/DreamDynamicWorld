@@ -148,7 +148,9 @@ its shade, the shade's own light (base, facing up, thin, high), the low sun's co
 sunlit top, where the silver lining comes on, how much of a storm's darkening the tops keep, how far clouds sink into
 the sky's colour, and the size and tearing of the cracks in a thinning deck.
 The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
-and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
+and the least a base keeps, and in its advanced settings the low sun's colour, the sky's in the shade, the key at a
+cloud's base, a deck's soft gradient, a storm's darkening and the base floor's reach; a sky modifier's *Painted
+Clouds* blends to another set of all of these, as *Toon Clouds* does for the toon look. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
 of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of
 it as over the rest of the style. The renderer takes them with its own parameters; no shared parameter, no texture.
 

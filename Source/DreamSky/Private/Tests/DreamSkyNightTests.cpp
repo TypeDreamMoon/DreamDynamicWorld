@@ -714,6 +714,20 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("halfway to its tones at half strength"), Half.Ramp[100].X, 0.5f * (Baked.Ramp[100].X + 1.0f), 1.0e-4f);
 	TestNearlyEqual(TEXT("and halfway to its half tone"), Half.Half.W, 0.5f * (0.55f + 0.95f), 1.0e-4f);
 	W.SkySubsystem->RemoveModifier(Flat);
+
+	// The painted clouds' settings too.
+	const FDreamSkyPaintedClouds& Style = W.Sky->GetEffectiveStyle()->PaintedClouds;
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("the sky's look carries the style's painted settings"), W.SkySubsystem->GetLook().Painted.HalfToneAt, Style.HalfToneAt, 1.0e-5f);
+	UDreamSkyModifier* Paint = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Paint->Settings.bOverride_PaintedClouds = true;
+	Paint->Settings.PaintedClouds.HalfToneAt = 0.12f;
+	Paint->Settings.PaintedClouds.WarmMax = 3.0f;
+	W.SkySubsystem->SetModifierAlpha(Paint, 0.5f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("halfway to the modifier's painted tones"), W.SkySubsystem->GetLook().Painted.HalfToneAt, 0.5f * (Style.HalfToneAt + 0.12f), 1.0e-4f);
+	TestNearlyEqual(TEXT("and its finer settings"), W.SkySubsystem->GetLook().Painted.WarmMax, 0.5f * (Style.WarmMax + 3.0f), 1.0e-4f);
+	W.SkySubsystem->RemoveModifier(Paint);
 	return true;
 }
 

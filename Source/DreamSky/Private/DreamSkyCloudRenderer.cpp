@@ -524,7 +524,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7, "the toon ramps, two samples a vector, after the 18 looks' vectors; then the toon's finer settings");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -560,6 +560,10 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	{
 		Out[18 + FDreamSkyToonBaked::RampSize / 2 + Index] = Toon.Advanced[Index];
 	}
+	Out[153] = FVector4f(L.PaintWarmFade, L.PaintWarmTowardSun, L.PaintWarmMax, L.PaintSkyInShade);
+	Out[154] = FVector4f(L.PaintKeyAtBase, L.PaintKeyLow, L.PaintKeyHigh, FMath::Max(L.PaintDeckThinColumn, 1.0f) * 100.0f);
+	Out[155] = FVector4f(L.PaintDeckStormThinning, L.PaintDeckFrom, FMath::Max(L.PaintDeckTo, L.PaintDeckFrom + 0.001f), L.PaintStormLitDarkening);
+	Out[156] = FVector4f(L.PaintStormTopDarkening, L.PaintFloorAtTop, L.PaintFloorInStorm, 0.0f);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
