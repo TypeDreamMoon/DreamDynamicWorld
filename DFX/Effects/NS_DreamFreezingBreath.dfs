@@ -1,0 +1,70 @@
+// DreamWeather: a breath of mist in the cold (CPU, a handful of particles).
+//
+// UDreamWeatherStatusComponent attaches it at the head and sets User.Intensity (0..1, how cold it feels): a puff
+// every few seconds, out and slightly up, growing and fading as it drifts.
+System(Name="Weather/Effects/NS_DreamFreezingBreath", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        WarmupTime  = 0.0;
+        FixedBounds = box(-200, -200, -200, 200, 200, 200);
+    }
+
+    Properties = {
+        float  Intensity = 1.0                 [ Group="Breath"; Description="0..1, how cold it feels." ];
+        float  Period    = 3.2                 [ Group="Breath"; Description="Seconds between breaths." ];
+        Vector Out       = (0, 45, 12)         [ Group="Breath"; Description="Velocity of the breath, cm/s, in the socket's space." ];
+        Color  Tint      = (0.92, 0.95, 1.0, 0.22) [ Group="Look" ];
+    }
+
+    Emitter Puff
+    {
+        Settings = {
+            SimTarget          = CPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 128;
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            // A breath: a quarter of each period breathing out.
+            SpawnRate(SpawnRate = hlsl { User.Intensity * 40.0 * step(frac(Emitter.Age / max(User.Period, 0.5)), 0.25) });
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = 1.4,
+                ColorMode            = DirectSet,
+                Color                = User.Tint,
+                SpriteSizeMode       = Uniform,
+                UniformSpriteSize    = 4.0,
+                SpriteRotationMode   = Random
+            );
+            Vector Particles.Velocity = hlsl { mul(float4(User.Out, 0.0), Engine.Owner.SystemLocalToWorld).xyz + float3(rand(10.0) - 5.0, rand(10.0) - 5.0, rand(6.0)) };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            Drag(Drag = 1.5);
+            SolveForcesAndVelocity();
+            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * lerp(4.0, 30.0, Particles.NormalizedAge) };
+            Color Particles.Color = hlsl {
+                float4(User.Tint.rgb, User.Tint.a * User.Intensity * saturate(Particles.NormalizedAge * 6.0) * (1.0 - Particles.NormalizedAge))
+            };
+        }
+
+        SpriteRenderer Mist
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamSnowFlake";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = ViewDepth;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+}
