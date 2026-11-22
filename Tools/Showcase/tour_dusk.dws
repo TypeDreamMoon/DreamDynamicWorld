@@ -1,0 +1,15 @@
+ShowFlag.EyeAdaptation 0
+shot SHOW_Dusk_00
+wait 90
+shot SHOW_Dusk_01
+wait 90
+shot SHOW_Dusk_02
+wait 90
+shot SHOW_Dusk_03
+wait 90
+shot SHOW_Dusk_04
+wait 90
+shot SHOW_Dusk_05
+wait 90
+shot SHOW_Dusk_06
+wait 90

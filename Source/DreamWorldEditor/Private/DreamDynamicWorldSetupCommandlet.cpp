@@ -4,6 +4,7 @@
 #include "DreamCloudNoise.h"
 #include "DreamCloudTestMap.h"
 #include "DreamSurfaceSetup.h"
+#include "DreamWorldShowcaseSetup.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
@@ -445,6 +446,10 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	if (FParse::Param(*Params, TEXT("SurfaceTestMap")))
 	{
 		bOk &= BuildSurfaceTestMap(Style);
+	}
+	if (FParse::Param(*Params, TEXT("WorldShowcase")))
+	{
+		bOk &= BuildShowcaseMaps(Style);
 	}
 	UE_LOG(LogDreamWorld, Display, TEXT("DreamDynamicWorldSetup: %s"), bOk ? TEXT("done") : TEXT("FAILED"));
 	return bOk ? 0 : 1;
