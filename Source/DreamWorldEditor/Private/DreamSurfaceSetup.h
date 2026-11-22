@@ -4,7 +4,34 @@
 
 #include "CoreMinimal.h"
 
+class AStaticMeshActor;
 class UDreamSkyStyle;
+class UMaterialInterface;
+class UStaticMesh;
+
+/** What the surface test level is built with, for the other levels built from the same pieces (the showcase). */
+namespace DreamWorld::SurfaceSetup
+{
+	/** Saves an asset (or a level) to its package's file. */
+	bool SaveAsset(UObject* Asset);
+
+	/** A package to build an asset in afresh: a copy already in memory lets go of its file and moves aside. */
+	UPackage* FreshPackage(const TCHAR* Path);
+
+	/** The test ground's height (cm) at a point: flat around (1300, 400), rolling further out, a dip at (900, -1100). */
+	double GroundHeight(double X, double Y);
+
+	/** The test ground (80 m square around (2500, 0)) and the toon figure's stand-in mesh, built afresh. */
+	UStaticMesh* EnsureGround();
+	UStaticMesh* EnsureFigure();
+
+	/** An instance of a demo material under /DreamDynamicWorld/Surface/Materials (Metallic below 0: the parent's). */
+	UMaterialInterface* EnsureInstance(const TCHAR* Name, const TCHAR* ParentPath, const FLinearColor& Tint, float Roughness, float Metallic);
+
+	/** A static mesh actor with this mesh, material, place, scale (of the 1 m basic shapes) and label. */
+	AStaticMeshActor* AddMesh(UWorld& World, UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, const FVector& Scale,
+		const FRotator& Rotation, const TCHAR* Label);
+}
 
 namespace DreamWorld::Setup
 {

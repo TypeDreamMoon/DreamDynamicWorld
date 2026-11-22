@@ -37,6 +37,10 @@ public class DreamWorldEditor : ModuleRules
 			"DreamSurface",
 			"MeshDescription",
 			"StaticMeshDescription",
+			"LevelSequence",
+			"MovieScene",
+			"MovieSceneTracks",
+			"DreamWorldSequencer",
 		});
 	}
 }
