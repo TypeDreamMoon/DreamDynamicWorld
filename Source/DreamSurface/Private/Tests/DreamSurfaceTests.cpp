@@ -351,6 +351,58 @@ bool FDreamSurfaceWhereWaterTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceHollowPatternTest, "DreamSurface.HollowPattern", DreamSurface::Tests::Flags)
+bool FDreamSurfaceHollowPatternTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+
+	// The hollow pattern (puddles, the snow's edge, the wander of a snow border) is continuous: no step where it crosses a
+	// line of its lattice, of either octave, near the origin or kilometres out. The lattice corners are hashed in integer
+	// arithmetic (DSF_LatticeHash), so every cell sharing a corner gets the same value from it on the GPU too.
+	const float Scale = 600.0f;
+	float WorstStep = 0.0f;
+	for (const float Far : { 0.0f, 250000.0f, -1200000.0f })
+	{
+		for (int32 Line = -6; Line <= 6; ++Line)
+		{
+			for (const float Octave : { 1.0f, 2.03f })
+			{
+				// Where the octave's lattice has a line: X / Scale * Octave (+ 17 in the second) is a whole number.
+				const float Offset = Octave > 1.5f ? 17.0f : 0.0f;
+				const float N = FMath::Floor(Far / Scale * Octave + Offset) + float(Line);
+				const float X = (N - Offset) / Octave * Scale;
+				for (const float Y : { 37.0f, 911.0f, -2203.0f })
+				{
+					WorstStep = FMath::Max(WorstStep, FMath::Abs(DSF_Hollow(X + 0.5f, Y, Scale) - DSF_Hollow(X - 0.5f, Y, Scale)));
+					WorstStep = FMath::Max(WorstStep, FMath::Abs(DSF_Hollow(Y, X + 0.5f, Scale) - DSF_Hollow(Y, X - 0.5f, Scale)));
+				}
+			}
+		}
+	}
+	AddInfo(FString::Printf(TEXT("largest change across a centimetre at a lattice line: %.4f"), WorstStep));
+	TestTrue(TEXT("no step at the lattice lines"), WorstStep < 0.02f);
+
+	// It spans its range evenly: about half on either side of the middle, reaching both ends.
+	float Sum = 0.0f, Lo = 1.0f, Hi = 0.0f;
+	int32 Count = 0;
+	for (float Y = 0.0f; Y < 20000.0f; Y += 97.0f)
+	{
+		for (float X = 0.0f; X < 20000.0f; X += 89.0f)
+		{
+			const float H = DSF_Hollow(X, Y, Scale);
+			Sum += H;
+			Lo = FMath::Min(Lo, H);
+			Hi = FMath::Max(Hi, H);
+			++Count;
+		}
+	}
+	const float Mean = Sum / float(Count);
+	AddInfo(FString::Printf(TEXT("hollow pattern: mean %.3f, range %.3f..%.3f"), Mean, Lo, Hi));
+	TestTrue(TEXT("centred on the middle"), FMath::Abs(Mean - 0.5f) < 0.06f);
+	TestTrue(TEXT("reaching towards both ends"), Lo < 0.25f && Hi > 0.75f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWeatherAtTest, "DreamSurface.WeatherAtTime", DreamSurface::Tests::Flags)
 bool FDreamSurfaceWeatherAtTest::RunTest(const FString& Parameters)
 {
