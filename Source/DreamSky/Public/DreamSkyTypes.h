@@ -506,6 +506,8 @@ struct FDreamSkyCloudLookParameters
 	bool bCloudMatchStyleBrightness = true;
 	FLinearColor CloudLitScale = FLinearColor::White;
 	FLinearColor CloudShadeScale = FLinearColor::White;
+	FLinearColor PaintedCloudLitScale = FLinearColor::White;
+	FLinearColor PaintedCloudShadeScale = FLinearColor::White;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);

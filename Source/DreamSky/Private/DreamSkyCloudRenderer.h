@@ -41,7 +41,7 @@ public:
 	static const TArray<FName>& GetParameterNames();
 	static constexpr int32 NumParameters = 30;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
-	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4 + 2; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's; the clouds' colour scales)
+	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4 + 4; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's; the clouds' colour scales)
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:

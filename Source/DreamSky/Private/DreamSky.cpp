@@ -459,6 +459,8 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.bCloudMatchStyleBrightness = Effective->bCloudMatchStyleBrightness;
 		Out.CloudLitScale = Effective->CloudLitScale.GetLinearColorValue(Elevation);
 		Out.CloudShadeScale = Effective->CloudShadeScale.GetLinearColorValue(Elevation);
+		Out.PaintedCloudLitScale = Effective->PaintedCloudLitScale.GetLinearColorValue(Elevation);
+		Out.PaintedCloudShadeScale = Effective->PaintedCloudShadeScale.GetLinearColorValue(Elevation);
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}
 	Out.SunScattering = CloudSunScattering;
