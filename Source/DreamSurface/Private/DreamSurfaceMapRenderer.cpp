@@ -45,6 +45,7 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER(uint32, NumSteps)
 		SHADER_PARAMETER(float, StepHours)
 		SHADER_PARAMETER(FVector4f, PartialWeather)
+		SHADER_PARAMETER(FVector4f, PartialChannels)
 		SHADER_PARAMETER(FVector4f, PartialAir)
 		SHADER_PARAMETER(float, PartialHours)
 		SHADER_PARAMETER(FVector2f, PrecipitationGate)
@@ -150,8 +151,8 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	FRDGTextureRef Target = RegisterExternalTexture(GraphBuilder, TargetRHI, TEXT("DreamSurface.Map"));
 	FRDGTextureRef Start = GraphBuilder.RegisterExternalTexture(StepStart, TEXT("DreamSurface.StepStart"));
 
-	const TArray<FVector4f> NoStep = { FVector4f::Zero(), FVector4f(15.0f, 0.0f, 0.0f, -1.0f) };
-	const TArray<FVector4f> NoZone = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(-1.0f, -1.0f, -1.0f, 0.0f) };
+	const TArray<FVector4f> NoStep = { FVector4f::Zero(), FVector4f::Zero(), FVector4f(15.0f, -1.0f, 0.0f, 0.0f) };
+	const TArray<FVector4f> NoZone = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(-1.0f, -1.0f, -1.0f, 0.0f), FVector4f(-1.0e4f) };
 	FRDGBufferRef StepBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Steps"), NonEmpty(Args.Steps, NoStep));
 	FRDGBufferRef ZoneBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Zones"), NonEmpty(Args.Zones, NoZone));
 
@@ -159,15 +160,16 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->Rates0 = Args.Rates[0];
 	Params->Rates1 = Args.Rates[1];
 	Params->Rates2 = Args.Rates[2];
-	Params->NumSteps = uint32(Args.Steps.Num() / 2);
+	Params->NumSteps = uint32(Args.Steps.Num() / 3);
 	Params->StepHours = Args.StepHours;
 	Params->PartialWeather = Args.PartialWeather;
+	Params->PartialChannels = Args.PartialChannels;
 	Params->PartialAir = Args.PartialAir;
 	Params->PartialHours = Args.PartialHours;
 	Params->PrecipitationGate = Args.PrecipitationGate;
 	Params->MapCenter = Args.Center;
 	Params->MapExtent = Args.Extent;
-	Params->NumZones = uint32(Args.Zones.Num() / 3);
+	Params->NumZones = uint32(Args.Zones.Num() / 4);
 	Params->bIntegrate = bIntegrate ? 1u : 0u;
 	Params->Resolution = Resolution;
 	Params->Steps = GraphBuilder.CreateSRV(StepBuffer);

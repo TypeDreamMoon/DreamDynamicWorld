@@ -229,37 +229,40 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 	}
 }
 
-void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutAir) const
+void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir) const
 {
 	using C = FDreamWeatherChannels;
 	const double T = double(StepIndex) * StepSeconds();
 	const FDreamWeatherValues Global = GlobalAtStep(StepIndex);
-	// The map applies the zones per texel to these three channels (DreamWeatherMap.usf's way); the air is the view's.
+	// The global values: the map applies the zones to them per texel.
 	OutWeather = FVector4f(Global.Get(C::CloudCoverage), Global.Get(C::CloudDarkness), Global.Get(C::Precipitation), Global.Get(C::SnowRatio));
+	OutChannels = FVector4f(Global.Get(C::Temperature), Global.Get(C::Dust), Global.Get(C::Wind), 0.0f);
 	const UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get();
 	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
 	if (!Weather || !Clock)
 	{
-		OutAir = FVector4f(15.0f, 0.0f, 0.0f, -1.0f);
+		OutAir = FVector4f(15.0f, -1.0f, 0.0f, 0.0f);
 		return;
 	}
+	// The temperature of the hour at the view, less the offset there: a texel adds its own offset.
 	const FDreamWeatherSample W = Weather->SampleWeatherAt(ViewAnchor, Global, T);
 	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), T);
-	OutAir = FVector4f(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
+	OutAir = FVector4f(W.Temperature - W.Values.Get(C::Temperature), float(Sky.SunDirection.Z), 0.0f, 0.0f);
 }
 
 void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)
 {
 	MapSteps.Step = StepIndex;
-	MapSteps.Steps.Reset(MemorySteps() * 2);
+	MapSteps.Steps.Reset(MemorySteps() * 3);
 	for (int64 k = StepIndex - MemorySteps(); k < StepIndex; ++k)
 	{
-		FVector4f Weather, Air;
-		MapStepRecord(k, Weather, Air);
+		FVector4f Weather, Channels, Air;
+		MapStepRecord(k, Weather, Channels, Air);
 		MapSteps.Steps.Add(Weather);
+		MapSteps.Steps.Add(Channels);
 		MapSteps.Steps.Add(Air);
 	}
-	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialAir);
+	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialChannels, MapSteps.PartialAir);
 }
 
 void UDreamSurfaceSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
