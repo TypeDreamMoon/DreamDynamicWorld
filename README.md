@@ -272,8 +272,13 @@ An influence of your own brings a preset the same way by overriding `GetWeatherI
 Override / Add / Multiply / Max / Min, a weight, a priority, real-time fades) and `ForceWeather(Preset)` (a second
 forcing blends in over the first, which holds until it has arrived: the schedule never shows through between).
 **Zones** (`ADreamWeatherZone`, or `UDreamWeatherZoneComponent` on anything) give a region weather of its own: a
-box or circle footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
-registration order). Anything else can bend the weather where it is by implementing `IDreamWeatherInfluence`.
+box, circle or polygon footprint, a blend distance, a priority (equal priorities apply in a fixed order, never by
+registration order). A **polygon** is any outline seen from above, up to 64 points in the zone's frame (`Points`,
+`SetPolygonPoints`), or a closed spline: `ADreamWeatherOutlineZone` takes its footprint from its `Outline` spline, a
+point every `OutlineSpacing` (call `UpdateFootprint` after moving the spline at run time; a spline tagged as an
+outline is never taken for a storm's path). The blend runs out from the outline's nearest edge, so a snowfield with a
+bay cut into it stays clear in the bay. Anything else can bend the weather where it is by implementing
+`IDreamWeatherInfluence`.
 
 **Queries and events.** `SampleWeather(Position)` — every channel there, rain and snow (precipitation turns to
 snow near freezing, so a mountain top snows in the valley's rain), the temperature (climate, season, hour,
@@ -285,8 +290,12 @@ are saved in the world snapshot; the schedule needs nothing saved.
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
 up in it where each direction meets the cloud layer, so a storm zone's dark clouds show from afar. The zone
-falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the compute pass and for the CPU
-queries: what the sky shows over a valley is what gameplay reads there. Rain, snow and lightning are held to what
+falloff is one function (`Shaders/Shared/DreamWeatherShared.h`) compiled for the weather map, the surface maps and
+the CPU queries: what the sky shows over a valley is where the ground gets wet and what gameplay reads there. A
+polygon's points follow the zone records in the maps' zone buffers. `DreamWeather.MarkEdge [channel] [radius m] [step
+m] [level] [post height m]` puts red posts on the ground where the point queries cross a level of a channel around
+the view (`DreamWeather.MarkEdge off` takes them away), to see a zone's edge as gameplay has it beside the clouds and
+the ground. Rain, snow and lightning are held to what
 the clouds allow, after every preset, modifier and zone (*Project Settings ▸ Dream Weather ▸ Clouds*): no
 precipitation below 75% cover, in full from 90% (`PrecipitationCloudCover`), and lightning only from a dark, closed
 cover (`LightningCloudDarkness` 0.45–0.75, `LightningCloudCover` 0.85–0.97). A change of weather therefore stops
@@ -445,7 +454,9 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
 in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves), a campfire
 (warm air), crates the wind pushes, a storm that drifts in from the west on the morning of 21 June (over the area around ten, gone by half
-past twelve) and a storm spawner, under weather that runs clear → rain → storm → cloudy every three hours.
+past twelve), a storm spawner, and 7 km to the north a snowfield of no regular shape (an outline zone some 7 km
+across with a bay cut into its south side) over land that reads the surface maps, under weather that runs clear → rain
+→ storm → cloudy every three hours.
 `-ForceAudio` builds the graphs again, `-Force` the level.
 
 ## Surfaces
@@ -488,7 +499,8 @@ moving in eighths of its size), a **far map** as wide as the weather map (`RT_Dr
 **cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
 step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
 precipitation, snow ratio, temperature, dust and wind), then the shared formula — so a map texel and `SampleSurface`
-at its centre agree (`DreamSurface.Gpu.MatchesCpu`), and a snow zone's border shows on the ground from afar. The whole
+at its centre agree (`DreamSurface.Gpu.MatchesCpu`, and `DreamSurface.Gpu.PolygonZone` for an outline with a
+corner cut out), and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
 up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a
@@ -523,7 +535,7 @@ each function's custom nodes (no function calls another). Demo materials: `M_Dre
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
 a shelter box (dry beneath it), realistic props (stone, metal, wood) and toon props and a toon figure, rolling ground,
-and a snow zone far ahead whose border shows on the ground. The schedule is clear; force the weather
+and a snow zone of no regular shape far ahead (an outline zone) whose border shows on the ground. The schedule is clear; force the weather
 (`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
 
 Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
