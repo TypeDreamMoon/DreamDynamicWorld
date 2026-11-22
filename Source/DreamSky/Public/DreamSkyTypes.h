@@ -228,6 +228,15 @@ struct DREAMSKY_API FDreamSkyLighting
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	bool bMainLightIsMoon = false;
 
+	/**
+	 * What an overcast leaves of the sun for whatever the clouds' own shadow does not reach -- the shared parameters'
+	 * main light (materials, toon characters), which reads no light function. 1 when the sun's light itself was dimmed
+	 * for the overcast; below 1 while the sky cloud renderer's shadow takes the sun off the ground instead (the sun light
+	 * is then left whole, so the same clouds do not darken it twice).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky")
+	float SunOvercastScale = 1.0f;
+
 	/** Toward the sun / the moon light as the directional lights point (the moon light may stand in when the moon is down). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	FVector SunLightDirection = FVector::UpVector;

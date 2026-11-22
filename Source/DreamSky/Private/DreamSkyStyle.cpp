@@ -245,6 +245,8 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	L.SunIlluminance *= SunScale;
 	L.MoonIlluminance *= LightScale;
 	L.MainLightIlluminance *= L.bMainLightIsMoon ? LightScale : SunScale;
+	// (What the clouds' shadow does not reach still takes the overcast's dimming.)
+	L.SunOvercastScale *= bCloudsShadowTheSun ? LightScale : 1.0f;
 	L.AmbientSky = Grey(L.AmbientSky);
 	L.AmbientEquator = Grey(L.AmbientEquator);
 	L.AmbientGround = Grey(L.AmbientGround);

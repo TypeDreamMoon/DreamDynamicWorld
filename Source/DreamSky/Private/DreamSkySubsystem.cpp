@@ -148,6 +148,7 @@ FDreamSkyLighting UDreamSkySubsystem::BlendLighting(const FDreamSkyLighting& Fro
 	Out.MoonIlluminance = Mix(From.MoonIlluminance, To.MoonIlluminance);
 	Out.MainLightColor = To.bMainLightIsMoon ? Out.MoonColor : Out.SunColor;
 	Out.MainLightIlluminance = FMath::Max(Out.SunIlluminance, Out.MoonIlluminance);
+	Out.SunOvercastScale = Mix(From.SunOvercastScale, To.SunOvercastScale);
 	Out.AmbientSky = MixC(From.AmbientSky, To.AmbientSky);
 	Out.AmbientEquator = MixC(From.AmbientEquator, To.AmbientEquator);
 	Out.AmbientGround = MixC(From.AmbientGround, To.AmbientGround);
@@ -185,7 +186,9 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 		Look.LunarEclipse = DreamSky::Eclipse::Lunar(Celestial.SunDirection, Celestial.MoonDirection, Offset);
 		Look.LunarEclipseOffset = Offset;
 	}
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
+	// (While the sky cloud renderer draws the clouds their shadow falls on the ground through the sun's light function:
+	// the overcast does not dim the sun light as well.)
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->DrawsClouds() && Sky->SunLight);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).
@@ -659,7 +662,9 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_SkyModClouds, FLinearColor(1.0f - Look.CloudCoverageKept, Look.CloudCoverageAdded, 1.0f - Look.CloudDarknessKept, Look.CloudDarknessAdded));
 
 	const FVector& L = Applied.MainLightDirection;
-	Clock.SetVectorParameter(MPC_MainLight, FLinearColor(float(L.X), float(L.Y), float(L.Z), Applied.MainLightIlluminance));
+	// (The materials read no light function: the overcast dims their sun here when the sun light was left whole.)
+	Clock.SetVectorParameter(MPC_MainLight, FLinearColor(float(L.X), float(L.Y), float(L.Z),
+		Applied.MainLightIlluminance * (Applied.bMainLightIsMoon ? 1.0f : Applied.SunOvercastScale)));
 	Clock.SetVectorParameter(MPC_MainLightColor, With(Applied.MainLightColor, Applied.bMainLightIsMoon ? 1.0f : 0.0f));
 	Clock.SetVectorParameter(MPC_AmbientSky, With(Applied.AmbientSky, 0.0f));
 	Clock.SetVectorParameter(MPC_AmbientEquator, With(Applied.AmbientEquator, 0.0f));

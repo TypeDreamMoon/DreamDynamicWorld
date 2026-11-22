@@ -221,6 +221,8 @@ public:
 	 * engine's volumetric clouds do), so an overcast sky does not dim the sun as well (OvercastLightDimming still dims the
 	 * moon). The sky's own clouds do not: Dream Sky leaves it false.
 	 */
+	/** bCloudsShadowTheSun: the clouds' own shadow takes the sun off the ground (the sky cloud renderer's light function):
+	 * the sun light is left whole and the overcast's dimming goes to Lighting.SunOvercastScale instead. */
 	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
 
 	/** What being indoors does to the lighting (FDreamViewOcclusion from the view probe). */
