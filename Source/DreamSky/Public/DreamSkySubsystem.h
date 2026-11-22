@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamSkyTypes.h"
+#include "DreamWorldSharedTargets.h"
 #include "DreamSkySubsystem.generated.h"
 
 class ADreamSky;
@@ -295,6 +296,8 @@ private:
 	/** The panorama of the clouds the renderer draws for the dome's sky light capture (RT_DreamCloudPanorama). */
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> CloudPanorama;
+	/** The panorama is shared by every world: this world draws it only while it owns it (it redraws every few frames). */
+	DreamWorld::SharedTargets::FWriter PanoramaWriter;
 
 	int32 RecaptureTask = 0;
 	FLinearColor CapturedZenith = FLinearColor::Transparent;

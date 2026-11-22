@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "DreamWorldSharedTargets.h"
 #include "UObject/WeakObjectPtr.h"
 
 class FDreamSurfaceMapRenderer;
@@ -60,10 +61,14 @@ private:
 	};
 
 	bool Resolve();
+	/** Nothing in the maps is this world's any more (another world drew them): integrate and draw everything afresh. */
+	void ForgetDrawn();
 	void DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, UDreamSurfaceSubsystem& Surface, UDreamWeatherSubsystem& Weather, double Now);
 	void DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now);
 	void DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsystem& Clock, const struct FDreamWeatherSample& View, double Now);
 
+	/** The maps are shared by every world: this world draws them only while it owns them. */
+	DreamWorld::SharedTargets::FWriter Writer;
 	FMap Near;
 	FMap Far;
 	TObjectPtr<UTextureRenderTarget2D> Cover;

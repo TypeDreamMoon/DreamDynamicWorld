@@ -6,6 +6,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamWindTypes.h"
 #include "DreamWindHlslShim.h"
+#include "DreamWorldSharedTargets.h"
 #include "DreamWindSubsystem.generated.h"
 
 class UDreamWindSourceComponent;
@@ -361,6 +362,9 @@ private:
 	FVector VolumeCenter = FVector::ZeroVector;
 	FVector PrevVolumeCenter = FVector::ZeroVector;
 	bool bVolumeHistoryDirty = true;
+	/** The volumes and the terrain map are shared by every world: this world writes them only while it owns them. */
+	DreamWorld::SharedTargets::FWriter VolumeWriter;
+	DreamWorld::SharedTargets::FWriter TerrainWriter;
 	FVector LatestViewOrigin = FVector::ZeroVector;
 	bool bHasViewOrigin = false;
 	bool bHasGameViewOrigin = false;

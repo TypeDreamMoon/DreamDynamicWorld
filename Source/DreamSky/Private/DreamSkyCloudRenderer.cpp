@@ -643,7 +643,9 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		{
 			Sky->CloudNoise = LoadObject<UTexture>(nullptr, TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise.T_DreamCloudNoise"));
 		}
-		if (!Sky->CloudPanorama)
+		// The panorama is shared by every world: only the world that owns it draws it (or makes it writable).
+		const bool bOwnsPanorama = Sky->PanoramaWriter.Acquire(ViewWorld);
+		if (bOwnsPanorama && !Sky->CloudPanorama)
 		{
 			Sky->CloudPanorama = LoadObject<UTextureRenderTarget2D>(nullptr, TEXT("/DreamDynamicWorld/Sky/RT_DreamCloudPanorama.RT_DreamCloudPanorama"), nullptr, LOAD_NoWarn | LOAD_Quiet);
 			if (Sky->CloudPanorama && !Sky->CloudPanorama->bSupportsUAV)
@@ -654,7 +656,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 				Sky->CloudPanorama->UpdateResourceImmediate(true);
 			}
 		}
-		Settings.Panorama = Sky->CloudPanorama ? Sky->CloudPanorama->GameThread_GetRenderTargetResource() : nullptr;
+		Settings.Panorama = bOwnsPanorama && Sky->CloudPanorama ? Sky->CloudPanorama->GameThread_GetRenderTargetResource() : nullptr;
 		if (!Sky->WeatherMap)
 		{
 			Sky->WeatherMap = LoadObject<UTexture>(nullptr, TEXT("/DreamDynamicWorld/Weather/RT_DreamWeatherMap.RT_DreamWeatherMap"));

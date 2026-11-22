@@ -33,6 +33,11 @@ UDreamSurfaceSubsystem* UDreamSurfaceSubsystem::Get(const UObject* WorldContextO
 	return World ? World->GetSubsystem<UDreamSurfaceSubsystem>() : nullptr;
 }
 
+uint32 UDreamSurfaceSubsystem::GetMapDrawCount() const
+{
+	return Maps.IsValid() ? Maps->GetDrawCount() : 0;
+}
+
 bool UDreamSurfaceSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 {
 	if (!Super::ShouldCreateSubsystem(Outer))

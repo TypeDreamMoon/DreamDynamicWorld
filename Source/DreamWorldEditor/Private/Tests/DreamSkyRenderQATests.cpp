@@ -17,7 +17,9 @@
 // Every picture is saved under <project>/Saved/DreamQA/.
 
 #include "CoreMinimal.h"
+#include "DreamSurfaceSubsystem.h"
 #include "DreamWeatherSettings.h"
+#include "DreamWeatherSubsystem.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Camera/PlayerCameraManager.h"
@@ -742,6 +744,210 @@ bool FDreamQASkyCrashSceneCaptureTest::RunTest(const FString& Parameters)
 
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	Then([]() { SetLook(-1); });
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+// The shared render targets in a play session, as the user sees them: the editor world at another hour (snow on the
+// ground in the evening) and the play session after the afternoon rain (wet ground, no drops), so the two worlds'
+// surface and weather maps differ everywhere. Thirty consecutive frames of the play session, then the editor viewport
+// after it; once with every world
+// writing the targets (DreamWorld.SharedTargets 0, the old way: the ground flips between the two worlds' maps from
+// frame to frame) and once with one owner. Pictures in Saved/DreamQA/SharedTargets_*.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamQASharedTargetsFramesTest, "DreamQA.SharedTargets.PIEFrames", DreamQA::Flags)
+bool FDreamQASharedTargetsFramesTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamQA;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	static const TCHAR* ShowcaseMap = TEXT("/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcase");
+	struct FRun
+	{
+		TArray<FPicture> Frames;
+		FPicture EditorBefore;
+		FPicture EditorAfter;
+		/** The editor world's weather and surface map draws when play began, and as it ends. */
+		uint32 EditorDraws[2][2] = { { 0, 0 }, { 0, 0 } };
+	};
+	TSharedRef<TMap<int32, FRun>> Runs = MakeShared<TMap<int32, FRun>>();
+	auto EditorDraws = [](uint32 Out[2])
+	{
+		UWorld* World = GEditor->GetEditorWorldContext().World();
+		const UDreamWeatherSubsystem* Weather = World ? World->GetSubsystem<UDreamWeatherSubsystem>() : nullptr;
+		const UDreamSurfaceSubsystem* Surface = World ? World->GetSubsystem<UDreamSurfaceSubsystem>() : nullptr;
+		Out[0] = Weather ? Weather->GetWeatherMapDrawCount() : 0;
+		Out[1] = Surface ? Surface->GetMapDrawCount() : 0;
+	};
+	const float Strikes = GetDefault<UDreamWeatherSettings>()->StrikesPerMinute;
+	// The editor's view, away from where play starts, as a user's would be.
+	auto PlaceEditorCamera = [](FLevelEditorViewportClient* C)
+	{
+		if (C)
+		{
+			C->SetRealtime(true);
+			C->SetViewLocation(FVector(3000.0, -900.0, 400.0));
+			C->SetViewRotation(FRotator(-10.0, -38.0, 0.0));
+			C->Invalidate();
+		}
+	};
+	auto PlayWorld = []() { return GEditor ? GEditor->PlayWorld.Get() : nullptr; };
+	auto PlayViewport = [PlayWorld]() -> FViewport* { UWorld* W = PlayWorld(); return W && W->GetGameViewport() ? W->GetGameViewport()->Viewport : nullptr; };
+	auto EditorClient = []() -> FLevelEditorViewportClient*
+	{
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective() && C->Viewport)
+			{
+				return C;
+			}
+		}
+		return nullptr;
+	};
+	// A world at an hour of the showcase's schedule, its clock stopped, no lightning.
+	auto Hold = [](UWorld* World, float Hour)
+	{
+		GetMutableDefault<UDreamWeatherSettings>()->StrikesPerMinute = 0.0f;
+		if (UDreamWorldSubsystem* Clock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr)
+		{
+			Clock->SetPaused(true);
+			Clock->SetTimeOfDay(Hour);
+		}
+	};
+	constexpr int32 NumFrames = 30;
+
+	for (int32 Arbitrate = 0; Arbitrate <= 1; ++Arbitrate)
+	{
+		Then([Arbitrate]()
+		{
+			if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamWorld.SharedTargets")))
+			{
+				V->Set(Arbitrate, ECVF_SetByCode);
+			}
+			FAutomationEditorCommonUtils::LoadMap(ShowcaseMap);
+		});
+		WaitFrames(10);
+		Then([Hold, EditorClient, PlaceEditorCamera]()
+		{
+			PlaceEditorCamera(EditorClient());
+			Hold(GEditor->GetEditorWorldContext().World(), 19.6f);
+		});
+		WaitFrames(120);
+		Then([Runs, Arbitrate, EditorClient]()
+		{
+			FLevelEditorViewportClient* C = EditorClient();
+			(*Runs).FindOrAdd(Arbitrate).EditorBefore = ReadViewport(C ? C->Viewport : nullptr);
+			Save((*Runs)[Arbitrate].EditorBefore, FString::Printf(TEXT("SharedTargets_%s_EditorBefore"), Arbitrate ? TEXT("New") : TEXT("Old")));
+		});
+		// Play in a window of its own: the editor viewport stays, drawing the editor world beside the play session.
+		Then([]()
+		{
+			FRequestPlaySessionParams Params;
+			Params.WorldType = EPlaySessionWorldType::PlayInEditor;
+			GEditor->RequestPlaySession(Params);
+		});
+		ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([PlayWorld]() { return PlayWorld() != nullptr; }));
+		WaitFrames(30);
+		Then([PlayWorld, Hold, Runs, Arbitrate, EditorDraws]()
+		{
+			Hold(PlayWorld(), 16.3f);
+			GShaderCompilingManager->FinishAllCompilation();
+			EditorDraws((*Runs).FindOrAdd(Arbitrate).EditorDraws[0]);
+		});
+		WaitFrames(150);
+		for (int32 i = 0; i < NumFrames; ++i)
+		{
+			Then([Runs, Arbitrate, PlayViewport, i]()
+			{
+				FPicture P = ReadViewport(PlayViewport());
+				Save(P, FString::Printf(TEXT("SharedTargets_%s_Play_%02d"), Arbitrate ? TEXT("New") : TEXT("Old"), i));
+				(*Runs).FindOrAdd(Arbitrate).Frames.Add(MoveTemp(P));
+			});
+			WaitFrames(1);
+		}
+		Then([Runs, Arbitrate, EditorDraws]() { EditorDraws((*Runs).FindOrAdd(Arbitrate).EditorDraws[1]); });
+		ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+		ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([PlayWorld]() { return PlayWorld() == nullptr; }));
+		WaitFrames(10);
+		Then([EditorClient, PlaceEditorCamera]() { PlaceEditorCamera(EditorClient()); });
+		WaitFrames(90);
+		Then([this, Runs, Arbitrate, EditorClient]()
+		{
+			FRun& Run = (*Runs).FindOrAdd(Arbitrate);
+			AddInfo(FString::Printf(TEXT("%s: while it played the editor world drew %u weather maps and %u surface maps"), Arbitrate ? TEXT("New") : TEXT("Old"),
+				Run.EditorDraws[1][0] - Run.EditorDraws[0][0], Run.EditorDraws[1][1] - Run.EditorDraws[0][1]));
+			if (Arbitrate)
+			{
+				TestEqual(TEXT("one owner: the editor world draws no surface map while it plays"), Run.EditorDraws[1][1], Run.EditorDraws[0][1]);
+			}
+			FLevelEditorViewportClient* C = EditorClient();
+			Run.EditorAfter = ReadViewport(C ? C->Viewport : nullptr);
+			const TCHAR* Name = Arbitrate ? TEXT("New") : TEXT("Old");
+			Save(Run.EditorAfter, FString::Printf(TEXT("SharedTargets_%s_EditorAfter"), Name));
+			// Frame to frame over the lower half of the view (the ground): the clock stands still, so a steady picture
+			// changes by a level or so (the odd particle); the old way flips between the two worlds' maps.
+			float Worst = 0.0f;
+			double Sum = 0.0;
+			int32 Pairs = 0;
+			for (int32 i = 1; i < Run.Frames.Num(); ++i)
+			{
+				const FPicture& A = Run.Frames[i - 1];
+				const FPicture& B = Run.Frames[i];
+				if (!A.IsValid() || !B.IsValid())
+				{
+					continue;
+				}
+				const float D = Change(A, B, FIntRect(0, A.Size.Y / 2, A.Size.X, A.Size.Y));
+				Worst = FMath::Max(Worst, D);
+				Sum += D;
+				++Pairs;
+			}
+			const float Mean = Pairs > 0 ? float(Sum / Pairs) : -1.0f;
+			// (The editor viewport can come back a few pixels smaller after play: their common top-left part.)
+			auto Crop = [](const FPicture& P, const FIntPoint& Size)
+			{
+				FPicture C;
+				C.Size = Size;
+				C.Pixels.SetNumUninitialized(Size.X * Size.Y);
+				for (int32 Y = 0; Y < Size.Y; ++Y)
+				{
+					FMemory::Memcpy(&C.Pixels[Y * Size.X], &P.Pixels[Y * P.Size.X], Size.X * sizeof(FColor));
+				}
+				return C;
+			};
+			float EditorChange = -1.0f;
+			if (Run.EditorBefore.IsValid() && Run.EditorAfter.IsValid())
+			{
+				const FIntPoint Common = Run.EditorBefore.Size.ComponentMin(Run.EditorAfter.Size);
+				EditorChange = Change(Crop(Run.EditorBefore, Common), Crop(Run.EditorAfter, Common), FIntRect(0, Common.Y / 2, Common.X, Common.Y));
+			}
+			AddInfo(FString::Printf(TEXT("%s: %d frame pairs, ground change frame to frame mean %.2f, worst %.2f levels; editor view before and after play %.2f levels"),
+				Name, Pairs, Mean, Worst, EditorChange));
+			if (Arbitrate)
+			{
+				TestTrue(TEXT("the play session's frames read back"), Pairs == NumFrames - 1);
+				TestTrue(FString::Printf(TEXT("one owner: the ground holds still from frame to frame (worst %.2f levels)"), Worst), Worst < 3.0f);
+				TestTrue(FString::Printf(TEXT("back in the editor, its view is as before play (%.2f levels)"), EditorChange), EditorChange >= 0.0f && EditorChange < 3.0f);
+			}
+		});
+	}
+	// Leave the editor as the next test expects it: the rule on, lightning back, no showcase open.
+	Then([Strikes]()
+	{
+		if (IConsoleVariable* V = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamWorld.SharedTargets")))
+		{
+			V->Set(1, ECVF_SetByCode);
+		}
+		GetMutableDefault<UDreamWeatherSettings>()->StrikesPerMinute = Strikes;
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	// (The showcase out of memory: a test that loads it next gets it fresh from disk, not the editor's played copy.)
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
 	return true;
 }
 
