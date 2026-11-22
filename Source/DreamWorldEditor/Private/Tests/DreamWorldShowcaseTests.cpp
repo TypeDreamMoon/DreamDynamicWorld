@@ -23,6 +23,8 @@
 #include "Engine/Level.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "Components/PointLightComponent.h"
+#include "Engine/PointLight.h"
 #include "Engine/StaticMesh.h"
 #include "LevelSequence.h"
 #include "Materials/MaterialInterface.h"
@@ -129,6 +131,31 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 
 	// The set.
 	TestTrue(TEXT("a hut with walls, a doorway and a window"), CountLabelled(World, TEXT("Hut_Wall")) >= 6 && CountLabelled(World, TEXT("Hut_WindowPane")) == 1);
+
+	// Enough light inside to see by: a wide window, and a dim warm lamp under the roof.
+	for (AStaticMeshActor* Actor : ActorsOf<AStaticMeshActor>(World))
+	{
+		if (Actor->GetActorLabel().StartsWith(TEXT("Hut_WindowPane")))
+		{
+			const FVector Size = Actor->GetActorScale3D();   // of a 1 m cube: across, through, up
+			TestTrue(*FString::Printf(TEXT("a wide window (%.1f m2)"), Size.X * Size.Z), Size.X * Size.Z >= 3.0);
+		}
+	}
+	int32 Lamps = 0;
+	for (APointLight* Lamp : ActorsOf<APointLight>(World))
+	{
+		const UPointLightComponent* Light = Cast<UPointLightComponent>(Lamp->GetLightComponent());
+		const FVector At = Lamp->GetActorLocation();
+		if (!Light || !Lamp->GetActorLabel().StartsWith(TEXT("Hut_Lamp")))
+		{
+			continue;
+		}
+		++Lamps;
+		TestTrue(TEXT("the lamp is inside the hut, under its roof"), FMath::Abs(At.X - 2450.0) < 280.0 && FMath::Abs(At.Y - 700.0) < 280.0 && At.Z < 300.0);
+		TestTrue(TEXT("the lamp is warm"), Light->bUseTemperature && Light->Temperature < 3500.0f);
+		TestTrue(TEXT("the lamp is dim"), Light->IntensityUnits == ELightUnits::Candelas && Light->Intensity > 0.0f && Light->Intensity <= 50.0f);
+	}
+	TestEqual(TEXT("one lamp in the hut"), Lamps, 1);
 	TestTrue(TEXT("roofs the rain knows (hut, porch)"), CountTagged(World, FDreamWeatherFallPaths::RoofTag) >= 2);
 	TestEqual(TEXT("a porch roof capture box"), ActorsOf<ADreamSurfaceRoofCapture>(World).Num(), 1);
 	TestTrue(TEXT("a pond and a window in the open"), CountLabelled(World, TEXT("Pond")) == 1 && CountLabelled(World, TEXT("Window_Pane")) == 1);

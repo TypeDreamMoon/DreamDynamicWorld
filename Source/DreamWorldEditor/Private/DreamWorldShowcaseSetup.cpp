@@ -26,7 +26,9 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/PointLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -267,13 +269,14 @@ namespace DreamWorld::ShowcaseSetup
 	}
 
 	/**
-	 * A hut to step into: stone walls, a doorway on the -X side, a window on the -Y side, a wooden roof (the rain's
-	 * roof); a table and a stool inside. The walls block the view probe's rays, so inside counts as indoors.
+	 * A hut to step into: stone walls, a doorway on the -X side, a wide window on the -Y side, a wooden roof (the rain's
+	 * roof); a table and a stool inside, and a dim warm lamp over the table. The walls block the view probe's rays, so
+	 * inside counts as indoors; the window and the lamp light the room enough to see into it.
 	 */
 	void AddHut(UWorld& World, const FShowcaseKit& Kit, const FVector& Center)
 	{
 		const double Half = 300.0, Height = 300.0, Wall = 20.0, Door = 120.0, DoorHeight = 220.0;
-		const double WindowWide = 140.0, Sill = 100.0, Head = 210.0;
+		const double WindowWide = 260.0, Sill = 80.0, Head = 240.0;
 		AddBox(World, Kit, Kit.Stone, Center + FVector(Half, 0.0, Height * 0.5), FVector(Wall, 2.0 * Half, Height), TEXT("Hut_WallBack"));
 		AddBox(World, Kit, Kit.Stone, Center + FVector(0.0, Half, Height * 0.5), FVector(2.0 * Half, Wall, Height), TEXT("Hut_WallLeft"));
 		// The -Y wall round the window.
@@ -295,6 +298,18 @@ namespace DreamWorld::ShowcaseSetup
 		}
 		PassThrough(AddBox(World, Kit, Kit.Wood, Center + FVector(80.0, 60.0, 40.0), FVector(140.0, 90.0, 80.0), TEXT("Hut_Table")));
 		PassThrough(SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Center + FVector(-20.0, 60.0, 22.0), FVector(0.4, 0.4, 0.45), FRotator::ZeroRotator, TEXT("Hut_Stool")));
+
+		// A lamp under the roof over the table: warm (3200 K) and dim, a few candela, well under a lux on the walls.
+		APointLight* Lamp = World.SpawnActor<APointLight>(Center + FVector(60.0, 60.0, Height - 50.0), FRotator::ZeroRotator);
+		UPointLightComponent* Light = CastChecked<UPointLightComponent>(Lamp->GetLightComponent());
+		Light->SetMobility(EComponentMobility::Movable);
+		Light->IntensityUnits = ELightUnits::Candelas;
+		Light->SetIntensity(3.0f);
+		Light->bUseTemperature = true;
+		Light->SetTemperature(3200.0f);
+		Light->SetAttenuationRadius(800.0f);
+		Light->SetSourceRadius(8.0f);
+		Lamp->SetActorLabel(TEXT("Hut_Lamp"));
 	}
 
 	/** A porch before the hut's door: a roof on four posts that only a roof capture box tells the weather about. */

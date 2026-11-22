@@ -536,8 +536,8 @@ on every run, so rerun it after updating the plugin to take in what it has gaine
 **The set.** Rolling ground and a paved square under the surface materials (the terrain is soft ground, the square
 hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
 **hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
-a window looking out, a roof the rain knows — and a **porch** before its door that only a roof capture box tells the
-weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
+a wide window looking out, a roof the rain knows, a dim warm lamp over the table so the room reads by day and night —
+and a **porch** before its door that only a roof capture box tells the weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
 the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
 sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
 snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
