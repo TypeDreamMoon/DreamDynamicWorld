@@ -28,6 +28,7 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -477,7 +478,7 @@ namespace DreamWorld::Setup
 			UStaticMeshComponent* Mesh = Ground->GetStaticMeshComponent();
 			Mesh->SetCastShadow(false);
 			Mesh->bAffectDistanceFieldLighting = false;
-			Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Mesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 		}
 		// A ring of shapes around the camera's view, at several heights.
 		AddMesh(*World, Cube, FVector(-1200.0f, -300.0f, 150.0f), FVector(3.0f, 3.0f, 3.0f))->SetActorLabel(TEXT("Cube"));

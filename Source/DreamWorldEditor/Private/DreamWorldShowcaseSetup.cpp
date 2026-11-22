@@ -29,6 +29,7 @@
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/PointLight.h"
+#include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -661,7 +662,7 @@ namespace DreamWorld::ShowcaseSetup
 		// of the wind's level heights.
 		if (AStaticMeshActor* Far = SurfaceSetup::AddMesh(*World, Kit.FarLand, Kit.Terrain, FVector(Setup::ShowcaseFarCenter, 0.0), FVector(1.0), FRotator::ZeroRotator, TEXT("FarLand")))
 		{
-			Far->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Far->GetStaticMeshComponent()->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 			PassThrough(Far);
 		}
 

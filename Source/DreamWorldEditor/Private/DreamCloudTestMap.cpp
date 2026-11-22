@@ -14,6 +14,7 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -217,7 +218,7 @@ namespace DreamWorld::Setup
 		{
 			Ground->SetActorLabel(TEXT("Ground"));
 			Ground->GetStaticMeshComponent()->SetCastShadow(false);
-			Ground->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Ground->GetStaticMeshComponent()->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 		}
 		// Something to stand in the clouds' soft contact: a pillar through the realistic heap.
 		if (AStaticMeshActor* Pillar = CloudTestMap::AddMesh(*World, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"), FVector(7000.0f, -3400.0f, 1000.0f), FVector(2.0f, 2.0f, 20.0f)))
