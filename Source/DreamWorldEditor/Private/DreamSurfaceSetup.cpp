@@ -29,6 +29,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "MeshDescription.h"
+#include "PhysicsEngine/BodySetup.h"
 #include "Misc/PackageName.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
@@ -284,6 +285,20 @@ namespace DreamWorld::SurfaceSetup
 		return SaveAsset(Instance) ? Instance : nullptr;
 	}
 
+	void ReadyCollision(UWorld& World)
+	{
+		for (TActorIterator<AStaticMeshActor> It(&World); It; ++It)
+		{
+			UStaticMeshComponent* Component = It->GetStaticMeshComponent();
+			UStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
+			if (UBodySetup* Body = Mesh ? Mesh->GetBodySetup() : nullptr)
+			{
+				Body->CreatePhysicsMeshes();
+				Component->RecreatePhysicsState();
+			}
+		}
+	}
+
 	AStaticMeshActor* AddMesh(UWorld& World, UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, const FVector& Scale,
 		const FRotator& Rotation, const TCHAR* Label)
 	{
@@ -458,6 +473,7 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	Wind->SetActorLabel(TEXT("Wind"));
 	Wind->TerrainBakeBounds = FBox(FVector(-2000.0, -4000.0, -500.0), FVector(7000.0, 3000.0, 1500.0));
 	Wind->TerrainBakeSettings.Resolution = 512;
+	SurfaceSetup::ReadyCollision(*World);
 	if (!UDreamWindEditorLibrary::BakeTerrainMapForActor(Wind))
 	{
 		UE_LOG(LogDreamWorld, Warning, TEXT("Surface test level: the wind terrain map could not be baked; puddles follow the hollow pattern only."));

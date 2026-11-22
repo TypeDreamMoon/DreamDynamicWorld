@@ -31,6 +31,12 @@ namespace DreamWorld::SurfaceSetup
 	/** A static mesh actor with this mesh, material, place, scale (of the 1 m basic shapes) and label. */
 	AStaticMeshActor* AddMesh(UWorld& World, UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, const FVector& Scale,
 		const FRotator& Rotation, const TCHAR* Label);
+
+	/**
+	 * Puts every static mesh's collision of a level built a moment ago into its physics scene, so that a trace over it
+	 * (the wind terrain bake) hits its roofs and props: until then only some of it may be there.
+	 */
+	void ReadyCollision(UWorld& World);
 }
 
 namespace DreamWorld::Setup
