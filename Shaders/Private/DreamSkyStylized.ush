@@ -273,15 +273,16 @@ float3 DSky_CatalogueStars(float3 V, float4 Pole, float4 Equinox, Texture2D Star
 	return Light * saturate(V.z * 5.0);
 }
 
-// The aurora: curtains of light along the magnetic latitude, from some 95 km up (their sharp lower edge, where a band
-// shines brighter) to 330 km, toward the pole, in three layers one behind another. Each view ray is read at six heights,
-// where it meets each over the planet's curve; each layer's curtain there folds along its length in great S-bends that
-// drift and slowly change shape (and the whole field warps more slowly still), striated with rays in its body above the
-// bright band; green low down going to red and violet at the top. (Six heights: the bright band is wide enough not to fall
-// between them.) A negative strength draws it for the stylized looks:
-// its light banded in three clean tones.
+// The aurora: curtains of soft light over the auroral oval toward the magnetic pole, from a sharp lower edge some 95 km
+// up (where they shine brightest) fading out by 320 km, green low down going to violet at the top. Where the curtains
+// stand is drawn as thin ribbons: two copies of one smooth noise field, drifting apart, light where they nearly agree
+// (1 - |a - b| to a high power) -- lines that wander, fold and slowly change shape as the fields slide; stretched along
+// the oval (east-west), strongest in its middle and where a broad field of activity is up. Each view ray is walked up
+// through the shell at fourteen heights (dithered, so the steps blend over frames): a ribbon on the ground is a
+// curtain standing over it, and fine noise along its length (the same at every height) striates it with rays.
+// A negative strength draws it for the stylized looks: its light banded in three clean tones.
 // Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km).
-float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Seconds)
+float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Seconds, Texture3D Noise, SamplerState NoiseSampler, float2 ScreenUV)
 {
 	if (Aurora.x == 0.0 || V.z <= 0.0)
 	{
@@ -293,44 +294,45 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Secon
 	float Flat = length(V.xy);
 	float2 Out = Flat > 1.0e-4 ? V.xy / Flat : Pole;
 	float T = Seconds * Aurora.y;
+	float Width = max(High.a, 1.0);
+	// (Interleaved gradient noise over the screen, turning each frame.)
+	float Dither = frac(52.9829189 * frac(dot(ScreenUV * float2(1920.0, 1080.0), float2(0.06711056, 0.00583715))) + frac(Seconds * 7.31));
 	float3 Sum = 0;
-	const int Heights = 6;
-	[unroll]
+	const int Heights = 14;
+	[loop]
 	for (int i = 0; i < Heights; ++i)
 	{
-		float H = (float(i) + 0.5) / float(Heights);
-		float Altitude = lerp(95.0, 330.0, H);
+		float H = (float(i) + Dither) / float(Heights);
+		float Altitude = lerp(95.0, 320.0, H * H);
 		// (Where the ray reaches that height over a 6371 km planet, and how far off along the ground.)
 		float a = Flat * Flat / (2.0 * 6371.0);
 		float Along = 2.0 * Altitude / (V.z + sqrt(V.z * V.z + 4.0 * a * Altitude));
 		float2 P = Out * (Along * Flat);
-		float East1 = dot(P, East);
-		float North1 = dot(P, Pole);
-		// The bright band along the lower edge, the body fading upward above it, nothing under the edge.
-		float Edge = exp(-pow((H - 0.07) / 0.08, 2.0));
-		float Body = smoothstep(0.0, 0.04, H) * (1.0 - smoothstep(0.1, 1.0, H));
-		float3 Colour = lerp(Low.rgb, High.rgb, smoothstep(0.3, 0.9, H));
-		float Warp = (DSky_ValueNoise(float2(East1 * 0.0012 + T * 0.003, 3.1)) - 0.5) * 240.0;
-		[unroll]
-		for (int Layer = 0; Layer < 3; ++Layer)
+		float E = dot(P, East);
+		float N = dot(P, Pole) - Low.a;
+		// The oval: a broad band across the pole's direction, and the activity over it.
+		float Band = exp(-Square(N / (3.5 * Width)));
+		if (Band < 0.01)
 		{
-			float L = float(Layer);
-			float Fold = (DSky_ValueNoise(float2(East1 * 0.0032 + T * 0.010 + L * 7.3, 1.7 + L)) - 0.5) * 460.0
-				+ (DSky_ValueNoise(float2(East1 * 0.011 - T * 0.026 + L * 3.1, 5.3 + L)) - 0.5) * 120.0 + Warp;
-			float Width = max(High.a, 1.0) * (0.55 + 0.3 * L);
-			float X = (North1 - Low.a - L * 85.0 - Fold) / Width;
-			float Curtain = exp(-X * X);
-			if (Curtain < 0.01)
-			{
-				continue;
-			}
-			float Rays = 0.4 + 0.6 * DSky_ValueNoise(float2(East1 * 0.085 + T * 0.22 + L * 11.0, 9.1 + H * 0.3));
-			float Light = 1.6 * Edge + Body * lerp(1.0, Rays, smoothstep(0.05, 0.25, H));
-			Sum += Colour * Curtain * Light * (Layer == 0 ? 1.0 : (Layer == 1 ? 0.55 : 0.3));
+			continue;
 		}
+		float Active = smoothstep(0.25, 0.7, Noise.SampleLevel(NoiseSampler, float3(E / 2600.0 + T * 0.0004, N / 1400.0, 0.71 + T * 0.0003), 2.0).r);
+		// The ribbons: the same field twice, sliding apart.
+		float3 C = float3(E / 900.0, N / 260.0, 0.0);
+		float A1 = Noise.SampleLevel(NoiseSampler, C + float3(T * 0.0021, T * 0.0009, 0.13 + T * 0.0006), 1.0).r;
+		float A2 = Noise.SampleLevel(NoiseSampler, C * 0.85 + float3(0.37 - T * 0.0017, 0.61 + T * 0.0012, 0.29 + T * 0.0005), 1.0).r;
+		float Ribbon = pow(saturate(1.0 - abs(A1 - A2)), 13.0);
+		// Rays along the curtain, the same all the way up.
+		float Rays = Noise.SampleLevel(NoiseSampler, float3(E / 45.0 + T * 0.004, N / 400.0, 0.47 + T * 0.002), 0.0).g;
+		Rays = 0.15 + 1.4 * Rays * Rays;
+		// A sharp lower edge, a bright band along it, the body fading upward (the rays reach higher than the rest).
+		float Edge = smoothstep(0.0, 0.03, H);
+		float Profile = Edge * (0.7 * exp(-Square((H - 0.06) / 0.07)) + exp(-1.5 * H / max(Rays, 0.3)));
+		float3 Colour = lerp(Low.rgb, High.rgb, smoothstep(0.12, 0.6, H));
+		Sum += Colour * (Ribbon * Band * Active * Profile * lerp(1.0, Rays, smoothstep(0.02, 0.2, H)));
 	}
 	// (Low over the horizon it is seen through more air: it fades into it.)
-	Sum *= Strength * (1.2 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
+	Sum *= Strength * (7.5 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
 	if (Aurora.x < 0.0)
 	{
 		// The stylized looks: three tones with clean edges, the hue kept.
@@ -1155,7 +1157,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare * SunShows;
 	Sky += Corona * Clear * (1.0 - Capture);
 	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
-	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds);
+	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
 
