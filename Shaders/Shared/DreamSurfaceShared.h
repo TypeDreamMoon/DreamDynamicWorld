@@ -111,13 +111,43 @@ DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air)
 	return float4(DSF_Sunlight(Air.w, Weather.x), Air.z, 0.0f, 0.0f);
 }
 
-// The water a point holds at a hollow this deep (0 on a crest .. 1 at the bottom of a dip): how much of a puddle stands
-// there, 0..1. Rising Water fills the deepest dips first and spreads to shallower ones; full, it stands in the deepest
-// half of the hollow pattern (some two fifths of a flat surface), never everywhere.
-DSF_FN float DSF_PuddleAt(float Water, float Hollow, float Softness)
+// How far the ground at a point lies below its surroundings, cm (positive in a dip, negative on a rise), from its height
+// and the heights at eight points around it (A, B: four each). Whatever stands much higher than the point (a wall, a
+// box, a post) is left out: it does not make the ground beside it a dip.
+DSF_FN float DSF_GroundLow(float Here, float4 A, float4 B)
 {
-	float Level = 1.0f - 0.5f * saturate(Water);
-	return smoothstep(Level - Softness, Level + Softness, saturate(Hollow));
+	float Sum = 0.0f;
+	float Count = 0.0f;
+	float Around[8] = { A.x, A.y, A.z, A.w, B.x, B.y, B.z, B.w };
+	for (int i = 0; i < 8; ++i)
+	{
+		float Rise = Around[i] - Here;
+		if (Rise < 80.0f)
+		{
+			Sum += clamp(Rise, -40.0f, 40.0f);
+			Count += 1.0f;
+		}
+	}
+	return Count > 0.0f ? Sum / Count : 0.0f;
+}
+
+// How deep a point lies for the water, 0 (a crest) .. 1 (the bottom of a dip): the small hollows of the surface (Hollow,
+// the hollow pattern at the puddle scale) and the ground's own lows (Low: how far the ground lies below its surroundings,
+// cm, from the level's heights; 0 where they are not known). A dip a quarter of a metre deep holds water whatever the
+// pattern; on flat ground only the pattern's deepest hollows do.
+DSF_FN float DSF_PuddleDepth(float Hollow, float Low)
+{
+	return saturate(saturate(Hollow) * 0.8f + saturate(Low / 25.0f) * 0.7f);
+}
+
+// The water a point holds at this depth (DSF_PuddleDepth): how much of a puddle stands there, 0..1. Rising Water fills
+// the deepest first and spreads to shallower places; full, on flat ground it stands in the pattern's deepest hollows
+// only (a tenth or so of the surface), in a real dip all over it.
+DSF_FN float DSF_PuddleAt(float Water, float Depth, float Softness)
+{
+	// Dry, the level stands above the deepest point; full, at 0.58.
+	float Level = 1.0f + Softness - (0.42f + Softness) * saturate(Water);
+	return smoothstep(Level - Softness, Level + Softness, saturate(Depth));
 }
 
 // A hash of a lattice point, 0..1.
@@ -152,17 +182,26 @@ DSF_FN float DSF_Hollow(float WorldX, float WorldY, float Scale)
 	return saturate(1.0f - N / 0.975f);
 }
 
-// How much of a surface the lying snow covers: thicker the more it faces up (Up = the normal's Z), the hollow pattern
-// breaking the edge.
-DSF_FN float DSF_SnowCover(float Snow, float Up, float Hollow)
+// The pattern a snow cover's edge follows, 0..1: patches of some ten metres over drifts of some thirty, so where the
+// snow thins out (a zone's border, a light fall, a thaw) it breaks up over metres to tens of metres, not along a line.
+DSF_FN float DSF_SnowEdge(float WorldX, float WorldY)
 {
-	return saturate((Snow * 1.4f - (1.0f - Up) * 1.6f - (1.0f - Hollow) * 0.25f) * 6.0f);
+	return DSF_Hollow(WorldX, WorldY, 900.0f) * 0.6f + DSF_Hollow(WorldX + 311.0f, WorldY - 97.0f, 3200.0f) * 0.4f;
 }
 
-// How much of a surface the standing water covers: in the hollows of what faces up.
-DSF_FN float DSF_PuddleCover(float Water, float Up, float Hollow)
+// How much of a surface the lying snow covers, softly: what faces up first (Up = the normal's Z), steep slopes last,
+// the small hollows (Hollow) and the edge pattern (Edge, DSF_SnowEdge) breaking it up as it thins. A full cover is
+// whole on anything facing up; a toon look hardens the edge.
+DSF_FN float DSF_SnowCover(float Snow, float Up, float Hollow, float Edge)
 {
-	return DSF_PuddleAt(Water, Hollow, 0.06f) * smoothstep(0.88f, 0.97f, Up);
+	return saturate((Snow * 1.4f - (1.0f - Up) * 1.6f - (1.0f - Hollow) * 0.15f - (1.0f - Edge) * 0.45f) * 2.5f);
+}
+
+// How much of a surface the standing water covers: where it lies deep enough (Depth, DSF_PuddleDepth) on what faces up,
+// faint on soft ground (Soft 0 hard .. 1 soil or grass, which drinks the water and hides it in its texture).
+DSF_FN float DSF_PuddleCover(float Water, float Up, float Depth, float Soft)
+{
+	return DSF_PuddleAt(Water, Depth, 0.05f) * smoothstep(0.88f, 0.97f, Up) * (1.0f - 0.7f * saturate(Soft));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

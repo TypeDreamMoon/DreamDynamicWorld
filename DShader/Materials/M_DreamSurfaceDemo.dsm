@@ -9,6 +9,7 @@ VirtualFunction(Name="MF_DreamSurfaceWeather")
 	}
 	Inputs = {
 		MaterialAttributes Attributes;
+		float Softness = 0.0;
 	}
 	Outputs = {
 		MaterialAttributes Result;
@@ -50,6 +51,6 @@ Shader(Name="Surface/Materials/M_DreamSurfaceDemo", Root="Plugin.DreamDynamicWor
 		Dry.Metallic = Metallic;
 		Dry.Specular = 0.5;
 		Dry.Normal = float3(0.0, 0.0, 1.0);
-		MF_DreamSurfaceWeather(Dry, Attrs);
+		MF_DreamSurfaceWeather(Dry, 0.0, Attrs);
 	}
 }

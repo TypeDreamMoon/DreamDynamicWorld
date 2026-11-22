@@ -84,8 +84,8 @@ bool DreamWorld::Setup::EnsureSurfaceMaps()
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	bool bOk = SurfaceSetup::EnsureTarget(S->NearMapTexture, 256, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	bOk &= SurfaceSetup::EnsureTarget(S->FarMapTexture, 128, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-	// The cover map clears to "nothing overhead".
-	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
+	// The cover map clears to "nothing overhead": (cover height, how fully, the ground's low, -).
+	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_A32B32G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
 	// The mask map clears to "no brush" (every multiplier 1).
 	bOk &= SurfaceSetup::EnsureTarget(S->MaskMapTexture, 256, PF_FloatRGBA, FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
 	// The trail map: 5 cm a texel over its 51 m.

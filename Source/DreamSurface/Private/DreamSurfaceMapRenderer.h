@@ -46,6 +46,8 @@ public:
 		/** The wind's terrain map (null: none) and its DW_UnpackTerrain vectors. */
 		FTextureRenderTargetResource* Terrain = nullptr;
 		FVector4f TerrainParams[3];
+		/** How far around a texel the ground's lows are judged (cm). */
+		float LowRadius = 300.0f;
 		/** Three float4 per shelter box. */
 		TArray<FVector4f> Shelters;
 		/** Up to four roof captures: their depth targets and three float4 each (DreamSurfaceMap.usf). */

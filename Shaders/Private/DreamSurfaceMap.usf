@@ -132,7 +132,15 @@ uint NumShelters;
 Texture2D TerrainTexture;
 SamplerState TerrainSampler;
 StructuredBuffer<float4> Shelters;  // three float4 each: (centre x, y, cos yaw, sin yaw), (half x, half y, top z, fade), (strength, -, -, -)
-RWTexture2D<float2> OutCover;
+RWTexture2D<float4> OutCover;
+float LowRadius;        // how far around a texel the ground's lows are judged (cm)
+
+// The baked level height (the top surface) at a world point; a point beyond the map stands at the edge's height.
+float TerrainHeightAt(float2 P, FDreamWindTerrainParams T)
+{
+	float2 UV = saturate(DW_TerrainUV(float3(P.x, P.y, 0.0f), T));
+	return DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0), T);
+}
 
 // Roof captures (UDreamSurfaceRoofCaptureComponent), up to four: each a depth capture looking straight down, two float4s:
 // (centre x, y, cos yaw, sin yaw), (half x, half y, the capture's Z, its square side), and a third: (strength, the
@@ -170,14 +178,22 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	float2 P = TexelWorld(DispatchThreadId.xy);
 	float Height = -1.0e9f;
 	float Strength = 0.0f;
+	float Low = 0.0f;
 
 	FDreamWindTerrainParams T = DW_UnpackTerrain(Terrain0, Terrain1, Terrain2);
 	float2 UV = DW_TerrainUV(float3(P.x, P.y, 0.0f), T);
 	if (DW_TerrainInside(UV, T) > 0.5f)
 	{
-		float4 Texel = TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0);
-		Height = DW_TerrainHeight(Texel, T);
+		Height = TerrainHeightAt(P, T);
 		Strength = 1.0f;
+		// The ground's lows (DSF_GroundLow): the heights on a ring around the texel, and halfway in.
+		float R = LowRadius;
+		float H = R * 0.5f;
+		float4 A = float4(TerrainHeightAt(P + float2(R, 0.0f), T), TerrainHeightAt(P - float2(R, 0.0f), T),
+			TerrainHeightAt(P + float2(0.0f, R), T), TerrainHeightAt(P - float2(0.0f, R), T));
+		float4 B = float4(TerrainHeightAt(P + float2(H, H), T), TerrainHeightAt(P - float2(H, H), T),
+			TerrainHeightAt(P + float2(H, -H), T), TerrainHeightAt(P + float2(-H, H), T));
+		Low = DSF_GroundLow(Height, A, B);
 	}
 	for (uint i = 0; i < NumShelters; ++i)
 	{
@@ -217,7 +233,7 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			}
 		}
 	}
-	OutCover[DispatchThreadId.xy] = float2(Height, Strength);
+	OutCover[DispatchThreadId.xy] = float4(Height, Strength, Low, 0.0f);
 
 	float4 Mask = float4(1.0f, 1.0f, 1.0f, 1.0f);
 	for (uint m = 0; m < NumMasks; ++m)

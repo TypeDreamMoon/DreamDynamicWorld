@@ -42,6 +42,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Snow", meta = (ClampMin = "0", Units = "cm"))
 	float MaxSnowDepth = 30.0f;
 
+	/**
+	 * The size of the small hollows water gathers in on flat ground, cm: puddles of about this size. The ground's own
+	 * lows (from the wind's baked level heights, when the level has them) hold water whatever this is.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Water", meta = (ClampMin = "20", UIMax = "1000", Units = "cm"))
+	float PuddleScale = 150.0f;
+
+	/** How far around a point the ground's lows are judged, cm: a dip narrower than this holds water. */
+	UPROPERTY(Config, EditAnywhere, Category = "Water", meta = (ClampMin = "50", UIMax = "2000", Units = "cm"))
+	float LowRadius = 300.0f;
+
 	// ---- Surface maps ---------------------------------------------------------------------------
 
 	/**

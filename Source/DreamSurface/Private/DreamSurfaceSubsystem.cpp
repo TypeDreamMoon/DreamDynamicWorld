@@ -9,9 +9,11 @@
 #include "DreamSurfaceSettings.h"
 
 #include "DreamWeatherChannels.h"
+#include "DreamWeatherSettings.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWindSubsystem.h"
 #include "Engine/World.h"
 
 namespace DreamSurface::Private
@@ -171,6 +173,32 @@ FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurfaceAt(const FVector& Positi
 		FMath::Clamp(V.Z * Mask.Z, 0.0f, 1.0f), FMath::Clamp(V.W * Mask.W, 0.0f, 1.0f)));
 }
 
+namespace DreamSurface::Contact
+{
+	/** How far the ground lies below its surroundings at a point (DSF_GroundLow), cm, from the wind's baked level heights
+	 *  as the cover map has it; 0 when the level has none. */
+	static float GroundLowAt(const UWorld* World, const FVector& Location)
+	{
+		const UDreamWindSubsystem* Wind = World && UDreamWeatherSettings::Get()->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
+		const FDreamWindTerrainCpuData* Terrain = Wind ? Wind->GetFrameData().TerrainCpu.Get() : nullptr;
+		if (!Terrain || !Terrain->IsInside(Location.X, Location.Y))
+		{
+			return 0.0f;
+		}
+		auto HeightAt = [Terrain](double X, double Y)
+		{
+			return Terrain->HeightBilinear(FMath::Clamp(X, Terrain->Bounds.Min.X, Terrain->Bounds.Max.X),
+				FMath::Clamp(Y, Terrain->Bounds.Min.Y, Terrain->Bounds.Max.Y), 0);
+		};
+		const double X = Location.X, Y = Location.Y;
+		const double R = FMath::Max(UDreamSurfaceSettings::Get()->LowRadius, 50.0f), H = R * 0.5;
+		using DreamWind::Hlsl::float4;
+		const float4 A(HeightAt(X + R, Y), HeightAt(X - R, Y), HeightAt(X, Y + R), HeightAt(X, Y - R));
+		const float4 B(HeightAt(X + H, Y + H), HeightAt(X - H, Y - H), HeightAt(X + H, Y - H), HeightAt(X - H, Y + H));
+		return DreamWind::Hlsl::DSF_GroundLow(HeightAt(X, Y), A, B);
+	}
+}
+
 FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVector Normal) const
 {
 	FDreamSurfaceContact Contact;
@@ -178,9 +206,14 @@ FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVe
 	Contact.Normal = Normal;
 	Contact.State = SampleSurface(Location);
 	const float Up = FMath::Clamp(float(Normal.Z), 0.0f, 1.0f);
-	const float Hollow = DreamWind::Hlsl::DSF_Hollow(float(Location.X), float(Location.Y), 260.0f);
-	Contact.Puddle = DreamWind::Hlsl::DSF_PuddleCover(Contact.State.Water, Up, Hollow);
-	const float SnowCover = DreamWind::Hlsl::DSF_SnowCover(Contact.State.Snow, Up, Hollow);
+	// Where the materials put the water and the snow (DSM_Realistic, on a hard surface).
+	using namespace DreamWind::Hlsl;
+	const float X = float(Location.X), Y = float(Location.Y);
+	const float Hollow = DSF_Hollow(X, Y, 260.0f);
+	const float Depth = DSF_PuddleDepth(DSF_Hollow(X + 57.0f, Y - 23.0f, FMath::Max(UDreamSurfaceSettings::Get()->PuddleScale, 20.0f)),
+		DreamSurface::Contact::GroundLowAt(GetWorld(), Location));
+	Contact.Puddle = DSF_PuddleCover(Contact.State.Water, Up, Depth, 0.0f);
+	const float SnowCover = DSF_SnowCover(Contact.State.Snow, Up, Hollow, DSF_SnowEdge(X, Y));
 	Contact.SnowDepth = Contact.State.Snow * SnowCover * UDreamSurfaceSettings::Get()->MaxSnowDepth;
 	// The dominant: snow over water over dust over a wet film.
 	if (SnowCover > 0.5f)

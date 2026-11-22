@@ -136,7 +136,7 @@ bool FDreamSurfaceMaps::Resolve()
 	using namespace DreamSurface::Maps;
 	Near.Target = LoadTarget(S->NearMapTexture, PF_FloatRGBA);
 	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
-	Cover = LoadTarget(S->CoverMapTexture, PF_G32R32F);
+	Cover = LoadTarget(S->CoverMapTexture, PF_A32B32G32R32F);
 	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
 	Trails = LoadTarget(S->TrailMapTexture, PF_FloatRGBA);
 	if (!Near.Target || !Far.Target || !Cover)
@@ -170,7 +170,7 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	const FDreamSurfaceState& View = Surface.GetViewState();
 	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
-	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, 0.0f));
+	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, S->PuddleScale));
 
 	UWorld* World = Surface.GetWorld();
 	const bool bCanRender = S->bSurfaceMaps && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
@@ -272,8 +272,9 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 	}
 	Args.Center = FVector2f(Center);
 	Args.Extent = Extent;
+	Args.LowRadius = UDreamSurfaceSettings::Get()->LowRadius;
 
-	// The wind's baked level heights: the level's top surfaces.
+	// The wind's baked level heights: the level's top surfaces (roofs, and the ground's lows for the puddles).
 	UWorld* World = Clock.GetWorld();
 	const UDreamWindSubsystem* Wind = World && UDreamWeatherSettings::Get()->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
 	if (Wind)

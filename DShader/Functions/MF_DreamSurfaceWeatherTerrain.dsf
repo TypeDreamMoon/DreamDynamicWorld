@@ -16,8 +16,10 @@ Function float4 DreamSurfaceTerrain_Shown(
 	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap, in Texture2D MaskMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
-		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
+	float4 Mask = DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler) * Mask;
+	// The snow fades over metres where it changes (DSM_SnowSoft).
+	State.z = DSM_SnowSoft(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler) * Mask.z;
 	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
@@ -33,17 +35,23 @@ Function float4 DreamSurfaceTerrain_Trail(in float3 WorldPos, in float4 TrailPla
 	return DSM_Trail(WorldPos, TrailPlace, TrailMap, TrailMapSampler);
 }
 
-Function float4 DreamSurfaceTerrain_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail)
+Function float DreamSurfaceTerrain_Low(in float3 WorldPos, in float4 NearPlace, in Texture2D CoverMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail);
+	return DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
+}
+
+Function float4 DreamSurfaceTerrain_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale);
 	return float4(L.Color, L.Roughness);
 }
 
-Function float4 DreamSurfaceTerrain_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail)
+Function float4 DreamSurfaceTerrain_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail);
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale);
 	return float4(L.Normal, L.Metallic);
 }
 
@@ -71,6 +79,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 
 	Inputs = {
 		MaterialAttributes Attributes;
+		float Softness = 0.0 [Desc="0 a hard surface (stone, paving, wood, metal) .. 1 soft ground (soil, grass): wet, soft ground mostly darkens, its puddles are faint."];
 	}
 
 	Outputs = {
@@ -84,8 +93,9 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 		float Rain = DreamSurfaceTerrain_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
 		float Seconds = UE.Time();
 		float4 Trail = DreamSurfaceTerrain_Trail(WP, TrailPlace, TrailMap);
-		float4 CR = DreamSurfaceTerrain_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail);
-		float4 NM = DreamSurfaceTerrain_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail);
+		float Low = DreamSurfaceTerrain_Low(WP, NearPlace, CoverMap);
+		float4 CR = DreamSurfaceTerrain_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w);
+		float4 NM = DreamSurfaceTerrain_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w);
 
 		// The depth follows the snow smoothly over the ground (no broken edge: a snowfield's surface is continuous), and
 		// sinks where it was trodden.

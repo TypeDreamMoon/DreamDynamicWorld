@@ -3,11 +3,11 @@
 // MF_DreamSurfaceWeatherToon(Attributes) -> Attributes
 //
 // A toon surface keeps its flat colour blocks; the weather moves them:
-//   wet     the block's value drops a little and its saturation rises; the roughness drops, which a toon material reads
-//           as a wider highlight band
+//   wet     the block's value drops a little and its saturation rises; the roughness drops (never below 0.4, so the
+//           engine's reflections stay blurred), which a toon material reads as a wider highlight band
 //   water   puddles with a hard (antialiased) edge: a cheap reflection of the sky's colour, a bright ring at the rim,
 //           and while it rains hard-edged ripple rings on them and wet dots where the surface is not soaked
-//   snow    a hard-edged cover, pale blue-white, with hard-edged prints where it was trodden
+//   snow    a hard-edged cover with an irregular edge, pale blue-white, with hard-edged prints where it was trodden
 //   dust    the block shifts toward the dust's colour, with a hard edge
 // The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
 // DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
@@ -18,18 +18,23 @@ Function float4 DreamSurfaceToon_Shown(
 	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap, in Texture2D MaskMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
-		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
+	float4 Mask = DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler) * Mask;
+	// The snow fades over metres where it changes (DSM_SnowSoft).
+	State.z = DSM_SnowSoft(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler) * Mask.z;
 	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
-Function float4 DreamSurfaceToon_Covers(in float3 WorldPos, in float4 State, in float Up)
+Function float4 DreamSurfaceToon_Covers(in float3 WorldPos, in float4 State, in float Up, in float Soft, in float4 NearPlace, in float4 Params, in Texture2D CoverMap)
 {
-	// (puddle, snow, dust) covers, soft; the graph hardens their edges.
+	// (puddle, snow, dust) covers, soft, where the realistic look has them; the graph hardens their edges (the snow's
+	// edge pattern keeps a hard edge irregular).
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
-	float Snow = DSF_SnowCover(State.z, Up, Hollow);
-	return float4(DSF_PuddleCover(State.y, Up, Hollow), Snow, State.w * saturate(Up * 1.2f + 0.1f), 0.0f);
+	float Snow = DSF_SnowCover(State.z, Up, Hollow, DSF_SnowEdge(WorldPos.x, WorldPos.y));
+	float Low = DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
+	float Depth = DSF_PuddleDepth(DSF_Hollow(WorldPos.x + 57.0f, WorldPos.y - 23.0f, max(Params.w, 20.0f)), Low);
+	return float4(DSF_PuddleCover(State.y, Up, Depth, Soft), Snow, State.w * saturate(Up * 1.2f + 0.1f), 0.0f);
 }
 
 Function float DreamSurfaceToon_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
@@ -90,6 +95,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 
 	Inputs = {
 		MaterialAttributes Attributes;
+		float Softness = 0.0 [Desc="0 a hard surface .. 1 soft ground (soil, grass): its puddles are faint."];
 	}
 
 	Outputs = {
@@ -100,7 +106,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float3 WP = UE.WorldPosition();
 		float Up = saturate(UE.VertexNormalWS().z);
 		float4 State = DreamSurfaceToon_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap, MaskMap);
-		float4 Covers = DreamSurfaceToon_Covers(WP, State, Up);
+		float4 Covers = DreamSurfaceToon_Covers(WP, State, Up, Softness, NearPlace, Params, CoverMap);
 		float3 Color = Attributes.BaseColor;
 		float Rough = Attributes.Roughness;
 
@@ -132,6 +138,10 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float DustCover = smoothstep(0.35, 0.45, Covers.z) * (1.0 - SnowCover) * (1.0 - Print);
 		Color = lerp(Color, float3(0.6, 0.5, 0.36), DustCover * 0.8);
 		Rough = lerp(Rough, 0.95, DustCover);
+
+		// The weather never takes the roughness below 0.4 (or below the surface's own): a lit toon material keeps the engine's
+		// reflections (screen space, Lumen) blurred, never a mirror; the puddles' reflection is the cheap sky colour above.
+		Rough = max(Rough, min(Attributes.Roughness, 0.4));
 
 		Result = Attributes;
 		Result.BaseColor = Color;

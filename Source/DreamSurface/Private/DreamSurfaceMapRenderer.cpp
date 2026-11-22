@@ -86,7 +86,8 @@ class FDreamSurfaceCoverCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, TerrainTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Shelters)
-		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float2>, OutCover)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutCover)
+		SHADER_PARAMETER(float, LowRadius)
 		SHADER_PARAMETER(uint32, NumRoofs)
 		SHADER_PARAMETER_ARRAY(FVector4f, Roofs, [12])
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth0)
@@ -240,6 +241,7 @@ void FDreamSurfaceMapRenderer::Cover_RenderThread(FRDGBuilder& GraphBuilder, con
 	Params->TerrainSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	Params->Shelters = GraphBuilder.CreateSRV(ShelterBuffer);
 	Params->OutCover = GraphBuilder.CreateUAV(Target);
+	Params->LowRadius = FMath::Max(Args.LowRadius, 50.0f);
 
 	// Roof captures: their depth targets in four slots (a black stand-in for the unused ones).
 	const int32 NumRoofs = FMath::Min3(4, Args.RoofTargets.Num(), Args.Roofs.Num() / 3);
