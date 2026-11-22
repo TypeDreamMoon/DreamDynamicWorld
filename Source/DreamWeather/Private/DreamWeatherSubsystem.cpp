@@ -1016,6 +1016,14 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 	UDreamWeatherZoneComponent::AppendPolygonPoints(MapZones, 3, PolygonPoints);
 
 	const bool bCanRender = S->bWeatherMap && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
+	bool bRedrawAll = false;
+	if (bCanRender && !MapWriter.Acquire(World, bRedrawAll))
+	{
+		// Another world has the shared map (play in editor): leave it, and where this world's materials look, alone.
+		return;
+	}
+	// (Back from another world: what the map holds is that world's weather around its view; draw it afresh.)
+	bMapRedrawPending |= bRedrawAll;
 	const double Now = FPlatformTime::Seconds();
 	if (bCanRender && !WeatherMap && Now - LastMapResolve > 5.0)
 	{
@@ -1042,8 +1050,8 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 
 	using C = FDreamWeatherChannels;
 	const FVector4f Global(GlobalValues.Get(C::CloudCoverage), GlobalValues.Get(C::CloudDarkness), GlobalValues.Get(C::Precipitation), 0.0f);
-	const bool bChanged = MapCenter != LastMapCenter || !Global.Equals(LastMapGlobal, 1.0e-3f) || MapZones != LastMapZones;
-	if (bChanged && Now - LastMapDraw >= S->WeatherMapInterval)
+	const bool bChanged = bMapRedrawPending || MapCenter != LastMapCenter || !Global.Equals(LastMapGlobal, 1.0e-3f) || MapZones != LastMapZones;
+	if (bChanged && (bMapRedrawPending || Now - LastMapDraw >= S->WeatherMapInterval))
 	{
 		FDreamWeatherMapRenderer::FUpdateArgs Args;
 		Args.Target = WeatherMap->GameThread_GetRenderTargetResource();
@@ -1057,6 +1065,7 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 		if (Args.Target)
 		{
 			MapRenderer->EnqueueUpdate(MoveTemp(Args));
+			bMapRedrawPending = false;
 			LastMapDraw = Now;
 			LastMapCenter = MapCenter;
 			LastMapGlobal = Global;

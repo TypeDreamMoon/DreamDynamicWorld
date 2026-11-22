@@ -6,6 +6,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamWeatherTypes.h"
 #include "DreamWorldTypes.h"
+#include "DreamWorldSharedTargets.h"
 #include "DreamWeatherSubsystem.generated.h"
 
 class ADreamWeather;
@@ -355,4 +356,7 @@ private:
 	FVector2D LastMapCenter = FVector2D(1.0e30, 1.0e30);
 	double LastMapDraw = -1.0e30;
 	double LastMapResolve = -1.0e30;
+	/** The map is shared by every world: this world draws it only while it owns it, and afresh when it comes back. */
+	DreamWorld::SharedTargets::FWriter MapWriter;
+	bool bMapRedrawPending = false;
 };
