@@ -6,8 +6,10 @@
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherSubsystem.h"
+#include "DreamWeatherStormSpawner.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldCelestial.h"
 
 #include "Components/SplineComponent.h"
 #include "Engine/World.h"
@@ -192,6 +194,98 @@ bool FDreamWeatherStormFadeTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("no lifetime: for ever"), M.FadeAt(1000.0 * 3600.0), 1.0f);
 	M.bEnabled = false;
 	TestEqual(TEXT("no motion: always in full"), M.FadeAt(-5.0), 1.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherStormSpawnerTest, "DreamWeather.Storm.Spawner", DreamWeather::StormTests::Flags)
+bool FDreamWeatherStormSpawnerTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::StormTests;
+	FWorld W;
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	FActorSpawnParameters Spawn;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherStormSpawner* Spawner = W.World->SpawnActor<ADreamWeatherStormSpawner>(FVector(100000.0, 0.0, 0.0), FRotator::ZeroRotator, Spawn);
+	FDreamStormKind& Kind = Spawner->Kinds.AddDefaulted_GetRef();
+	Kind.Preset = MakePreset(TEXT("Storm"), { { DreamWeather::Tags::Channel_CloudCoverage, 1.0f }, { DreamWeather::Tags::Channel_Precipitation, 1.0f } });
+	Kind.Winter = 0.0f;
+
+	// Determinism: the same seed and slot, the same storm; another seed, other storms.
+	// A hundred days from June (summer, then autumn).
+	const int64 June = int64(DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 1)) / (12.0 * 3600.0));
+	int32 Storms = 0, Same = 0, Differ = 0;
+	for (int64 Slot = June; Slot < June + 200; ++Slot)
+	{
+		FDreamStormPlan A, B, C;
+		const bool bA = Spawner->PlanSlot(7, Slot, A);
+		const bool bB = Spawner->PlanSlot(7, Slot, B);
+		const bool bC = Spawner->PlanSlot(8, Slot, C);
+		Storms += bA ? 1 : 0;
+		Same += (bA == bB && (!bA || A == B)) ? 1 : 0;
+		Differ += (bA != bC || (bA && !(A == C))) ? 1 : 0;
+		if (bA)
+		{
+			TestTrue(TEXT("a storm starts within its slot"), A.StartSeconds >= double(Slot) * 12.0 * 3600.0 && A.StartSeconds < double(Slot + 1) * 12.0 * 3600.0);
+			// Halfway through its life it passes near the spawner.
+			const FVector2D Mid = A.Origin + A.Velocity * 100000.0 * double(A.LifetimeHours) * 0.5;
+			TestTrue(TEXT("and passes within reach of the spawner"), FVector2D::Distance(Mid, FVector2D(100000.0, 0.0)) <= Spawner->PassRadius + 1.0);
+			const double Yaw = FMath::RadiansToDegrees(FMath::Atan2(A.Velocity.Y, A.Velocity.X));
+			TestTrue(TEXT("from the prevailing direction"), FMath::Abs(Yaw - Spawner->PrevailingYaw) <= Spawner->DirectionVariation + 0.01);
+		}
+	}
+	TestEqual(TEXT("the same seed gives the same storms"), Same, 200);
+	TestTrue(FString::Printf(TEXT("another seed gives others (%d of 200 differ)"), Differ), Differ > 50);
+	TestTrue(FString::Printf(TEXT("storms come at about the seasons' chance (%d of 200)"), Storms), Storms > 30 && Storms < 120);
+
+	// No storm kind for winter: no winter storms.
+	int32 WinterStorms = 0;
+	const double SlotSeconds = 12.0 * 3600.0;
+	const int64 January = int64(DreamWorld::Celestial::FromDateTime(FDateTime(2027, 1, 1)) / SlotSeconds);
+	for (int64 Slot = January; Slot < January + 50; ++Slot)
+	{
+		FDreamStormPlan P;
+		WinterStorms += Spawner->PlanSlot(7, Slot, P) ? 1 : 0;
+	}
+	TestEqual(TEXT("no kind for winter, no storms in winter"), WinterStorms, 0);
+
+	// In the world: a storm actor for every storm alive, gone when its life is over.
+	Spawner->SeasonChance = FVector4f(1.0f, 1.0f, 1.0f, 1.0f);
+	Spawner->Refresh();
+	const TArray<FDreamStormPlan> Alive = Spawner->GetStormsAt(W.Clock->GetWorldSeconds());
+	TestEqual(TEXT("a storm actor per storm alive"), Spawner->GetLiveStorms().Num(), Alive.Num());
+	if (Alive.Num() > 0)
+	{
+		const FDreamStormPlan& Plan = Alive[0];
+		const TWeakObjectPtr<ADreamWeatherStorm>* Storm = Spawner->GetLiveStorms().Find(Plan.Slot);
+		if (TestTrue(TEXT("spawned"), Storm && Storm->IsValid()))
+		{
+			const FVector Center = (*Storm)->Zone->GetFootprintCenter();
+			const double Hours = (W.Clock->GetWorldSeconds() - Plan.StartSeconds) / 3600.0;
+			TestTrue(TEXT("where its plan says"), FVector2D(Center.X, Center.Y).Equals(Plan.Origin + Plan.Velocity * 100000.0 * Hours, 10.0));
+		}
+		// The weather sees the storm through the spawner (its actor only draws the map): over its centre it rains,
+		// and asked of that moment later, after the actor is gone, it still does.
+		const double Mid = FMath::Max(W.Clock->GetWorldSeconds(), Plan.StartSeconds + double(Plan.LifetimeHours) * 1800.0);
+		const FVector2D MidCenter = ADreamWeatherStormSpawner::CenterAt(Plan, Mid);
+		const FVector Over(MidCenter.X, MidCenter.Y, 0.0);
+		const FDreamWeatherSample During = W.Weather->SampleWeatherAt(Over, W.Weather->GetGlobalValues(), Mid);
+		TestTrue(FString::Printf(TEXT("halfway through its life it rains under it (%.2f)"), During.Precipitation), During.Precipitation > 0.9f);
+		if (const TWeakObjectPtr<ADreamWeatherStorm>* Actor = Spawner->GetLiveStorms().Find(Plan.Slot))
+		{
+			TestFalse(TEXT("its actor only draws the weather map"), Actor->IsValid() && (*Actor)->Zone->bAffectsQueries);
+		}
+
+		W.Clock->SetWorldSeconds(Plan.EndSeconds() + 1.0);
+		Spawner->Refresh();
+		TestFalse(TEXT("its life over: gone"), Spawner->GetLiveStorms().Contains(Plan.Slot));
+		const FDreamWeatherSample Remembered = W.Weather->SampleWeatherAt(Over, W.Weather->GetGlobalValues(), Mid);
+		TestNearlyEqual(TEXT("and the past still has it"), Remembered.Precipitation, During.Precipitation, 1.0e-4f);
+		const FDreamWeatherSample After = W.Weather->SampleWeatherAt(Over, W.Weather->GetGlobalValues(), Plan.EndSeconds() + 1.0);
+		TestTrue(TEXT("after its life, dry there"), After.Precipitation < 0.05f || Spawner->GetStormsAt(Plan.EndSeconds() + 1.0).Num() > 0);
+	}
 	return true;
 }
 
