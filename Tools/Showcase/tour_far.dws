@@ -1,0 +1,94 @@
+# The far land from beside the hut, a little above it: aerial perspective and the height fog, each on and off,
+# in four weathers (Invoke-ShowcaseTour.ps1 -Parts far; Make-ShowcaseSheet.py tiles them).
+ShowFlag.EyeAdaptation 0
+DreamWorld.Pause 1
+move 2100 300 900
+aim 0 225
+DreamWeather.Set WP_Clear 0
+time 12
+settle 20
+wait 150
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Noon_ApOn_FogOn
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Noon_ApOn_FogOff
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Noon_ApOff_FogOn
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Noon_ApOff_FogOff
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+DreamWeather.Set WP_Clear 0
+time 17.2
+settle 20
+wait 150
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Evening_ApOn_FogOn
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Evening_ApOn_FogOff
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Evening_ApOff_FogOn
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Evening_ApOff_FogOff
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+DreamWeather.Set WP_Overcast 0
+time 12
+settle 20
+wait 150
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Overcast_ApOn_FogOn
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Overcast_ApOn_FogOff
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Overcast_ApOff_FogOn
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Overcast_ApOff_FogOff
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+DreamWeather.Set WP_Fog 0
+time 9
+settle 20
+wait 150
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Fog_ApOn_FogOn
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Fog_ApOn_FogOff
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 1
+wait 30
+shot SHOW_Far_Fog_ApOff_FogOn
+r.DreamAtmosphere.AerialPerspective 0
+ShowFlag.Fog 0
+wait 30
+shot SHOW_Far_Fog_ApOff_FogOff
+r.DreamAtmosphere.AerialPerspective 1
+ShowFlag.Fog 1

@@ -243,6 +243,25 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("the rim under water all round"), Wet, Rim);
 		TestEqual(TEXT("the bank above water just beyond it all round"), Dry, Rim);
 	}
+
+	// The land out to the horizon: ranges kilometres out and up to some two kilometres high, under the set's ground where
+	// they meet, with no collision.
+	int32 FarLands = 0;
+	for (AStaticMeshActor* Actor : ActorsOf<AStaticMeshActor>(World))
+	{
+		if (!Actor->GetActorLabel().StartsWith(TEXT("FarLand")))
+		{
+			continue;
+		}
+		++FarLands;
+		const UStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+		const FBox Bounds = Component->GetStaticMesh() ? Component->GetStaticMesh()->GetBoundingBox() : FBox(ForceInit);
+		TestTrue(*FString::Printf(TEXT("the far land reaches the horizon (%.0f km)"), Bounds.GetExtent().X / 1.0e5), Bounds.GetExtent().X > 3.0e6);
+		TestTrue(*FString::Printf(TEXT("its peaks stand 1-2.5 km high (%.2f km)"), Bounds.Max.Z / 1.0e5), Bounds.Max.Z > 1.0e5 && Bounds.Max.Z < 2.5e5);
+		TestTrue(TEXT("it has no collision"), Component->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+		TestTrue(TEXT("it wears the terrain's surface material (snow lies on it)"), Component->GetMaterial(0) && Component->GetMaterial(0)->GetName().Contains(TEXT("Terrain")));
+	}
+	TestEqual(TEXT("one far land"), FarLands, 1);
 	TestEqual(TEXT("no sequence playing in the day level"), ActorsOf<ALevelSequenceActor>(World).Num(), 0);
 	return true;
 }

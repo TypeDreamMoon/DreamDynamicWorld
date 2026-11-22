@@ -19,6 +19,10 @@ namespace DreamWorld::Setup
 	constexpr double ShowcasePondLevel = -55.0;
 	constexpr double ShowcasePondInset = 12.0;
 
+	/** The far land round the set (near hills 5-7.5 km out, mid mountains 12-16 km, a far range 24-30 km, to 2 km high). */
+	inline const TCHAR* ShowcaseFarLandPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcaseFarLand");
+	inline const FVector2D ShowcaseFarCenter(2500.0, 0.0);
+
 	/**
 	 * The showcase: everything the plugin does in one place, for looking it over as a whole. Rolling ground and a paved
 	 * square under the surface materials (realistic) with toon props and a toon figure on it; a hut to step into (a
