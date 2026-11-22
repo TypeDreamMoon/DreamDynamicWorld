@@ -491,6 +491,54 @@ across with a bay cut into its south side) over land that reads the surface maps
 → storm → cloudy every three hours.
 `-ForceAudio` builds the graphs again, `-Force` the level.
 
+## Showcase
+
+Everything the plugin does in one place, to look it over as a whole: **`/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcase`**,
+written by `-run=DreamDynamicWorldSetup -WorldShowcase` (with the dusk level and its assets below). It is built afresh
+on every run, so rerun it after updating the plugin to take in what it has gained.
+
+**The set.** Rolling ground and a paved square under the surface materials (the terrain is soft ground, the square
+hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
+**hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
+a window looking out, a roof the rain knows — and a **porch** before its door that only a roof capture box tells the
+weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip; a **grove** on the
+rolling ground has crowns tagged as leaves (the rain sounds on them); a **campfire** warms the air around it (a
+temperature volume) and keeps the ground round it clear of snow and puddles (a mask brush); **crates** slide and tip in
+a gale (`UDreamWindForceComponent`); an irregular **snow field** (a polygon zone) lies far ahead; a **storm** drifts in
+from the west in the morning of the first day. A wind terrain map baked over the set gives the roofs and the dips the
+puddles follow (props, posts and the crates are pass-through).
+
+**The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule
+(`UDreamWeatherSelector_Sequence`) that repeats every 24 hours:
+
+| Hours | Weather |
+| :-- | :-- |
+| 0–9 | clear (the night before, the morning) |
+| 9–11 | cloudy |
+| 11–13 | rain |
+| 13–15 | storm (thunder) |
+| 15–17 | after the rain (`WP_Overcast`, the ground still wet) |
+| 17–20 | snow |
+| 20–22 | dust |
+| 22–24 | clear |
+
+From 20:00 to 5:00 a sky modifier (`DSM_ShowcaseAurora`, an entry in the sky's *Conditional Modifiers*) lights the
+aurora; the sky shows it only once it is dark.
+
+**The dusk level.** `Lvl_DreamWorldShowcaseDusk` is the same set with a level sequence playing at once in cinematic
+mode (no movement, no HUD): `LS_DreamWorldShowcaseDusk`, twenty seconds of dusk into night (the time track, 17:00 to
+23:00) while the clear sky turns to rain (the weather track: clear, then rain eased in over four seconds). Open the
+sequence in Sequencer to scrub it.
+
+**Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
+shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
+day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
+sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
+<screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines);
+`DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera. `DreamWorld.Showcase.Contents` and
+`DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
+
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
