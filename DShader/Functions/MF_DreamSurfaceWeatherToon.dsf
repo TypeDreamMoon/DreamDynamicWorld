@@ -5,7 +5,8 @@
 // A toon surface keeps its flat colour blocks; the weather moves them:
 //   wet     the block's value drops a little and its saturation rises; the roughness drops, which a toon material reads
 //           as a wider highlight band
-//   water   puddles with a hard (antialiased) edge: a cheap reflection of the sky's colour, a bright ring at the rim
+//   water   puddles with a hard (antialiased) edge: a cheap reflection of the sky's colour, a bright ring at the rim,
+//           and while it rains hard-edged ripple rings on them and wet dots where the surface is not soaked
 //   snow    a hard-edged cover, pale blue-white
 //   dust    the block shifts toward the dust's colour, with a hard edge
 // The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
@@ -28,6 +29,23 @@ Function float4 DreamSurfaceToon_Covers(in float3 WorldPos, in float4 State, in 
 	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
 	float Snow = DSF_SnowCover(State.z, Up, Hollow);
 	return float4(DSF_PuddleCover(State.y, Up, Hollow), Snow, State.w * saturate(Up * 1.2f + 0.1f), 0.0f);
+}
+
+Function float DreamSurfaceToon_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_RainHere(Weather0, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float2 DreamSurfaceToon_Drops(in float3 WorldPos, in float Time, in float Rain)
+{
+	// The rain's rings on the puddles (their brightness) and its wet spots, for hard-edged lines and dots.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	if (Rain <= 0.0f)
+	{
+		return float2(0.0f, 0.0f);
+	}
+	return float2(DSM_Ripples(WorldPos.xy, Time, Rain, 22.0f).z, DSM_WetSpots(WorldPos.xy, Time, Rain));
 }
 
 Function float3 DreamSurfaceToon_Shift(in float3 Color, in float Wet)
@@ -53,6 +71,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyZenith") Zenith;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyHorizon") Horizon;
 	}
@@ -73,16 +92,21 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float3 Color = Attributes.BaseColor;
 		float Rough = Attributes.Roughness;
 
+		// The rain landing now: hard-edged wet dots where the surface is not soaked yet, rings on the puddles.
+		float Rain = DreamSurfaceToon_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
+		float2 Drops = DreamSurfaceToon_Drops(WP, UE.Time(), Rain);
+		float Wet = max(State.x, smoothstep(0.45, 0.55, Drops.y) * 0.8 * saturate(Up * 2.0));
+
 		// Wet: the block shifts, the highlight band widens.
-		Color = DreamSurfaceToon_Shift(Color, State.x);
-		Rough = lerp(Rough, Rough * 0.35, State.x);
+		Color = DreamSurfaceToon_Shift(Color, Wet);
+		Rough = lerp(Rough, Rough * 0.35, Wet);
 
 		// Puddles: a hard edge, the sky's colour for a reflection, a bright ring at the rim.
 		float Puddle = smoothstep(0.45, 0.55, Covers.x);
 		float Rim = smoothstep(0.3, 0.42, Covers.x) - Puddle;
 		float3 Sky = lerp(Horizon.rgb, Zenith.rgb, 0.5);
 		Color = lerp(Color, lerp(Color * 0.45, Sky, 0.55), Puddle);
-		Color = Color + Rim * 0.12;
+		Color = Color + Rim * 0.12 + smoothstep(0.4, 0.6, Drops.x) * Puddle * 0.18;
 		Rough = lerp(Rough, 0.05, Puddle);
 
 		// Snow: a hard-edged cover.

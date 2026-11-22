@@ -396,6 +396,13 @@ and the cover), 0.2 ms for an integration.
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
 | `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow and dust |
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
+| `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
+
+**Rain on it.** While it rains (at the view, `DDW_Weather0`; not under cover) the puddles ripple — rings spreading
+from where drops land, more cells ringing the harder it rains, every ring with the same rhythm so a temporal filter
+does not shimmer on it — and a surface not soaked yet shows short-lived wet spots where the drops land. Both are in
+the material functions (no decals); the toon function draws them as hard-edged rings and dots. They stop with the
+rain. Cost: some 0.03 ms of base pass at 1080p in the rain on the test level.
 
 They read the maps and the cover (`/DreamDynamicWorld/Surface/...`) and the shared collection only. The hollow pattern
 puddles gather in and snow thins at (`DSF_Hollow`) and the covers are in the shared header, so a CPU query can tell

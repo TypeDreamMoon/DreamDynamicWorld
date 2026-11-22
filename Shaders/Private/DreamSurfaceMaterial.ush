@@ -67,6 +67,72 @@ float4 DSM_Covered(float4 State, float Exposure)
 	return float4(State.x * Exposure, State.y * Exposure, State.z * Exposure, State.w * (0.2f + 0.8f * Exposure));
 }
 
+// The rain landing on a surface now, 0..1: the precipitation at the view that is rain (DDW_Weather0: coverage, darkness,
+// precipitation, snow ratio), none under cover.
+float DSM_RainHere(float4 Weather0, float Exposure)
+{
+	return saturate(Weather0.z * (1.0f - Weather0.w)) * Exposure;
+}
+
+// Rain ripples on standing water: rings spreading from where drops land, one cell of Scale cm at a time, more cells
+// ringing the harder it rains. Every ring has the same rhythm (the same speed, life and width, only its start and place
+// differ), so the pattern stays even from frame to frame and a temporal filter does not shimmer on it. Returns the
+// slope of the water's surface (x, y; a tangent-space normal is normalize(-slope, 1)) and, in z, the rings' brightness
+// (0..1, for a toon look's ring lines).
+float3 DSM_Ripples(float2 WorldXY, float Time, float Rain, float Scale)
+{
+	float2 Q = WorldXY / max(Scale, 1.0f);
+	float2 Cell = floor(Q);
+	float2 Slope = float2(0.0f, 0.0f);
+	float Lines = 0.0f;
+	for (int Y = -1; Y <= 1; ++Y)
+	{
+		for (int X = -1; X <= 1; ++X)
+		{
+			float2 C = Cell + float2(float(X), float(Y));
+			float Ringing = saturate((Rain - DSF_Hash(C.x + 71.0f, C.y + 3.0f)) * 6.0f);
+			if (Ringing <= 0.0f)
+			{
+				continue;
+			}
+			float2 Centre = C + 0.15f + 0.7f * float2(DSF_Hash(C.x, C.y), DSF_Hash(C.x + 37.1f, C.y + 11.3f));
+			float Age = frac(Time * 0.9f + DSF_Hash(C.x + 5.3f, C.y + 91.7f));
+			float2 D = Q - Centre;
+			float Dist = length(D);
+			float Band = (Dist - Age * 0.85f) * 9.0f;
+			float Profile = abs(Band) < 1.0f ? sin(Band * 3.14159f) * (1.0f - abs(Band)) : 0.0f;
+			float Fade = (1.0f - Age) * (1.0f - Age) * Ringing;
+			Slope += D / max(Dist, 1.0e-3f) * (Profile * Fade);
+			Lines = max(Lines, (1.0f - abs(Band)) * step(abs(Band), 1.0f) * Fade);
+		}
+	}
+	return float3(Slope.x, Slope.y, Lines);
+}
+
+// Short-lived wet spots where drops land on a surface that is not soaked yet: small dark dots that appear and fade over
+// a second or two, more of them the harder it rains. 0..1.
+float DSM_WetSpots(float2 WorldXY, float Time, float Rain)
+{
+	float2 Q = WorldXY / 7.0f;
+	float2 Cell = floor(Q);
+	float Spot = 0.0f;
+	for (int Y = 0; Y <= 1; ++Y)
+	{
+		for (int X = 0; X <= 1; ++X)
+		{
+			float2 C = Cell + float2(float(X), float(Y));
+			float Falling = saturate((Rain * 0.8f - DSF_Hash(C.x + 13.0f, C.y + 29.0f)) * 8.0f);
+			float Age = frac(Time * 0.45f + DSF_Hash(C.x + 3.1f, C.y + 7.7f));
+			float Life = smoothstep(0.0f, 0.04f, Age) * (1.0f - smoothstep(0.08f, 0.6f, Age));
+			float2 Centre = C + 0.2f + 0.6f * float2(DSF_Hash(C.x + 1.7f, C.y), DSF_Hash(C.x, C.y + 4.9f));
+			float R = 0.18f + 0.22f * DSF_Hash(C.x + 9.0f, C.y + 9.0f);
+			float Disc = 1.0f - smoothstep(R * 0.7f, R, length(Q - Centre));
+			Spot = max(Spot, Disc * Life * Falling);
+		}
+	}
+	return Spot;
+}
+
 // What the weather makes of a realistic surface (after Lagarde, "Water drop 3b", 2013).
 struct FDreamSurfaceLook
 {
@@ -77,22 +143,36 @@ struct FDreamSurfaceLook
 	float SnowCover;    // how much of it the snow covers (the terrain's snow depth follows it)
 };
 
-FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up)
+// Rain = the rain landing there now (DSM_RainHere), Time in seconds: the puddles' ripples and the drops' wet spots.
+FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up,
+	float Rain, float Time)
 {
 	FDreamSurfaceLook L;
 	float Dielectric = 1.0f - Metallic;
 	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
 
-	// The film: a porous surface (rough, not metal) darkens, every surface turns glossier; metal does not darken.
+	// The film: a porous surface (rough, not metal) darkens, every surface turns glossier; metal does not darken. Where
+	// it is not soaked yet, the drops leave short-lived wet spots on what faces up.
+	float Wet = State.x;
+	if (Rain > 0.0f && Wet < 0.95f)
+	{
+		Wet = max(Wet, 0.85f * DSM_WetSpots(WorldPos.xy, Time, Rain) * saturate(Up * 2.0f));
+	}
 	float Porosity = saturate((Roughness - 0.2f) * 2.0f) * Dielectric;
-	Color = Color * lerp(1.0f, lerp(0.85f, 0.3f, Porosity), State.x * Dielectric);
-	Roughness = lerp(Roughness, min(Roughness, 0.15f), State.x);
+	Color = Color * lerp(1.0f, lerp(0.85f, 0.3f, Porosity), Wet * Dielectric);
+	Roughness = lerp(Roughness, min(Roughness, 0.15f), Wet);
 
-	// Standing water in the hollows of what faces up: dark, mirror-smooth, flat.
+	// Standing water in the hollows of what faces up: dark, mirror-smooth, flat - rippled while the rain falls on it.
 	float Puddle = DSF_PuddleCover(State.y, Up, Hollow);
+	float3 Water = float3(0.0f, 0.0f, 1.0f);
+	if (Puddle > 0.0f && Rain > 0.0f)
+	{
+		float3 Ripples = DSM_Ripples(WorldPos.xy, Time, Rain, 22.0f);
+		Water = normalize(float3(-Ripples.x * 0.35f, -Ripples.y * 0.35f, 1.0f));
+	}
 	Color = lerp(Color, Color * 0.35f, Puddle * Dielectric);
 	Roughness = lerp(Roughness, 0.02f, Puddle);
-	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Puddle));
+	Normal = normalize(lerp(Normal, Water, Puddle));
 
 	// Snow on what faces up, thicker the more it faces up, a broken edge; then dust under it.
 	float Snow = DSF_SnowCover(State.z, Up, Hollow);
