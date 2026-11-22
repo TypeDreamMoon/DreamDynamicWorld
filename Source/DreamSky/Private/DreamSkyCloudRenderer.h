@@ -39,9 +39,9 @@ public:
 
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
-	static constexpr int32 NumParameters = 21;
+	static constexpr int32 NumParameters = 30;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
-	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's)
+	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4 + 2; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's; the clouds' colour scales)
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:
@@ -63,6 +63,8 @@ private:
 		/** The atmosphere's transmittance table (DreamAtmosphere), and the air it was built for (null: not built yet,
 		 *  the light through the air is the analytic one). */
 		FTextureResource* Transmittance = nullptr;
+		/** The atmosphere's sky table (the air between the clouds, as the dome's). */
+		FTextureResource* SkyTable = nullptr;
 		FIntPoint TransmittanceSize = FIntPoint::ZeroValue;
 		FVector4f Atmosphere[5] = { FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f), FVector4f(0.0f) };
 		/** The ground shadow's texture (ADreamSky::GetCloudShadowTarget) and where it lies; null: none. */

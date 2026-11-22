@@ -452,6 +452,13 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.PaintFloorAtTop = P.FloorAtTop;
 		Out.PaintFloorInStorm = P.FloorInStorm;
 		Effective->ToonClouds.Bake(Out.Toon);
+		// (The colour scales at this moment's sun.)
+		const UDreamWorldSubsystem* ColourClock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const float Elevation = ColourClock ? ColourClock->GetCelestial().SunElevation : 45.0f;
+		Out.bCloudColorsAbsolute = Effective->bCloudColorsAbsolute;
+		Out.bCloudMatchStyleBrightness = Effective->bCloudMatchStyleBrightness;
+		Out.CloudLitScale = Effective->CloudLitScale.GetLinearColorValue(Elevation);
+		Out.CloudShadeScale = Effective->CloudShadeScale.GetLinearColorValue(Elevation);
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}
 	Out.SunScattering = CloudSunScattering;

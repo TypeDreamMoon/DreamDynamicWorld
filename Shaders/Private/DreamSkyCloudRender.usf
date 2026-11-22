@@ -37,10 +37,12 @@ Texture2D TransmittanceLut;
 SamplerState TransmittanceSampler;
 int2 TransmittanceSize;
 float4 Atmosphere[5];
+Texture3D SkyTable;
+SamplerState SkyTableSampler;
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
 // its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
-float4 Parameters[21];
+float4 Parameters[30];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -62,12 +64,21 @@ float4 Parameters[21];
 #define P_SkyModClouds Parameters[18]
 #define P_NightGlow    Parameters[19]
 #define P_LightPollution Parameters[20]
+#define P_MoonDir      Parameters[21]
+#define P_SkyGrade0    Parameters[22]
+#define P_SkyGrade1    Parameters[23]
+#define P_SkyGrade2    Parameters[24]
+#define P_SkyGrade3    Parameters[25]
+#define P_AtmosphereSun Parameters[26]
+#define P_AtmosphereMoon Parameters[27]
+#define P_AmbientSky   Parameters[28]
+#define P_AmbientEquator Parameters[29]
 #define DCS_MAP_ADJUST P_SkyModClouds
 
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[157];
+float4 LookParameters[159];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -363,14 +374,20 @@ FDSkyCloudSample DSkyR_Sample(float3 V, float T, FDSkyCloudField F, FDCloudAncho
 // tints the clouds) and SkyBehind (the colour the air between takes; looking down, the low sky's).
 void DSkyR_Sky(float3 V, out float3 Halo, out float3 Tone, out float3 SkyBehind)
 {
+	// (The dome's own sky: the physical one through the style's grade, the style's gradient as far as it says.)
 	float3 Sun = normalize(P_SunDir.xyz);
-	float3 Base = DSky_Backdrop(V, Sun, P_Zenith, P_Horizon, P_Ground, P_SunHalo, Halo);
+	float3 Moon = normalize(P_MoonDir.xyz);
+	float Share;
+	float3 Base = DSky_SkyBackdrop(V, Sun, Moon, P_Zenith, P_Horizon, P_Ground, P_SunHalo, P_SkyGrade0, P_SkyGrade1, P_SkyGrade2,
+		P_SkyGrade3, P_AtmosphereSun, P_AtmosphereMoon, SkyTable, SkyTableSampler, Halo, Share);
 	float3 Mean = max(0.5 * (P_Zenith.rgb + P_Horizon.rgb), 1.0e-4);
 	Tone = clamp(Base / Mean, 0.25, 4.0);
 	float3 HazeHalo = Halo;
-	float3 Haze = V.z >= 0.0 ? Base : DSky_Backdrop(DSky_HazeDirection(V), Sun, P_Zenith, P_Horizon, P_Ground, P_SunHalo, HazeHalo);
+	float3 Haze = V.z >= 0.0 ? Base : DSky_SkyBackdrop(DSky_HazeDirection(V), Sun, Moon, P_Zenith, P_Horizon, P_Ground, P_SunHalo,
+		P_SkyGrade0, P_SkyGrade1, P_SkyGrade2, P_SkyGrade3, P_AtmosphereSun, P_AtmosphereMoon, SkyTable, SkyTableSampler, HazeHalo, Share);
 	SkyBehind = Haze + HazeHalo;
 }
+
 
 // The extinction at a sample (per cm), as the engine's cloud material has it: its CloudExtinction (some 0.08 per metre)
 // in a full cloud, the faint fringe drawn in a little (1 - (1 - d)^2), a storm's cloud up to twice as dense. (What the
@@ -428,6 +445,36 @@ float3 DSkyR_AirTransmittance(float Height, float LightZ)
 	float Mie = 4.44e-3 * 1.2 * exp(-Km / 1.2);
 	float3 Ozone = float3(0.65, 1.881, 0.085) * 1.0e-3 * 25.0 * saturate(1.0 - Km / 35.0);
 	return exp(-(Rayleigh + Mie + Ozone) * Air);
+}
+
+// The clouds' lit and shade colours (rgb; a as the style's: the rim, the opacity): from the physical sky's light -- the
+// sun's and the moon's outside the air through it to the clouds' base, the sky's ambient light (the shared parameters'
+// DDW_AmbientSky / Equator, as the sky works them out), as bright as the style's curves when it asks (their colour the
+// light's), times the style's scales (LookParameters[157..158]); the
+// style's own curves (DDW_CloudLit / Shadow) when it asks for them (bCloudColorsAbsolute) or the atmosphere's tables are
+// not built.
+void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
+{
+	Lit = P_CloudLit;
+	Shade = P_CloudShadow;
+	if (LookParameters[157].w > 0.5 || P_AtmosphereSun.w < 0.5)
+	{
+		return;
+	}
+	float Base = P_CloudLayer.x + 50000.0;
+	float3 SunLight = P_AtmosphereSun.rgb * DSkyR_AirTransmittance(Base, normalize(P_SunDir.xyz).z);
+	float3 MoonLight = P_AtmosphereMoon.rgb * DSkyR_AirTransmittance(Base, normalize(P_MoonDir.xyz).z);
+	float3 Light = SunLight + MoonLight;
+	float3 Ambient = 0.5 * (P_AmbientSky.rgb + P_AmbientEquator.rgb);
+	if (LookParameters[158].w > 0.5)
+	{
+		// (As bright as the style's own colours: their luminance, the light's colour.)
+		const float3 Luma = float3(0.2126, 0.7152, 0.0722);
+		Light *= dot(P_CloudLit.rgb, Luma) / max(dot(Light, Luma), 1.0e-6);
+		Ambient *= dot(P_CloudShadow.rgb, Luma) / max(dot(Ambient, Luma), 1.0e-6);
+	}
+	Lit.rgb = Light * LookParameters[157].rgb;
+	Shade.rgb = Ambient * LookParameters[158].rgb;
 }
 
 // The sky's height fog over a cloud Distance along V, as the engine's renderer lays it over its own clouds (its
@@ -547,8 +594,10 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	W.GivenDepth = DSkyR_SunTau(CameraWorld + Toward, TowardZ) / max(LP_Extinction, 1.0e-6);
 	DSky_WalkSurface(W, V, F, Ld, Merging, T0, T1, P_MapParams, WeatherMap, WeatherMapSampler, CloudNoise, CloudNoiseSampler);
 	float Core;
+	float4 CloudLit, CloudShade;
+	DSkyR_CloudColours(CloudLit, CloudShade);
 	float4 VC = DSky_PaintSurface(W, V, F, Ld, Merging, LightDir, P_Cloud0, P_Cloud1, P_Cloud3, P_CloudLayer, CloudNoise,
-		CloudNoiseSampler, CameraWorld, Tone, Halo, SkyBehind, P_CloudLit, P_CloudShadow, P_Extra, Sun, P_MainLightColor, SceneT,
+		CloudNoiseSampler, CameraWorld, Tone, Halo, SkyBehind, CloudLit, CloudShade, P_Extra, Sun, P_MainLightColor, SceneT,
 		DSkyR_MaxDist, Core);
 	SurfaceDepth = VC.a > 0.0 ? W.SurfaceT : -1.0;
 	// A city's light from below on the cloud's base (DSkyR_UnderLight).
@@ -610,7 +659,9 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	// The tones as the engine's painted material made them: the lit one in its tint, by the sky behind (as the toon
 	// clouds' are) and the halo round the sun; a low sun warms it, the more on the side toward the sun; the shade in its
 	// tint and the hue of the sky above, which lights it; the half tone between.
-	float3 PaintLit = P_CloudLit.rgb * LP_PaintLitTint * lerp(1.0, Tone, P_Extra.x * 0.2);
+	float4 CloudLit, CloudShade;
+	DSkyR_CloudColours(CloudLit, CloudShade);
+	float3 PaintLit = CloudLit.rgb * LP_PaintLitTint * lerp(1.0, Tone, P_Extra.x * 0.2);
 	float3 SunHue = P_MainLightColor.rgb / max(dot(P_MainLightColor.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0e-4);
 	float2 Across = V.xy * rsqrt(max(dot(V.xy, V.xy), 1.0e-6));
 	float2 SunAcross = LightDir.xy * rsqrt(max(dot(LightDir.xy, LightDir.xy), 1.0e-6));
@@ -623,7 +674,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	float LowSun = (1.0 - saturate(LightDir.z * PA0.x)) * (1.0 - P_MainLightColor.a);
 	PaintLit *= lerp(1.0, min(SunHue, PA0.z), LowSun * lerp(1.0 - PA0.y, 1.0, Toward));
 	float3 Above = P_Zenith.rgb / max(dot(P_Zenith.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0e-4);
-	float3 PaintShade = P_CloudShadow.rgb * LP_PaintShadeTint * lerp(1.0, Above, PA0.w * P_Extra.x);
+	float3 PaintShade = CloudShade.rgb * LP_PaintShadeTint * lerp(1.0, Above, PA0.w * P_Extra.x);
 	// (The core's falloffs suit volumes some hundreds of metres across; a sky cloud's optical depth runs some fifty times
 	// as deep: the key goes by the cloud some 0.2 to 1.5 km toward the sun, as the engine material's does. The key is
 	// worked out here -- its billows, the earth's shadow -- and handed to the core as the optical depth that gives it.)

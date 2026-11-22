@@ -501,6 +501,11 @@ struct FDreamSkyCloudLookParameters
 	float PaintFloorInStorm = 0.5f;
 	// Toon (FDreamSkyToonClouds, baked; the sky modifiers' blend of it).
 	FDreamSkyToonBaked Toon;
+	// The clouds' colours from the physical sky's light (UDreamSkyStyle::bCloudColorsAbsolute, CloudLitScale, CloudShadeScale).
+	bool bCloudColorsAbsolute = false;
+	bool bCloudMatchStyleBrightness = true;
+	FLinearColor CloudLitScale = FLinearColor::White;
+	FLinearColor CloudShadeScale = FLinearColor::White;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);

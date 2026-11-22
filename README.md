@@ -95,7 +95,14 @@ scattering: soft) and **painted** (the density painted in the style's lit, half 
 it: hard-edged, opaque, with a silver lining near the sun, an anime background's clouds). The light reaches each
 sample of the realistic look through the air as the atmosphere's transmittance table has it (DreamAtmosphere, the
 same air the sky is made of) once it is built, an analytic air of the same coefficients before
-(`DreamSky.CloudRender.Atmosphere 0` keeps to that). The realistic and painted
+(`DreamSky.CloudRender.Atmosphere 0` keeps to that). The air between the clouds is the dome's own sky
+(`DSky_SkyBackdrop`: the physical sky through the style's grade, its gradient as far as `GradientBlend` says). The toon
+and painted clouds' lit and shade colours come from the physical sky's light too: the sun's and the moon's light
+outside the air through it to the clouds' base for the lit tone, the sky's ambient light (as the sky works out
+`DDW_AmbientSky` / `Equator`) for the shade -- by default kept as bright as the style's `CloudLitColor` /
+`CloudShadowColor` at every moment, their colour the light's (`bCloudMatchStyleBrightness`), so a low sun reddens the
+clouds by itself -- times the style's `CloudLitScale` / `CloudShadeScale` curves; `bCloudColorsAbsolute` goes back to
+the style's curves as they are. The realistic and painted
 looks take their settings from the style (`RealisticClouds`, `PaintedClouds`, and `CloudShadowReach`, how far their
 shading toward the light reaches), the level's cloud overrides over them; on the actor, `CloudSunScattering` (2.5)
 brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
