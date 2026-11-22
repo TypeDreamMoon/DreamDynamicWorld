@@ -9,6 +9,9 @@
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
+#include "DreamWeatherStormSpawner.h"
+#include "DreamWeatherTemperature.h"
+#include "DreamWindForceComponent.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 
@@ -162,6 +165,31 @@ namespace DreamWorldPlay
 		AddPorch(*World, FVector(0.0, 0.0, 0.0));
 		AddGrove(*World, FVector(-1400.0, 0.0, 0.0));
 
+		// A campfire by the porch: warm air (a temperature volume) and a marker.
+		ADreamTemperatureVolume* Campfire = World->SpawnActor<ADreamTemperatureVolume>(FVector(0.0, -700.0, 50.0), FRotator::ZeroRotator);
+		Campfire->SetActorLabel(TEXT("Campfire_Warmth"));
+		Campfire->Volume->Temperature = 20.0f;
+		Campfire->Volume->Extent = FVector(150.0);
+		Campfire->Volume->Falloff = 350.0f;
+		AddShape(*World, Cylinder, TEXT("Campfire"), FVector(0.0, -700.0, 15.0), FVector(80.0, 80.0, 30.0));
+
+		// Crates the wind pushes about, in the open before the hut.
+		for (int32 i = 0; i < 5; ++i)
+		{
+			const double Size = 60.0 - 6.0 * i;
+			if (AStaticMeshActor* Crate = AddShape(*World, Cube, *FString::Printf(TEXT("WindCrate%d"), i), FVector(700.0 + 90.0 * i, -900.0 + 60.0 * (i % 2), Size * 0.5),
+				FVector(Size)))
+			{
+				UStaticMeshComponent* Mesh = Crate->GetStaticMeshComponent();
+				Mesh->SetMobility(EComponentMobility::Movable);
+				Mesh->SetSimulatePhysics(true);
+				Mesh->SetMassOverrideInKg(NAME_None, 4.0f + 2.0f * i, true);
+				UDreamWindForceComponent* Force = NewObject<UDreamWindForceComponent>(Crate, TEXT("WindForce"));
+				Force->ForceScale = 3.0f;
+				Crate->AddInstanceComponent(Force);
+			}
+		}
+
 		// A storm that drifts in from the west on the morning of the showcase's day: over the area around ten, gone by
 		// half past twelve.
 		ADreamWeatherStorm* Storm = World->SpawnActor<ADreamWeatherStorm>(FVector(-3500000.0, 0.0, 0.0), FRotator::ZeroRotator);
@@ -172,6 +200,15 @@ namespace DreamWorldPlay
 		Storm->Zone->Motion.LifetimeHours = 4.0f;
 		Storm->Zone->Motion.bDestroyWhenDone = false;
 		Storm->Zone->Motion.StartSeconds = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 21, 8, 30, 0));
+
+		// And storms that come by themselves with the season.
+		ADreamWeatherStormSpawner* Spawner = World->SpawnActor<ADreamWeatherStormSpawner>(FVector::ZeroVector, FRotator::ZeroRotator);
+		Spawner->SetActorLabel(TEXT("StormSpawner"));
+		FDreamStormKind& Thunder = Spawner->Kinds.AddDefaulted_GetRef();
+		Thunder.Preset = Preset(TEXT("WP_Storm"));
+		Thunder.Winter = 0.2f;
+		FDreamStormKind& Squall = Spawner->Kinds.AddDefaulted_GetRef();
+		Squall.Preset = Preset(TEXT("WP_Rain"));
 
 
 		World->SpawnActor<APlayerStart>(FVector(0.0, -1200.0, 100.0), FRotator(0.0, 90.0, 0.0));

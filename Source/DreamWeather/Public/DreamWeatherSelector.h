@@ -40,6 +40,12 @@ public:
 
 	/** Northern-hemisphere season of a moment, 0 spring .. 3 winter (flip with bSouthernHemisphere). */
 	static int32 SeasonAt(double WorldSeconds, bool bSouthernHemisphere);
+
+	/**
+	 * A selector that stands for a climate gives the temperature model its numbers (yearly mean, seasonal and daily
+	 * half-swings, degrees Celsius) in place of the project settings'. False: use the settings.
+	 */
+	virtual bool GetClimateTemperature(float& OutMean, float& OutSeasonalAmplitude, float& OutDiurnalAmplitude) const { return false; }
 };
 
 /** One weather, always. */

@@ -352,6 +352,41 @@ the lightning (it strikes where the lightning is strongest) go with it. `ADreamW
 zone of `WP_Storm` 15 km in radius with a `Path` spline; spawn it and call `StartMotion`, give it a start time, or tick
 `bStartOnBeginPlay`. `bAffectsQueries` off leaves a zone only drawing into the weather map.
 
+**Storms that come by themselves.** `ADreamWeatherStormSpawner` cuts time into slots (`SlotHours`); each slot holds a
+storm or not by the season's chance (`SeasonChance`), drawn from the world seed and the slot alone. A storm is of a
+kind drawn by the season's weights (`Kinds`: a preset with spring–winter weights), starts somewhere in its slot, lives
+`LifetimeHours`, and crosses on a straight line from the prevailing direction (± `DirectionVariation`) through a point
+within `PassRadius` of the spawner — place it where storms should pass. The spawner is itself the weather influence:
+a query for any moment, now or past, gets the storms alive then, so the surfaces' integration sees storms long gone.
+While a storm lives the spawner keeps an `ADreamWeatherStorm` for it that only draws it into the weather map (the
+sky). `GetStormsAt(WorldSeconds)` lists the storms of any moment, for a forecast.
+
+### Temperature and climate
+
+`ADreamTemperatureVolume` (or `UDreamTemperatureVolumeComponent`): a sphere or box with a temperature of its own,
+fading out over `Falloff` — **Offset** (a campfire: +20 °C) or **Replace** (a heated room, a cave; `Weight` is its
+insulation, and it measures itself against the air of the moment asked). It is a weather influence, so every query
+sees it (`GetTemperatureAt`, snow turning to rain by the fire, the characters' weather status).
+
+**Climates.** The *Climate* selector (`UDreamWeatherSelector_Climate`) takes a Köppen type (25 of them, `Af` … `EF`,
+each a table of representative seasons: mean high and low, precipitation, cloudiness, whether dust blows;
+`FDreamClimate::Koppen`) or your own `UDreamClimatePreset`, and from it draws the weather — clear, cloudy, overcast,
+rain, storm, snow, fog, dust, by each season's odds (wet seasons rain, cold ones snow, warm wet ones storm) — and
+gives the temperature model its yearly mean and swings in place of the project settings'.
+
+### Characters
+
+**Weather status** (`UDreamWeatherStatusComponent`, module `DreamWeatherFX`): put it on the player. A few times a
+second it asks what reaches the actor — rain and snow after the weather's shelters and a trace for a roof above it,
+the wind field's speed there, dust, the temperature with temperature volumes — and keeps `GetStatus()`: the exposures
+now, and what has built up (`Wetness`, `SnowCover`, `Dustiness`, `Chill`; real-time rates: soaked in `WetSeconds` of
+full rain, drying faster in warm and windy air, snow melting into wetness above freezing, rain washing dust off) and
+how cold it `FeelsLike` (wind and wet clothes). `OnExposureChanged(Exposure, bStarted)` fires with hysteresis for
+rain, snow, wind, dust, cold, heat, soaked and freezing. With `bWriteMaterialParameters` it sets `DreamWet` /
+`DreamSnow` / `DreamDust` / `DreamWind` on every mesh of the actor (dynamic material instances); with
+`bFreezingBreath` it breathes out mist (`NS_DreamFreezingBreath`) at `BreathSocket` when it feels colder than
+`BreathTemperature`.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
@@ -374,10 +409,10 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 
 `UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
-in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves) and a storm
-that drifts in from the west on the morning of 21 June (over the area around ten, gone by half past twelve), under
-weather that runs clear → rain → storm → cloudy every three hours. `-ForceAudio` builds the graphs again, `-Force`
-the level.
+in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves), a campfire
+(warm air), crates the wind pushes, a storm that drifts in from the west on the morning of 21 June (over the area around ten, gone by half
+past twelve) and a storm spawner, under weather that runs clear → rain → storm → cloudy every three hours.
+`-ForceAudio` builds the graphs again, `-Force` the level.
 
 ## Surfaces
 
@@ -458,6 +493,17 @@ Consumers, all fed from the same `UDreamWindSubsystem`:
 * **Niagara** — `UNiagaraDataInterfaceDreamWind` (`SampleWind`, `GetGlobalWind`) on CPU VM and GPU, and the `DreamWindForce` module (DreamFXLang, `DFX/`)
 * **C++ / Blueprint** — `UDreamWindSubsystem::SampleWind`, no GPU read-back
 * **Everything that reads the engine's `WindDirectionalSource`** — SpeedTree, Chaos Cloth, AnimDynamics, Groom, Niagara *Wind Force* — through one driven engine wind component
+
+### Pushing things and shaking cameras
+
+**Wind pushes things** (`UDreamWindForceComponent`, module `DreamWind`): on an actor whose primitives simulate
+physics, aerodynamic drag from the wind field at each body (½ ρ C<sub>d</sub> A |v| v, A from the bounds facing the
+wind, the body's own velocity taken off), `ForceScale`, `MaxForce`, and with `bTestBlocking` a trace upwind for walls
+the wind field does not know of.
+
+**Camera shake** (`UDreamWindCameraModifier`, module `DreamWeatherFX`): from `Threshold` wind speed at the camera to
+`FullSpeed`, the view buffets (pitch, yaw, roll), in bursts with the gusts, calmed indoors by the view probe.
+*Dream Weather Effects ▸ Wind Camera Shake* adds it to every local player; `Enable(PlayerController)` does it by hand.
 
 ## Wind setup
 

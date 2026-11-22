@@ -71,6 +71,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "General")
 	bool bPrecipitationInEditor = true;
 
+	/** Every local player's camera buffets in a strong wind, calmed indoors (UDreamWindCameraModifier). */
+	UPROPERTY(Config, EditAnywhere, Category = "Wind")
+	bool bWindCameraShake = true;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
 	FDreamPrecipitationLayer Rain;
 
