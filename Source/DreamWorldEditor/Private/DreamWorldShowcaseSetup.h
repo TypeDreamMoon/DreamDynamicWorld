@@ -12,6 +12,12 @@ namespace DreamWorld::Setup
 	inline const TCHAR* ShowcaseDuskMapPackage = TEXT("/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcaseDusk");
 	inline const TCHAR* ShowcaseDuskSequencePackage = TEXT("/DreamDynamicWorld/Showcase/LS_DreamWorldShowcaseDusk");
 	inline const TCHAR* ShowcaseAuroraPackage = TEXT("/DreamDynamicWorld/Showcase/DSM_ShowcaseAurora");
+	inline const TCHAR* ShowcasePondPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcasePond");
+
+	/** The showcase pond: its middle, its water level (cm), and how far inside the bank's waterline its rim lies. */
+	inline const FVector2D ShowcasePondCenter(900.0, -1100.0);
+	constexpr double ShowcasePondLevel = -55.0;
+	constexpr double ShowcasePondInset = 12.0;
 
 	/**
 	 * The showcase: everything the plugin does in one place, for looking it over as a whole. Rolling ground and a paved

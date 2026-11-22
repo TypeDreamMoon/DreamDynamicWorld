@@ -31,7 +31,10 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "MeshDescription.h"
 #include "PhysicsEngine/BodySetup.h"
+#include "StaticMeshAttributes.h"
+#include "StaticMeshOperations.h"
 #include "GameFramework/PlayerStart.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -107,13 +110,103 @@ namespace DreamWorld::ShowcaseSetup
 		return SurfaceSetup::SaveAsset(Sequence) ? Sequence : nullptr;
 	}
 
+	/**
+	 * The pond's water: a disc whose rim follows the bank, just inside the line where the ground (SurfaceSetup's
+	 * height) comes up out of the water at the pond's level - a smooth shore of 128 sides instead of the ground's grid
+	 * cut by a flat plane. The rim is found along each ray from the middle (the first rise above the water), so the
+	 * outline is as round or as long as the hollow is. Centred on the pond's middle, at its level.
+	 */
+	UStaticMesh* EnsurePond()
+	{
+		constexpr int32 Sides = 128;
+		const FVector2D Center = Setup::ShowcasePondCenter;
+		const double Level = Setup::ShowcasePondLevel;
+		auto Above = [&](const FVector2D& Dir, double R) { const FVector2D P = Center + Dir * R; return SurfaceSetup::GroundHeight(P.X, P.Y) >= Level; };
+		TArray<FVector2D> Rim;
+		double Reach = 0.0;
+		for (int32 i = 0; i < Sides; ++i)
+		{
+			const double Angle = 2.0 * UE_DOUBLE_PI * i / Sides;
+			const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
+			double Out = 10.0;
+			while (Out < 3000.0 && !Above(Dir, Out))
+			{
+				Out += 10.0;
+			}
+			double In = Out - 10.0;
+			for (int32 Step = 0; Step < 16; ++Step)
+			{
+				const double Mid = 0.5 * (In + Out);
+				(Above(Dir, Mid) ? Out : In) = Mid;
+			}
+			const double R = FMath::Max(In - Setup::ShowcasePondInset, 10.0);
+			Rim.Add(Dir * R);
+			Reach = FMath::Max(Reach, R);
+		}
+
+		auto Build = [&](bool bFlip)
+		{
+			FMeshDescription Description;
+			FStaticMeshAttributes Attributes(Description);
+			Attributes.Register();
+			TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
+			TVertexInstanceAttributesRef<FVector2f> UVs = Attributes.GetVertexInstanceUVs();
+			const FPolygonGroupID Group = Description.CreatePolygonGroup();
+			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Water");
+			auto Add = [&](const FVector2D& P)
+			{
+				const FVertexID Vertex = Description.CreateVertex();
+				Positions[Vertex] = FVector3f(float(P.X), float(P.Y), 0.0f);
+				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
+				UVs.Set(Instance, 0, FVector2f(float(P.X / (2.0 * Reach) + 0.5), float(P.Y / (2.0 * Reach) + 0.5)));
+				return Instance;
+			};
+			const FVertexInstanceID Middle = Add(FVector2D::ZeroVector);
+			TArray<FVertexInstanceID> Ring;
+			for (const FVector2D& P : Rim)
+			{
+				Ring.Add(Add(P));
+			}
+			for (int32 i = 0; i < Sides; ++i)
+			{
+				const FVertexInstanceID A = Ring[i];
+				const FVertexInstanceID B = Ring[(i + 1) % Sides];
+				Description.CreateTriangle(Group, bFlip ? TArray<FVertexInstanceID>{ Middle, B, A } : TArray<FVertexInstanceID>{ Middle, A, B });
+			}
+			FStaticMeshOperations::ComputeTriangleTangentsAndNormals(Description);
+			FStaticMeshOperations::ComputeTangentsAndNormals(Description, EComputeNTBsFlags::Normals | EComputeNTBsFlags::Tangents | EComputeNTBsFlags::WeightedNTBs);
+			return Description;
+		};
+		// Whichever winding faces up.
+		FMeshDescription Description = Build(false);
+		bool bDown = false;
+		{
+			FStaticMeshAttributes Attributes(Description);
+			bDown = Attributes.GetVertexInstanceNormals()[FVertexInstanceID(0)].Z < 0.0f;
+		}
+		if (bDown)
+		{
+			Description = Build(true);
+		}
+		UStaticMesh* Mesh = SurfaceSetup::SaveMesh(Setup::ShowcasePondPackage, MoveTemp(Description), TEXT("Water"));
+		if (!Mesh)
+		{
+			return nullptr;
+		}
+		// Its surface is its collision: the rain lands on the water, not on the bed beneath it.
+		Mesh->CreateBodySetup();
+		Mesh->GetBodySetup()->CollisionTraceFlag = CTF_UseComplexAsSimple;
+		Mesh->GetBodySetup()->InvalidatePhysicsData();
+		Mesh->GetBodySetup()->CreatePhysicsMeshes();
+		return SurfaceSetup::SaveAsset(Mesh) ? Mesh : nullptr;
+	}
+
 	struct FShowcaseKit
 	{
 		UStaticMesh* Cube = nullptr;
 		UStaticMesh* Cylinder = nullptr;
 		UStaticMesh* Sphere = nullptr;
 		UStaticMesh* Cone = nullptr;
-		UStaticMesh* Plane = nullptr;
 		UStaticMesh* Ground = nullptr;
 		UStaticMesh* Figure = nullptr;
 		UMaterialInterface* Terrain = nullptr;
@@ -126,6 +219,8 @@ namespace DreamWorld::ShowcaseSetup
 		UMaterialInterface* ToonRed = nullptr;
 		UMaterialInterface* ToonBlue = nullptr;
 		UMaterialInterface* ToonYellow = nullptr;
+		UMaterialInterface* Leaves = nullptr;
+		UStaticMesh* Pond = nullptr;
 
 		bool Load()
 		{
@@ -133,7 +228,6 @@ namespace DreamWorld::ShowcaseSetup
 			Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 			Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 			Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
-			Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
 			Ground = SurfaceSetup::EnsureGround();
 			Figure = SurfaceSetup::EnsureFigure();
 			const TCHAR* Demo = TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceDemo.M_DreamSurfaceDemo");
@@ -149,8 +243,11 @@ namespace DreamWorld::ShowcaseSetup
 			ToonRed = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceToonRed"), Toon, FLinearColor(0.85f, 0.36f, 0.3f), 0.6f, -1.0f);
 			ToonBlue = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceToonBlue"), Toon, FLinearColor(0.3f, 0.46f, 0.82f), 0.6f, -1.0f);
 			ToonYellow = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceToonYellow"), Toon, FLinearColor(0.92f, 0.78f, 0.35f), 0.5f, -1.0f);
-			return Cube && Cylinder && Sphere && Cone && Plane && Ground && Figure && Terrain && Water && Glass && Stone && Paving && Metal && Wood
-				&& ToonRed && ToonBlue && ToonYellow;
+			// A muted green for the grove's crowns.
+			Leaves = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceLeaves"), Demo, FLinearColor(0.2f, 0.27f, 0.16f), 0.75f, 0.0f);
+			Pond = EnsurePond();
+			return Cube && Cylinder && Sphere && Cone && Ground && Figure && Terrain && Water && Glass && Stone && Paving && Metal && Wood
+				&& ToonRed && ToonBlue && ToonYellow && Leaves && Pond;
 		}
 	};
 
@@ -243,7 +340,7 @@ namespace DreamWorld::ShowcaseSetup
 			const FVector Base(At, SurfaceSetup::GroundHeight(At.X, At.Y));
 			SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Base + FVector(0.0, 0.0, 200.0 * Scale), FVector(0.4, 0.4, 4.0) * Scale, FRotator::ZeroRotator,
 				*FString::Printf(TEXT("Grove_Trunk%d"), Index));
-			if (AStaticMeshActor* Crown = SurfaceSetup::AddMesh(World, Kit.Sphere, Kit.ToonYellow, Base + FVector(0.0, 0.0, 520.0 * Scale), FVector(3.6, 3.6, 3.0) * Scale,
+			if (AStaticMeshActor* Crown = SurfaceSetup::AddMesh(World, Kit.Sphere, Kit.Leaves, Base + FVector(0.0, 0.0, 520.0 * Scale), FVector(3.6, 3.6, 3.0) * Scale,
 				FRotator::ZeroRotator, *FString::Printf(TEXT("Grove_Crown%d"), Index)))
 			{
 				Crown->Tags.Add(FDreamWeatherFallPaths::LeavesTag);
@@ -416,7 +513,7 @@ namespace DreamWorld::ShowcaseSetup
 		AddHut(*World, Kit, FVector(2450.0, 700.0, -3.0));
 		AddPorch(*World, Kit, FVector(1960.0, 700.0, -3.0));
 		AddWindow(*World, Kit, FVector(850.0, 820.0, 120.0));
-		SurfaceSetup::AddMesh(*World, Kit.Plane, Kit.Water, FVector(900.0, -1100.0, -45.0), FVector(9.0, 9.0, 1.0), FRotator::ZeroRotator, TEXT("Pond"));
+		SurfaceSetup::AddMesh(*World, Kit.Pond, Kit.Water, FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FVector(1.0), FRotator::ZeroRotator, TEXT("Pond"));
 
 		// The grove on the rolling ground to the left, the campfire and the crates to the right, the snow field far ahead.
 		AddGrove(*World, Kit, FVector2D(500.0, 2100.0));
@@ -427,16 +524,7 @@ namespace DreamWorld::ShowcaseSetup
 
 		// The wind, with level heights baked over the set: roofs keep the rain off, puddles follow the dips. The bake
 		// traces the set's collision, which a world built a moment ago may not have yet: build it now.
-		for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
-		{
-			UStaticMeshComponent* Component = It->GetStaticMeshComponent();
-			UStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
-			if (UBodySetup* Body = Mesh ? Mesh->GetBodySetup() : nullptr)
-			{
-				Body->CreatePhysicsMeshes();
-				Component->RecreatePhysicsState();
-			}
-		}
+		SurfaceSetup::ReadyCollision(*World);
 		ADreamWindGlobal* Wind = World->SpawnActor<ADreamWindGlobal>(FVector::ZeroVector, FRotator::ZeroRotator);
 		Wind->SetActorLabel(TEXT("Wind"));
 		Wind->TerrainBakeBounds = FBox(FVector(-1500.0, -4000.0, -500.0), FVector(6500.0, 4000.0, 1500.0));

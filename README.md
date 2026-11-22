@@ -517,12 +517,13 @@ on every run, so rerun it after updating the plugin to take in what it has gaine
 hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
 **hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
 a window looking out, a roof the rain knows — and a **porch** before its door that only a roof capture box tells the
-weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip; a **grove** on the
-rolling ground has crowns tagged as leaves (the rain sounds on them); a **campfire** warms the air around it (a
-temperature volume) and keeps the ground round it clear of snow and puddles (a mask brush); **crates** slide and tip in
-a gale (`UDreamWindForceComponent`); an irregular **snow field** (a polygon zone) lies far ahead; a **storm** drifts in
-from the west in the morning of the first day. A wind terrain map baked over the set gives the roofs and the dips the
-puddles follow (props, posts and the crates are pass-through).
+weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
+the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
+sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
+snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
+**snow field** (a polygon zone) lies far ahead; a **storm** drifts in from the west in the morning of the first day. A
+wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
+pass-through).
 
 **The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule
 (`UDreamWeatherSelector_Sequence`) that repeats every 24 hours:
@@ -551,9 +552,10 @@ shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow
 day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
 sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
 <screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
-files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines);
-`DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera. `DreamWorld.Showcase.Contents` and
-`DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
+wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
+indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
+`DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
 
 ## Surfaces
 
