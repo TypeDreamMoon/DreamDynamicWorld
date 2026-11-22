@@ -6,6 +6,7 @@
 #include "DreamSkyStyle.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
+#include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
@@ -18,8 +19,10 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
@@ -219,6 +222,32 @@ namespace DreamWorldPlay
 		Storm->Zone->Motion.LifetimeHours = 4.0f;
 		Storm->Zone->Motion.bDestroyWhenDone = false;
 		Storm->Zone->Motion.StartSeconds = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 21, 8, 30, 0));
+
+		// Far to the north, a snowfield of no regular shape (an outline zone, a bay cut into its south side): its clouds,
+		// the snow on the land and the point queries share one edge. The land around the floor reads the surface maps.
+		if (AStaticMeshActor* Land = AddShape(*World, Plane, TEXT("Land"), FVector(0.0, 0.0, -5.0), FVector(4000000.0, 4000000.0, 100.0)))
+		{
+			Land->GetStaticMeshComponent()->SetMaterial(0, LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceTerrainDemo.M_DreamSurfaceTerrainDemo")));
+		}
+		ADreamWeatherOutlineZone* Snowfield = World->SpawnActor<ADreamWeatherOutlineZone>(FVector(0.0, 700000.0, 0.0), FRotator::ZeroRotator);
+		Snowfield->SetActorLabel(TEXT("Snowfield"));
+		Snowfield->Outline->ClearSplinePoints(false);
+		for (const FVector& P : { FVector(380000.0, 60000.0, 0.0), FVector(250000.0, 300000.0, 0.0), FVector(-60000.0, 340000.0, 0.0), FVector(-330000.0, 180000.0, 0.0),
+			FVector(-300000.0, -200000.0, 0.0), FVector(-120000.0, -330000.0, 0.0), FVector(-20000.0, -110000.0, 0.0), FVector(120000.0, -320000.0, 0.0),
+			FVector(330000.0, -230000.0, 0.0) })
+		{
+			Snowfield->Outline->AddSplinePoint(P, ESplineCoordinateSpace::Local, false);
+		}
+		Snowfield->Outline->UpdateSpline();
+		Snowfield->OutlineSpacing = 50000.0f;
+		Snowfield->UpdateFootprint();
+		Snowfield->Zone->BlendDistance = 40000.0f;
+		Snowfield->Zone->Priority = 5;
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudCoverage, 1.0f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudDarkness, 0.5f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_Precipitation, 0.7f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_SnowRatio, 1.0f);
+		Snowfield->Zone->Channels.Add(DreamWeather::Tags::Channel_Temperature, -30.0f);   // an offset: the level stands in midsummer
 
 		// And storms that come by themselves with the season.
 		ADreamWeatherStormSpawner* Spawner = World->SpawnActor<ADreamWeatherStormSpawner>(FVector::ZeroVector, FRotator::ZeroRotator);
