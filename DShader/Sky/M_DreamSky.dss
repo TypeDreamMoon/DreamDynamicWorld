@@ -39,14 +39,14 @@ float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, floa
 	float4 MapParams,
 	float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
 	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, Texture2D Map, VolumeTexture Noise,
-	Texture2D Panorama, float4 AuroraTones, float4 MoonLook, float4 StarPole, float4 StarEquinox, Texture2D StarCells, float4 MilkyWay, float4 MilkyWayDust,
+	Texture2D Panorama, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarPole, float4 StarEquinox, Texture2D StarCells, float4 MilkyWay, float4 MilkyWayDust,
 	Texture2D Galaxy, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 	return DSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo, Stars,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
 		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, Map, MapSampler, Noise, NoiseSampler, Panorama,
-		PanoramaSampler, AuroraTones, MoonLook, StarPole, StarEquinox, StarCells, MilkyWay, MilkyWayDust, Galaxy, GalaxySampler, Camera, ScreenUV,
+		PanoramaSampler, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, MoonLook, StarPole, StarEquinox, StarCells, MilkyWay, MilkyWayDust, Galaxy, GalaxySampler, Camera, ScreenUV,
 		Seconds, Capture);
 }
 
@@ -86,6 +86,9 @@ export void M_DreamSky(inout material m)
 	float4 LunarEclipse = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_LunarEclipse");
 	float4 MoonLook    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MoonLook");
 	float4 AuroraTones = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraTones");
+	float4 AuroraShape = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraShape");
+	float4 AuroraShape2 = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraShape2");
+	float4 AuroraShape3 = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraShape3");
 	float4 StarPole    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_StarPole");
 	float4 StarEquinox = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_StarEquinox");
 	float4 MilkyWay    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MilkyWay");
@@ -95,7 +98,7 @@ export void M_DreamSky(inout material m)
 	m.EmissiveColor = DreamSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo,
 		Stars, Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
 		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, WeatherMap, CloudNoise, CloudPanorama,
-		AuroraTones, MoonLook, StarPole, StarEquinox, StarMap, MilkyWay, MilkyWayDust, MilkyWayMap,
+		AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, MoonLook, StarPole, StarEquinox, StarMap, MilkyWay, MilkyWayDust, MilkyWayMap,
 		UE.CameraPositionWS(),
 		UE.ScreenPosition().ViewportUV,
 		UE.Time(), Capture);

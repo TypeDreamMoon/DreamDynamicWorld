@@ -144,9 +144,14 @@ captured light has no hot spot.
 many as wanted, each where it changes, how softly and to which tone, or a free `ToneCurve` in their place -- the half
 tone (`HalfToneMix`, `HalfToneTint`), an underside's own steps and deepest shade (`UndersideBands`,
 `UndersideDeepTint`), how the light on a billow is reckoned (`KeyFacing`, `KeyUp`, `KeyHeight`, `KeyHeightPivot`,
-`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side.
+`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side; its `Advanced` group has the rest -- how deep a cloud toward the light casts
+its shade, the shade's own light (base, facing up, thin, high), the low sun's colour, an underside's glow, a deck's
+sunlit top, where the silver lining comes on, how much of a storm's darkening the tops keep, how far clouds sink into
+the sky's colour, and the size and tearing of the cracks in a thinning deck.
 The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
-and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
+and the least a base keeps, and in its advanced settings the low sun's colour, the sky's in the shade, the key at a
+cloud's base, a deck's soft gradient, a storm's darkening and the base floor's reach; a sky modifier's *Painted
+Clouds* blends to another set of all of these, as *Toon Clouds* does for the toon look. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
 of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of
 it as over the rest of the style. The renderer takes them with its own parameters; no shared parameter, no texture.
 
@@ -157,7 +162,9 @@ change shape (two copies of one smooth noise field drifting apart, lit where the
 oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
 heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
 this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
-clean tones there instead, at `ToneStep1..3` with `ToneSoftness` (`DDW_AuroraTones`). The clouds
+clean tones there instead, at `ToneStep1..3` with `ToneSoftness` and `ToneLevel1..2` (`DDW_AuroraTones`). Its
+*Shape* settings (`DDW_AuroraShape`, `2`, `3`) set the ribbons' length, width and sharpness, the rays' spacing and
+contrast, how fast a curtain fades upward, its lower edge and top, the edge band's brightness and the oval's width. The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's

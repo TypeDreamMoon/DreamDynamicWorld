@@ -416,7 +416,9 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.MultiScatter = R.MultiScatter;
 		Out.MultiScatterOcclusion = R.MultiScatterOcclusion;
 		Out.MultiScatterEccentricity = R.MultiScatterEccentricity;
-		const FDreamSkyPaintedClouds& P = Effective->PaintedClouds;
+		// (The painted settings as the sky modifiers have blended them, else the style's.)
+		const UDreamSkySubsystem* SkySubsystem = GetWorld() ? GetWorld()->GetSubsystem<UDreamSkySubsystem>() : nullptr;
+		const FDreamSkyPaintedClouds& P = SkySubsystem && SkySubsystem->HasLighting() ? SkySubsystem->GetLook().Painted : Effective->PaintedClouds;
 		Out.PaintExtinction = P.Extinction;
 		Out.PaintGain = P.PaintGain;
 		Out.EdgeSoftness = P.EdgeSoftness;
@@ -434,6 +436,21 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.PaintRimPower = P.RimPower;
 		Out.PaintShadeAtBase = P.ShadeAtBase;
 		Out.PaintBaseFloor = P.BaseFloor;
+		Out.PaintWarmFade = P.WarmFade;
+		Out.PaintWarmTowardSun = P.WarmTowardSun;
+		Out.PaintWarmMax = P.WarmMax;
+		Out.PaintSkyInShade = P.SkyInShade;
+		Out.PaintKeyAtBase = P.KeyAtBase;
+		Out.PaintKeyLow = P.KeyLow;
+		Out.PaintKeyHigh = P.KeyHigh;
+		Out.PaintDeckThinColumn = P.DeckThinColumn;
+		Out.PaintDeckStormThinning = P.DeckStormThinning;
+		Out.PaintDeckFrom = P.DeckFrom;
+		Out.PaintDeckTo = P.DeckTo;
+		Out.PaintStormLitDarkening = P.StormLitDarkening;
+		Out.PaintStormTopDarkening = P.StormTopDarkening;
+		Out.PaintFloorAtTop = P.FloorAtTop;
+		Out.PaintFloorInStorm = P.FloorInStorm;
 		Effective->ToonClouds.Bake(Out.Toon);
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}

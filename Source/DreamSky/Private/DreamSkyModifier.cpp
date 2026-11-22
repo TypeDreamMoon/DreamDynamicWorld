@@ -106,6 +106,10 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 	if (bOverride_LightShafts) { K.LightShafts = Scale(K.LightShafts, LightShafts); }
 	if (bOverride_LensFlare) { K.LensFlare = Scale(K.LensFlare, LensFlare); }
 	if (bOverride_MilkyWay) { K.MilkyWay = Scale(K.MilkyWay, MilkyWay); }
+	if (bOverride_PaintedClouds && Alpha > 0.0f)
+	{
+		K.Painted = FDreamSkyPaintedClouds::Lerp(K.Painted, PaintedClouds, Alpha);
+	}
 	if (bOverride_ToonClouds)
 	{
 		FDreamSkyToonBaked Theirs;
