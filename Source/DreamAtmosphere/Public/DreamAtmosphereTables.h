@@ -31,6 +31,11 @@ public:
 	/** Whether they were built for this air. */
 	bool IsBuiltFor(const FDreamAtmosphereParameters& Parameters) const { return bBuilt && Built.Equals(Parameters); }
 
+	bool IsBuilt() const { return bBuilt; }
+
+	/** The air they were last built for. */
+	const FDreamAtmosphereParameters& GetBuiltParameters() const { return Built; }
+
 	UTextureRenderTarget2D* GetTransmittance() const { return Transmittance; }
 	UTextureRenderTarget2D* GetMultiScattering() const { return MultiScattering; }
 	UTextureRenderTargetVolume* GetSky() const { return Sky; }

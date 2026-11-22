@@ -7,11 +7,13 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamAtmosphereSubsystem.generated.h"
 
+class FDreamAtmosphereViewExtension;
 class UDreamAtmosphereTables;
 
 /**
- * The world's atmosphere: the air it is made of (the project settings' until a sky style sets its own) and the lookup
- * tables built from it, rebuilt on the GPU whenever the air changes (never every frame).
+ * The world's atmosphere: the air it is made of (the project settings' until a sky style sets its own), the lookup
+ * tables built from it (rebuilt on the GPU whenever the air changes, never every frame), and the aerial perspective
+ * laid over every view of the world, lit by the clock's sun and moon.
  */
 UCLASS()
 class DREAMATMOSPHERE_API UDreamAtmosphereSubsystem : public UTickableWorldSubsystem
@@ -23,6 +25,7 @@ public:
 
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
 	virtual bool IsTickableInEditor() const override { return true; }
@@ -46,6 +49,8 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<UDreamAtmosphereTables> Tables;
+
+	TSharedPtr<FDreamAtmosphereViewExtension, ESPMode::ThreadSafe> ViewExtension;
 
 	FDreamAtmosphereParameters Parameters;
 	bool bOverridden = false;

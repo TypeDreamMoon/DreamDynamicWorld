@@ -1,8 +1,11 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamAtmosphereSubsystem.h"
+#include "DreamAtmosphereAerial.h"
 #include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereTables.h"
+#include "DreamAtmosphereViewExtension.h"
+#include "DreamWorldSubsystem.h"
 
 #include "Engine/World.h"
 #include "Misc/App.h"
@@ -31,7 +34,19 @@ void UDreamAtmosphereSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	if (FApp::CanEverRender())
 	{
 		Tables = NewObject<UDreamAtmosphereTables>(this);
+		ViewExtension = FSceneViewExtensions::NewExtension<FDreamAtmosphereViewExtension>(GetWorld());
 	}
+}
+
+void UDreamAtmosphereSubsystem::Deinitialize()
+{
+	if (ViewExtension)
+	{
+		// Before the tables go: no frame may read them after this.
+		ViewExtension->SetFrame_GameThread(DreamAtmosphere::Aerial::FFrame());
+		ViewExtension.Reset();
+	}
+	Super::Deinitialize();
 }
 
 void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
@@ -44,6 +59,12 @@ void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
 	{
 		Tables->Build(Parameters);
 		++BuildCount;
+	}
+	if (ViewExtension)
+	{
+		const UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+		const FDreamCelestialState Celestial = Clock ? Clock->GetCelestial() : FDreamCelestialState();
+		ViewExtension->SetFrame_GameThread(DreamAtmosphere::Aerial::MakeFrame(Tables, Celestial.SunDirection, Celestial.MoonDirection, Celestial.MoonIllumination));
 	}
 }
 

@@ -162,4 +162,34 @@ bool FDreamAtmosphereSkyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamAtmosphereAerialModelTest, "DreamAtmosphere.Model.AerialPerspective", DreamAtmosphere::ModelTests::Flags)
+bool FDreamAtmosphereAerialModelTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	using namespace DreamAtmosphere::ModelTests;
+	const FDSA_Atmosphere A = Earth();
+	const float3 Eye(0.0f, 0.0f, A.BottomRadius + 0.002f);
+	const float3 Level(1.0f, 0.0f, 0.0f);
+	const float3 Sun = Toward(30.0f, 90.0f);
+
+	// Along the ground over 20 km the air takes out what the gas and the haze at the ground take (closed form; the ray
+	// rises 30 m over it): the far blue fades most.
+	const FDSA_Ray Far = DSA_WalkRay(A, Eye, Level, Sun, 20.0f, 8, false);
+	const float3 Expected(FMath::Exp(-(5.802e-3f + 4.44e-3f) * 20.0f), FMath::Exp(-(13.558e-3f + 4.44e-3f) * 20.0f), FMath::Exp(-(33.1e-3f + 4.44e-3f) * 20.0f));
+	TestTrue(FString::Printf(TEXT("20 km of air lets through (%.3f, %.3f, %.3f), as in closed form (%.3f, %.3f, %.3f)"), Far.Transmittance.x, Far.Transmittance.y, Far.Transmittance.z,
+		Expected.x, Expected.y, Expected.z),
+		FMath::IsNearlyEqual(Far.Transmittance.x, Expected.x, 0.02f) && FMath::IsNearlyEqual(Far.Transmittance.y, Expected.y, 0.02f) && FMath::IsNearlyEqual(Far.Transmittance.z, Expected.z, 0.02f));
+
+	// The haze builds up with distance, blue (the gas scatters the sun's blue toward the eye), and none at the eye.
+	const FDSA_Ray Near = DSA_WalkRay(A, Eye, Level, Sun, 1.0f, 8, false);
+	const FDSA_Ray None = DSA_WalkRay(A, Eye, Level, Sun, 0.0f, 8, false);
+	TestTrue(TEXT("no air, no haze"), None.Luminance.x == 0.0f && None.Transmittance.z == 1.0f);
+	TestTrue(FString::Printf(TEXT("more haze farther (%.5f at 1 km, %.5f at 20 km)"), Luma(Near.Luminance), Luma(Far.Luminance)), Luma(Far.Luminance) > 5.0f * Luma(Near.Luminance));
+	TestTrue(FString::Printf(TEXT("and blue (%.5f, %.5f, %.5f)"), Far.Luminance.x, Far.Luminance.y, Far.Luminance.z), Far.Luminance.z > Far.Luminance.x);
+	// Looking toward a low sun the haze glows white-gold (the haze scatters forward); away from it, dimmer.
+	const float3 LowSun = Toward(5.0f, 0.0f);
+	TestTrue(TEXT("brighter toward the sun"), Luma(DSA_WalkRay(A, Eye, Level, LowSun, 20.0f, 8, false).Luminance) > 2.0f * Luma(DSA_WalkRay(A, Eye, float3(-1.0f, 0.0f, 0.0f), LowSun, 20.0f, 8, false).Luminance));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

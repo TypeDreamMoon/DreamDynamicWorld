@@ -763,6 +763,22 @@ The CPU's integrals are exact and slow (some milliseconds a sky value): they are
 want, and for the tests, which hold the GPU's tables to them (`DreamAtmosphere.Gpu.TablesMatchCpu`: 4 %, 8 % in
 twilight, where the earth's shadow edge is read from tables of finite resolution).
 
+**Aerial perspective.** The air between the eye and the scene: every frame a froxel volume in front of the camera (32 ×
+32 cells, 32 depth slices to 64 km, denser near the eye) holds the light the air scatters toward the eye from the sun and
+the moon and what it lets through, from the same model and tables
+(`Shaders/Private/DreamAtmosphereAerial.usf`); a full-screen pass lays it over the opaque scene by its depth, before the
+depth of field. Distant land turns blue and pale and meets the sky at the horizon; at night only the moon's faint light
+is in it. The sky dome (beyond *Sky Distance*) is left alone: it carries the air already. The world's own view
+extension draws it (`FDreamAtmosphereViewExtension`, ahead of the sky's passes there); no extension hook comes between
+the lighting and the translucency, where the engine's fog goes, so near translucency takes the air of what stands behind
+it (little, that near). *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
+Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea level, the volume's cells and steps;
+`r.DreamAtmosphere.AerialPerspective 0` turns it off to compare. **The height fog is the weather's**: the air itself is
+the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
+when it takes the atmosphere on). The lights it uses until the sky style drives them: *Lights* (the sun's and the full
+moon's illuminance outside the air, in the scene's units; the clock's sun and moon give the directions, the moon's
+phase dims it). `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk along each cell's ray.
+
 ## Wind
 
 A dynamic, world-scale wind field, built to be **cheap where it counts and consistent everywhere**:
@@ -1016,8 +1032,9 @@ subsystem tick with an impulse in whichever editor/game world is up.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
-with a blue zenith); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables to the CPU's integrals, and that they
-are rebuilt only when the air changes.
+with a blue zenith, the haze along the ground: its closed-form transmittance, blue, building up with distance, bright
+toward a low sun); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables and aerial perspective volume to the
+CPU's integrals, and that the tables are rebuilt only when the air changes.
 
 ## Verification (2026-08-18)
 

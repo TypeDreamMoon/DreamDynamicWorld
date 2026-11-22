@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamAtmosphereAerial.h"
 #include "DreamAtmosphereHlslShim.h"
 #include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereSubsystem.h"
@@ -140,6 +141,69 @@ bool FDreamAtmosphereGpuTablesTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(FString::Printf(TEXT("the sky table is the model's within 4%%, 8%% in twilight (%d of %d off)%s"), Off, Count, *Worst), Count > 0 && Off == 0);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamAtmosphereGpuAerialTest, "DreamAtmosphere.Gpu.AerialMatchesCpu", DreamAtmosphere::GpuTests::Flags)
+bool FDreamAtmosphereGpuAerialTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	using namespace DreamAtmosphere::GpuTests;
+	if (!CanRender())
+	{
+		AddInfo(TEXT("No renderer (-nullrhi): no volume to build."));
+		return true;
+	}
+	const FDreamAtmosphereParameters Air;
+	const FDSA_Atmosphere A = Unpacked(Air);
+	UDreamAtmosphereTables* Tables = NewObject<UDreamAtmosphereTables>();
+	Tables->Build(Air);
+	FlushRenderingCommands();
+
+	// A camera 1.7 m up looking north along the ground, a 90-degree view; the sun 30 degrees up in the east.
+	const FVector SunDir = FVector(0.0, FMath::Cos(FMath::DegreesToRadians(30.0)), FMath::Sin(FMath::DegreesToRadians(30.0)));
+	DreamAtmosphere::Aerial::FFrame Frame = DreamAtmosphere::Aerial::MakeFrame(Tables, SunDir, -FVector::UpVector, 0.0f);
+	Frame.bEnabled = true;
+	Frame.SeaLevel = 0.0f;
+	const FVector Location(0.0, 0.0, 170.0);
+	const FMatrix View = FLookFromMatrix(Location, FVector::ForwardVector, FVector::UpVector);
+	const FMatrix Projection = FReversedZPerspectiveMatrix(UE_HALF_PI * 0.5, 1.0f, 1.0f, 10.0f);
+	const FMatrix ViewProjection = View * Projection;
+	const DreamAtmosphere::Aerial::FCamera Camera = DreamAtmosphere::Aerial::FCamera::FromMatrices(ViewProjection, Location, Frame);
+	TestTrue(TEXT("the camera stands 1.7 m over the planet"), FMath::IsNearlyEqual(double(Camera.CameraKm.Z), double(Frame.Atmosphere[0].X) + 0.0017, 1.0e-3));
+
+	const FIntVector Size = Frame.VolumeSize;
+	int32 Off = 0, Count = 0;
+	FString Worst;
+	for (const int32 Z : { 4, Size.Z / 2, Size.Z - 1 })
+	{
+		TArray<FLinearColor> Pixels;
+		if (!TestTrue(FString::Printf(TEXT("volume slice %d read back"), Z), DreamAtmosphere::Aerial::ReadVolumeSlice(Frame, Camera, Z, Pixels) && Pixels.Num() == Size.X * Size.Y))
+		{
+			continue;
+		}
+		for (const FIntPoint& Cell : { FIntPoint(Size.X / 2, Size.Y / 2), FIntPoint(2, Size.Y / 2 - 3), FIntPoint(Size.X - 3, 4) })
+		{
+			// The cell's ray, as the volume casts it: through the cell's centre.
+			const FVector2D Uv((Cell.X + 0.5) / Size.X, (Cell.Y + 0.5) / Size.Y);
+			const FVector4 Clip(Uv.X * 2.0 - 1.0, 1.0 - Uv.Y * 2.0, 0.5, 1.0);
+			const FVector4 P = FMatrix(Camera.ClipToTranslatedWorld).TransformFVector4(Clip);
+			const FVector Dir = (FVector(P.X, P.Y, P.Z) / P.W - FVector(Camera.TranslatedCamera)).GetSafeNormal();
+			const float E = (Z + 1.0f) / Size.Z;
+			const float Distance = Frame.MaxDistanceKm * E * E * Frame.DistanceScale;
+			const FDSA_Ray Ray = DSA_WalkRay(A, ToHlsl(FVector(Camera.CameraKm)), ToHlsl(Dir), ToHlsl(FVector(Frame.SunDirection)), Distance, Frame.Steps, false);
+			const float3 Cpu = Ray.Luminance * ToHlsl(FVector(Frame.SunLight));
+			const FLinearColor& Gpu = Pixels[Cell.Y * Size.X + Cell.X];
+			const float CpuT = (Ray.Transmittance.x + Ray.Transmittance.y + Ray.Transmittance.z) / 3.0f;
+			if (!Near(Gpu, Cpu, 0.04f, 1.0e-4f) || !FMath::IsNearlyEqual(Gpu.A, CpuT, 0.01f))
+			{
+				++Off;
+				Worst = FString::Printf(TEXT(" e.g. slice %d (%d, %d): GPU (%.4f, %.4f, %.4f; %.3f), CPU (%.4f, %.4f, %.4f; %.3f)"), Z, Cell.X, Cell.Y, Gpu.R, Gpu.G, Gpu.B, Gpu.A, Cpu.x, Cpu.y, Cpu.z, CpuT);
+			}
+			++Count;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("the aerial perspective volume is the model's within 4%% (%d of %d off)%s"), Off, Count, *Worst), Count > 0 && Off == 0);
 	return true;
 }
 
