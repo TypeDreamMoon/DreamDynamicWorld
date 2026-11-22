@@ -24,9 +24,34 @@ float2 DSM_MapUV(float3 WorldPos, float4 Place)
 	return (WorldPos.xy + Place.xy) * Place.z + 0.5f;
 }
 
-// The state in the open at a world position: the near map, then the far one, then the view's own beyond both.
-float4 DSM_State(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewState,
-	Texture2D NearMap, SamplerState NearSampler, Texture2D FarMap, SamplerState FarSampler)
+// A map read with a cubic B-spline over the texels around the point (four bilinear reads): where the state changes
+// within a texel (the edge of a wet patch, a melt), a plain bilinear read draws the texels' steps along the edge; this
+// one a smooth line some two texels wide.
+float4 DSM_SampleSmooth(Texture2D Map, SamplerState Sampler, float2 UV)
+{
+	float2 Size;
+	Map.GetDimensions(Size.x, Size.y);
+	float2 T = UV * Size - 0.5f;
+	float2 I = floor(T);
+	float2 F = T - I;
+	float2 F2 = F * F;
+	float2 F3 = F2 * F;
+	float2 W0 = (1.0f - 3.0f * F + 3.0f * F2 - F3) / 6.0f;
+	float2 W1 = (4.0f - 6.0f * F2 + 3.0f * F3) / 6.0f;
+	float2 W2 = (1.0f + 3.0f * F + 3.0f * F2 - 3.0f * F3) / 6.0f;
+	float2 W3 = F3 / 6.0f;
+	float2 S0 = W0 + W1;
+	float2 S1 = W2 + W3;
+	float2 UV0 = (I - 0.5f + W1 / S0) / Size;   // between texels I-1 and I
+	float2 UV1 = (I + 1.5f + W3 / S1) / Size;   // between texels I+1 and I+2
+	return S0.y * (S0.x * Map.SampleLevel(Sampler, float2(UV0.x, UV0.y), 0) + S1.x * Map.SampleLevel(Sampler, float2(UV1.x, UV0.y), 0))
+		+ S1.y * (S0.x * Map.SampleLevel(Sampler, float2(UV0.x, UV1.y), 0) + S1.x * Map.SampleLevel(Sampler, float2(UV1.x, UV1.y), 0));
+}
+
+// The state in the open at a world position: the near map, then the far one, then the view's own beyond both. Smooth:
+// the near map read with DSM_SampleSmooth (what a surface shows); plain for reads that smooth it their own way.
+float4 DSM_StateRead(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewState,
+	Texture2D NearMap, SamplerState NearSampler, Texture2D FarMap, SamplerState FarSampler, bool bSmooth)
 {
 	float2 NearUV = DSM_MapUV(WorldPos, NearPlace);
 	float2 FarUV = DSM_MapUV(WorldPos, FarPlace);
@@ -39,9 +64,16 @@ float4 DSM_State(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 View
 	}
 	if (NearIn > 0.0f)
 	{
-		State = lerp(State, NearMap.SampleLevel(NearSampler, NearUV, 0), NearIn);
+		float4 Near = bSmooth ? DSM_SampleSmooth(NearMap, NearSampler, NearUV) : NearMap.SampleLevel(NearSampler, NearUV, 0);
+		State = lerp(State, Near, NearIn);
 	}
 	return saturate(State);
+}
+
+float4 DSM_State(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewState,
+	Texture2D NearMap, SamplerState NearSampler, Texture2D FarMap, SamplerState FarSampler)
+{
+	return DSM_StateRead(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler, true);
 }
 
 // The snow over a point as the materials show it: the state's snow taken at four points 5 m around it, along an offset
@@ -55,10 +87,10 @@ float DSM_SnowSoft(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 Vi
 		+ float2(DSF_Hollow(P.x - 211.0f, P.y + 87.0f, 600.0f) - 0.5f, DSF_Hollow(P.x + 59.0f, P.y + 431.0f, 600.0f) - 0.5f) * 500.0f;
 	float2 C = P + Warp;
 	float Snow = 0.0f;
-	Snow += DSM_State(float3(C.x + 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
-	Snow += DSM_State(float3(C.x - 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
-	Snow += DSM_State(float3(C.x, C.y + 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
-	Snow += DSM_State(float3(C.x, C.y - 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
+	Snow += DSM_StateRead(float3(C.x + 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler, false).z;
+	Snow += DSM_StateRead(float3(C.x - 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler, false).z;
+	Snow += DSM_StateRead(float3(C.x, C.y + 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler, false).z;
+	Snow += DSM_StateRead(float3(C.x, C.y - 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler, false).z;
 	return Snow * 0.25f;
 }
 
