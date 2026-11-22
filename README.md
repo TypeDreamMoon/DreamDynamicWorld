@@ -626,6 +626,17 @@ wait four seconds, for the drops of the weather before to land; inside the hut, 
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
 `DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
 
+**Timing it.** `Tools/Showcase/Measure-ShowcaseGpu.ps1` times the GPU features one at a time on the showcase level at
+1920x1080, each at a fixed view and weather: the surface maps, the surface materials, trails, ripples, window glass,
+the rain, snow, dust and debris particles, the cloud renderer, light shafts, the aurora, the star map, the lens flare,
+drops and frost on the lens, heat haze, the rainbow and an eclipse. A feature with a switch is timed off and on (its own
+GPU events, or the whole frame), one with passes of its own by those passes; each figure is the median of `-Samples`
+(7) ProfileGPU dumps. It starts only on a quiet GPU (under `-MaxBusy`, 15 %, by nvidia-smi; after `-WaitMinutes` it
+gives up and names the processes using it, stopping none), samples every process's GPU use while it runs, and writes a
+Markdown table next to the run's log: the feature, whether it is on by default, its cost, and how busy the GPU was with
+other work meanwhile. A whole run takes some minutes; `-Only Rain,LensFlare -Samples 1` is a quick check, `-Shots`
+pictures each feature's view, `-Log` reads a run again.
+
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
