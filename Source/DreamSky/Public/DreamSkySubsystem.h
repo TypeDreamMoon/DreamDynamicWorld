@@ -137,6 +137,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	const FDreamSkyLook& GetLook() const { return Look; }
 
+	/**
+	 * How bright the light shafts below the clouds are drawn now (FDreamSkyLightShafts): the look's (style and modifiers)
+	 * as the cloud cover breaks the sun into them, gone with the main light under the horizon. 0: none drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetLightShaftStrength() const;
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -193,6 +200,12 @@ private:
 	friend class FDreamSkyCloudViewExtension;
 
 	void Update(UDreamWorldSubsystem& Clock, float DeltaTime);
+	/**
+	 * The eclipses in the look (as the sun and the moon line up, through the modifiers) onto the lighting and the dome:
+	 * the sun's light taken as its disk is covered, the sky's with it near totality; the moon's failing in the umbra. A
+	 * coverage a modifier set gets the moon (or the umbra) a place to stand at.
+	 */
+	void ApplyEclipses(FDreamSkyLighting& Lighting, FDreamSkyLook& InOutLook, const UDreamSkyStyle& Style) const;
 	/** The modifiers' post processes on the sky actor, weighted by their alpha (made and dropped as they come and go). */
 	void UpdateModifierPostProcess(ADreamSky* Sky);
 	void CaptureSnapshot(FDreamWorldSnapshot& Snapshot) const;

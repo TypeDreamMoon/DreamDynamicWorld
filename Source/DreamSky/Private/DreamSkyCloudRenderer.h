@@ -63,6 +63,9 @@ private:
 		/** The panorama the dome shows in the sky light capture (RT_DreamCloudPanorama); null: none. */
 		FTextureResource* Panorama = nullptr;
 		FVector4f ShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+		/** The light shafts (DreamSkyCloudRender.usf's SH_*); drawn while bShafts. */
+		bool bShafts = false;
+		FVector4f Shafts[2];
 	};
 
 	/** A view's clouds of the frame before (render thread only). */
@@ -96,6 +99,8 @@ private:
 	bool IsOverCloudBase(const FSceneView& InView) const;
 
 	FScreenPassTexture CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
+	/** The light shafts below the clouds, over the scene before the post processing (and before the clouds below). */
+	FScreenPassTexture DrawLightShafts(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs);
 	void UpdateSunMaps(FRDGBuilder& GraphBuilder, const FSceneView& InView, FGlobalShaderMap* ShaderMap, FRDGTextureRef WeatherMap,
 		FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon);
 

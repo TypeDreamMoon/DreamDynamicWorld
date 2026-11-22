@@ -148,6 +148,28 @@ it further up and brighter, and the sky cloud renderer lights the clouds' bases 
 overcast over a city glows warm from below. A sky modifier's *Light Pollution* sets it for a place (a modifier held
 by a volume over a town, say) and its *Airglow* scales the glow; `DreamSky.Modifier.Add City` tries it.
 
+**Eclipses.** In the realistic celestial mode the sky has its eclipses where the sun and the moon line up
+(`Eclipse.bFromSunAndMoon`; the maths in `DreamSkyEclipse.h`). In a solar eclipse the dome draws the moon's disk over
+the sun's at their true places (scaled to the drawn disks), the sun's light goes with the covered share of its
+disk, and near totality the sky and its light darken (never quite all: the horizon stays a twilight), the stars
+come out and the corona shows (`Eclipse.Corona`). In a lunar eclipse the earth's umbra crosses the moon at its
+true place, turning it a dark copper, and the moon's light fails to `Eclipse.BloodMoonLight` of itself. A sky
+modifier's *Solar Eclipse* or *Lunar Eclipse* sets one by its coverage in any mode (`DreamSky.Modifier.Add Eclipse`,
+`BloodMoon`). Nothing is drawn, and nothing costs, without one.
+
+**Light shafts.** Under broken clouds the sky cloud renderer draws the sunlight the air below them scatters toward the
+view where their shadow lets it through: shafts falling through the gaps, seen whether the sun is in view or behind
+it. Each ray of the view is marched through the air under the clouds' base, reading at every step the clouds' own
+shadow on the ground (the texture the sun's light function reads) up the sun's direction, so the shafts stand where
+the shadows on the ground are. The style's `LightShafts` sets how bright they are drawn (`Intensity`), the haze they
+show in (`Density` per km at the ground, `ScaleHeight`, how much it scatters toward the sun, `Anisotropy`), how far
+along the view (`Distance`) and how much the weather's haze thickens it (`WeatherHaze`); they come in as the cover
+breaks (`CoverStart` to `CoverFull`: a clear sky casts none) and go with the sun under the horizon. A sky modifier's
+*Light Shafts* scales them. The march takes the same samples every frame (`DreamSky.LightShafts.Samples`, 24),
+nothing builds up over frames: a cinematic frame or a cut shows them as they are. `DreamSky.LightShafts` multiplies
+them (0 leaves them out); `DreamSky.LightShafts.Debug 1` shows in grey how much of the sun the air along each ray
+gets. They cost some 0.04 ms at 1080p, nothing under a clear sky or with the sun down.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

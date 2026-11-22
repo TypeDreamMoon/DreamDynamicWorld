@@ -98,6 +98,78 @@ struct DREAMSKY_API FDreamSkyNightGlow
 	float CloudUnderLight = 3.0f;
 };
 
+/**
+ * Eclipses: where the sun and the moon line up (in the realistic celestial mode), or as a sky modifier sets one. A solar
+ * eclipse covers the sun's disk with the moon's (drawn at their true places, to the disks' size) and takes the sun's
+ * light with it, the sky darkening and the stars coming out near totality, when the corona shows; in a lunar eclipse
+ * the earth's umbra crosses the moon, turning it a dark copper, and the moon's light fails.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyEclipse
+{
+	GENERATED_BODY()
+
+	/** Realistic celestial mode: eclipses where the sun and the moon line up (off: only those a sky modifier sets). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse")
+	bool bFromSunAndMoon = true;
+
+	/** How bright the corona is at totality, as a share of the sun disk's brightness. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", UIMax = "0.05"))
+	float Corona = 0.008f;
+
+	/** How much of the moon's light is left at the middle of a total lunar eclipse. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ClampMin = "0", ClampMax = "1"))
+	float BloodMoonLight = 0.03f;
+
+	/** The moon's light in the umbra (the dark copper of sunlight bent through the earth's air). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (HideAlphaChannel))
+	FLinearColor BloodMoonColor = FLinearColor(1.0f, 0.42f, 0.25f, 1.0f);
+};
+
+/**
+ * The sunlight the air below the clouds scatters toward the view, where the clouds let it through (the sky cloud
+ * renderer's own shadow of them): shafts down through the gaps of broken clouds, seen from anywhere -- the sun in view
+ * or behind it. Drawn by the sky cloud renderer (ADreamSky::DrawsClouds) over the scene before the post processing.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyLightShafts
+{
+	GENERATED_BODY()
+
+	/** How bright the shafts are drawn, times the light the haze scatters (a styled sky outshines its sun far more than
+	 * the real one does, so the bare scattering would not show against it); 0 = none. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", UIMax = "16"))
+	float Intensity = 4.0f;
+
+	/** How much of the light the haze the shafts show in scatters at the ground, per km. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", UIMax = "0.3"))
+	float Density = 0.06f;
+
+	/** How high (km) the haze thins to a third of that. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0.05", UIMax = "5"))
+	float ScaleHeight = 1.5f;
+
+	/** How much more the haze scatters forward (toward the sun) than to the side: 0 = alike every way, toward 1 = only
+	 * about the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "-0.9", ClampMax = "0.9"))
+	float Anisotropy = 0.4f;
+
+	/** How far along the view the shafts are gathered (km). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0.1", UIMax = "40"))
+	float Distance = 16.0f;
+
+	/** How much the weather's haze (fog, dust) thickens it: the density times 1 + this x the haze. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", UIMax = "6"))
+	float WeatherHaze = 2.0f;
+
+	/** The cloud cover from which the shafts show, and by which they are whole (a clear sky casts none: the haze lit
+	 * evenly is the fog's and the sky's to draw). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoverStart = 0.08f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoverFull = 0.35f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -253,6 +325,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ShowOnlyInnerProperties))
 	FDreamSkyNightGlow NightGlow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Eclipse", meta = (ShowOnlyInnerProperties))
+	FDreamSkyEclipse Eclipse;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ShowOnlyInnerProperties))
+	FDreamSkyLightShafts LightShafts;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

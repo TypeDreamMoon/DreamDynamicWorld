@@ -22,6 +22,9 @@
 //               light), bilinear from the reduced resolution: the clouds stand behind everything the depth buffer holds,
 //               so every texel a sky pixel reads is a sky ray. DebugMode 1 instead multiplies the sky by a grid of view
 //               directions (15 degree lines, the horizon band red).
+//   LightShaftsCS  the sunlight the air below the layer scatters toward the view where the clouds' shadow lets it
+//               through (the ground shadow ShadowCS draws), at the rays' resolution: shafts through the gaps of broken
+//               clouds. LightShaftsCompositePS adds it over the scene before the post processing.
 //   CompositeBelowPS  with the view over the layer's base, the clouds between it and the scene, over the scene, before
 //               the post processing (after the fog and the translucency: a cloud then covers the rain, particles and glass in
 //               front of it). Upsampled taking only the rays whose clouds stand nearer than the pixel's scene.
@@ -150,6 +153,20 @@ float2 HistoryInvExtent;
 StructuredBuffer<uint2> HistoryRaySize;   // the ray grid the history was drawn at
 RWStructuredBuffer<uint2> OutRaySize;
 float HistoryWeight;
+
+// The light shafts (FDreamSkyCloudViewExtension::DrawLightShafts).
+float4 ShaftParameters[2];
+#define SH_Strength    ShaftParameters[0].x   // the style's intensity as the cover breaks the sun
+#define SH_Density     ShaftParameters[0].y   // scattering at the reference height, per cm
+#define SH_InvScale    ShaftParameters[0].z   // 1 / the haze's scale height, per cm
+#define SH_Anisotropy  ShaftParameters[0].w
+#define SH_Distance    ShaftParameters[1].x   // cm along the view
+#define SH_Samples     ShaftParameters[1].y
+#define SH_Debug       ShaftParameters[1].z   // 1: the share of the sun along the ray, in grey (DreamSky.LightShafts.Debug)
+Texture2D<float> ShaftShadow;   // the ground shadow: the clouds' transmittance toward the sun at the layer's base
+SamplerState ShaftShadowSampler;
+RWTexture2D<float4> OutShafts;  // rgb = the shafts' light (pre-exposed), a = how far the ray went (cm)
+Texture2D<float4> Shafts;
 
 Texture2D<float4> CloudColor;
 Texture2D<float> CloudDepth;   // CompositeBelowPS: the clouds' depth along their rays (cm; < 0: none)
@@ -1139,6 +1156,104 @@ void CompositePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 // With the view over the layer's base: the clouds below it, over the scene. Of the four rays round the pixel only those
 // whose clouds stand nearer than the pixel's scene count (a ray's block may reach past a near object's edge), weighted
 // as the bilinear read would weigh them.
+// The Henyey-Greenstein phase function.
+float DSkyR_ShaftPhase(float CosTheta, float G)
+{
+	float G2 = G * G;
+	return (1.0 - G2) / (4.0 * PI * pow(max(1.0 + G2 - 2.0 * G * CosTheta, 1.0e-4), 1.5));
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void LightShaftsCS(uint3 Id : SV_DispatchThreadID)
+{
+	int2 Ray = int2(Id.xy);
+	if (any(Ray >= DSkyR_RaySize()))
+	{
+		return;
+	}
+	float2 Pixel = DSkyR_FullPixel(Ray);
+	float3 V = DSkyR_ViewDir(Pixel);
+	float SceneT = DSkyR_SceneDistance(int2(Pixel), V);
+	float Far = min(SceneT, SH_Distance);
+	float3 L = normalize(P_MainLight.xyz);
+	// (As the light function: up the sun's direction to the layer's base kept 3 degrees over the horizon.)
+	float LZ = max(L.z, 0.05);
+	float Base = P_CloudLayer.x;
+	// The part of the ray below the layer's base.
+	float T0 = 0.0;
+	float T1 = Far;
+	if (CameraWorld.z < Base)
+	{
+		T1 = V.z > 0.0 ? min(T1, (Base - CameraWorld.z) / V.z) : T1;
+	}
+	else
+	{
+		T0 = V.z < 0.0 ? (Base - CameraWorld.z) / V.z : T1;
+	}
+	float3 Light = 0.0;
+	float Lit = 0.0;
+	if (T1 > T0)
+	{
+		int N = int(SH_Samples);
+		float Dt = (T1 - T0) / float(N);
+		// (The same jitter every frame: nothing gathers the frames, so a moving one would crawl; the composite softens it.)
+		float Jitter = DCM_InterleavedGradientNoise(float2(Ray), 0);
+		float RefZ = LP_Fog.z;
+		float Tau = 0.0;
+		for (int i = 0; i < N; ++i)
+		{
+			float T = T0 + (float(i) + Jitter) * Dt;
+			float3 P = CameraWorld + V * T;
+			float Sigma = SH_Density * exp(-max(P.z - RefZ, 0.0) * SH_InvScale);
+			float2 UV = (P.xy + L.xy * (max(Base - P.z, 0.0) / LZ) - ShadowPlacement.xy) / (2.0 * ShadowPlacement.z) + 0.5;
+			float Edge = min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y));
+			float Through = ShaftShadow.SampleLevel(ShaftShadowSampler, saturate(UV), 0);
+			// (All of the clouds' shadow, whatever share of it the looks lay on the ground: the shadowed air lit half
+			// would wash the sky instead of parting it into shafts.)
+			Through = lerp(1.0, Through, saturate(Edge * 10.0));
+			// (Each step's own scattering, (1 - e^-sigma dt), seen through the haze before it.)
+			float Step = Sigma * Dt;
+			Light += Through * exp(-Tau) * (1.0 - exp(-Step));
+			Tau += Step;
+			Lit += Through / float(N);
+		}
+		Light *= DSkyR_ShaftPhase(dot(V, L), SH_Anisotropy) * SH_Strength * smoothstep(0.0, 0.05, L.z);
+	}
+	OutShafts[Ray] = SH_Debug > 0.0 ? float4(Lit.xxx * 0.5, Far) : float4(Light * LP_LightIlluminance * View.PreExposure, Far);
+}
+
+// Up to the scene's resolution: the 3x3 rays round the pixel, by their distance from it and how near their rays went to
+// as far as its own.
+void LightShaftsCompositePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
+{
+	float2 Pixel = SvPosition.xy;
+	float2 Local = Pixel - View.ViewRectMin.xy;
+	if (any(Local < 0.0) || any(Local >= View.ViewSizeAndInvSize.xy))
+	{
+		discard;
+	}
+	float3 V = DSkyR_ViewDir(Pixel);
+	float Far = min(DSkyR_SceneDistance(int2(Pixel), V), SH_Distance);
+	float2 H = Local / float(Downsample) - 0.5;
+	int2 Centre = int2(round(H));
+	int2 Size = DSkyR_RaySize();
+	float3 Sum = 0.0;
+	float Weight = 0.0;
+	for (int y = -1; y <= 1; ++y)
+	{
+		for (int x = -1; x <= 1; ++x)
+		{
+			int2 Q = clamp(Centre + int2(x, y), 0, Size - 1);
+			float4 S = Shafts.Load(int3(Q, 0));
+			float2 D = float2(Q) - H;
+			float W = exp(-dot(D, D) * 0.5) / (0.02 + abs(S.a - Far) / max(Far, 100.0));
+			Sum += W * S.rgb;
+			Weight += W;
+		}
+	}
+	Out = float4(Sum / max(Weight, 1.0e-6), 0.0);
+}
+
 void CompositeBelowPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 {
 	float2 Pixel = SvPosition.xy;

@@ -130,6 +130,24 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float Airglow = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_LightShafts = false;
+	/** Multiplies how bright the light shafts below the clouds are drawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightShafts", ClampMin = "0", UIMax = "8"))
+	float LightShafts = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_SolarEclipse = false;
+	/** How much of the sun's disk the moon covers, 0..1 (1: total; the sky darkens, the corona shows). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_SolarEclipse", ClampMin = "0", ClampMax = "1"))
+	float SolarEclipse = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_LunarEclipse = false;
+	/** How much of the moon's disk the earth's umbra covers, 0..1 (1: a blood moon). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LunarEclipse", ClampMin = "0", ClampMax = "1"))
+	float LunarEclipse = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_StarIntensity = false;
 	/** Multiplies how bright the stars draw. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_StarIntensity", ClampMin = "0", UIMax = "8"))
