@@ -299,12 +299,13 @@ namespace DreamWorld::ShowcaseSetup
 		PassThrough(AddBox(World, Kit, Kit.Wood, Center + FVector(80.0, 60.0, 40.0), FVector(140.0, 90.0, 80.0), TEXT("Hut_Table")));
 		PassThrough(SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Center + FVector(-20.0, 60.0, 22.0), FVector(0.4, 0.4, 0.45), FRotator::ZeroRotator, TEXT("Hut_Stool")));
 
-		// A lamp under the roof over the table: warm (3200 K) and dim, a few candela, well under a lux on the walls.
+		// A lamp under the roof over the table: warm (3200 K) and dim (1.5 cd): by day the window lights the room, the lamp
+		// only warms its corners; by night it is what the room is seen by.
 		APointLight* Lamp = World.SpawnActor<APointLight>(Center + FVector(60.0, 60.0, Height - 50.0), FRotator::ZeroRotator);
 		UPointLightComponent* Light = CastChecked<UPointLightComponent>(Lamp->GetLightComponent());
 		Light->SetMobility(EComponentMobility::Movable);
 		Light->IntensityUnits = ELightUnits::Candelas;
-		Light->SetIntensity(3.0f);
+		Light->SetIntensity(1.5f);
 		Light->bUseTemperature = true;
 		Light->SetTemperature(3200.0f);
 		Light->SetAttenuationRadius(800.0f);
