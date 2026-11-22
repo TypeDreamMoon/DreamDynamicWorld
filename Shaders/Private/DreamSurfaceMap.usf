@@ -16,7 +16,10 @@
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
 
 // A zone here is four float4s: DreamWeatherShared.h's three, then (snow ratio, temperature offset, dust, wind), a value
-// below DSM_UNSET meaning "not set here". The points of the polygon footprints follow the NumZones records.
+// below DSM_UNSET meaning "not set here". The points of the polygon footprints follow the NumZones records. The records
+// hold the zones at the start of the step in progress; ZoneTracks where each stood and how strong it was at the start of
+// each whole step (NumSteps per zone), so a storm that drifts across leaves its weather along its way, not all of its
+// past at the place it has got to.
 #define DSM_ZONE_FLOAT4S 4
 #define DSM_UNSET -9999.0f
 // A step is three float4s: the global weather (coverage, darkness, precipitation, snow ratio), the global channels
@@ -41,6 +44,7 @@ int2 Resolution;
 
 StructuredBuffer<float4> Steps;
 StructuredBuffer<float4> Zones;
+StructuredBuffer<float4> ZoneTracks;
 RWTexture2D<float4> StepStart;
 RWTexture2D<float4> OutMap;
 
@@ -62,8 +66,9 @@ struct FDreamSurfaceTexelDrive
 };
 
 // A step's drive in the open at the texel: the zones there (in priority order), the cloud gate on the precipitation,
-// the temperature of the view's hour with the offset there, then DreamSurfaceShared.h's open drive.
-FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, float2 P)
+// the temperature of the view's hour with the offset there, then DreamSurfaceShared.h's open drive. Step: the whole step
+// (its zones from ZoneTracks), or -1 for the step in progress (the records as they are).
+FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, float2 P, int Step)
 {
 	float3 V = Global.xyz;
 	float SnowRatio = Global.w;
@@ -76,7 +81,14 @@ FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, fl
 		float4 Z1 = Zones[i * DSM_ZONE_FLOAT4S + 1];
 		float4 Z2 = Zones[i * DSM_ZONE_FLOAT4S + 2];
 		float4 Z3 = Zones[i * DSM_ZONE_FLOAT4S + 3];
-		float W = DWX_ZoneWeight(P, Z0, Z1, Z2.w, Zones);
+		float Strength = Z2.w;
+		if (Step >= 0)
+		{
+			float4 Track = ZoneTracks[i * NumSteps + (uint)Step];
+			Z0.xy = Track.xy;
+			Strength = Track.z;
+		}
+		float W = DWX_ZoneWeight(P, Z0, Z1, Strength, Zones);
 		V = DWX_ApplyZoneWeight(V, Z2, W);
 		SnowRatio = DSM_Pull(SnowRatio, Z3.x, W);
 		TempOffset = DSM_Pull(TempOffset, Z3.y, W);
@@ -106,7 +118,7 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		S = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		for (uint k = 0; k < NumSteps; ++k)
 		{
-			FDreamSurfaceTexelDrive D = DriveHere(Steps[k * DSM_STEP_FLOAT4S + 0], Steps[k * DSM_STEP_FLOAT4S + 1], Steps[k * DSM_STEP_FLOAT4S + 2], P);
+			FDreamSurfaceTexelDrive D = DriveHere(Steps[k * DSM_STEP_FLOAT4S + 0], Steps[k * DSM_STEP_FLOAT4S + 1], Steps[k * DSM_STEP_FLOAT4S + 2], P, (int)k);
 			S = DSF_Step(S, D.D0, D.D1, Rates0, Rates1, Rates2, StepHours);
 		}
 		StepStart[DispatchThreadId.xy] = S;
@@ -115,7 +127,7 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	{
 		S = StepStart[DispatchThreadId.xy];
 	}
-	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, P);
+	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, P, -1);
 	OutMap[DispatchThreadId.xy] = DSF_Step(S, D.D0, D.D1, Rates0, Rates1, Rates2, PartialHours);
 }
 

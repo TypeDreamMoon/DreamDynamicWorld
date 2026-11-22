@@ -42,13 +42,25 @@ namespace DreamSurface::Maps
 	}
 
 	/**
-	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf, four float4 each), in the order the weather
-	 * applies them: the weather map's three (footprint and coverage, darkness, precipitation), then the snow ratio,
-	 * temperature offset, dust and wind (below -9999: not set), then the polygons' points. Override zones only, as the
-	 * weather map takes them. The footprint is the zone's own (UDreamWeatherZoneComponent::MakeFootprintRecord), where
-	 * it is now.
+	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf), in the order the weather applies them.
+	 * Override zones only, as the weather map takes them.
+	 *   Records  four float4 each: the weather map's three (footprint and coverage, darkness, precipitation, strength),
+	 *            then the snow ratio, temperature offset, dust and wind (below -9999: not set); then the polygons' points.
+	 *            The footprint and strength are those at the start of the step in progress, as a query takes them.
+	 *   Tracks   NumSteps float4 per zone, oldest step first: where its footprint's centre stood (xy) and how strong it
+	 *            was (z) at the start of each whole step. A zone that moves (a storm drifting across) or fades has its
+	 *            weather where it was then, as a query does (UDreamWeatherZoneComponent::GetWeightAtTime): taking it
+	 *            where it is now for every step laid a storm's whole memory of snow under wherever it had just got to.
+	 * Both depend on the steps only, not on the moment within one: a zone moving along changes nothing until a step goes by.
 	 */
-	TArray<FVector4f> GatherZones(const UWorld* World, int32 MaxZones, double WorldSeconds, int32& OutNumZones)
+	struct FZoneSet
+	{
+		TArray<FVector4f> Records;
+		TArray<FVector4f> Tracks;
+		int32 Num = 0;
+	};
+
+	FZoneSet GatherZones(const UWorld* World, int32 MaxZones, int64 FirstStep, int32 NumSteps, double StepSeconds)
 	{
 		using C = FDreamWeatherChannels;
 		TArray<const UDreamWeatherZoneComponent*> Zones;
@@ -71,7 +83,9 @@ namespace DreamSurface::Maps
 		{
 			Zones.RemoveAt(0, Zones.Num() - MaxZones);
 		}
-		TArray<FVector4f> Out;
+		FZoneSet Set;
+		Set.Num = Zones.Num();
+		const double Current = double(FirstStep + NumSteps) * StepSeconds;   // the start of the step in progress
 		TArray<FVector4f> PolygonPoints;
 		for (const UDreamWeatherZoneComponent* Zone : Zones)
 		{
@@ -81,15 +95,20 @@ namespace DreamSurface::Maps
 				return Zone->GetChannelValue(Channel, V) ? V : Unset;
 			};
 			FVector4f Z0, Z1;
-			Zone->MakeFootprintRecord(WorldSeconds, Z0, Z1, PolygonPoints);
-			Out.Add(Z0);
-			Out.Add(Z1);
-			Out.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), FMath::Clamp(Zone->Weight, 0.0f, 1.0f)));
-			Out.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
+			Zone->MakeFootprintRecord(Current, Z0, Z1, PolygonPoints);
+			Set.Records.Add(Z0);
+			Set.Records.Add(Z1);
+			Set.Records.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), Zone->GetStrengthAt(Current)));
+			Set.Records.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
+			for (int32 k = 0; k < NumSteps; ++k)
+			{
+				const double At = double(FirstStep + k) * StepSeconds;
+				const FVector Center = Zone->GetFootprintCenterAt(At);
+				Set.Tracks.Add(FVector4f(float(Center.X), float(Center.Y), Zone->GetStrengthAt(At), 0.0f));
+			}
 		}
-		OutNumZones = Zones.Num();
-		UDreamWeatherZoneComponent::AppendPolygonPoints(Out, 4, PolygonPoints);
-		return Out;
+		UDreamWeatherZoneComponent::AppendPolygonPoints(Set.Records, 4, PolygonPoints);
+		return Set;
 	}
 
 	/** Minus the centre (add a world position), 1 / extent, 1 when live: what a material needs to find its texel. */
@@ -187,11 +206,17 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	}
 
 	const double Now = FPlatformTime::Seconds();
-	int32 NumZones = 0;
-	const TArray<FVector4f> Zones = DreamSurface::Maps::GatherZones(World, FMath::Max(1, UDreamWeatherSettings::Get()->MaxMapZones), Clock.GetWorldSeconds(), NumZones);
-	const bool bZonesChanged = Zones != LastZones || bIntegrateRequested || DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0;
-	LastZones = Zones;
-	LastNumZones = NumZones;
+	// The zones at the starts of the steps the maps integrate: they change when a step goes by (which integrates anyway)
+	// or a zone is changed, not as a zone moves along within a step.
+	const FDreamSurfaceMapSteps& Steps = Surface.GetMapSteps();
+	const int32 NumSteps = Steps.Steps.Num() / 3;
+	DreamSurface::Maps::FZoneSet Zones = DreamSurface::Maps::GatherZones(World, FMath::Max(1, UDreamWeatherSettings::Get()->MaxMapZones),
+		Steps.Step - NumSteps, NumSteps, UDreamSurfaceSubsystem::StepSeconds());
+	const bool bZonesChanged = Zones.Records != LastZones || Zones.Tracks != LastZoneTracks || bIntegrateRequested
+		|| DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0;
+	LastZones = MoveTemp(Zones.Records);
+	LastZoneTracks = MoveTemp(Zones.Tracks);
+	LastNumZones = Zones.Num;
 	bIntegrateRequested = false;
 
 	// The near map moves in eighths of its size (each move integrates it afresh), the far one with the weather map.
@@ -247,6 +272,10 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
 	Args.Zones = LastZones;
 	Args.NumZones = LastNumZones;
+	if (bIntegrate)
+	{
+		Args.ZoneTracks = LastZoneTracks;
+	}
 	Renderer->EnqueueState(Slot, MoveTemp(Args));
 	Map.Center = Center;
 	Map.Extent = Extent;

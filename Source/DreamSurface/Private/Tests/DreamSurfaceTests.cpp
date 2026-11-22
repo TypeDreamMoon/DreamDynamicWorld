@@ -900,6 +900,86 @@ bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
 }
 
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuMovingZoneTest, "DreamSurface.Gpu.MovingZone", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuMovingZoneTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	FSurfaceWorld W(Sequence({ { Rain(), 24.0f } }));
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	// A cold storm 3 km across drifting east at 6 km/h, what falls in it snow: it set out 30 km west at 30:00 and stands
+	// over the view at 35:00, having just arrived; it passed over a point 9 km west an hour and a half before. The maps
+	// lay its snow along its way, as a query does - not all its past where it has got to.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherZone* Storm = W.World->SpawnActor<ADreamWeatherZone>(FVector(-3000000.0, 0, 0), FRotator::ZeroRotator, Params);
+	Storm->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Storm->Zone->Extent = FVector2D(150000.0, 150000.0);
+	Storm->Zone->BlendDistance = 50000.0f;
+	Storm->Zone->Channels.Add(Channel_SnowRatio, 1.0f);
+	Storm->Zone->Channels.Add(Channel_Temperature, -25.0f);
+	Storm->Zone->Motion.bEnabled = true;
+	Storm->Zone->Motion.StartSeconds = At(30.0);
+	Storm->Zone->Motion.Velocity = FVector2D(6.0, 0.0);
+	Storm->Zone->Motion.LifetimeHours = 0.0f;
+	Storm->Zone->Motion.FadeInHours = 0.0f;
+
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	auto CheckMaps = [this, &W](const TCHAR* When)
+	{
+		FlushRenderingCommands();
+		const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+		UTextureRenderTarget2D* Near = Maps ? Maps->GetNearMap() : nullptr;
+		UTextureRenderTarget2D* Far = Maps ? Maps->GetFarMap() : nullptr;
+		if (!TestNotNull(TEXT("near map (run the Setup)"), Near) || !TestNotNull(TEXT("far map"), Far))
+		{
+			return;
+		}
+		// The map's texel holding a point, against the query at that texel's centre.
+		auto Read = [this, &W, When](UTextureRenderTarget2D* Map, const FVector2D& Center, float Extent, const FVector2D& Point, const TCHAR* What)
+		{
+			TArray<FLinearColor> Pixels;
+			Map->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+			const int32 Size = Map->SizeX;
+			const FVector2D UV = (Point - Center) / Extent + 0.5;
+			const int32 X = FMath::Clamp(FMath::FloorToInt32(UV.X * Size), 0, Size - 1);
+			const int32 Y = FMath::Clamp(FMath::FloorToInt32(UV.Y * Size), 0, Size - 1);
+			const FVector2D Texel = Center + (FVector2D(X + 0.5, Y + 0.5) / Size - 0.5) * Extent;
+			const FLinearColor Gpu = Pixels.IsValidIndex(Y * Size + X) ? Pixels[Y * Size + X] : FLinearColor::Black;
+			const FDreamSurfaceState Cpu = W.Surface->SampleSurface(FVector(Texel, 0.0));
+			AddInfo(FString::Printf(TEXT("%s, %s: GPU snow %.3f wet %.3f / CPU snow %.3f wet %.3f"), When, What, Gpu.B, Gpu.R, Cpu.Snow, Cpu.Wetness));
+			TestTrue(FString::Printf(TEXT("%s, %s: the map holds the query's state"), When, What),
+				Cpu.Equals(FDreamSurfaceState::FromVector(FVector4f(Gpu.R, Gpu.G, Gpu.B, Gpu.A)), 0.01f));
+			return Gpu.B;
+		};
+		const float NearHere = Read(Near, Maps->GetNearCenter(), Maps->GetNearExtent(), FVector2D(0, 0), TEXT("near map at the view"));
+		const float FarHere = Read(Far, Maps->GetFarCenter(), Maps->GetFarExtent(), FVector2D(0, 0), TEXT("far map at the view"));
+		Read(Far, Maps->GetFarCenter(), Maps->GetFarExtent(), FVector2D(-900000.0, 0), TEXT("far map 9 km west"));
+		// Where the maps overlap they agree (the far map's texel is coarse: the same storm, not the same texel).
+		TestTrue(FString::Printf(TEXT("%s: near and far agree at the view (%.3f, %.3f)"), When, NearHere, FarHere), FMath::Abs(NearHere - FarHere) < 0.1f);
+	};
+
+	W.RunTo(At(35.0));
+	CheckMaps(TEXT("as the storm arrives"));
+	const float Arriving = W.Surface->SampleSurface(FVector(0, 0, 0)).Snow;
+	const float PassedOver = W.Surface->SampleSurface(FVector(-900000.0, 0, 0)).Snow;
+	TestTrue(FString::Printf(TEXT("the storm has only begun to whiten the view (%.3f)"), Arriving), Arriving < 0.6f);
+	AddInfo(FString::Printf(TEXT("9 km west, passed over 1.5 h ago, rained on since: snow %.3f"), PassedOver));
+
+	// A forced change of weather and a jump of the clock: the maps follow at once.
+	W.Weather->ForceWeather(Clear(), 0.0f);
+	W.GoTo(At(36.2));
+	CheckMaps(TEXT("after a jump and a forced clear sky"));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuPolygonTest, "DreamSurface.Gpu.PolygonZone", DreamSurface::Tests::Flags)
 bool FDreamSurfaceGpuPolygonTest::RunTest(const FString& Parameters)
 {

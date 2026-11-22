@@ -56,6 +56,7 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER(FIntPoint, Resolution)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Steps)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Zones)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, ZoneTracks)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, StepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMap)
 	END_SHADER_PARAMETER_STRUCT()
@@ -166,6 +167,8 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	const TArray<FVector4f> NoZone = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(-1.0f, -1.0f, -1.0f, 0.0f), FVector4f(-1.0e4f) };
 	FRDGBufferRef StepBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Steps"), NonEmpty(Args.Steps, NoStep));
 	FRDGBufferRef ZoneBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Zones"), NonEmpty(Args.Zones, NoZone));
+	const TArray<FVector4f> NoTrack = { FVector4f::Zero() };
+	FRDGBufferRef TrackBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.ZoneTracks"), NonEmpty(Args.ZoneTracks, NoTrack));
 
 	FDreamSurfaceStateCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSurfaceStateCS::FParameters>();
 	Params->Rates0 = Args.Rates[0];
@@ -185,6 +188,7 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->Resolution = Resolution;
 	Params->Steps = GraphBuilder.CreateSRV(StepBuffer);
 	Params->Zones = GraphBuilder.CreateSRV(ZoneBuffer);
+	Params->ZoneTracks = GraphBuilder.CreateSRV(TrackBuffer);
 	Params->StepStart = GraphBuilder.CreateUAV(Start);
 	Params->OutMap = GraphBuilder.CreateUAV(Target);
 
