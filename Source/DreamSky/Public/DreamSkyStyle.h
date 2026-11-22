@@ -581,6 +581,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Atmosphere")
 	FDreamAtmosphereParameters Atmosphere;
 
+	/**
+	 * This sky's table baked ahead for where the GPU cannot build one (mobile, no Shader Model 5): Setup bakes the
+	 * default style's, `DreamSky.BakeSky <style>` any style's (a renderer is needed). Without one there the sky is the
+	 * gradient. Stands only for the air it was baked from: bake again after changing Atmosphere.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Atmosphere")
+	FDreamAtmosphereBakedSky BakedSky;
+
 	/** The style's look over the physical sky: exposure, saturation, hue, contrast and tints over the day, the weather's part. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade", meta = (ShowOnlyInnerProperties))
 	FDreamSkyGrade Grade;

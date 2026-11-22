@@ -3,6 +3,7 @@
 #include "DreamDynamicWorldSetupCommandlet.h"
 #include "DreamCloudNoise.h"
 #include "DreamCloudTestMap.h"
+#include "DreamAtmosphereBake.h"
 #include "DreamSurfaceSetup.h"
 #include "DreamWorldShowcaseSetup.h"
 #include "DreamDynamicWorldModule.h"
@@ -554,6 +555,8 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= UDreamWindEditorLibrary::EnsureAssets(true);
 	UDreamSkyStyle* Style = EnsureDefaultStyle(FParse::Param(*Params, TEXT("ForceStyle")));
 	bOk &= Style != nullptr;
+	// The default style's sky table for mobile (only with a renderer: Setup -AllowCommandletRendering, without -nullrhi).
+	bOk &= !Style || BakeStyleSky(Style, true);
 	bOk &= EnsureWeatherMap();
 	bOk &= EnsureSurfaceMaps();
 	bOk &= EnsureCloudPanorama();

@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "DreamAtmosphereTypes.generated.h"
 
+class UVolumeTexture;
+
 /**
  * The air the sky is made of (Shaders/Shared/DreamAtmosphereShared.h): an earth-like planet's by default, the values
  * physically based skies use. Coefficients are per megametre (1000 km): 5.8 here is 5.8e-3 per km.
@@ -71,4 +73,37 @@ struct DREAMATMOSPHERE_API FDreamAtmosphereParameters
 
 	/** Whether anything that shapes the lookup tables differs (the tables are rebuilt only then). */
 	bool Equals(const FDreamAtmosphereParameters& Other) const;
+};
+
+/**
+ * A sky table baked ahead (Setup, DreamSky.BakeSky) for where the GPU cannot build one: mobile, no Shader Model 5. The
+ * table as a volume texture (half floats, its values times Scale, so the deep twilight keeps its digits), and for the
+ * CPU's light, ambient and fog the zenith and the horizon all round for each light elevation the table holds.
+ */
+USTRUCT(BlueprintType)
+struct DREAMATMOSPHERE_API FDreamAtmosphereBakedSky
+{
+	GENERATED_BODY()
+
+	/** The sky table, its values times Scale. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Sky")
+	TSoftObjectPtr<UVolumeTexture> Table;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Baked Sky")
+	float Scale = 1.0e4f;
+
+	/** Per light elevation (the table's depth slices): the zenith, per unit of the light's illuminance. */
+	UPROPERTY(VisibleAnywhere, Category = "Baked Sky")
+	TArray<FLinearColor> Zenith;
+
+	/** Per light elevation: the horizon (a little over it) averaged all round, per unit of the light's illuminance. */
+	UPROPERTY(VisibleAnywhere, Category = "Baked Sky")
+	TArray<FLinearColor> Horizon;
+
+	/** The air it was baked from: it stands only for that air. */
+	UPROPERTY(VisibleAnywhere, Category = "Baked Sky")
+	FDreamAtmosphereParameters BakedFor;
+
+	/** Whether it holds a sky for this air. */
+	bool IsFor(const FDreamAtmosphereParameters& Parameters) const { return Zenith.Num() > 1 && Zenith.Num() == Horizon.Num() && BakedFor.Equals(Parameters); }
 };
