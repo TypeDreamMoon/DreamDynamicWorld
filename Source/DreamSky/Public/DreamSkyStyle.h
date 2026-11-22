@@ -758,6 +758,14 @@ public:
 	FDreamSkyToonClouds ToonClouds;
 
 	/**
+	 * How much of the sun the toon and painted clouds' shadows on the ground take between broken clouds (1 = all of it,
+	 * as under the realistic ones; lower, they lie lighter and keep some of the sun's warmth, as in a painted
+	 * background), rising to all of it as the cover closes.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float StylizedCloudShadow = 1.0f;
+
+	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
 	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
 	 * out the clouds beyond it.

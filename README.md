@@ -95,10 +95,10 @@ shading toward the light reaches), the level's cloud overrides over them; on the
 brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
 comes out light grey) and `CloudShadowTracingDistance` (6 km) is how far each sample looks toward the sun. A map of
 the optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function
-the sky puts on its sun, `M_DreamCloudShadow`): under the toon and painted clouds the shadows take only 0.55 of the
-sun off the ground between broken clouds — a painted background's cloud shadows lie light and warm — rising to all
-of it as the cover closes (an overcast casts no sun shadows); under the realistic ones all of it (the `GroundShadow`
-override sets it for any look). A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
+the sky puts on its sun, `M_DreamCloudShadow`): they take all of the sun off the ground under every look; the style's
+`StylizedCloudShadow` lowers that between broken clouds under the toon and painted ones (say 0.55: a painted
+background's cloud shadows lie light and warm), rising to all of it as the cover closes (an overcast casts no sun
+shadows); the `GroundShadow` override sets it for any look. A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
 in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
 between the view and the ground are drawn over the scene too, just before the post processing: there they cover
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
