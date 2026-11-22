@@ -2,6 +2,8 @@
 
 #include "DreamSurfaceMaps.h"
 #include "DreamSurfaceMapRenderer.h"
+#include "DreamSurfaceMask.h"
+#include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
@@ -104,6 +106,7 @@ void FDreamSurfaceMaps::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AddReferencedObject(Near.Target);
 	Collector.AddReferencedObject(Far.Target);
 	Collector.AddReferencedObject(Cover);
+	Collector.AddReferencedObject(Mask);
 }
 
 uint32 FDreamSurfaceMaps::GetDrawCount() const
@@ -118,7 +121,7 @@ uint32 FDreamSurfaceMaps::GetIntegrateCount() const
 
 bool FDreamSurfaceMaps::Resolve()
 {
-	if (Near.Target && Far.Target && Cover)
+	if (Near.Target && Far.Target && Cover && Mask)
 	{
 		return true;
 	}
@@ -133,12 +136,13 @@ bool FDreamSurfaceMaps::Resolve()
 	Near.Target = LoadTarget(S->NearMapTexture, PF_FloatRGBA);
 	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
 	Cover = LoadTarget(S->CoverMapTexture, PF_G32R32F);
+	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
 	if (!Near.Target || !Far.Target || !Cover)
 	{
 		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, cover %s"),
 			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
 	}
-	return Near.Target && Far.Target && Cover;
+	return Near.Target && Far.Target && Cover && Mask;
 }
 
 void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
@@ -241,10 +245,20 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now)
 {
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
-	if (Center == CoverCenter && Now - LastCoverDraw < S->CoverInterval)
+	// A roof capture that captured again redraws the cover at once.
+	int32 RoofCaptures = 0;
+	for (TObjectIterator<UDreamSurfaceRoofCaptureComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == Clock.GetWorld())
+		{
+			RoofCaptures += It->GetCaptureCount();
+		}
+	}
+	if (RoofCaptures == LastRoofCaptures && Center == CoverCenter && Now - LastCoverDraw < S->CoverInterval)
 	{
 		return;
 	}
+	LastRoofCaptures = RoofCaptures;
 	FDreamSurfaceMapRenderer::FCoverArgs Args;
 	Args.Target = Cover->GameThread_GetRenderTargetResource();
 	if (!Args.Target)
@@ -291,6 +305,44 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 		Args.Shelters.Add(FVector4f(float(Box->Extent.X), float(Box->Extent.Y), float(C.Z + Box->Extent.Z), Box->FadeDistance));
 		Args.Shelters.Add(FVector4f(Box->Strength, 0.0f, 0.0f, 0.0f));
 	}
+	// Roof captures in reach (up to four, the nearest), and the mask brushes.
+	TArray<const UDreamSurfaceRoofCaptureComponent*> Roofs;
+	for (TObjectIterator<UDreamSurfaceRoofCaptureComponent> It; It; ++It)
+	{
+		const UDreamSurfaceRoofCaptureComponent* Roof = *It;
+		if (Roof && Roof->GetWorld() == World && Roof->IsRegistered() && Roof->GetCaptureTarget() && Roof->GetCaptureCount() > 0
+			&& Reach.ExpandBy(Roof->GetCaptureSize()).IsInside(FVector2D(Roof->GetComponentLocation())))
+		{
+			Roofs.Add(Roof);
+		}
+	}
+	Roofs.Sort([&Center](const UDreamSurfaceRoofCaptureComponent& A, const UDreamSurfaceRoofCaptureComponent& B)
+	{
+		return FVector2D::DistSquared(FVector2D(A.GetComponentLocation()), Center) < FVector2D::DistSquared(FVector2D(B.GetComponentLocation()), Center);
+	});
+	for (const UDreamSurfaceRoofCaptureComponent* Roof : Roofs)
+	{
+		if (Args.RoofTargets.Num() >= 4)
+		{
+			break;
+		}
+		const FVector C = Roof->GetComponentLocation();
+		const float Yaw = FMath::DegreesToRadians(float(Roof->GetComponentRotation().Yaw));
+		Args.RoofTargets.Add(Roof->GetCaptureTarget()->GameThread_GetRenderTargetResource());
+		Args.Roofs.Add(FVector4f(float(C.X), float(C.Y), FMath::Cos(Yaw), FMath::Sin(Yaw)));
+		Args.Roofs.Add(FVector4f(float(Roof->Extent.X), float(Roof->Extent.Y), float(Roof->GetCaptureZ()), float(Roof->GetCaptureSize())));
+		Args.Roofs.Add(FVector4f(Roof->Strength, float(Roof->Extent.Z * 2.0 + 10.0), 0.0f, 0.0f));
+	}
+	for (TObjectIterator<UDreamSurfaceMaskComponent> It; It; ++It)
+	{
+		const UDreamSurfaceMaskComponent* Brush = *It;
+		if (Brush && Brush->GetWorld() == World && Brush->IsRegistered()
+			&& Reach.ExpandBy(FMath::Max(Brush->Extent.X, Brush->Extent.Y) * 1.5 + Brush->FadeDistance).IsInside(FVector2D(Brush->GetComponentLocation())))
+		{
+			Brush->MakeMapRecord(Args.Masks);
+		}
+	}
+	Args.MaskTarget = Mask->GameThread_GetRenderTargetResource();
 	Renderer->EnqueueCover(MoveTemp(Args));
 	CoverCenter = Center;
 	LastCoverDraw = Now;

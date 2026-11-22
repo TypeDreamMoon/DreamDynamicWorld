@@ -33,6 +33,7 @@ public:
 	UTextureRenderTarget2D* GetNearMap() const { return Near.Target; }
 	UTextureRenderTarget2D* GetFarMap() const { return Far.Target; }
 	UTextureRenderTarget2D* GetCoverMap() const { return Cover; }
+	UTextureRenderTarget2D* GetMaskMap() const { return Mask; }
 	FVector2D GetNearCenter() const { return Near.Center; }
 	float GetNearExtent() const { return Near.Extent; }
 	FVector2D GetFarCenter() const { return Far.Center; }
@@ -63,8 +64,10 @@ private:
 	FMap Near;
 	FMap Far;
 	TObjectPtr<UTextureRenderTarget2D> Cover;
+	TObjectPtr<UTextureRenderTarget2D> Mask;
 	FVector2D CoverCenter = FVector2D(1.0e30, 1.0e30);
 	double LastCoverDraw = -1.0e30;
+	int32 LastRoofCaptures = -1;
 	double LastResolve = -1.0e30;
 	TArray<FVector4f> LastZones;
 	bool bIntegrateRequested = false;

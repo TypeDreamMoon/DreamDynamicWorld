@@ -48,6 +48,12 @@ public:
 		FVector4f TerrainParams[3];
 		/** Three float4 per shelter box. */
 		TArray<FVector4f> Shelters;
+		/** Up to four roof captures: their depth targets and three float4 each (DreamSurfaceMap.usf). */
+		TArray<FTextureRenderTargetResource*, TInlineAllocator<4>> RoofTargets;
+		TArray<FVector4f> Roofs;
+		/** The mask map the pass writes beside the cover (null: none), and three float4 per mask brush. */
+		FTextureRenderTargetResource* MaskTarget = nullptr;
+		TArray<FVector4f> Masks;
 	};
 
 	/** Game thread: draw a state map this frame. Slot tells the maps apart (each keeps its own step start). */

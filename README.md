@@ -410,8 +410,19 @@ whether a point stands in a puddle. Their HLSL is one file, `Shaders/Private/Dre
 each function's custom nodes (no function calls another). Demo materials: `M_DreamSurfaceDemo`, `M_DreamSurfaceToonDemo`
 (a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`.
 
+**Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
+what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust: a
+heated square with no snow, a path kept clear, more water in a gutter. A box or circle seen from above (the weather
+zones' footprint function), fading over *Fade Distance*; overlapping brushes multiply; `SampleSurface` and the maps
+(a mask map beside the cover, `RT_DreamSurfaceMask`) both see it. A **roof capture box** (`ADreamSurfaceRoofCapture`)
+captures from above the height of what stands inside it — a roof, a canopy, a deck — with a depth capture when it
+registers in a game world, when it moves and on `CaptureNow`, so what lies beneath stays dry and free of snow with no
+shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
+per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
+
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
-a shelter box (dry beneath it), realistic props (stone, metal, wood) and toon props and a toon figure, rolling ground,
+a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, realistic
+props (stone, metal, wood) and toon props and a toon figure, rolling ground,
 and a snow zone far ahead whose border shows on the ground. The schedule is clear; force the weather
 (`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
 

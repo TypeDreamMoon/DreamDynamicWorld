@@ -134,6 +134,32 @@ SamplerState TerrainSampler;
 StructuredBuffer<float4> Shelters;  // three float4 each: (centre x, y, cos yaw, sin yaw), (half x, half y, top z, fade), (strength, -, -, -)
 RWTexture2D<float2> OutCover;
 
+// Roof captures (UDreamSurfaceRoofCaptureComponent), up to four: each a depth capture looking straight down, two float4s:
+// (centre x, y, cos yaw, sin yaw), (half x, half y, the capture's Z, its square side), and a third: (strength, the
+// deepest depth that stands for something, -, -).
+#define DSM_MAX_ROOFS 4
+uint NumRoofs;
+float4 Roofs[DSM_MAX_ROOFS * 3];
+Texture2D RoofDepth0;
+Texture2D RoofDepth1;
+Texture2D RoofDepth2;
+Texture2D RoofDepth3;
+SamplerState RoofSampler;
+
+// Mask brushes (UDreamSurfaceMaskComponent): three float4s each, a weather zone's footprint (DreamWeatherShared.h) and
+// the multipliers (wet, water, snow, dust) at full effect; the map holds their product.
+uint NumMasks;
+StructuredBuffer<float4> Masks;
+RWTexture2D<float4> OutMask;
+
+float RoofDepthAt(uint Index, float2 UV)
+{
+	if (Index == 0) { return RoofDepth0.SampleLevel(RoofSampler, UV, 0).r; }
+	if (Index == 1) { return RoofDepth1.SampleLevel(RoofSampler, UV, 0).r; }
+	if (Index == 2) { return RoofDepth2.SampleLevel(RoofSampler, UV, 0).r; }
+	return RoofDepth3.SampleLevel(RoofSampler, UV, 0).r;
+}
+
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
@@ -170,5 +196,37 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			Strength = max(Strength, Covered);
 		}
 	}
+	for (uint r = 0; r < NumRoofs; ++r)
+	{
+		float4 R0 = Roofs[r * 3 + 0];
+		float4 R1 = Roofs[r * 3 + 1];
+		float4 R2 = Roofs[r * 3 + 2];
+		// Into the box's frame (rotate by -yaw), then the capture's image: x right = the box's +y, y down = its -x.
+		float dx = P.x - R0.x;
+		float dy = P.y - R0.y;
+		float lx = dx * R0.z + dy * R0.w;
+		float ly = -dx * R0.w + dy * R0.z;
+		if (abs(lx) <= R1.x && abs(ly) <= R1.y)
+		{
+			float2 UV = float2(ly / R1.w + 0.5f, -lx / R1.w + 0.5f);
+			float Depth = RoofDepthAt(r, UV);
+			if (Depth > 0.0f && Depth < R2.y)
+			{
+				Height = max(Height, R1.z - Depth);
+				Strength = max(Strength, saturate(R2.x));
+			}
+		}
+	}
 	OutCover[DispatchThreadId.xy] = float2(Height, Strength);
+
+	float4 Mask = float4(1.0f, 1.0f, 1.0f, 1.0f);
+	for (uint m = 0; m < NumMasks; ++m)
+	{
+		float4 M0 = Masks[m * 3 + 0];
+		float4 M1 = Masks[m * 3 + 1];
+		float4 M2 = Masks[m * 3 + 2];
+		float W = 1.0f - smoothstep(0.0f, max(M1.z, 1.0f), DWX_ZoneSignedDistance(P, M0, M1));
+		Mask *= lerp(float4(1.0f, 1.0f, 1.0f, 1.0f), M2, W);
+	}
+	OutMask[DispatchThreadId.xy] = Mask;
 }

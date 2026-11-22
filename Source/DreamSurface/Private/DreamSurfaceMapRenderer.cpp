@@ -87,6 +87,16 @@ class FDreamSurfaceCoverCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Shelters)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float2>, OutCover)
+		SHADER_PARAMETER(uint32, NumRoofs)
+		SHADER_PARAMETER_ARRAY(FVector4f, Roofs, [12])
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth0)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth1)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth2)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth3)
+		SHADER_PARAMETER_SAMPLER(SamplerState, RoofSampler)
+		SHADER_PARAMETER(uint32, NumMasks)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Masks)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMask)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
@@ -231,9 +241,44 @@ void FDreamSurfaceMapRenderer::Cover_RenderThread(FRDGBuilder& GraphBuilder, con
 	Params->Shelters = GraphBuilder.CreateSRV(ShelterBuffer);
 	Params->OutCover = GraphBuilder.CreateUAV(Target);
 
+	// Roof captures: their depth targets in four slots (a black stand-in for the unused ones).
+	const int32 NumRoofs = FMath::Min3(4, Args.RoofTargets.Num(), Args.Roofs.Num() / 3);
+	FRDGTextureRef RoofTextures[4];
+	for (int32 i = 0; i < 4; ++i)
+	{
+		FRHITexture* RoofRHI = i < NumRoofs && Args.RoofTargets[i] ? Args.RoofTargets[i]->GetRenderTargetTexture() : nullptr;
+		RoofTextures[i] = RoofRHI ? RegisterExternalTexture(GraphBuilder, RoofRHI, TEXT("DreamSurface.RoofDepth")) : GSystemTextures.GetBlackDummy(GraphBuilder);
+	}
+	Params->NumRoofs = uint32(NumRoofs);
+	for (int32 i = 0; i < NumRoofs * 3; ++i)
+	{
+		Params->Roofs[i] = Args.Roofs[i];
+	}
+	Params->RoofDepth0 = RoofTextures[0];
+	Params->RoofDepth1 = RoofTextures[1];
+	Params->RoofDepth2 = RoofTextures[2];
+	Params->RoofDepth3 = RoofTextures[3];
+	Params->RoofSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+
+	// Mask brushes, into the mask map beside the cover (a transient one when the map is missing).
+	const TArray<FVector4f> NoMask = { FVector4f::Zero(), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(1.0f) };
+	FRDGBufferRef MaskBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Masks"), NonEmpty(Args.Masks, NoMask));
+	FRHITexture* MaskRHI = Args.MaskTarget ? Args.MaskTarget->GetRenderTargetTexture() : nullptr;
+	FRDGTextureRef MaskMap = MaskRHI && EnumHasAnyFlags(MaskRHI->GetFlags(), TexCreate_UAV)
+		? RegisterExternalTexture(GraphBuilder, MaskRHI, TEXT("DreamSurface.Mask"))
+		: GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Resolution, PF_FloatRGBA, FClearValueBinding::White, TexCreate_ShaderResource | TexCreate_UAV), TEXT("DreamSurface.MaskScratch"));
+	Params->NumMasks = uint32(Args.Masks.Num() / 3);
+	Params->Masks = GraphBuilder.CreateSRV(MaskBuffer);
+	Params->OutMask = GraphBuilder.CreateUAV(MaskMap);
+
 	TShaderMapRef<FDreamSurfaceCoverCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceCover %dx%d, %d shelters", Resolution.X, Resolution.Y, Args.Shelters.Num() / 3),
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceCover %dx%d, %d shelters, %d roofs, %d masks", Resolution.X, Resolution.Y,
+		Args.Shelters.Num() / 3, NumRoofs, Args.Masks.Num() / 3),
 		Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, ThreadGroupSize));
 	GraphBuilder.SetTextureAccessFinal(Target, ERHIAccess::SRVMask);
+	if (MaskRHI && MaskMap->IsExternal())
+	{
+		GraphBuilder.SetTextureAccessFinal(MaskMap, ERHIAccess::SRVMask);
+	}
 	DrawCount.fetch_add(1);
 }

@@ -61,9 +61,23 @@ float DSM_Exposure(float3 WorldPos, float4 NearPlace, float4 Params, Texture2D C
 	return 1.0f - Covered * In;
 }
 
-// The state a surface shows: the open state lowered under cover (no water or snow lands there, a fifth of the dust).
+// The mask brushes' multipliers over a point (wet, water, snow, dust): the mask map beside the cover, 1 beyond it.
+float4 DSM_Mask(float3 WorldPos, float4 NearPlace, Texture2D MaskMap, SamplerState MaskSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, NearPlace);
+	float In = DSM_Inside(UV, NearPlace.w);
+	if (In <= 0.0f)
+	{
+		return float4(1.0f, 1.0f, 1.0f, 1.0f);
+	}
+	return lerp(float4(1.0f, 1.0f, 1.0f, 1.0f), MaskMap.SampleLevel(MaskSampler, UV, 0), In);
+}
+
+// The state a surface shows: the open state under the mask brushes, lowered under cover (no water or snow lands there,
+// a fifth of the dust).
 float4 DSM_Covered(float4 State, float Exposure)
 {
+	State = saturate(State);
 	return float4(State.x * Exposure, State.y * Exposure, State.z * Exposure, State.w * (0.2f + 0.8f * Exposure));
 }
 

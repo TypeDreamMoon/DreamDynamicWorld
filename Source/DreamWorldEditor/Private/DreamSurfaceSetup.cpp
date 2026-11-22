@@ -4,6 +4,8 @@
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
+#include "DreamSurfaceMask.h"
+#include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
@@ -84,6 +86,8 @@ bool DreamWorld::Setup::EnsureSurfaceMaps()
 	bOk &= SurfaceSetup::EnsureTarget(S->FarMapTexture, 128, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	// The cover map clears to "nothing overhead".
 	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
+	// The mask map clears to "no brush" (every multiplier 1).
+	bOk &= SurfaceSetup::EnsureTarget(S->MaskMapTexture, 256, PF_FloatRGBA, FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
 	return bOk;
 }
 
@@ -130,7 +134,7 @@ namespace DreamWorld::SurfaceSetup
 	{
 		const double FromPavement = FVector2D(X - 1300.0, Y - 400.0).Size();
 		const double Rolling = 45.0 * FMath::Sin(X / 900.0) * FMath::Cos(Y / 700.0) + 25.0 * FMath::Sin((X + Y) / 430.0);
-		const double Dip = -45.0 * FMath::Exp(-FVector2D(X - 900.0, Y + 1100.0).SizeSquared() / FMath::Square(450.0));
+		const double Dip = -90.0 * FMath::Exp(-FVector2D(X - 900.0, Y + 1100.0).SizeSquared() / FMath::Square(450.0));
 		return -3.0 + Rolling * FMath::SmoothStep(1400.0, 2600.0, FromPavement) + Dip;
 	}
 
@@ -374,9 +378,31 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SurfaceSetup::AddMesh(*World, Cone, ToonRed, FVector(1450.0, 350.0, 50.0), FVector(0.8), FRotator::ZeroRotator, TEXT("ToonCone"));
 	SurfaceSetup::AddMesh(*World, Figure, ToonBlue, FVector(950.0, 250.0, 5.0), FVector(1.0), FRotator(0.0, 200.0, 0.0), TEXT("ToonFigure"));
 
-	// A pond in the dip to the left: its own water material, rippled while it rains (MF_DreamWaterRipples).
+	// Ahead left: a heated circle (a mask brush: no water or snow on it, a soft edge), and a pergola with no shelter box,
+	// only a roof capture box that finds its roof from above.
+	ADreamSurfaceMask* Heated = World->SpawnActor<ADreamSurfaceMask>(FVector(450.0, -350.0, 0.0), FRotator::ZeroRotator);
+	Heated->Mask->Shape = EDreamSurfaceMaskShape::Circle;
+	Heated->Mask->Extent = FVector2D(250.0, 250.0);
+	Heated->Mask->FadeDistance = 120.0f;
+	Heated->Mask->Wetness = 0.0f;
+	Heated->Mask->Water = 0.0f;
+	Heated->Mask->Snow = 0.0f;
+	Heated->Mask->Dust = 1.0f;
+	Heated->SetActorLabel(TEXT("HeatedCircle"));
+	const FVector Pergola(2500.0, -500.0, 0.0);
+	for (const FVector2D& Corner : { FVector2D(-220.0, -170.0), FVector2D(220.0, -170.0), FVector2D(-220.0, 170.0), FVector2D(220.0, 170.0) })
+	{
+		SurfaceSetup::AddMesh(*World, Cylinder, Wood, Pergola + FVector(Corner, 140.0), FVector(0.2, 0.2, 2.8), FRotator::ZeroRotator, TEXT("PergolaPillar"));
+	}
+	SurfaceSetup::AddMesh(*World, Cube, Stone, Pergola + FVector(0.0, 0.0, 290.0), FVector(5.4, 4.4, 0.2), FRotator::ZeroRotator, TEXT("PergolaRoof"));
+	ADreamSurfaceRoofCapture* RoofBox = World->SpawnActor<ADreamSurfaceRoofCapture>(Pergola + FVector(0.0, 0.0, 200.0), FRotator::ZeroRotator);
+	RoofBox->Roof->Extent = FVector(320.0, 270.0, 200.0);
+	RoofBox->SetActorLabel(TEXT("PergolaRoofCapture"));
+
+	// A pond in the dip to the left, its edges buried in the slopes: its own water material, rippled while it rains
+	// (MF_DreamWaterRipples).
 	UMaterialInterface* Water = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceWaterDemo.M_DreamSurfaceWaterDemo"));
-	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -38.0), FVector(3.5, 3.5, 1.0),
+	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -45.0), FVector(9.0, 9.0, 1.0),
 		FRotator::ZeroRotator, TEXT("Pond"));
 
 	// Far ahead right: a snow zone; its border lies on the ground.

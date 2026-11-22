@@ -3,6 +3,7 @@
 #include "DreamSurfaceSubsystem.h"
 #include "DreamSurfaceHlslShim.h"
 #include "DreamSurfaceMaps.h"
+#include "DreamSurfaceMask.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSettings.h"
 
@@ -161,7 +162,35 @@ FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurfaceAt(const FVector& Positi
 	const int64 Now = FMath::FloorToInt64(WorldSeconds / Seconds);
 	const FDreamSurfaceState AtStep = IntegrateSteps(Position, Now - MemorySteps(), Now, FDreamSurfaceState());
 	const float Partial = float((WorldSeconds - double(Now) * Seconds) / 3600.0);
-	return Step(AtStep, DriveAt(Position, double(Now) * Seconds), UDreamSurfaceSettings::Get()->Rates, Partial);
+	const FDreamSurfaceState State = Step(AtStep, DriveAt(Position, double(Now) * Seconds), UDreamSurfaceSettings::Get()->Rates, Partial);
+	// The mask brushes over the point (what the materials read from the mask map).
+	const FVector4f Mask = GetMaskAt(Position);
+	const FVector4f V = State.ToVector();
+	return FDreamSurfaceState::FromVector(FVector4f(FMath::Clamp(V.X * Mask.X, 0.0f, 1.0f), FMath::Clamp(V.Y * Mask.Y, 0.0f, 1.0f),
+		FMath::Clamp(V.Z * Mask.Z, 0.0f, 1.0f), FMath::Clamp(V.W * Mask.W, 0.0f, 1.0f)));
+}
+
+void UDreamSurfaceSubsystem::RegisterMask(UDreamSurfaceMaskComponent* Mask)
+{
+	MaskBrushes.AddUnique(Mask);
+}
+
+void UDreamSurfaceSubsystem::UnregisterMask(UDreamSurfaceMaskComponent* Mask)
+{
+	MaskBrushes.Remove(Mask);
+}
+
+FVector4f UDreamSurfaceSubsystem::GetMaskAt(const FVector& Position) const
+{
+	FVector4f Product(1.0f, 1.0f, 1.0f, 1.0f);
+	for (const TWeakObjectPtr<UDreamSurfaceMaskComponent>& Weak : MaskBrushes)
+	{
+		if (const UDreamSurfaceMaskComponent* Mask = Weak.Get())
+		{
+			Product *= Mask->GetMultipliersAt(Position);
+		}
+	}
+	return Product;
 }
 
 FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurface(FVector Position) const

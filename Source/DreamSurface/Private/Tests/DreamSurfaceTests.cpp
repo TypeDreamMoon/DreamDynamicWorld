@@ -1,6 +1,8 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSurfaceMaps.h"
+#include "DreamSurfaceMask.h"
+#include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
 
@@ -15,6 +17,9 @@
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
 
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "Misc/App.h"
@@ -338,6 +343,152 @@ bool FDreamSurfaceForcedTest::RunTest(const FString& Parameters)
 	const FDreamSurfaceState Forced = W.Surface->SampleSurface(P);
 	TestTrue(TEXT("forced rain wets the ground"), Forced.Wetness > 0.9f);
 	TestTrue(TEXT("asked again, the same"), Forced.Equals(W.Surface->SampleSurface(P), 0.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceMaskTest, "DreamSurface.Mask", DreamSurface::Tests::Flags)
+bool FDreamSurfaceMaskTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// A circle 10 m across kept dry, its edge fading over 2 m; a box beside it that doubles the standing water.
+	ADreamSurfaceMask* Dry = W.World->SpawnActor<ADreamSurfaceMask>(FVector(0, 0, 0), FRotator::ZeroRotator, Params);
+	Dry->Mask->Shape = EDreamSurfaceMaskShape::Circle;
+	Dry->Mask->Extent = FVector2D(500.0, 500.0);
+	Dry->Mask->FadeDistance = 200.0f;
+	Dry->Mask->Wetness = 0.0f;
+	Dry->Mask->Water = 0.0f;
+	ADreamSurfaceMask* Gutter = W.World->SpawnActor<ADreamSurfaceMask>(FVector(3000, 0, 0), FRotator(0, 30, 0), Params);
+	Gutter->Mask->Extent = FVector2D(200.0, 50.0);
+	Gutter->Mask->FadeDistance = 0.0f;
+	Gutter->Mask->Wetness = 1.0f;
+	Gutter->Mask->Water = 2.0f;
+	Gutter->Mask->Snow = 1.0f;
+	Gutter->Mask->Dust = 1.0f;
+	W.GoTo(At(10.75));
+
+	const FDreamSurfaceState Inside = W.Surface->SampleSurface(FVector(100, 100, 0));
+	const FDreamSurfaceState Edge = W.Surface->SampleSurface(FVector(600, 0, 0));
+	const FDreamSurfaceState Open = W.Surface->SampleSurface(FVector(-2000, 0, 0));
+	TestTrue(TEXT("it rains outside the brush"), Open.Wetness > 0.95f);
+	TestEqual(TEXT("dry inside"), Inside.Wetness, 0.0f);
+	TestTrue(TEXT("half way across the soft edge"), Edge.Wetness > 0.3f && Edge.Wetness < 0.7f);
+	TestNearlyEqual(TEXT("the brush's own multipliers there"), W.Surface->GetMaskAt(FVector(600, 0, 0)).X, 0.5f, 1.0e-3f);
+	// The gutter doubles the water, held to 1; a point just outside its turned box is untouched.
+	const FDreamSurfaceState InGutter = W.Surface->SampleSurface(FVector(3000, 0, 0));
+	const FDreamSurfaceState BesideGutter = W.Surface->SampleSurface(FVector(3000, 120, 0));
+	TestTrue(TEXT("the gutter holds more water"), InGutter.Water >= BesideGutter.Water);
+	TestTrue(TEXT("never above full"), InGutter.Water <= 1.0f);
+	TestNearlyEqual(TEXT("the turned box leaves a point beside it"), W.Surface->GetMaskAt(FVector(3000, 120, 0)).Y, 1.0f, 1.0e-4f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceRoofShelterTest, "DreamSurface.RoofCapture.Shelter", DreamSurface::Tests::Flags)
+bool FDreamSurfaceRoofShelterTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSurfaceRoofCapture* Box = W.World->SpawnActor<ADreamSurfaceRoofCapture>(FVector(0, 0, 200), FRotator::ZeroRotator, Params);
+	Box->Roof->Extent = FVector(400.0, 400.0, 200.0);
+	Box->Roof->Resolution = 16;
+	// A roof at 300 cm over the box's +x half (the image's top half: rows 0..7), ground at 0 elsewhere.
+	TArray<float> Heights;
+	Heights.Init(0.0f, 16 * 16);
+	for (int32 Y = 0; Y < 8; ++Y)
+	{
+		for (int32 X = 0; X < 16; ++X)
+		{
+			Heights[Y * 16 + X] = 300.0f;
+		}
+	}
+	Box->Roof->SetHeightsForTest(Heights);
+	W.GoTo(At(10.75));
+
+	TestNearlyEqual(TEXT("the roof's height over the +x half"), Box->Roof->GetHeightAt(200.0, 0.0), 300.0f, 1.0e-3f);
+	TestNearlyEqual(TEXT("the ground over the -x half"), Box->Roof->GetHeightAt(-200.0, 0.0), 0.0f, 1.0e-3f);
+	TestTrue(TEXT("nothing outside the box"), Box->Roof->GetHeightAt(900.0, 0.0) < -1.0e8f);
+	TestEqual(TEXT("under the roof: sheltered"), W.Weather->GetExposureAt(FVector(200, 0, 0)), 0.0f);
+	TestEqual(TEXT("on the ground beside it: open"), W.Weather->GetExposureAt(FVector(-200, 0, 0)), 1.0f);
+	TestEqual(TEXT("on the roof itself: open"), W.Weather->GetExposureAt(FVector(200, 0, 300)), 1.0f);
+	TestTrue(TEXT("dry under the roof"), W.Surface->SampleSurface(FVector(200, 0, 0)).Wetness < 0.01f);
+	TestTrue(TEXT("wet beside it"), W.Surface->SampleSurface(FVector(-200, 0, 0)).Wetness > 0.95f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuRoofTest, "DreamSurface.Gpu.RoofCapture", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuRoofTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// A slab 3 m up over the +x half of a capture box turned 30 degrees.
+	const FRotator Turn(0.0, 30.0, 0.0);
+	AStaticMeshActor* Slab = W.World->SpawnActor<AStaticMeshActor>(Turn.RotateVector(FVector(200, 0, 300)), Turn, Params);
+	Slab->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+	Slab->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+	Slab->SetActorScale3D(FVector(4.0, 8.0, 0.2));
+	ADreamSurfaceRoofCapture* Box = W.World->SpawnActor<ADreamSurfaceRoofCapture>(FVector(0, 0, 200), Turn, Params);
+	Box->Roof->Extent = FVector(400.0, 400.0, 200.0);
+	Box->Roof->Resolution = 64;
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.GoTo(At(10.75));
+	Box->Roof->CaptureNow();
+	TestTrue(TEXT("it captured"), Box->Roof->GetCaptureCount() > 0);
+
+	// The slab's top is at 310 cm (3 m, 20 cm thick).
+	const FVector OverSlab = Turn.RotateVector(FVector(200, 0, 0));
+	const FVector Beside = Turn.RotateVector(FVector(-200, 0, 0));
+	const float Top = Box->Roof->GetHeightAt(OverSlab.X, OverSlab.Y);
+	AddInfo(FString::Printf(TEXT("captured height over the slab %.1f, beside it %.1f"), Top, Box->Roof->GetHeightAt(Beside.X, Beside.Y)));
+	TestTrue(TEXT("the slab's top, captured"), FMath::Abs(Top - 310.0f) < 6.0f);
+	TestTrue(TEXT("nothing beside it (the image is the right way round)"), Box->Roof->GetHeightAt(Beside.X, Beside.Y) < 50.0f);
+	TestTrue(TEXT("sheltered under the slab"), W.Weather->GetExposureAt(OverSlab) < 0.01f);
+
+	// The cover map has the slab too.
+	W.Clock->Tick(0.0f);
+	W.Clock->Tick(1.0f);
+	FlushRenderingCommands();
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Cover = Maps ? Maps->GetCoverMap() : nullptr;
+	if (!TestNotNull(TEXT("cover map (run the Setup)"), Cover))
+	{
+		return false;
+	}
+	TArray<FLinearColor> Pixels;
+	Cover->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+	const int32 Size = Cover->SizeX;
+	const FVector2D UV = (FVector2D(OverSlab) - Maps->GetNearCenter()) / Maps->GetNearExtent() + 0.5;
+	const FLinearColor Texel = Pixels[FMath::Clamp(int32(UV.Y * Size), 0, Size - 1) * Size + FMath::Clamp(int32(UV.X * Size), 0, Size - 1)];
+	AddInfo(FString::Printf(TEXT("cover map over the slab: height %.1f, strength %.2f"), Texel.R, Texel.G));
+	TestTrue(TEXT("the cover map holds the slab's height"), FMath::Abs(Texel.R - 310.0f) < 6.0f && Texel.G > 0.99f);
 	return true;
 }
 

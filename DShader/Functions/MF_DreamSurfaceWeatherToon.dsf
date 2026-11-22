@@ -15,10 +15,11 @@
 Function float4 DreamSurfaceToon_Shown(
 	in float3 WorldPos,
 	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params,
-	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap)
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap, in Texture2D MaskMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler);
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
+		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
 	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
@@ -67,6 +68,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
 		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
 		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
@@ -87,7 +89,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 	Graph = {
 		float3 WP = UE.WorldPosition();
 		float Up = saturate(UE.VertexNormalWS().z);
-		float4 State = DreamSurfaceToon_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap);
+		float4 State = DreamSurfaceToon_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap, MaskMap);
 		float4 Covers = DreamSurfaceToon_Covers(WP, State, Up);
 		float3 Color = Attributes.BaseColor;
 		float Rough = Attributes.Roughness;

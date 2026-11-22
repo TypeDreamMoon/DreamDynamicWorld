@@ -12,10 +12,11 @@
 Function float4 DreamSurface_State(
 	in float3 WorldPos,
 	in float4 NearPlace, in float4 FarPlace, in float4 ViewState,
-	in Texture2D NearMap, in Texture2D FarMap)
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D MaskMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	return DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler);
+	return saturate(DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
+		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler));
 }
 
 Function float DreamSurface_Exposure(in float3 WorldPos, in float4 NearPlace, in float4 Params, in Texture2D CoverMap)
@@ -36,6 +37,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceSample", Root="Plu
 		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
 		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
 		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
@@ -55,7 +57,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceSample", Root="Plu
 	}
 
 	Graph = {
-		float4 S = DreamSurface_State(WorldPosition, NearPlace, FarPlace, ViewState, NearMap, FarMap);
+		float4 S = DreamSurface_State(WorldPosition, NearPlace, FarPlace, ViewState, NearMap, FarMap, MaskMap);
 		float E = DreamSurface_Exposure(WorldPosition, NearPlace, Params, CoverMap);
 		Wet      = S.x * E;
 		Water    = S.y * E;

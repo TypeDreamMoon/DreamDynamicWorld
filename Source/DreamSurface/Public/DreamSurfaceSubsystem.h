@@ -97,6 +97,13 @@ public:
 	/** Runs one frame now (tests; the weather's frame normally does it). */
 	void TickForTest(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather) { OnWeatherFrame(Clock, Weather, FDreamWeatherSample(), 0.0f); }
 
+	/** Mask brushes register themselves (UDreamSurfaceMaskComponent). */
+	void RegisterMask(class UDreamSurfaceMaskComponent* Mask);
+	void UnregisterMask(class UDreamSurfaceMaskComponent* Mask);
+
+	/** The mask brushes' multipliers at a point (wet, water, snow, dust): their product, 1 where none reaches. */
+	FVector4f GetMaskAt(const FVector& Position) const;
+
 	/** The steps the surface maps integrate this frame. */
 	const FDreamSurfaceMapSteps& GetMapSteps() const { return MapSteps; }
 
@@ -124,6 +131,7 @@ private:
 
 	FDreamSurfaceMapSteps MapSteps;
 	TSharedPtr<FDreamSurfaceMaps> Maps;
+	TArray<TWeakObjectPtr<class UDreamSurfaceMaskComponent>> MaskBrushes;
 
 	TWeakObjectPtr<UDreamWeatherSubsystem> WeatherSubsystem;
 	TWeakObjectPtr<UDreamWorldSubsystem> ClockSubsystem;

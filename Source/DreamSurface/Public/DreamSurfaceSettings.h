@@ -75,4 +75,8 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath CoverMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceCover.RT_DreamSurfaceCover"));
+
+	/** The mask brushes' map beside the cover: per texel the multipliers of wet, water, snow and dust (RGBA16F). */
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath MaskMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceMask.RT_DreamSurfaceMask"));
 };
