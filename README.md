@@ -719,9 +719,11 @@ that matter (the player, a footstep), not for thousands of points a frame.
 moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
 **cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
 step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
-precipitation, snow ratio, temperature, dust and wind), then the shared formula — so a map texel and `SampleSurface`
-at its centre agree (`DreamSurface.Gpu.MatchesCpu`, and `DreamSurface.Gpu.PolygonZone` for an outline with a
-corner cut out), and a snow zone's border shows on the ground from afar. The whole
+precipitation, snow ratio, temperature, dust and wind), each where it stood and as strong as it was at that step (a
+moving storm leaves its snow along its way, not 48 hours of it wherever it is now), then the shared formula — so a
+map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`, `DreamSurface.Gpu.MovingZone` for a
+moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
+cut out), and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
 up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a

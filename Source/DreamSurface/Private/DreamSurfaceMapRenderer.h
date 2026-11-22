@@ -37,6 +37,8 @@ public:
 		/** NumZones records of four float4 (DreamSurfaceMap.usf), lowest priority first, then the polygons' points. */
 		TArray<FVector4f> Zones;
 		int32 NumZones = 0;
+		/** When integrating: per zone, per whole step, its footprint's centre (xy) and strength (z) at the step's start. */
+		TArray<FVector4f> ZoneTracks;
 	};
 
 	struct FCoverArgs
