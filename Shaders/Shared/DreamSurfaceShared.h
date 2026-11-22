@@ -165,4 +165,109 @@ DSF_FN float DSF_PuddleCover(float Water, float Up, float Hollow)
 	return DSF_PuddleAt(Water, Hollow, 0.06f) * smoothstep(0.88f, 0.97f, Up);
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Rain on glass (MF_DreamGlassRain). Glass = (across, up the pane) in cm.
+
+// One layer of drops sitting on glass: one per cell of Scale cm at most, as many as Amount (0..1) brings, each a small
+// dome. While it rains (Cycle > 0) a drop comes and goes over some seconds; once it stops they stay as they are. Clear
+// (0..1) wipes them where a running drop went by. Returns the dome's slope (x, y) and how much of the glass is water (z).
+DSF_FN float3 DSF_GlassBeads(float2 Glass, float Time, float Amount, float Cycle, float Clear, float Scale, float Seed)
+{
+	float2 Q = Glass * (1.0f / Scale);
+	float2 C = floor(Q);
+	float Here = saturate((Amount - DSF_Hash(C.x + Seed, C.y + 17.0f)) * 6.0f) * (1.0f - Clear);
+	if (Here <= 0.0f)
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+	float Age = frac(Time * 0.12f + DSF_Hash(C.x + 4.1f, C.y + Seed));
+	float Life = smoothstep(0.0f, 0.05f, Age) * (1.0f - smoothstep(0.75f, 1.0f, Age));
+	Here = Here * lerp(1.0f, Life, Cycle);
+	// Anywhere in its cell it fits in, so the drops show no grid.
+	float R = 0.12f + 0.2f * DSF_Hash(C.x + 8.9f, C.y + Seed + 3.0f);
+	float2 Centre = C + R + (1.0f - 2.0f * R) * float2(DSF_Hash(C.x + 2.3f, C.y + Seed), DSF_Hash(C.x + Seed, C.y + 6.1f));
+	float2 D = (Q - Centre) * (1.0f / R);
+	float Dist2 = dot(D, D);
+	if (Dist2 >= 1.0f)
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+	// A dome's height is 1 - d²: its slope points to the centre, steepest at the rim.
+	float Edge = 1.0f - smoothstep(0.7f, 1.0f, Dist2);
+	float K = 1.6f * Here * Edge;
+	return float3(-D.x * K, -D.y * K, Here * Edge);
+}
+
+// Drops running down a pane: columns Width cm wide, each with a drop now and then (more columns the harder it rains)
+// that slides down at its own speed along a slowly wandering path, a thin wet trail and a few beads behind it. Returns
+// the slope (x, y), how much is water (z) and where it went by (w: to clear the sitting drops there).
+DSF_FN float4 DSF_GlassRunners(float2 Glass, float Time, float Rain, float Width)
+{
+	float Column = floor(Glass.x / Width);
+	float Running = saturate((Rain - DSF_Hash(Column + 11.0f, 5.0f)) * 3.0f);
+	if (Running <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float Speed = 6.0f + 14.0f * DSF_Hash(Column, 23.0f);
+	float Period = 50.0f + 90.0f * DSF_Hash(Column + 3.0f, 41.0f);
+	float Size = 0.35f + 0.3f * DSF_Hash(Column + 7.0f, 13.0f);
+	// The path wanders across the column as it goes down: a function of the height, so the trail follows the drop.
+	float Path = (Column + 0.5f) * Width + sin(Glass.y * 0.21f + DSF_Hash(Column, 3.0f) * 6.28f) * Width * 0.18f
+		+ sin(Glass.y * 0.57f + DSF_Hash(Column, 9.0f) * 6.28f) * Width * 0.07f;
+	float Across = Glass.x - Path;
+	// Height above the drop's head, 0..Period: the head moves down, so a point's height above it grows with time.
+	float Above = frac((Glass.y + Time * Speed) / Period + DSF_Hash(Column, 31.0f)) * Period;
+
+	// The head: a drop a little longer than wide.
+	float HX = Across / Size;
+	float HY = (Above - Size * 1.2f) / (Size * 1.4f);
+	float HeadDist2 = HX * HX + HY * HY;
+	float Head = HeadDist2 < 1.0f ? (1.0f - smoothstep(0.6f, 1.0f, HeadDist2)) : 0.0f;
+	float SlopeX = -HX * 2.0f * Head;
+	float SlopeY = -HY * 2.0f * Head;
+
+	// The trail: thin, narrowing and fading with height, a bead left now and then.
+	float TrailLength = 12.0f + 20.0f * DSF_Hash(Column + 5.0f, 2.0f);
+	float Behind = Above - Size * 2.0f;
+	float Along = saturate(Behind / TrailLength);
+	float InTrail = (Behind > 0.0f && Along < 1.0f) ? 1.0f : 0.0f;
+	float TrailWidth = max(Size * 0.45f * (1.0f - Along), 0.01f);
+	float Trail = InTrail * (1.0f - smoothstep(TrailWidth * 0.5f, TrailWidth, abs(Across))) * (1.0f - Along);
+	float BeadSize = max(Size * 0.4f * (1.0f - Along), 0.05f);
+	float BX = Across / BeadSize;
+	float BY = (frac(Behind / 1.6f) - 0.5f) * 1.6f / BeadSize;
+	float BeadDist2 = BX * BX + BY * BY;
+	float Bead = (InTrail > 0.0f && BeadDist2 < 1.0f && DSF_Hash(Column + floor(Behind / 1.6f), 77.0f) > 0.55f)
+		? (1.0f - smoothstep(0.6f, 1.0f, BeadDist2)) * (1.0f - Along) : 0.0f;
+	SlopeX += -BX * 1.2f * Bead - sign(Across) * Trail * 0.6f;
+	SlopeY += -BY * 1.2f * Bead;
+
+	float Water = max(Head, max(Trail * 0.6f, Bead));
+	float Swept = InTrail * (1.0f - smoothstep(Size * 0.8f, Size * 1.4f, abs(Across))) * (1.0f - Along * Along);
+	return float4(SlopeX * Running, SlopeY * Running, Water * Running, max(Swept, Head) * Running);
+}
+
+// Rain on a pane of glass. Rain = the rain landing there now; Wet = the wetness left there (the state's x, under
+// cover), so the drops stay after the rain and go as the surface dries; Steep = how upright the pane is (0 flat ..
+// 1 upright: on a flat pane nothing runs). Returns the slope of the water over the glass (x across, y up; a normal on
+// the pane bends by -slope), how much of it is water (z) and the running drops (w, their heads and trails).
+DSF_FN float4 DSF_GlassRain(float2 Glass, float Time, float Rain, float Wet, float Steep)
+{
+	float Amount = max(Rain * 0.9f, Wet * 0.75f);
+	if (Amount <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float4 Run = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	if (Steep > 0.0f && Rain > 0.0f)
+	{
+		Run = DSF_GlassRunners(Glass, Time, Rain * Steep, 2.5f);
+	}
+	float Cycle = saturate(Rain * 4.0f);
+	float3 Big = DSF_GlassBeads(Glass, Time, Amount * 0.8f, Cycle, Run.w, 1.4f, 19.0f);
+	float3 Small = DSF_GlassBeads(Glass + 0.37f, Time * 1.3f, Amount, Cycle, Run.w, 0.55f, 53.0f);
+	return float4(Run.x + Big.x + Small.x, Run.y + Big.y + Small.y, saturate(max(Run.z, max(Big.z, Small.z))), saturate(Run.z));
+}
+
 #endif // DREAMSURFACE_SHARED_H
