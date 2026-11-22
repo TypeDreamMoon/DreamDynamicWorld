@@ -6,6 +6,7 @@
 #include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
+#include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Components/PostProcessComponent.h"
@@ -174,6 +175,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	const FDreamCelestialState& Celestial = Clock.GetCelestial();
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
+	Look.Aurora = Style->EvaluateAuroraPresence(Clock.GetCelestialSettings());
 	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
@@ -213,6 +215,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->ApplyLighting(Applied, *Style, bSnap);
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
+	bStylizedClouds = Sky->GetEffectiveCloudLook() != EDreamSkyCloudLook::Realistic;
 	WriteParameters(Clock, *Style, Sky->DrawsClouds());
 	LogLighting(Clock);
 	Applied = Modified;
@@ -513,6 +516,27 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, 0.0f));
+	// The aurora toward the magnetic pole (north, or south below the equator in the realistic mode), as bright as the
+	// night shows it.
+	{
+		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
+		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
+		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
+		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
+			* (Style.Aurora.bStylizedTones && bStylizedClouds ? -1.0f : 1.0f);
+		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
+		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
+		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
+	}
+	// The night's own glow, and a city's light from the horizon (weather haze spreading it further up and brighter).
+	{
+		const float Night = UDreamSkyStyle::GlowNight(Applied.SunElevation);
+		const FLinearColor Airglow = Style.NightGlow.Airglow * (FMath::Max(Look.AirglowScale, 0.0f) * Night);
+		Clock.SetVectorParameter(MPC_NightGlow, With(Airglow, FMath::Max(Style.NightGlow.CloudUnderLight, 0.0f)));
+		const float City = FMath::Max(Look.LightPollution, 0.0f) * Night * (1.0f + Look.Haze.A);
+		const float Climb = FMath::Clamp(Style.NightGlow.Climb, 0.01f, 1.0f) * (1.0f + 1.5f * Look.Haze.A);
+		Clock.SetVectorParameter(MPC_LightPollution, With(Style.NightGlow.LightPollutionColor * City, Climb));
+	}
 
 	// Drift: shapes per game hour along CloudDirection, from the world time, so a given moment always shows
 	// the same clouds. Wrapped to keep the shader's float precision.

@@ -73,6 +73,16 @@ namespace DreamSky::Console
 			S.bOverride_AmbientTint = true;
 			S.AmbientTint = FLinearColor(1.0f, 0.55f, 0.5f);
 		}
+		else if (Name.Equals(TEXT("Aurora"), ESearchCase::IgnoreCase))
+		{
+			S.bOverride_Aurora = true;
+			S.Aurora = 1.0f;
+		}
+		else if (Name.Equals(TEXT("City"), ESearchCase::IgnoreCase))
+		{
+			S.bOverride_LightPollution = true;
+			S.LightPollution = 0.06f;
+		}
 		else if (Name.Equals(TEXT("Clear"), ESearchCase::IgnoreCase))
 		{
 			S.bOverride_CloudCoverage = true;
@@ -86,7 +96,7 @@ namespace DreamSky::Console
 		}
 		else
 		{
-			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear)."), *Name);
+			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear, Aurora, City)."), *Name);
 			return nullptr;
 		}
 		return M;
@@ -108,7 +118,7 @@ namespace DreamSky::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs AddCommand(
 		TEXT("DreamSky.Modifier.Add"),
-		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
+		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear | Aurora | City> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamSkySubsystem* Sky = Find(World);

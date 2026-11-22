@@ -1,6 +1,6 @@
 // M_DreamSky.dss -- the stylized sky dome of ADreamSky.
 //
-// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, thin high cloud and rain shafts; the
+// Draws a gradient sky, the sun and its halo, the moon with its phase, stars, the aurora, the night's glow and a city's light, thin high cloud and rain shafts; the
 // cumulus are the sky cloud renderer's (in the sky light capture, the panorama of them it draws).
 // It has no parameters of its own: everything comes from the plugin's shared parameter collection, which
 // the world clock (sun, moon, time), the weather (cloud cover, the weather map's placement) and the sky
@@ -29,13 +29,16 @@ float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, floa
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams,
-	float4 Flash, float4 Extra, float4 Haze, Texture2D Map, VolumeTexture Noise, Texture2D Panorama, float3 Camera,
-	float2 ScreenUV, float Seconds, float Capture)
+	float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
+	float4 LightPollution, Texture2D Map, VolumeTexture Noise,
+	Texture2D Panorama, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 	return DSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo, Stars,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, Map, MapSampler, Noise, NoiseSampler, Panorama, PanoramaSampler, Camera, ScreenUV, Seconds, Capture);
+		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Map, MapSampler, Noise, NoiseSampler, Panorama,
+		PanoramaSampler, Camera, ScreenUV,
+		Seconds, Capture);
 }
 
 export void M_DreamSky(inout material m)
@@ -65,9 +68,16 @@ export void M_DreamSky(inout material m)
 	float4 Flash       = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Flash");
 	float4 Extra       = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyExtra");
 	float4 Haze        = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyHaze");
+	float4 Aurora      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Aurora");
+	float4 AuroraLow   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraLow");
+	float4 AuroraHigh  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraHigh");
+	float4 NightGlow   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_NightGlow");
+	float4 LightPollution = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_LightPollution");
 	// 1 while the dome is drawn into the sky light: the shader leaves out stars and most of the sun disk there.
 	float Capture = UE.ReflectionCapturePassSwitch(Default = 0.0, Reflection = 1.0);
 	m.EmissiveColor = DreamSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo,
 		Stars, Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, WeatherMap, CloudNoise, CloudPanorama, UE.CameraPositionWS(), UE.ScreenPosition().ViewportUV, UE.Time(), Capture);
+		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, WeatherMap, CloudNoise, CloudPanorama, UE.CameraPositionWS(),
+		UE.ScreenPosition().ViewportUV,
+		UE.Time(), Capture);
 }

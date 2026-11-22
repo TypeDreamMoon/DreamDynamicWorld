@@ -131,7 +131,32 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.StarIntensity = FMath::Max(0.0f, Eval(StarIntensity, E));
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
+	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	return Look;
+}
+
+float UDreamSkyStyle::EvaluateAuroraPresence(const FDreamCelestialSettings& Settings) const
+{
+	if (Settings.Mode != EDreamCelestialMode::Realistic)
+	{
+		return FMath::Clamp(Aurora.ArtisticPresence, 0.0f, 1.0f);
+	}
+	const float Latitude = FMath::Abs(float(Settings.Latitude));
+	const float From = FMath::Min(Aurora.StartLatitude, Aurora.FullLatitude);
+	const float To = FMath::Max(Aurora.StartLatitude, Aurora.FullLatitude);
+	return To > From ? FMath::SmoothStep(From, To, Latitude) : (Latitude >= To ? 1.0f : 0.0f);
+}
+
+float UDreamSkyStyle::GlowNight(float SunElevation)
+{
+	// (A city's lights come on as the sun sets and stand out by the end of the civil twilight.)
+	return 1.0f - FMath::SmoothStep(-6.0f, 2.0f, SunElevation);
+}
+
+float UDreamSkyStyle::AuroraNight(float SunElevation)
+{
+	// (It shows once the sky is dark enough: from the end of the civil twilight, in full by the nautical's end.)
+	return 1.0f - FMath::SmoothStep(-14.0f, -6.0f, SunElevation);
 }
 
 void UDreamSkyStyle::ApplyFlash(const FDreamWorldEnvironment& Env, FDreamSkyLighting& L) const

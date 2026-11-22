@@ -312,6 +312,12 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarkness = 0.0f;
 	/** Weather fog or dust over the dome: rgb = the height fog's colour, a = how much of the sky it hides (0..1). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor Haze = FLinearColor(0.5f, 0.5f, 0.5f, 0.0f);
+	/** How present the aurora is, 0..1 (where the world lies, or a modifier's); the night's darkness goes on when it is drawn. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Aurora = 0.0f;
+	/** How strong the city's light is at the horizon (the style's LightPollution, or a modifier's), in the dome's measure. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
+	/** Scales the night sky's own glow (the style's Airglow). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float AirglowScale = 1.0f;
 	/**
 	 * What the sky modifiers do to the cloud cover and darkness wherever the weather map gives them (CloudCoverage and
 	 * CloudDarkness above have it already): each is kept this much and this much added.

@@ -112,6 +112,24 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float SkySaturation = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Aurora = false;
+	/** How present the aurora turns, 0..1, wherever the world lies (it still shows only once the sky is dark). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Aurora", ClampMin = "0", ClampMax = "1"))
+	float Aurora = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_LightPollution = false;
+	/** How strong a city's light turns at the horizon, in the dome's measure (see the style's NightGlow). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightPollution", ClampMin = "0", UIMax = "0.3"))
+	float LightPollution = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Airglow = false;
+	/** Multiplies the night sky's own glow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Airglow", ClampMin = "0", UIMax = "8"))
+	float Airglow = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_StarIntensity = false;
 	/** Multiplies how bright the stars draw. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_StarIntensity", ClampMin = "0", UIMax = "8"))
