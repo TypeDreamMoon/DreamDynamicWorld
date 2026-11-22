@@ -352,7 +352,11 @@ registration order). A **polygon** is any outline seen from above, up to 64 poin
 `SetPolygonPoints`), or a closed spline: `ADreamWeatherOutlineZone` takes its footprint from its `Outline` spline, a
 point every `OutlineSpacing` (call `UpdateFootprint` after moving the spline at run time; a spline tagged as an
 outline is never taken for a storm's path). The blend runs out from the outline's nearest edge, so a snowfield with a
-bay cut into it stays clear in the bay. A zone's channels are the weather's, so its **`Temperature` is an offset** on
+bay cut into it stays clear in the bay. **The footprint is where the zone is at full strength**: the blend lies
+outside it, fading to nothing `BlendDistance` beyond the outline (half strength at half of it). The weather map, the
+precipitation, the sounds, the surfaces and `DreamWeather.MarkEdge` all follow it, so a snow zone's snow reaches past
+its outline: given time to settle, snow lies nearly as deep in the blend as inside. To keep the weather close to the
+outline, shorten `BlendDistance`. A zone's channels are the weather's, so its **`Temperature` is an offset** on
 the climate's temperature for the date and hour, not a temperature: a snowfield on a midsummer afternoon (some 25 °C)
 needs about −30 to freeze, and `DreamWeather.MarkEdge Air` (below) rings where it does. Anything else can bend the
 weather where it is by implementing `IDreamWeatherInfluence`.
@@ -550,8 +554,8 @@ on every run, so rerun it after updating the plugin to take in what it has gaine
 **The set.** Rolling ground and a paved square under the surface materials (the terrain is soft ground, the square
 hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
 **hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
-a window looking out, a roof the rain knows — and a **porch** before its door that only a roof capture box tells the
-weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
+a wide window looking out, a roof the rain knows, a dim warm lamp over the table so the room reads by day and night —
+and a **porch** before its door that only a roof capture box tells the weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
 the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
 sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
 snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
