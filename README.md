@@ -239,6 +239,20 @@ Center for Astrophysics' Telescope Data Center or the CDS as V/50); with no file
 a file that does not read as the catalogue (far from its 9110 records, or places and magnitudes out of their ranges) is
 an error and leaves it as it is too. The catalogue's file itself is not part of the plugin; the map is.
 
+**Milky Way.** Behind the stars the dome draws the Milky Way on the same celestial sphere, so it turns with them and
+stands where it does for the latitude, the season and the hour (low in the south on a northern summer night with its
+bright centre in Sagittarius, the fainter Perseus and Auriga stretch on a winter one): a band widening and brightening
+toward the centre with the bulge round it, clumped into star clouds, split by dust lanes and the Great Rift, warm white
+toward the centre and cooler along the arms, and the Magellanic Clouds in the south. It is made from noise, no
+photograph: Setup bakes it into `T_DreamMilkyWay` (2048 x 1024 in galactic longitude and latitude, the dust's depth in
+its alpha). It shows only on a dark night -- from the sun at `ShowsBelow` (-10 degrees) to all of it by `FullBelow`
+(-18) -- and the moon's light (`MoonWash`: a full moon high up leaves some 8% of it), a city's light (`CityWash`: the
+dome's light pollution that leaves a third), haze, fog and cloud wash it out; `UDreamSkySubsystem::GetMilkyWayVisibility`
+says how much shows. It looks the same under every cloud look. The style's `MilkyWay` sets how bright it is
+(`Intensity`, on the stars' night intensity curve), its `Contrast`, how dark its `Dust` lanes are, its `Saturation` and
+`Tint`; a sky modifier's *Milky Way* scales it. It is read in the dome with the stars, one texture sample, nothing
+while it does not show.
+
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
 0.43) at 50.4 to 53.5 with its colours turned about, and the darker sky between the two. It shows while there is rain

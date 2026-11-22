@@ -51,6 +51,8 @@ void FDreamSkyModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, MPC_MoonHalo, FLinearColor(0.1f, 0.12f, 0.2f, 16.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Stars, Black);
 	FDreamWorldParameters::RegisterVector(Owner, MPC_StarPole, FLinearColor(0.0f, 0.0f, 1.0f, 0.0f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_MilkyWay, FLinearColor(0.0f, 0.0f, 0.0f, 1.0f));
+	FDreamWorldParameters::RegisterVector(Owner, MPC_MilkyWayDust, FLinearColor(1.0f, 1.0f, 0.0f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_StarEquinox, FLinearColor(1.0f, 0.0f, 0.0f, 0.8f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud0, FLinearColor(0.45f, 0.08f, 1.0f, 3.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Cloud1, FLinearColor(0.0f, 0.0f, 0.25f, 0.15f));
