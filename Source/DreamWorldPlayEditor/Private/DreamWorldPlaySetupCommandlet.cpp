@@ -11,6 +11,7 @@
 #include "DreamWindGlobalActor.h"
 #include "DreamWeatherStormSpawner.h"
 #include "DreamWeatherTemperature.h"
+#include "DreamWindForceComponent.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 
@@ -171,6 +172,23 @@ namespace DreamWorldPlay
 		Campfire->Volume->Extent = FVector(150.0);
 		Campfire->Volume->Falloff = 350.0f;
 		AddShape(*World, Cylinder, TEXT("Campfire"), FVector(0.0, -700.0, 15.0), FVector(80.0, 80.0, 30.0));
+
+		// Crates the wind pushes about, in the open before the hut.
+		for (int32 i = 0; i < 5; ++i)
+		{
+			const double Size = 60.0 - 6.0 * i;
+			if (AStaticMeshActor* Crate = AddShape(*World, Cube, *FString::Printf(TEXT("WindCrate%d"), i), FVector(700.0 + 90.0 * i, -900.0 + 60.0 * (i % 2), Size * 0.5),
+				FVector(Size)))
+			{
+				UStaticMeshComponent* Mesh = Crate->GetStaticMeshComponent();
+				Mesh->SetMobility(EComponentMobility::Movable);
+				Mesh->SetSimulatePhysics(true);
+				Mesh->SetMassOverrideInKg(NAME_None, 4.0f + 2.0f * i, true);
+				UDreamWindForceComponent* Force = NewObject<UDreamWindForceComponent>(Crate, TEXT("WindForce"));
+				Force->ForceScale = 3.0f;
+				Crate->AddInstanceComponent(Force);
+			}
+		}
 
 		// A storm that drifts in from the west on the morning of the showcase's day: over the area around ten, gone by
 		// half past twelve.
