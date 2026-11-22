@@ -1185,6 +1185,33 @@ float3 DSky_PhysicalSky(float3 V, float3 Sun, float3 Moon, float4 AtmosphereSun,
 	return L;
 }
 
+// The sky's own colour along V, before the bodies, the stars and the clouds -- the same for the dome and the sky cloud
+// renderer (the air between its clouds), so the two match to the pixel. Everything comes in as arguments (no shared
+// parameters, no material parameters read here):
+//   the physical sky: DreamAtmosphere's sky table (UDreamAtmosphereTables::GetSky) and its sampler, lit by the sun and the
+//     moon outside the air (AtmosphereSun / Moon rgb = DDW_AtmosphereSun / Moon; AtmosphereSun.w = 1 while the table is
+//     built), through the style's grade (SkyGrade0..3 = DDW_SkyGrade0..3, DSG_Grade);
+//   the style's gradient (Zenith, Horizon, Ground, SunHalo = DDW_SkyZenith, _SkyHorizon, _SkyGround, _SunHalo), as far as
+//     the grade's GradientBlend (SkyGrade2.w) says, and all of it without the table.
+// Out: Halo, the gradient's glow round the sun, already scaled by the gradient's share (add it, or leave it out); and
+// GradientShare, how much of the gradient shows (the dome scales its own painted extras by it: the moon's halo, the
+// afterglow, the colour given back through an overcast's holes -- the physical sky has its own).
+float3 DSky_SkyBackdrop(float3 V, float3 Sun, float3 Moon, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo,
+	float4 SkyGrade0, float4 SkyGrade1, float4 SkyGrade2, float4 SkyGrade3, float4 AtmosphereSun, float4 AtmosphereMoon,
+	Texture3D SkyTable, SamplerState SkyTableSampler, out float3 Halo, out float GradientShare)
+{
+	float3 Gradient = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
+	GradientShare = AtmosphereSun.w > 0.5 ? saturate(SkyGrade2.w) : 1.0;
+	float3 Base = Gradient;
+	if (GradientShare < 1.0)
+	{
+		float3 Physical = DSky_PhysicalSky(V, Sun, Moon, AtmosphereSun, AtmosphereMoon, SkyTable, SkyTableSampler);
+		Base = lerp(DSG_Grade(Physical, V.z, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3), Gradient, GradientShare);
+	}
+	Halo *= GradientShare;
+	return Base;
+}
+
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
 // Aurora, AuroraLow, AuroraHigh: see DSky_Aurora. NightGlow, LightPollution: see DSky_NightGlow. Eclipse: see
@@ -1208,20 +1235,11 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float3 Moon = normalize(MoonDir.xyz);
 	float3 LightDir = normalize(MainLight.xyz);
 
-	// The sky's own colour: the physical sky (DreamAtmosphere's table, lit by the sun and the moon) through the style's
-	// grade (DSG_Grade: SkyGrade0..3), or the style's analytic gradient as far as the grade's GradientBlend (SkyGrade2.w)
-	// says -- all of it while the table is not there (AtmosphereSun.w = 0). The halos and the afterglow below belong to the
-	// gradient: the physical sky carries its own glow round the sun and its twilight.
+	// The sky's own colour (DSky_SkyBackdrop: the physical sky through the grade, or the style's gradient as far as it says).
 	float3 Halo;
-	float3 Gradient = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
-	float GradientShare = AtmosphereSun.w > 0.5 ? saturate(SkyGrade2.w) : 1.0;
-	float3 Base = Gradient;
-	if (GradientShare < 1.0)
-	{
-		float3 Physical = DSky_PhysicalSky(V, Sun, Moon, AtmosphereSun, AtmosphereMoon, SkyTable, SkyTableSampler);
-		Base = lerp(DSG_Grade(Physical, V.z, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3), Gradient, GradientShare);
-	}
-	Halo *= GradientShare;
+	float GradientShare;
+	float3 Base = DSky_SkyBackdrop(V, Sun, Moon, Zenith, Horizon, Ground, SunHalo, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3,
+		AtmosphereSun, AtmosphereMoon, SkyTable, SkyTableSampler, Halo, GradientShare);
 	float3 Sky = Base + Halo;
 	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0)) * GradientShare;
 	// The afterglow: once the sun is down the sky over where it set keeps a warm band along the horizon for a while (the
