@@ -395,6 +395,7 @@ and the cover), 0.2 ms for an integration.
 | `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface (rough, not metal) darkens, every surface turns glossier, metal does not darken; puddles in the hollows of what faces up (dark, mirror-smooth, flat); snow on what faces up with a broken edge; dust under the snow |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
 | `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow and dust |
+| `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
@@ -408,7 +409,15 @@ They read the maps and the cover (`/DreamDynamicWorld/Surface/...`) and the shar
 puddles gather in and snow thins at (`DSF_Hollow`) and the covers are in the shared header, so a CPU query can tell
 whether a point stands in a puddle. Their HLSL is one file, `Shaders/Private/DreamSurfaceMaterial.ush`, included by
 each function's custom nodes (no function calls another). Demo materials: `M_DreamSurfaceDemo`, `M_DreamSurfaceToonDemo`
-(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`.
+(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`, `M_DreamGlassDemo`.
+
+**Rain on glass.** `MF_DreamGlassRain` finds the pane's own axes from its geometric normal (across it horizontally, up
+it), so it works on any pane at any angle without UVs. The drops bend the normal (their refraction and highlights),
+smooth the roughness and make the pane a little less clear (opacity). They take the rain landing on the pane (none
+under cover, as the ground) and the wetness the surface maps hold there, so a pane under eaves stays dry and the drops
+outlast the rain as long as the ground's film does. The drops are a pure function of the place and time
+(`DSF_GlassRain` in the shared header; `DreamSurface.GlassRain` checks it on the CPU): no texture, no render target.
+A translucent glass material wants per-pixel lighting (*Surface ForwardShading*) for the drops' highlights to show.
 
 **Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
 what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust: a
@@ -434,7 +443,7 @@ the camera in eighths of its size and keeps what it carried over; prints that le
 for the look: `SampleSurface` does not see the prints.
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
-a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, realistic
+a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, realistic
 props (stone, metal, wood) and toon props and a toon figure, rolling ground,
 and a snow zone far ahead whose border shows on the ground. The schedule is clear; force the weather
 (`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
