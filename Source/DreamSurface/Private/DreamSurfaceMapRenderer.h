@@ -34,8 +34,9 @@ public:
 		float PartialHours = 0.0f;
 		FVector4f Rates[3];
 		FVector2f PrecipitationGate = FVector2f::ZeroVector;
-		/** Four float4 per zone (DreamSurfaceMap.usf), lowest priority first. */
+		/** NumZones records of four float4 (DreamSurfaceMap.usf), lowest priority first, then the polygons' points. */
 		TArray<FVector4f> Zones;
+		int32 NumZones = 0;
 	};
 
 	struct FCoverArgs

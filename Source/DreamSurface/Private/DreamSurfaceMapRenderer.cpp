@@ -169,7 +169,7 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->PrecipitationGate = Args.PrecipitationGate;
 	Params->MapCenter = Args.Center;
 	Params->MapExtent = Args.Extent;
-	Params->NumZones = uint32(Args.Zones.Num() / 4);
+	Params->NumZones = uint32(FMath::Clamp(Args.NumZones, 0, Args.Zones.Num() / 4));
 	Params->bIntegrate = bIntegrate ? 1u : 0u;
 	Params->Resolution = Resolution;
 	Params->Steps = GraphBuilder.CreateSRV(StepBuffer);

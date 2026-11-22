@@ -415,4 +415,76 @@ bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuPolygonTest, "DreamSurface.Gpu.PolygonZone", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuPolygonTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	FSurfaceWorld W(Sequence({ { Clear(), 6.0f }, { Rain(), 6.0f } }));
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	// A cold L around the view where what falls is snow; the quarter north-east of its centre is cut out and gets rain.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherZone* Cold = W.World->SpawnActor<ADreamWeatherZone>(FVector(0, 0, 0), FRotator(0.0, 20.0, 0.0), Params);
+	Cold->Zone->SetPolygonPoints({ FVector2D(-3000, -3000), FVector2D(3000, -3000), FVector2D(3000, 0), FVector2D(0, 0), FVector2D(0, 3000), FVector2D(-3000, 3000) });
+	Cold->Zone->BlendDistance = 400.0f;
+	Cold->Zone->Channels.Add(Channel_SnowRatio, 1.0f);
+	Cold->Zone->Channels.Add(Channel_Temperature, -25.0f);
+
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.GoTo(At(37.3));
+	W.Clock->Tick(0.0f);
+	FlushRenderingCommands();
+
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Near = Maps ? Maps->GetNearMap() : nullptr;
+	if (!TestNotNull(TEXT("near map (run the Setup)"), Near))
+	{
+		return false;
+	}
+	TArray<FLinearColor> Pixels;
+	Near->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+	const int32 Size = Near->SizeX;
+	if (!TestEqual(TEXT("map size"), Pixels.Num(), Size * Near->SizeY))
+	{
+		return false;
+	}
+	const FVector2D Center = Maps->GetNearCenter();
+	const float Extent = Maps->GetNearExtent();
+	// Points in the zone's frame (turned by its 20 degrees into the world).
+	const FTransform Frame(FRotator(0.0, 20.0, 0.0));
+	auto Check = [&](const FVector2D& Local, const TCHAR* What) -> FDreamSurfaceState
+	{
+		const FVector World = Frame.TransformPosition(FVector(Local, 0.0));
+		const FVector2D UV = (FVector2D(World) - Center) / Extent + 0.5;
+		const int32 X = FMath::Clamp(FMath::FloorToInt32(UV.X * Size), 0, Size - 1);
+		const int32 Y = FMath::Clamp(FMath::FloorToInt32(UV.Y * Size), 0, Size - 1);
+		const FVector2D Texel = Center + (FVector2D(X + 0.5, Y + 0.5) / Size - 0.5) * Extent;
+		const FLinearColor Gpu = Pixels[Y * Size + X];
+		const FDreamSurfaceState Cpu = W.Surface->SampleSurface(FVector(Texel, 0.0));
+		AddInfo(FString::Printf(TEXT("%s: GPU wet %.3f water %.3f snow %.3f dust %.3f / CPU %.3f %.3f %.3f %.3f"), What,
+			Gpu.R, Gpu.G, Gpu.B, Gpu.A, Cpu.Wetness, Cpu.Water, Cpu.Snow, Cpu.Dust));
+		TestTrue(FString::Printf(TEXT("%s: the map holds the query's state"), What),
+			Cpu.Equals(FDreamSurfaceState::FromVector(FVector4f(Gpu.R, Gpu.G, Gpu.B, Gpu.A)), 0.01f));
+		return Cpu;
+	};
+	const FDreamSurfaceState Arm = Check(FVector2D(1500, -1500), TEXT("in an arm"));
+	Check(FVector2D(-1500, 1500), TEXT("in the other arm"));
+	const FDreamSurfaceState Cut = Check(FVector2D(1800, 1800), TEXT("in the cut-out quarter"));
+	Check(FVector2D(1500, 150), TEXT("by the cut's edge"));
+	Check(FVector2D(150, 1500), TEXT("by its other edge"));
+	Check(FVector2D(3200, -1000), TEXT("just outside"));
+	TestTrue(TEXT("snow in the L"), Arm.Snow > 0.3f);
+	TestTrue(TEXT("none in the cut"), Cut.Snow < 0.02f);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
