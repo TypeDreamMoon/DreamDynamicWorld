@@ -42,6 +42,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Snow", meta = (ClampMin = "0", Units = "cm"))
 	float MaxSnowDepth = 30.0f;
 
+	/**
+	 * The size of the small hollows water gathers in on flat ground, cm: puddles of about this size. The ground's own
+	 * lows (from the wind's baked level heights, when the level has them) hold water whatever this is.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Water", meta = (ClampMin = "20", UIMax = "1000", Units = "cm"))
+	float PuddleScale = 150.0f;
+
+	/** How far around a point the ground's lows are judged, cm: a dip narrower than this holds water. */
+	UPROPERTY(Config, EditAnywhere, Category = "Water", meta = (ClampMin = "50", UIMax = "2000", Units = "cm"))
+	float LowRadius = 300.0f;
+
 	// ---- Surface maps ---------------------------------------------------------------------------
 
 	/**
@@ -75,4 +86,33 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath CoverMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceCover.RT_DreamSurfaceCover"));
+
+	// ---- Trails ---------------------------------------------------------------------------------
+
+	/** World size of the trail map (prints in the snow and dust, stirred water) around the camera, cm. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "500", Units = "cm"))
+	float TrailExtent = 5120.0f;
+
+	/** Game hours a heavy snowfall takes to fill a print in. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "0.01", Units = "Hours"))
+	float PrintFillHours = 1.0f;
+
+	/** Game hours a full wind takes to blow a print away. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "0.01", Units = "Hours"))
+	float PrintWindHours = 4.0f;
+
+	/** Game hours a print takes to fade by itself (it settles). */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "0.01", Units = "Hours"))
+	float PrintFadeHours = 48.0f;
+
+	/** Real seconds the water stirred by a step takes to settle. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "0.05", Units = "s"))
+	float RippleSeconds = 1.2f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath TrailMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceTrails.RT_DreamSurfaceTrails"));
+
+	/** The mask brushes' map beside the cover: per texel the multipliers of wet, water, snow and dust (RGBA16F). */
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath MaskMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceMask.RT_DreamSurfaceMask"));
 };

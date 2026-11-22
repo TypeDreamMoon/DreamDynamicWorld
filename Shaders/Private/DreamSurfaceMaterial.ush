@@ -44,6 +44,24 @@ float4 DSM_State(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 View
 	return saturate(State);
 }
 
+// The snow over a point as the materials show it: the state's snow taken at four points 5 m around it, along an offset
+// that wanders by up to 10 m, so where the snow changes (a zone's border, the edge of a fall) it fades over metres to tens
+// of metres along an irregular line, not along the maps' texels. A query (SampleSurface) reads the point itself.
+float DSM_SnowSoft(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewState,
+	Texture2D NearMap, SamplerState NearSampler, Texture2D FarMap, SamplerState FarSampler)
+{
+	float2 P = WorldPos.xy;
+	float2 Warp = float2(DSF_Hollow(P.x, P.y, 2500.0f) - 0.5f, DSF_Hollow(P.x + 913.0f, P.y - 377.0f, 2500.0f) - 0.5f) * 2000.0f
+		+ float2(DSF_Hollow(P.x - 211.0f, P.y + 87.0f, 600.0f) - 0.5f, DSF_Hollow(P.x + 59.0f, P.y + 431.0f, 600.0f) - 0.5f) * 500.0f;
+	float2 C = P + Warp;
+	float Snow = 0.0f;
+	Snow += DSM_State(float3(C.x + 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
+	Snow += DSM_State(float3(C.x - 500.0f, C.y, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
+	Snow += DSM_State(float3(C.x, C.y + 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
+	Snow += DSM_State(float3(C.x, C.y - 500.0f, WorldPos.z), NearPlace, FarPlace, ViewState, NearMap, NearSampler, FarMap, FarSampler).z;
+	return Snow * 0.25f;
+}
+
 // How open a surface is to the sky (1 open .. 0 covered): the cover map holds per texel the height up to which something
 // keeps the sky off (R) and how fully (G); a surface below it (less the roof's clearance) is covered, softly.
 // Params = DDW_SurfaceParams (deepest snow, roof clearance, cover softness, -).
@@ -61,9 +79,32 @@ float DSM_Exposure(float3 WorldPos, float4 NearPlace, float4 Params, Texture2D C
 	return 1.0f - Covered * In;
 }
 
-// The state a surface shows: the open state lowered under cover (no water or snow lands there, a fifth of the dust).
+// How far the ground lies below its surroundings at a point, cm (DSF_GroundLow, from the wind's baked level heights):
+// the cover map's third channel, 0 beyond it or where the level has no heights.
+float DSM_Low(float3 WorldPos, float4 NearPlace, Texture2D CoverMap, SamplerState CoverSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, NearPlace);
+	float In = DSM_Inside(UV, NearPlace.w);
+	return In > 0.0f ? CoverMap.SampleLevel(CoverSampler, UV, 0).b * In : 0.0f;
+}
+
+// The mask brushes' multipliers over a point (wet, water, snow, dust): the mask map beside the cover, 1 beyond it.
+float4 DSM_Mask(float3 WorldPos, float4 NearPlace, Texture2D MaskMap, SamplerState MaskSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, NearPlace);
+	float In = DSM_Inside(UV, NearPlace.w);
+	if (In <= 0.0f)
+	{
+		return float4(1.0f, 1.0f, 1.0f, 1.0f);
+	}
+	return lerp(float4(1.0f, 1.0f, 1.0f, 1.0f), MaskMap.SampleLevel(MaskSampler, UV, 0), In);
+}
+
+// The state a surface shows: the open state under the mask brushes, lowered under cover (no water or snow lands there,
+// a fifth of the dust).
 float4 DSM_Covered(float4 State, float Exposure)
 {
+	State = saturate(State);
 	return float4(State.x * Exposure, State.y * Exposure, State.z * Exposure, State.w * (0.2f + 0.8f * Exposure));
 }
 
@@ -133,6 +174,27 @@ float DSM_WetSpots(float2 WorldXY, float Time, float Rain)
 	return Spot;
 }
 
+// The trail map over a point (UDreamSurfaceInteractionComponent, UDreamSurfaceSubsystem::Stamp): the print's depth in
+// the snow and the dust (0..1), the water stirred there (0..1), and the print's slope (x, y, for its rim's shading); all 0
+// beyond the map. Place = DDW_SurfaceTrails.
+float4 DSM_Trail(float3 WorldPos, float4 Place, Texture2D TrailMap, SamplerState TrailSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, Place);
+	float In = DSM_Inside(UV, Place.w);
+	if (In <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float Width;
+	float Height;
+	TrailMap.GetDimensions(Width, Height);
+	float2 Texel = float2(1.0f / max(Width, 1.0f), 1.0f / max(Height, 1.0f));
+	float2 T = TrailMap.SampleLevel(TrailSampler, UV, 0).rg;
+	float DX = TrailMap.SampleLevel(TrailSampler, UV + float2(Texel.x, 0.0f), 0).r - TrailMap.SampleLevel(TrailSampler, UV - float2(Texel.x, 0.0f), 0).r;
+	float DY = TrailMap.SampleLevel(TrailSampler, UV + float2(0.0f, Texel.y), 0).r - TrailMap.SampleLevel(TrailSampler, UV - float2(0.0f, Texel.y), 0).r;
+	return float4(T.x * In, T.y * In, DX * In, DY * In);
+}
+
 // What the weather makes of a realistic surface (after Lagarde, "Water drop 3b", 2013).
 struct FDreamSurfaceLook
 {
@@ -144,44 +206,61 @@ struct FDreamSurfaceLook
 };
 
 // Rain = the rain landing there now (DSM_RainHere), Time in seconds: the puddles' ripples and the drops' wet spots.
+// Trail = DSM_Trail: prints in the snow and the dust, water stirred by a step. Soft = 0 a hard surface (stone, paving,
+// wood, metal) .. 1 soft ground (soil, grass). Low = DSM_Low; PuddleScale = the small hollows' size (DDW_SurfaceParams.w).
 FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up,
-	float Rain, float Time)
+	float Rain, float Time, float4 Trail, float Soft, float Low, float PuddleScale)
 {
 	FDreamSurfaceLook L;
 	float Dielectric = 1.0f - Metallic;
+	Soft = saturate(Soft);
 	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
 
-	// The film: a porous surface (rough, not metal) darkens, every surface turns glossier; metal does not darken. Where
-	// it is not soaked yet, the drops leave short-lived wet spots on what faces up.
+	// The film: a porous surface darkens (soft ground the most), and turns glossier - a hard one down to a roughness of
+	// 0.2-0.35, blurred highlights and reflections, never a mirror; soft ground barely, it drinks the water. Metal does
+	// not darken. Where it is not soaked yet, the drops leave short-lived wet spots on what faces up.
 	float Wet = State.x;
 	if (Rain > 0.0f && Wet < 0.95f)
 	{
-		Wet = max(Wet, 0.85f * DSM_WetSpots(WorldPos.xy, Time, Rain) * saturate(Up * 2.0f));
+		Wet = max(Wet, 0.85f * DSM_WetSpots(WorldPos.xy, Time, Rain) * saturate(Up * 2.0f) * (1.0f - Soft));
 	}
-	float Porosity = saturate((Roughness - 0.2f) * 2.0f) * Dielectric;
-	Color = Color * lerp(1.0f, lerp(0.85f, 0.3f, Porosity), Wet * Dielectric);
-	Roughness = lerp(Roughness, min(Roughness, 0.15f), Wet);
+	float Porosity = max(saturate((Roughness - 0.2f) * 2.0f), Soft) * Dielectric;
+	Color = Color * lerp(1.0f, lerp(0.85f, 0.4f, Porosity), Wet * Dielectric);
+	float WetRough = min(Roughness, lerp(0.2f, 0.35f, Porosity));
+	Roughness = lerp(Roughness, WetRough, Wet * (1.0f - 0.8f * Soft));
 
-	// Standing water in the hollows of what faces up: dark, mirror-smooth, flat - rippled while the rain falls on it.
-	float Puddle = DSF_PuddleCover(State.y, Up, Hollow);
+	// Standing water where the surface lies deep enough - its small hollows, the ground's own dips - on what faces up:
+	// dark and mirror-smooth on a hard surface, rippled while the rain falls on it; faint on soft ground.
+	float Depth = DSF_PuddleDepth(DSF_Hollow(WorldPos.x + 57.0f, WorldPos.y - 23.0f, max(PuddleScale, 20.0f)), Low);
+	float Puddle = DSF_PuddleCover(State.y, Up, Depth, Soft);
 	float3 Water = float3(0.0f, 0.0f, 1.0f);
 	if (Puddle > 0.0f && Rain > 0.0f)
 	{
 		float3 Ripples = DSM_Ripples(WorldPos.xy, Time, Rain, 22.0f);
 		Water = normalize(float3(-Ripples.x * 0.35f, -Ripples.y * 0.35f, 1.0f));
 	}
+	if (Puddle > 0.0f && Trail.y > 0.0f)
+	{
+		// Water stirred by a step: quick small rings where it was.
+		float3 Stir = DSM_Ripples(WorldPos.xy, Time * 2.5f, 1.0f, 14.0f);
+		Water = normalize(Water + float3(-Stir.x, -Stir.y, 0.0f) * (1.2f * Trail.y));
+	}
 	Color = lerp(Color, Color * 0.35f, Puddle * Dielectric);
 	Roughness = lerp(Roughness, 0.02f, Puddle);
 	Normal = normalize(lerp(Normal, Water, Puddle));
 
-	// Snow on what faces up, thicker the more it faces up, a broken edge; then dust under it.
-	float Snow = DSF_SnowCover(State.z, Up, Hollow);
+	// Snow on what faces up first, steep slopes last, thinning out softly over metres where it gets less (a zone's border,
+	// a light fall), thinned where it was trodden (the print's rim catches the light); then dust under it, trodden too.
+	float Snow = DSF_SnowCover(State.z, Up, Hollow, DSF_SnowEdge(WorldPos.x, WorldPos.y));
+	float Trodden = Snow * Trail.x;
+	Snow = Snow * (1.0f - 0.75f * Trail.x);
 	Color = lerp(Color, float3(0.88f, 0.9f, 0.93f), Snow);
+	Color = Color * (1.0f - 0.12f * Trodden);
 	Roughness = lerp(Roughness, 0.6f, Snow);
 	Metallic = lerp(Metallic, 0.0f, Snow);
-	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Snow * 0.8f));
+	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Snow * 0.8f) + float3(-Trail.z, -Trail.w, 0.0f) * (4.0f * (Snow + Trodden)));
 
-	float Dust = State.w * saturate(Up * 1.2f + 0.1f) * (1.0f - Snow);
+	float Dust = State.w * saturate(Up * 1.2f + 0.1f) * (1.0f - Snow) * (1.0f - 0.7f * Trail.x);
 	Color = lerp(Color, float3(0.55f, 0.46f, 0.34f), Dust * 0.85f);
 	Roughness = lerp(Roughness, 0.95f, Dust);
 	Metallic = Metallic * (1.0f - Dust);

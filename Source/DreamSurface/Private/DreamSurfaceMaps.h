@@ -33,6 +33,9 @@ public:
 	UTextureRenderTarget2D* GetNearMap() const { return Near.Target; }
 	UTextureRenderTarget2D* GetFarMap() const { return Far.Target; }
 	UTextureRenderTarget2D* GetCoverMap() const { return Cover; }
+	UTextureRenderTarget2D* GetMaskMap() const { return Mask; }
+	UTextureRenderTarget2D* GetTrailMap() const { return Trails; }
+	FVector2D GetTrailCenter() const { return TrailCenter; }
 	FVector2D GetNearCenter() const { return Near.Center; }
 	float GetNearExtent() const { return Near.Extent; }
 	FVector2D GetFarCenter() const { return Far.Center; }
@@ -59,12 +62,19 @@ private:
 	bool Resolve();
 	void DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, UDreamSurfaceSubsystem& Surface, UDreamWeatherSubsystem& Weather, double Now);
 	void DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now);
+	void DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsystem& Clock, const struct FDreamWeatherSample& View, double Now);
 
 	FMap Near;
 	FMap Far;
 	TObjectPtr<UTextureRenderTarget2D> Cover;
+	TObjectPtr<UTextureRenderTarget2D> Mask;
+	TObjectPtr<UTextureRenderTarget2D> Trails;
+	FVector2D TrailCenter = FVector2D(1.0e30, 1.0e30);
+	double LastTrailDraw = -1.0e30;
+	double LastTrailWorldSeconds = -1.0e30;
 	FVector2D CoverCenter = FVector2D(1.0e30, 1.0e30);
 	double LastCoverDraw = -1.0e30;
+	int32 LastRoofCaptures = -1;
 	double LastResolve = -1.0e30;
 	TArray<FVector4f> LastZones;
 	bool bIntegrateRequested = false;

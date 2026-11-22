@@ -46,9 +46,35 @@ public:
 		/** The wind's terrain map (null: none) and its DW_UnpackTerrain vectors. */
 		FTextureRenderTargetResource* Terrain = nullptr;
 		FVector4f TerrainParams[3];
+		/** How far around a texel the ground's lows are judged (cm). */
+		float LowRadius = 300.0f;
 		/** Three float4 per shelter box. */
 		TArray<FVector4f> Shelters;
+		/** Up to four roof captures: their depth targets and three float4 each (DreamSurfaceMap.usf). */
+		TArray<FTextureRenderTargetResource*, TInlineAllocator<4>> RoofTargets;
+		TArray<FVector4f> Roofs;
+		/** The mask map the pass writes beside the cover (null: none), and three float4 per mask brush. */
+		FTextureRenderTargetResource* MaskTarget = nullptr;
+		TArray<FVector4f> Masks;
 	};
+
+	struct FTrailArgs
+	{
+		FTextureRenderTargetResource* Target = nullptr;
+		FVector2f Center = FVector2f::ZeroVector;
+		FVector2f PreviousCenter = FVector2f::ZeroVector;
+		float Extent = 5120.0f;
+		/** How much of a print and of the stirred water stays over this update. */
+		float PrintKeep = 1.0f;
+		float RippleKeep = 1.0f;
+		/** Start from nothing (the first update, a jump). */
+		bool bReset = false;
+		/** Two float4 per print (UDreamSurfaceSubsystem::GetPendingStamps). */
+		TArray<FVector4f> Stamps;
+	};
+
+	/** Game thread: update the trail map this frame. */
+	void EnqueueTrails(FTrailArgs&& Args);
 
 	/** Game thread: draw a state map this frame. Slot tells the maps apart (each keeps its own step start). */
 	void EnqueueState(int32 Slot, FStateArgs&& Args);
@@ -63,6 +89,10 @@ public:
 private:
 	void State_RenderThread(FRDGBuilder& GraphBuilder, int32 Slot, const FStateArgs& Args);
 	void Cover_RenderThread(FRDGBuilder& GraphBuilder, const FCoverArgs& Args);
+	void Trails_RenderThread(FRDGBuilder& GraphBuilder, const FTrailArgs& Args);
+
+	/** Render thread: the previous trail map (what an update carries over). */
+	TRefCountPtr<IPooledRenderTarget> TrailHistory;
 
 	/** Render thread: the step-start texture of each map. */
 	TMap<int32, TRefCountPtr<IPooledRenderTarget>> StepStarts;

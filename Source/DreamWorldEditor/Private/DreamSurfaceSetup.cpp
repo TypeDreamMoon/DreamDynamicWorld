@@ -4,6 +4,8 @@
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
+#include "DreamSurfaceMask.h"
+#include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
@@ -11,6 +13,9 @@
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherZone.h"
+#include "DreamWindEditorLibrary.h"
+#include "DreamWindGlobalActor.h"
+#include "DreamWindPassThroughComponent.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Camera/CameraActor.h"
@@ -20,6 +25,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "MeshDescription.h"
@@ -82,8 +88,12 @@ bool DreamWorld::Setup::EnsureSurfaceMaps()
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	bool bOk = SurfaceSetup::EnsureTarget(S->NearMapTexture, 256, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	bOk &= SurfaceSetup::EnsureTarget(S->FarMapTexture, 128, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-	// The cover map clears to "nothing overhead".
-	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
+	// The cover map clears to "nothing overhead": (cover height, how fully, the ground's low, -).
+	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_A32B32G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
+	// The mask map clears to "no brush" (every multiplier 1).
+	bOk &= SurfaceSetup::EnsureTarget(S->MaskMapTexture, 256, PF_FloatRGBA, FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
+	// The trail map: 5 cm a texel over its 51 m.
+	bOk &= SurfaceSetup::EnsureTarget(S->TrailMapTexture, 1024, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	return bOk;
 }
 
@@ -130,7 +140,7 @@ namespace DreamWorld::SurfaceSetup
 	{
 		const double FromPavement = FVector2D(X - 1300.0, Y - 400.0).Size();
 		const double Rolling = 45.0 * FMath::Sin(X / 900.0) * FMath::Cos(Y / 700.0) + 25.0 * FMath::Sin((X + Y) / 430.0);
-		const double Dip = -45.0 * FMath::Exp(-FVector2D(X - 900.0, Y + 1100.0).SizeSquared() / FMath::Square(450.0));
+		const double Dip = -90.0 * FMath::Exp(-FVector2D(X - 900.0, Y + 1100.0).SizeSquared() / FMath::Square(450.0));
 		return -3.0 + Rolling * FMath::SmoothStep(1400.0, 2600.0, FromPavement) + Dip;
 	}
 
@@ -318,7 +328,7 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	UWorld::InitializationValues Values;
 	Values.RequiresHitProxies(false);
 	Values.ShouldSimulatePhysics(false);
-	Values.EnableTraceCollision(false);
+	Values.EnableTraceCollision(true);   // the wind terrain bake traces the level
 	Values.CreateNavigation(false);
 	Values.CreateAISystem(false);
 	Values.AllowAudioPlayback(false);
@@ -374,10 +384,45 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SurfaceSetup::AddMesh(*World, Cone, ToonRed, FVector(1450.0, 350.0, 50.0), FVector(0.8), FRotator::ZeroRotator, TEXT("ToonCone"));
 	SurfaceSetup::AddMesh(*World, Figure, ToonBlue, FVector(950.0, 250.0, 5.0), FVector(1.0), FRotator(0.0, 200.0, 0.0), TEXT("ToonFigure"));
 
-	// A pond in the dip to the left: its own water material, rippled while it rains (MF_DreamWaterRipples).
+	// Ahead left: a heated circle (a mask brush: no water or snow on it, a soft edge), and a pergola with no shelter box,
+	// only a roof capture box that finds its roof from above.
+	ADreamSurfaceMask* Heated = World->SpawnActor<ADreamSurfaceMask>(FVector(450.0, -350.0, 0.0), FRotator::ZeroRotator);
+	Heated->Mask->Shape = EDreamSurfaceMaskShape::Circle;
+	Heated->Mask->Extent = FVector2D(250.0, 250.0);
+	Heated->Mask->FadeDistance = 120.0f;
+	Heated->Mask->Wetness = 0.0f;
+	Heated->Mask->Water = 0.0f;
+	Heated->Mask->Snow = 0.0f;
+	Heated->Mask->Dust = 1.0f;
+	Heated->SetActorLabel(TEXT("HeatedCircle"));
+	const FVector Pergola(2500.0, -500.0, 0.0);
+	for (const FVector2D& Corner : { FVector2D(-220.0, -170.0), FVector2D(220.0, -170.0), FVector2D(-220.0, 170.0), FVector2D(220.0, 170.0) })
+	{
+		SurfaceSetup::AddMesh(*World, Cylinder, Wood, Pergola + FVector(Corner, 140.0), FVector(0.2, 0.2, 2.8), FRotator::ZeroRotator, TEXT("PergolaPillar"));
+	}
+	SurfaceSetup::AddMesh(*World, Cube, Stone, Pergola + FVector(0.0, 0.0, 290.0), FVector(5.4, 4.4, 0.2), FRotator::ZeroRotator, TEXT("PergolaRoof"));
+	ADreamSurfaceRoofCapture* RoofBox = World->SpawnActor<ADreamSurfaceRoofCapture>(Pergola + FVector(0.0, 0.0, 200.0), FRotator::ZeroRotator);
+	RoofBox->Roof->Extent = FVector(320.0, 270.0, 200.0);
+	RoofBox->SetActorLabel(TEXT("PergolaRoofCapture"));
+
+	// A pond in the dip to the left, its edges buried in the slopes: its own water material, rippled while it rains
+	// (MF_DreamWaterRipples).
 	UMaterialInterface* Water = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamSurfaceWaterDemo.M_DreamSurfaceWaterDemo"));
-	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -38.0), FVector(3.5, 3.5, 1.0),
+	SurfaceSetup::AddMesh(*World, LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")), Water, FVector(900.0, -1100.0, -45.0), FVector(9.0, 9.0, 1.0),
 		FRotator::ZeroRotator, TEXT("Pond"));
+
+	// A window standing on the pavement, facing the start: a wooden frame round a pane of glass with the rain on it
+	// (MF_DreamGlassRain), the toon box seen through it.
+	if (UMaterialInterface* Glass = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamGlassDemo.M_DreamGlassDemo")))
+	{
+		const FVector Window(800.0, 750.0, 120.0);
+		SurfaceSetup::AddMesh(*World, Cube, Glass, Window, FVector(0.01, 2.0, 1.5), FRotator::ZeroRotator, TEXT("WindowPane"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window + FVector(0.0, 0.0, 80.0), FVector(0.1, 2.2, 0.1), FRotator::ZeroRotator, TEXT("WindowHead"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 0.0, 80.0), FVector(0.14, 2.2, 0.1), FRotator::ZeroRotator, TEXT("WindowSill"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window + FVector(0.0, 105.0, 0.0), FVector(0.1, 0.1, 1.7), FRotator::ZeroRotator, TEXT("WindowJamb"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 105.0, 0.0), FVector(0.1, 0.1, 1.7), FRotator::ZeroRotator, TEXT("WindowJamb"));
+		SurfaceSetup::AddMesh(*World, Cube, Wood, Window - FVector(0.0, 0.0, 102.5), FVector(0.1, 0.4, 0.35), FRotator::ZeroRotator, TEXT("WindowStand"));
+	}
 
 	// Far ahead right: a snow zone; its border lies on the ground.
 	ADreamWeatherZone* SnowZone = World->SpawnActor<ADreamWeatherZone>(FVector(5200.0, -2600.0, 0.0), FRotator::ZeroRotator);
@@ -389,6 +434,34 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_SnowRatio, 1.0f);
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_Temperature, -20.0f);
 	SnowZone->SetActorLabel(TEXT("SnowZone"));
+
+	// The wind's baked level heights over the test area: roofs keep the rain off, and the puddles follow the ground's
+	// dips (DSF_GroundLow) - the pond's hollow, the rolling ground's valleys.
+	// Props, pillars and the window are left out of it (pass-through): their tops are no roof over the ground beside them.
+	static const TSet<FString> Props = { TEXT("StoneBlock"), TEXT("MetalBall"), TEXT("WoodPost"), TEXT("StoneUnderCanopy"), TEXT("ToonBox"),
+		TEXT("ToonBall"), TEXT("ToonCone"), TEXT("ToonFigure"), TEXT("CanopyPillar"), TEXT("PergolaPillar"), TEXT("WindowPane"),
+		TEXT("WindowHead"), TEXT("WindowSill"), TEXT("WindowJamb"), TEXT("WindowStand") };
+	for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+	{
+		FString Label = It->GetActorLabel();
+		int32 Suffix = INDEX_NONE;
+		if (Label.FindLastChar(TEXT('_'), Suffix))
+		{
+			Label.LeftInline(Suffix);   // a repeated label comes back as Name_1, Name_2
+		}
+		if (Props.Contains(Label))
+		{
+			It->Tags.AddUnique(UDreamWindPassThroughComponent::PassThroughTag);
+		}
+	}
+	ADreamWindGlobal* Wind = World->SpawnActor<ADreamWindGlobal>(FVector(0.0, 0.0, 0.0), FRotator::ZeroRotator);
+	Wind->SetActorLabel(TEXT("Wind"));
+	Wind->TerrainBakeBounds = FBox(FVector(-2000.0, -4000.0, -500.0), FVector(7000.0, 3000.0, 1500.0));
+	Wind->TerrainBakeSettings.Resolution = 512;
+	if (!UDreamWindEditorLibrary::BakeTerrainMapForActor(Wind))
+	{
+		UE_LOG(LogDreamWorld, Warning, TEXT("Surface test level: the wind terrain map could not be baked; puddles follow the hollow pattern only."));
+	}
 
 	ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(0.0, 0.0, 260.0), FRotator(-12.0, 15.0, 0.0));
 	if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))

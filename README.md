@@ -449,8 +449,9 @@ past twelve) and a storm spawner, under weather that runs clear → rain → sto
 ## Surfaces
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
-(`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing in the hollows:
-rising, it fills the deepest dips first, then spreads into puddles over some two fifths of a flat surface), **Snow** (of the deepest cover, *Max Snow Depth*,
+(`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing where the surface lies low:
+rising, it fills the deepest dips first; full, a real dip holds it all over and flat ground in its deepest small hollows
+only, some tenth of it), **Snow** (of the deepest cover, *Max Snow Depth*,
 30 cm by default) and **Dust**.
 
 **How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
@@ -501,9 +502,10 @@ and the cover), 0.2 ms for an integration.
 
 | Function | For | What the weather does |
 | :-- | :-- | :-- |
-| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface (rough, not metal) darkens, every surface turns glossier, metal does not darken; puddles in the hollows of what faces up (dark, mirror-smooth, flat); snow on what faces up with a broken edge; dust under the snow |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
-| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow and dust |
+| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust |
+| `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
@@ -513,19 +515,68 @@ does not shimmer on it — and a surface not soaked yet shows short-lived wet sp
 the material functions (no decals); the toon function draws them as hard-edged rings and dots. They stop with the
 rain. Cost: some 0.03 ms of base pass at 1080p in the rain on the test level.
 
+**Hard and soft surfaces.** The weather functions take an optional **Softness** input: 0 a hard surface (stone,
+paving, wood, metal), 1 soft ground (soil, grass). Wet, soft ground mostly darkens and barely turns glossy (it drinks
+the water), and its puddles are faint; the demo terrain is soft. **Where the water stands**: in small hollows of
+*Project Settings ▸ Dream Surface ▸ Water ▸ Puddle Scale* (1.5 m by default) on flat ground, and in the ground's own
+dips — where it lies below its surroundings within *Low Radius* (3 m), judged from the wind's baked level heights
+(`DSF_GroundLow`; the cover map's third channel), so a level with a wind terrain map gets puddles in its real
+valleys and hollows; without one, the small hollows only. Walls, boxes and posts beside a point do not count as its
+surroundings. **Where snow thins out** — a zone's border, a light fall, a thaw — it breaks up over metres to tens of
+metres along a large pattern (`DSF_SnowEdge`), what faces up keeping it longest; the functions read the snow at four
+points 5 m around a pixel along an offset that wanders by up to 10 m (`DSM_SnowSoft`), so a zone's border fades over
+metres along an irregular line rather than the maps' texels (`SampleSurface` reads the point itself). The toon
+function keeps that edge hard but irregular. The level heights take every surface's top, so small props would roof
+the ground beside them: mark props, posts and windows pass-through for the wind (`UDreamWindPassThroughComponent` or
+its tag) before baking.
+
 They read the maps and the cover (`/DreamDynamicWorld/Surface/...`) and the shared collection only. The hollow pattern
-puddles gather in and snow thins at (`DSF_Hollow`) and the covers are in the shared header, so a CPU query can tell
-whether a point stands in a puddle. Their HLSL is one file, `Shaders/Private/DreamSurfaceMaterial.ush`, included by
+puddles gather in and snow thins at (`DSF_Hollow`, `DSF_PuddleDepth`, `DSF_SnowEdge`) and the covers are in the shared
+header, so a CPU query can tell whether a point stands in a puddle (`SampleContact` takes a hard surface). Their HLSL is one file, `Shaders/Private/DreamSurfaceMaterial.ush`, included by
 each function's custom nodes (no function calls another). Demo materials: `M_DreamSurfaceDemo`, `M_DreamSurfaceToonDemo`
-(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`.
+(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`, `M_DreamGlassDemo`.
+
+**Rain on glass.** `MF_DreamGlassRain` finds the pane's own axes from its geometric normal (across it horizontally, up
+it), so it works on any pane at any angle without UVs. The drops bend the normal (their refraction and highlights),
+smooth the roughness and make the pane a little less clear (opacity). They take the rain landing on the pane (none
+under cover, as the ground) and the wetness the surface maps hold there, so a pane under eaves stays dry and the drops
+outlast the rain as long as the ground's film does. The drops are a pure function of the place and time
+(`DSF_GlassRain` in the shared header; `DreamSurface.GlassRain` checks it on the CPU): no texture, no render target.
+A translucent glass material wants per-pixel lighting (*Surface ForwardShading*) for the drops' highlights to show.
+
+**Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
+what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust: a
+heated square with no snow, a path kept clear, more water in a gutter. A box or circle seen from above (the weather
+zones' footprint function), fading over *Fade Distance*; overlapping brushes multiply; `SampleSurface` and the maps
+(a mask map beside the cover, `RT_DreamSurfaceMask`) both see it. A **roof capture box** (`ADreamSurfaceRoofCapture`)
+captures from above the height of what stands inside it — a roof, a canopy, a deck — with a depth capture when it
+registers in a game world, when it moves and on `CaptureNow`, so what lies beneath stays dry and free of snow with no
+shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
+per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
+
+**Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
+wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is
+there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow or dust, with the state, the puddle's depth
+and the snow's) and calls `OnContact` with it — the place for a footstep sound or a splash — then presses a print
+with `Stamp(Location, Radius, Strength)`. The prints go to a **trail map** around the camera
+(`RT_DreamSurfaceTrails`, 1024² over *Trail Extent*, 51.2 m; placed by `DDW_SurfaceTrails`): how deep a print is and
+how stirred the water. The materials sink the snow and the dust where it was trodden (the terrain function lowers
+its snow too, the toon function cuts hard-edged holes) and ring the puddles where a step went in. Prints fill in as
+fresh snow falls (*Print Fill Hours* of snow), the wind blows them over (*Print Wind Hours*) and they fade in any
+case (*Print Fade Hours*, in game hours); the stirred water settles in *Ripple Seconds*, real time. The map follows
+the camera in eighths of its size and keeps what it carried over; prints that leave it are gone. The trail map is
+for the look: `SampleSurface` does not see the prints.
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
-a shelter box (dry beneath it), realistic props (stone, metal, wood) and toon props and a toon figure, rolling ground,
+a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, a wind
+terrain map baked over the test area (roofs, and the dips the puddles follow), realistic
+props (stone, metal, wood) and toon props and a toon figure, rolling ground,
 and a snow zone far ahead whose border shows on the ground. The schedule is clear; force the weather
 (`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
 
 Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
-`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration).
+`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration), `DreamSurface.Stamp <x> <y>
+[radius] [strength]` (one print) and `DreamSurface.Walk <x0> <y0> <x1> <y1> [stride]` (a line of footprints).
 
 The rest of this document is **Wind**.
 

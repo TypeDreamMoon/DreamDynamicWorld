@@ -111,13 +111,43 @@ DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air)
 	return float4(DSF_Sunlight(Air.w, Weather.x), Air.z, 0.0f, 0.0f);
 }
 
-// The water a point holds at a hollow this deep (0 on a crest .. 1 at the bottom of a dip): how much of a puddle stands
-// there, 0..1. Rising Water fills the deepest dips first and spreads to shallower ones; full, it stands in the deepest
-// half of the hollow pattern (some two fifths of a flat surface), never everywhere.
-DSF_FN float DSF_PuddleAt(float Water, float Hollow, float Softness)
+// How far the ground at a point lies below its surroundings, cm (positive in a dip, negative on a rise), from its height
+// and the heights at eight points around it (A, B: four each). Whatever stands much higher than the point (a wall, a
+// box, a post) is left out: it does not make the ground beside it a dip.
+DSF_FN float DSF_GroundLow(float Here, float4 A, float4 B)
 {
-	float Level = 1.0f - 0.5f * saturate(Water);
-	return smoothstep(Level - Softness, Level + Softness, saturate(Hollow));
+	float Sum = 0.0f;
+	float Count = 0.0f;
+	float Around[8] = { A.x, A.y, A.z, A.w, B.x, B.y, B.z, B.w };
+	for (int i = 0; i < 8; ++i)
+	{
+		float Rise = Around[i] - Here;
+		if (Rise < 80.0f)
+		{
+			Sum += clamp(Rise, -40.0f, 40.0f);
+			Count += 1.0f;
+		}
+	}
+	return Count > 0.0f ? Sum / Count : 0.0f;
+}
+
+// How deep a point lies for the water, 0 (a crest) .. 1 (the bottom of a dip): the small hollows of the surface (Hollow,
+// the hollow pattern at the puddle scale) and the ground's own lows (Low: how far the ground lies below its surroundings,
+// cm, from the level's heights; 0 where they are not known). A dip a quarter of a metre deep holds water whatever the
+// pattern; on flat ground only the pattern's deepest hollows do.
+DSF_FN float DSF_PuddleDepth(float Hollow, float Low)
+{
+	return saturate(saturate(Hollow) * 0.8f + saturate(Low / 25.0f) * 0.7f);
+}
+
+// The water a point holds at this depth (DSF_PuddleDepth): how much of a puddle stands there, 0..1. Rising Water fills
+// the deepest first and spreads to shallower places; full, on flat ground it stands in the pattern's deepest hollows
+// only (a tenth or so of the surface), in a real dip all over it.
+DSF_FN float DSF_PuddleAt(float Water, float Depth, float Softness)
+{
+	// Dry, the level stands above the deepest point; full, at 0.58.
+	float Level = 1.0f + Softness - (0.42f + Softness) * saturate(Water);
+	return smoothstep(Level - Softness, Level + Softness, saturate(Depth));
 }
 
 // A hash of a lattice point, 0..1.
@@ -152,17 +182,131 @@ DSF_FN float DSF_Hollow(float WorldX, float WorldY, float Scale)
 	return saturate(1.0f - N / 0.975f);
 }
 
-// How much of a surface the lying snow covers: thicker the more it faces up (Up = the normal's Z), the hollow pattern
-// breaking the edge.
-DSF_FN float DSF_SnowCover(float Snow, float Up, float Hollow)
+// The pattern a snow cover's edge follows, 0..1: patches of some ten metres over drifts of some thirty, so where the
+// snow thins out (a zone's border, a light fall, a thaw) it breaks up over metres to tens of metres, not along a line.
+DSF_FN float DSF_SnowEdge(float WorldX, float WorldY)
 {
-	return saturate((Snow * 1.4f - (1.0f - Up) * 1.6f - (1.0f - Hollow) * 0.25f) * 6.0f);
+	return DSF_Hollow(WorldX, WorldY, 900.0f) * 0.6f + DSF_Hollow(WorldX + 311.0f, WorldY - 97.0f, 3200.0f) * 0.4f;
 }
 
-// How much of a surface the standing water covers: in the hollows of what faces up.
-DSF_FN float DSF_PuddleCover(float Water, float Up, float Hollow)
+// How much of a surface the lying snow covers, softly: what faces up first (Up = the normal's Z), steep slopes last,
+// the small hollows (Hollow) and the edge pattern (Edge, DSF_SnowEdge) breaking it up as it thins. A full cover is
+// whole on anything facing up; a toon look hardens the edge.
+DSF_FN float DSF_SnowCover(float Snow, float Up, float Hollow, float Edge)
 {
-	return DSF_PuddleAt(Water, Hollow, 0.06f) * smoothstep(0.88f, 0.97f, Up);
+	return saturate((Snow * 1.4f - (1.0f - Up) * 1.6f - (1.0f - Hollow) * 0.15f - (1.0f - Edge) * 0.45f) * 2.5f);
+}
+
+// How much of a surface the standing water covers: where it lies deep enough (Depth, DSF_PuddleDepth) on what faces up,
+// faint on soft ground (Soft 0 hard .. 1 soil or grass, which drinks the water and hides it in its texture).
+DSF_FN float DSF_PuddleCover(float Water, float Up, float Depth, float Soft)
+{
+	return DSF_PuddleAt(Water, Depth, 0.05f) * smoothstep(0.88f, 0.97f, Up) * (1.0f - 0.7f * saturate(Soft));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Rain on glass (MF_DreamGlassRain). Glass = (across, up the pane) in cm.
+
+// One layer of drops sitting on glass: one per cell of Scale cm at most, as many as Amount (0..1) brings, each a small
+// dome. While it rains (Cycle > 0) a drop comes and goes over some seconds; once it stops they stay as they are. Clear
+// (0..1) wipes them where a running drop went by. Returns the dome's slope (x, y) and how much of the glass is water (z).
+DSF_FN float3 DSF_GlassBeads(float2 Glass, float Time, float Amount, float Cycle, float Clear, float Scale, float Seed)
+{
+	float2 Q = Glass * (1.0f / Scale);
+	float2 C = floor(Q);
+	float Here = saturate((Amount - DSF_Hash(C.x + Seed, C.y + 17.0f)) * 6.0f) * (1.0f - Clear);
+	if (Here <= 0.0f)
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+	float Age = frac(Time * 0.12f + DSF_Hash(C.x + 4.1f, C.y + Seed));
+	float Life = smoothstep(0.0f, 0.05f, Age) * (1.0f - smoothstep(0.75f, 1.0f, Age));
+	Here = Here * lerp(1.0f, Life, Cycle);
+	// Anywhere in its cell it fits in, so the drops show no grid.
+	float R = 0.12f + 0.2f * DSF_Hash(C.x + 8.9f, C.y + Seed + 3.0f);
+	float2 Centre = C + R + (1.0f - 2.0f * R) * float2(DSF_Hash(C.x + 2.3f, C.y + Seed), DSF_Hash(C.x + Seed, C.y + 6.1f));
+	float2 D = (Q - Centre) * (1.0f / R);
+	float Dist2 = dot(D, D);
+	if (Dist2 >= 1.0f)
+	{
+		return float3(0.0f, 0.0f, 0.0f);
+	}
+	// A dome's height is 1 - d²: its slope points to the centre, steepest at the rim.
+	float Edge = 1.0f - smoothstep(0.7f, 1.0f, Dist2);
+	float K = 1.6f * Here * Edge;
+	return float3(-D.x * K, -D.y * K, Here * Edge);
+}
+
+// Drops running down a pane: columns Width cm wide, each with a drop now and then (more columns the harder it rains)
+// that slides down at its own speed along a slowly wandering path, a thin wet trail and a few beads behind it. Returns
+// the slope (x, y), how much is water (z) and where it went by (w: to clear the sitting drops there).
+DSF_FN float4 DSF_GlassRunners(float2 Glass, float Time, float Rain, float Width)
+{
+	float Column = floor(Glass.x / Width);
+	float Running = saturate((Rain - DSF_Hash(Column + 11.0f, 5.0f)) * 3.0f);
+	if (Running <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float Speed = 6.0f + 14.0f * DSF_Hash(Column, 23.0f);
+	float Period = 50.0f + 90.0f * DSF_Hash(Column + 3.0f, 41.0f);
+	float Size = 0.35f + 0.3f * DSF_Hash(Column + 7.0f, 13.0f);
+	// The path wanders across the column as it goes down: a function of the height, so the trail follows the drop.
+	float Path = (Column + 0.5f) * Width + sin(Glass.y * 0.21f + DSF_Hash(Column, 3.0f) * 6.28f) * Width * 0.18f
+		+ sin(Glass.y * 0.57f + DSF_Hash(Column, 9.0f) * 6.28f) * Width * 0.07f;
+	float Across = Glass.x - Path;
+	// Height above the drop's head, 0..Period: the head moves down, so a point's height above it grows with time.
+	float Above = frac((Glass.y + Time * Speed) / Period + DSF_Hash(Column, 31.0f)) * Period;
+
+	// The head: a drop a little longer than wide.
+	float HX = Across / Size;
+	float HY = (Above - Size * 1.2f) / (Size * 1.4f);
+	float HeadDist2 = HX * HX + HY * HY;
+	float Head = HeadDist2 < 1.0f ? (1.0f - smoothstep(0.6f, 1.0f, HeadDist2)) : 0.0f;
+	float SlopeX = -HX * 2.0f * Head;
+	float SlopeY = -HY * 2.0f * Head;
+
+	// The trail: thin, narrowing and fading with height, a bead left now and then.
+	float TrailLength = 12.0f + 20.0f * DSF_Hash(Column + 5.0f, 2.0f);
+	float Behind = Above - Size * 2.0f;
+	float Along = saturate(Behind / TrailLength);
+	float InTrail = (Behind > 0.0f && Along < 1.0f) ? 1.0f : 0.0f;
+	float TrailWidth = max(Size * 0.45f * (1.0f - Along), 0.01f);
+	float Trail = InTrail * (1.0f - smoothstep(TrailWidth * 0.5f, TrailWidth, abs(Across))) * (1.0f - Along);
+	float BeadSize = max(Size * 0.4f * (1.0f - Along), 0.05f);
+	float BX = Across / BeadSize;
+	float BY = (frac(Behind / 1.6f) - 0.5f) * 1.6f / BeadSize;
+	float BeadDist2 = BX * BX + BY * BY;
+	float Bead = (InTrail > 0.0f && BeadDist2 < 1.0f && DSF_Hash(Column + floor(Behind / 1.6f), 77.0f) > 0.55f)
+		? (1.0f - smoothstep(0.6f, 1.0f, BeadDist2)) * (1.0f - Along) : 0.0f;
+	SlopeX += -BX * 1.2f * Bead - sign(Across) * Trail * 0.6f;
+	SlopeY += -BY * 1.2f * Bead;
+
+	float Water = max(Head, max(Trail * 0.6f, Bead));
+	float Swept = InTrail * (1.0f - smoothstep(Size * 0.8f, Size * 1.4f, abs(Across))) * (1.0f - Along * Along);
+	return float4(SlopeX * Running, SlopeY * Running, Water * Running, max(Swept, Head) * Running);
+}
+
+// Rain on a pane of glass. Rain = the rain landing there now; Wet = the wetness left there (the state's x, under
+// cover), so the drops stay after the rain and go as the surface dries; Steep = how upright the pane is (0 flat ..
+// 1 upright: on a flat pane nothing runs). Returns the slope of the water over the glass (x across, y up; a normal on
+// the pane bends by -slope), how much of it is water (z) and the running drops (w, their heads and trails).
+DSF_FN float4 DSF_GlassRain(float2 Glass, float Time, float Rain, float Wet, float Steep)
+{
+	float Amount = max(Rain * 0.9f, Wet * 0.75f);
+	if (Amount <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float4 Run = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	if (Steep > 0.0f && Rain > 0.0f)
+	{
+		Run = DSF_GlassRunners(Glass, Time, Rain * Steep, 2.5f);
+	}
+	float Cycle = saturate(Rain * 4.0f);
+	float3 Big = DSF_GlassBeads(Glass, Time, Amount * 0.8f, Cycle, Run.w, 1.4f, 19.0f);
+	float3 Small = DSF_GlassBeads(Glass + 0.37f, Time * 1.3f, Amount, Cycle, Run.w, 0.55f, 53.0f);
+	return float4(Run.x + Big.x + Small.x, Run.y + Big.y + Small.y, saturate(max(Run.z, max(Big.z, Small.z))), saturate(Run.z));
 }
 
 #endif // DREAMSURFACE_SHARED_H

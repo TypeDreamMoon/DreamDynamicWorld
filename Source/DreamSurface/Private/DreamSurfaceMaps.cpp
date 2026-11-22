@@ -2,6 +2,8 @@
 
 #include "DreamSurfaceMaps.h"
 #include "DreamSurfaceMapRenderer.h"
+#include "DreamSurfaceMask.h"
+#include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
@@ -104,6 +106,8 @@ void FDreamSurfaceMaps::AddReferencedObjects(FReferenceCollector& Collector)
 	Collector.AddReferencedObject(Near.Target);
 	Collector.AddReferencedObject(Far.Target);
 	Collector.AddReferencedObject(Cover);
+	Collector.AddReferencedObject(Mask);
+	Collector.AddReferencedObject(Trails);
 }
 
 uint32 FDreamSurfaceMaps::GetDrawCount() const
@@ -118,7 +122,7 @@ uint32 FDreamSurfaceMaps::GetIntegrateCount() const
 
 bool FDreamSurfaceMaps::Resolve()
 {
-	if (Near.Target && Far.Target && Cover)
+	if (Near.Target && Far.Target && Cover && Mask && Trails)
 	{
 		return true;
 	}
@@ -132,13 +136,15 @@ bool FDreamSurfaceMaps::Resolve()
 	using namespace DreamSurface::Maps;
 	Near.Target = LoadTarget(S->NearMapTexture, PF_FloatRGBA);
 	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
-	Cover = LoadTarget(S->CoverMapTexture, PF_G32R32F);
+	Cover = LoadTarget(S->CoverMapTexture, PF_A32B32G32R32F);
+	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
+	Trails = LoadTarget(S->TrailMapTexture, PF_FloatRGBA);
 	if (!Near.Target || !Far.Target || !Cover)
 	{
 		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, cover %s"),
 			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
 	}
-	return Near.Target && Far.Target && Cover;
+	return Near.Target && Far.Target && Cover && Mask && Trails;
 }
 
 void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
@@ -154,6 +160,7 @@ void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
 		Clock->SetVectorParameter(MPC_SurfaceNear, Off);
 		Clock->SetVectorParameter(MPC_SurfaceFar, Off);
 		Clock->SetVectorParameter(MPC_SurfaceView, Off);
+		Clock->SetVectorParameter(MPC_SurfaceTrails, Off);
 	}
 }
 
@@ -163,7 +170,7 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	const FDreamSurfaceState& View = Surface.GetViewState();
 	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
-	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, 0.0f));
+	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, S->PuddleScale));
 
 	UWorld* World = Surface.GetWorld();
 	const bool bCanRender = S->bSurfaceMaps && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
@@ -194,6 +201,8 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	DrawCover(Clock, NearCenter, NearExtent, Now);
 
 	using namespace DreamSurface::Maps;
+	DrawTrails(Surface, Clock, Weather.GetViewSample(), Now);
+	Clock.SetVectorParameter(MPC_SurfaceTrails, Placement(TrailCenter, UDreamSurfaceSettings::Get()->TrailExtent, TrailCenter.X < 1.0e29));
 	Clock.SetVectorParameter(MPC_SurfaceNear, Placement(Near.Center, Near.Extent, Near.bLive));
 	Clock.SetVectorParameter(MPC_SurfaceFar, Placement(Far.Center, Far.Extent, Far.bLive));
 }
@@ -241,10 +250,20 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now)
 {
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
-	if (Center == CoverCenter && Now - LastCoverDraw < S->CoverInterval)
+	// A roof capture that captured again redraws the cover at once.
+	int32 RoofCaptures = 0;
+	for (TObjectIterator<UDreamSurfaceRoofCaptureComponent> It; It; ++It)
+	{
+		if (It->GetWorld() == Clock.GetWorld())
+		{
+			RoofCaptures += It->GetCaptureCount();
+		}
+	}
+	if (RoofCaptures == LastRoofCaptures && Center == CoverCenter && Now - LastCoverDraw < S->CoverInterval)
 	{
 		return;
 	}
+	LastRoofCaptures = RoofCaptures;
 	FDreamSurfaceMapRenderer::FCoverArgs Args;
 	Args.Target = Cover->GameThread_GetRenderTargetResource();
 	if (!Args.Target)
@@ -253,8 +272,9 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 	}
 	Args.Center = FVector2f(Center);
 	Args.Extent = Extent;
+	Args.LowRadius = UDreamSurfaceSettings::Get()->LowRadius;
 
-	// The wind's baked level heights: the level's top surfaces.
+	// The wind's baked level heights: the level's top surfaces (roofs, and the ground's lows for the puddles).
 	UWorld* World = Clock.GetWorld();
 	const UDreamWindSubsystem* Wind = World && UDreamWeatherSettings::Get()->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
 	if (Wind)
@@ -291,7 +311,83 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 		Args.Shelters.Add(FVector4f(float(Box->Extent.X), float(Box->Extent.Y), float(C.Z + Box->Extent.Z), Box->FadeDistance));
 		Args.Shelters.Add(FVector4f(Box->Strength, 0.0f, 0.0f, 0.0f));
 	}
+	// Roof captures in reach (up to four, the nearest), and the mask brushes.
+	TArray<const UDreamSurfaceRoofCaptureComponent*> Roofs;
+	for (TObjectIterator<UDreamSurfaceRoofCaptureComponent> It; It; ++It)
+	{
+		const UDreamSurfaceRoofCaptureComponent* Roof = *It;
+		if (Roof && Roof->GetWorld() == World && Roof->IsRegistered() && Roof->GetCaptureTarget() && Roof->GetCaptureCount() > 0
+			&& Reach.ExpandBy(Roof->GetCaptureSize()).IsInside(FVector2D(Roof->GetComponentLocation())))
+		{
+			Roofs.Add(Roof);
+		}
+	}
+	Roofs.Sort([&Center](const UDreamSurfaceRoofCaptureComponent& A, const UDreamSurfaceRoofCaptureComponent& B)
+	{
+		return FVector2D::DistSquared(FVector2D(A.GetComponentLocation()), Center) < FVector2D::DistSquared(FVector2D(B.GetComponentLocation()), Center);
+	});
+	for (const UDreamSurfaceRoofCaptureComponent* Roof : Roofs)
+	{
+		if (Args.RoofTargets.Num() >= 4)
+		{
+			break;
+		}
+		const FVector C = Roof->GetComponentLocation();
+		const float Yaw = FMath::DegreesToRadians(float(Roof->GetComponentRotation().Yaw));
+		Args.RoofTargets.Add(Roof->GetCaptureTarget()->GameThread_GetRenderTargetResource());
+		Args.Roofs.Add(FVector4f(float(C.X), float(C.Y), FMath::Cos(Yaw), FMath::Sin(Yaw)));
+		Args.Roofs.Add(FVector4f(float(Roof->Extent.X), float(Roof->Extent.Y), float(Roof->GetCaptureZ()), float(Roof->GetCaptureSize())));
+		Args.Roofs.Add(FVector4f(Roof->Strength, float(Roof->Extent.Z * 2.0 + 10.0), 0.0f, 0.0f));
+	}
+	for (TObjectIterator<UDreamSurfaceMaskComponent> It; It; ++It)
+	{
+		const UDreamSurfaceMaskComponent* Brush = *It;
+		if (Brush && Brush->GetWorld() == World && Brush->IsRegistered()
+			&& Reach.ExpandBy(FMath::Max(Brush->Extent.X, Brush->Extent.Y) * 1.5 + Brush->FadeDistance).IsInside(FVector2D(Brush->GetComponentLocation())))
+		{
+			Brush->MakeMapRecord(Args.Masks);
+		}
+	}
+	Args.MaskTarget = Mask->GameThread_GetRenderTargetResource();
 	Renderer->EnqueueCover(MoveTemp(Args));
 	CoverCenter = Center;
 	LastCoverDraw = Now;
+}
+
+void FDreamSurfaceMaps::DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsystem& Clock, const FDreamWeatherSample& View, double Now)
+{
+	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
+	const bool bPrints = Surface.GetPendingStamps().Num() > 0;
+	if (!bPrints && Now - LastTrailDraw < S->MapInterval)
+	{
+		return;
+	}
+	FDreamSurfaceMapRenderer::FTrailArgs Args;
+	Args.Target = Trails->GameThread_GetRenderTargetResource();
+	if (!Args.Target)
+	{
+		return;
+	}
+	// The map moves in eighths of its size; what it held moves with it.
+	const float Extent = FMath::Max(500.0f, S->TrailExtent);
+	const double Snap = Extent / 8.0;
+	const FVector At = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+	const FVector2D Center(FMath::GridSnap(At.X, Snap), FMath::GridSnap(At.Y, Snap));
+	const double WorldSeconds = Clock.GetWorldSeconds();
+	const bool bFirst = TrailCenter.X > 1.0e29;
+	// A print fills with new snow, blows away with the wind and settles; the stirred water calms in real seconds.
+	const double GameHours = bFirst ? 0.0 : FMath::Clamp((WorldSeconds - LastTrailWorldSeconds) / 3600.0, 0.0, 48.0);
+	const double RealSeconds = bFirst ? 0.0 : FMath::Clamp(Now - LastTrailDraw, 0.0, 10.0);
+	const double FillRate = View.SnowHere / S->PrintFillHours + View.Wind / S->PrintWindHours + 1.0 / S->PrintFadeHours;
+	Args.Center = FVector2f(Center);
+	Args.PreviousCenter = FVector2f(bFirst ? Center : TrailCenter);
+	Args.Extent = Extent;
+	Args.PrintKeep = float(FMath::Exp(-GameHours * FillRate));
+	Args.RippleKeep = float(FMath::Exp(-RealSeconds / FMath::Max(0.05f, S->RippleSeconds)));
+	Args.bReset = bFirst || WorldSeconds < LastTrailWorldSeconds;
+	Args.Stamps = Surface.TakePendingStamps();
+	Renderer->EnqueueTrails(MoveTemp(Args));
+	TrailCenter = Center;
+	LastTrailDraw = Now;
+	LastTrailWorldSeconds = WorldSeconds;
 }

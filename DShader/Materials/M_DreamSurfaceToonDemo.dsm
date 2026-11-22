@@ -10,6 +10,7 @@ VirtualFunction(Name="MF_DreamSurfaceWeatherToon")
 	}
 	Inputs = {
 		MaterialAttributes Attributes;
+		float Softness = 0.0;
 	}
 	Outputs = {
 		MaterialAttributes Result;
@@ -56,7 +57,7 @@ Shader(Name="Surface/Materials/M_DreamSurfaceToonDemo", Root="Plugin.DreamDynami
 		Dry.BaseColor = Tint;
 		Dry.Roughness = Roughness;
 		MaterialAttributes Wet;
-		MF_DreamSurfaceWeatherToon(Dry, Wet);
+		MF_DreamSurfaceWeatherToon(Dry, 0.0, Wet);
 		float3 N = UE.VertexNormalWS();
 		float3 V = UE.CameraVectorWS();
 		Attrs = Wet;

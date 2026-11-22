@@ -9,6 +9,7 @@ VirtualFunction(Name="MF_DreamSurfaceWeatherTerrain")
 	}
 	Inputs = {
 		MaterialAttributes Attributes;
+		float Softness = 0.0;
 	}
 	Outputs = {
 		MaterialAttributes Result;
@@ -50,6 +51,6 @@ Shader(Name="Surface/Materials/M_DreamSurfaceTerrainDemo", Root="Plugin.DreamDyn
 		Dry.Specular = 0.5;
 		Dry.Normal = float3(0.0, 0.0, 1.0);
 		Dry.WorldPositionOffset = float3(0.0, 0.0, 0.0);
-		MF_DreamSurfaceWeatherTerrain(Dry, Attrs);
+		MF_DreamSurfaceWeatherTerrain(Dry, 1.0, Attrs);   // soil and grass: soft ground
 	}
 }

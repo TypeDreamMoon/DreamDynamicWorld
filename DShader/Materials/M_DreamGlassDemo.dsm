@@ -1,0 +1,49 @@
+// DreamSurface demo: a pane of window glass with the rain on it (MF_DreamGlassRain) - clear, faintly tinted, lit per
+// pixel so the drops' highlights show.
+
+VirtualFunction(Name="MF_DreamGlassRain")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamGlassRain");
+		Description = "DreamSurface: rain on window glass.";
+	}
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+	Outputs = {
+		MaterialAttributes Result;
+	}
+}
+
+Shader(Name="Surface/Materials/M_DreamGlassDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  Tint    = vec3(0.04, 0.05, 0.05) [Group="Glass"];
+		float Clarity = 0.82                   [Group="Glass"; Desc="How clear the dry pane is (1 - opacity)."];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Translucent";
+		ShadingModel = "DefaultLit";
+		TranslucencyLightingMode = "TLM_SurfacePerPixelLighting";
+		bUsedWithStaticLighting = false;
+	}
+
+	Outputs = {
+		MaterialAttributes Attrs;
+		Base.MaterialAttributes = Attrs;
+	}
+
+	Graph = {
+		MaterialAttributes Dry;
+		Dry.BaseColor = Tint;
+		Dry.Roughness = 0.04;
+		Dry.Metallic = 0.0;
+		Dry.Specular = 0.5;
+		Dry.Opacity = 1.0 - Clarity;
+		Dry.Normal = float3(0.0, 0.0, 1.0);
+		MF_DreamGlassRain(Dry, Attrs);
+	}
+}

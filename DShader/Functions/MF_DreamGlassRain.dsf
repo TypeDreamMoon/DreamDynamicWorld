@@ -1,0 +1,78 @@
+// DreamSurface - rain on window glass: one node at the end of a glass material's attributes.
+//
+// MF_DreamGlassRain(Attributes) -> Attributes
+//
+//   MF_DreamGlassRain(Attrs, Attrs);     // the last thing before Base.MaterialAttributes
+//
+// While it rains on the pane (at the view, DDW_Weather0; not under cover) drops gather on it and come and go, and now
+// and then one runs down along a wandering path, leaving a thin trail and a few beads and wiping the drops it passes.
+// After the rain the sitting drops stay as long as the wetness there does (the surface maps' state), and go as it
+// dries. The drops bend the normal (their refraction and highlights), smooth the roughness and make the pane a little
+// less clear. The pane's own axes come from its geometric normal: across it horizontally and up it; a flat pane (a
+// skylight) gets sitting drops only. The drops are Shaders/Shared/DreamSurfaceShared.h (DSF_GlassRain), the same for the CPU tests.
+
+Function float4 DreamGlassRain_Shown(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params, in float4 Weather0,
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap, in Texture2D MaskMap)
+{
+	// The wetness left on the pane (x) and the rain landing on it now (y).
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Exposure = DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler);
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
+		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
+	return float4(DSM_Covered(State, Exposure).x, DSM_RainHere(Weather0, Exposure), 0.0f, 0.0f);
+}
+
+Function float4 DreamGlassRain_Water(in float3 WorldPos, in float3 Normal, in float Wet, in float Rain, in float Time)
+{
+	// The water's slope turned into a world-space bend of the normal (xyz) and how much of the pane is water (w).
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float3 N = normalize(Normal);
+	float3 Across = abs(N.z) < 0.98f ? normalize(cross(float3(0.0f, 0.0f, 1.0f), N)) : float3(1.0f, 0.0f, 0.0f);
+	float3 UpPane = cross(N, Across);
+	float2 Glass = float2(dot(WorldPos, Across), dot(WorldPos, UpPane));
+	float Steep = saturate((0.97f - abs(N.z)) * 4.0f);
+	float4 R = DSF_GlassRain(Glass, Time, Rain, Wet, Steep);
+	return float4(-(Across * R.x + UpPane * R.y) * 0.5f, R.z);
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamGlassRain", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: rain on window glass (sitting and running drops, staying while the pane is wet). Attributes in, attributes out: put it last.";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
+		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
+		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
+	}
+
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+
+	Outputs = {
+		MaterialAttributes Result;
+	}
+
+	Graph = {
+		float3 WP = UE.WorldPosition();
+		float4 Shown = DreamGlassRain_Shown(WP, NearPlace, FarPlace, ViewState, Params, Weather0, NearMap, FarMap, CoverMap, MaskMap);
+		float4 Water = DreamGlassRain_Water(WP, UE.VertexNormalWS(), Shown.x, Shown.y, UE.Time());
+		float3 Bend = UE.TransformVector(Input = Water.xyz, Source = "World", Destination = "Tangent");
+		Result = Attributes;
+		Result.Normal = normalize(Attributes.Normal + Bend);
+		Result.Roughness = lerp(Attributes.Roughness, min(Attributes.Roughness, 0.03), Water.w);
+		Result.Opacity = lerp(Attributes.Opacity, 1.0, 0.25 * Water.w);
+	}
+}

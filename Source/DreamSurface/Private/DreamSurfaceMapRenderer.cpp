@@ -86,7 +86,18 @@ class FDreamSurfaceCoverCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, TerrainTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Shelters)
-		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float2>, OutCover)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutCover)
+		SHADER_PARAMETER(float, LowRadius)
+		SHADER_PARAMETER(uint32, NumRoofs)
+		SHADER_PARAMETER_ARRAY(FVector4f, Roofs, [12])
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth0)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth1)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth2)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, RoofDepth3)
+		SHADER_PARAMETER_SAMPLER(SamplerState, RoofSampler)
+		SHADER_PARAMETER(uint32, NumMasks)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Masks)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMask)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
@@ -230,10 +241,138 @@ void FDreamSurfaceMapRenderer::Cover_RenderThread(FRDGBuilder& GraphBuilder, con
 	Params->TerrainSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	Params->Shelters = GraphBuilder.CreateSRV(ShelterBuffer);
 	Params->OutCover = GraphBuilder.CreateUAV(Target);
+	Params->LowRadius = FMath::Max(Args.LowRadius, 50.0f);
+
+	// Roof captures: their depth targets in four slots (a black stand-in for the unused ones).
+	const int32 NumRoofs = FMath::Min3(4, Args.RoofTargets.Num(), Args.Roofs.Num() / 3);
+	FRDGTextureRef RoofTextures[4];
+	for (int32 i = 0; i < 4; ++i)
+	{
+		FRHITexture* RoofRHI = i < NumRoofs && Args.RoofTargets[i] ? Args.RoofTargets[i]->GetRenderTargetTexture() : nullptr;
+		RoofTextures[i] = RoofRHI ? RegisterExternalTexture(GraphBuilder, RoofRHI, TEXT("DreamSurface.RoofDepth")) : GSystemTextures.GetBlackDummy(GraphBuilder);
+	}
+	Params->NumRoofs = uint32(NumRoofs);
+	for (int32 i = 0; i < NumRoofs * 3; ++i)
+	{
+		Params->Roofs[i] = Args.Roofs[i];
+	}
+	Params->RoofDepth0 = RoofTextures[0];
+	Params->RoofDepth1 = RoofTextures[1];
+	Params->RoofDepth2 = RoofTextures[2];
+	Params->RoofDepth3 = RoofTextures[3];
+	Params->RoofSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+
+	// Mask brushes, into the mask map beside the cover (a transient one when the map is missing).
+	const TArray<FVector4f> NoMask = { FVector4f::Zero(), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(1.0f) };
+	FRDGBufferRef MaskBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Masks"), NonEmpty(Args.Masks, NoMask));
+	FRHITexture* MaskRHI = Args.MaskTarget ? Args.MaskTarget->GetRenderTargetTexture() : nullptr;
+	FRDGTextureRef MaskMap = MaskRHI && EnumHasAnyFlags(MaskRHI->GetFlags(), TexCreate_UAV)
+		? RegisterExternalTexture(GraphBuilder, MaskRHI, TEXT("DreamSurface.Mask"))
+		: GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Resolution, PF_FloatRGBA, FClearValueBinding::White, TexCreate_ShaderResource | TexCreate_UAV), TEXT("DreamSurface.MaskScratch"));
+	Params->NumMasks = uint32(Args.Masks.Num() / 3);
+	Params->Masks = GraphBuilder.CreateSRV(MaskBuffer);
+	Params->OutMask = GraphBuilder.CreateUAV(MaskMap);
 
 	TShaderMapRef<FDreamSurfaceCoverCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceCover %dx%d, %d shelters", Resolution.X, Resolution.Y, Args.Shelters.Num() / 3),
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceCover %dx%d, %d shelters, %d roofs, %d masks", Resolution.X, Resolution.Y,
+		Args.Shelters.Num() / 3, NumRoofs, Args.Masks.Num() / 3),
 		Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, ThreadGroupSize));
+	GraphBuilder.SetTextureAccessFinal(Target, ERHIAccess::SRVMask);
+	if (MaskRHI && MaskMap->IsExternal())
+	{
+		GraphBuilder.SetTextureAccessFinal(MaskMap, ERHIAccess::SRVMask);
+	}
+	DrawCount.fetch_add(1);
+}
+
+class FDreamSurfaceTrailsCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSurfaceTrailsCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSurfaceTrailsCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER(FVector2f, TrailCenter)
+		SHADER_PARAMETER(FVector2f, PreviousCenter)
+		SHADER_PARAMETER(float, TrailExtent)
+		SHADER_PARAMETER(float, PrintKeep)
+		SHADER_PARAMETER(float, RippleKeep)
+		SHADER_PARAMETER(uint32, NumStamps)
+		SHADER_PARAMETER(FIntPoint, TrailResolution)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, PreviousTrails)
+		SHADER_PARAMETER_SAMPLER(SamplerState, PreviousSampler)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Stamps)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutTrails)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		DreamSurface::Render::SetGroupSize(OutEnvironment);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FDreamSurfaceTrailsCS, "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMap.usf", "TrailsCS", SF_Compute);
+
+void FDreamSurfaceMapRenderer::EnqueueTrails(FTrailArgs&& Args)
+{
+	check(IsInGameThread());
+	TSharedRef<FDreamSurfaceMapRenderer, ESPMode::ThreadSafe> Self = AsShared();
+	ENQUEUE_RENDER_COMMAND(DreamSurfaceTrails)(
+		[Self, Args = MoveTemp(Args)](FRHICommandListImmediate& RHICmdList)
+		{
+			FRDGBuilder GraphBuilder(RHICmdList, RDG_EVENT_NAME("DreamSurfaceTrails"));
+			Self->Trails_RenderThread(GraphBuilder, Args);
+			GraphBuilder.Execute();
+		});
+}
+
+void FDreamSurfaceMapRenderer::Trails_RenderThread(FRDGBuilder& GraphBuilder, const FTrailArgs& Args)
+{
+	using namespace DreamSurface::Render;
+	check(IsInRenderingThread());
+	FRHITexture* TargetRHI = Args.Target ? Args.Target->GetRenderTargetTexture() : nullptr;
+	if (!TargetRHI || !EnumHasAnyFlags(TargetRHI->GetFlags(), TexCreate_UAV))
+	{
+		return;
+	}
+	const FIntVector Size = TargetRHI->GetSizeXYZ();
+	const FIntPoint Resolution(Size.X, Size.Y);
+	FRDGTextureRef Target = RegisterExternalTexture(GraphBuilder, TargetRHI, TEXT("DreamSurface.Trails"));
+
+	// The previous map, kept here: a new one (first use, a resize, a reset) starts from nothing.
+	bool bReset = Args.bReset;
+	if (!TrailHistory.IsValid() || TrailHistory->GetDesc().Extent != Resolution)
+	{
+		const FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(Resolution, PF_FloatRGBA, FClearValueBinding::Black,
+			TexCreate_None, TexCreate_ShaderResource | TexCreate_RenderTargetable, false);
+		GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, TrailHistory, TEXT("DreamSurface.TrailHistory"));
+		bReset = true;
+	}
+	FRDGTextureRef History = GraphBuilder.RegisterExternalTexture(TrailHistory, TEXT("DreamSurface.TrailHistory"));
+
+	const TArray<FVector4f> NoStamp = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f::Zero() };
+	FRDGBufferRef StampBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Stamps"), NonEmpty(Args.Stamps, NoStamp));
+
+	FDreamSurfaceTrailsCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSurfaceTrailsCS::FParameters>();
+	Params->TrailCenter = Args.Center;
+	// Starting over: the previous map lies nowhere near.
+	Params->PreviousCenter = bReset ? Args.Center + FVector2f(Args.Extent * 4.0f) : Args.PreviousCenter;
+	Params->TrailExtent = Args.Extent;
+	Params->PrintKeep = Args.PrintKeep;
+	Params->RippleKeep = Args.RippleKeep;
+	Params->NumStamps = uint32(Args.Stamps.Num() / 2);
+	Params->TrailResolution = Resolution;
+	Params->PreviousTrails = History;
+	Params->PreviousSampler = TStaticSamplerState<SF_Point, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Params->Stamps = GraphBuilder.CreateSRV(StampBuffer);
+	Params->OutTrails = GraphBuilder.CreateUAV(Target);
+
+	TShaderMapRef<FDreamSurfaceTrailsCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DreamSurfaceTrails %dx%d, %d prints", Resolution.X, Resolution.Y, Args.Stamps.Num() / 2),
+		Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, ThreadGroupSize));
+	// What this update made is what the next one carries over.
+	AddCopyTexturePass(GraphBuilder, Target, History);
 	GraphBuilder.SetTextureAccessFinal(Target, ERHIAccess::SRVMask);
 	DrawCount.fetch_add(1);
 }

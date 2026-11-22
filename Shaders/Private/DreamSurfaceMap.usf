@@ -132,7 +132,41 @@ uint NumShelters;
 Texture2D TerrainTexture;
 SamplerState TerrainSampler;
 StructuredBuffer<float4> Shelters;  // three float4 each: (centre x, y, cos yaw, sin yaw), (half x, half y, top z, fade), (strength, -, -, -)
-RWTexture2D<float2> OutCover;
+RWTexture2D<float4> OutCover;
+float LowRadius;        // how far around a texel the ground's lows are judged (cm)
+
+// The baked level height (the top surface) at a world point; a point beyond the map stands at the edge's height.
+float TerrainHeightAt(float2 P, FDreamWindTerrainParams T)
+{
+	float2 UV = saturate(DW_TerrainUV(float3(P.x, P.y, 0.0f), T));
+	return DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0), T);
+}
+
+// Roof captures (UDreamSurfaceRoofCaptureComponent), up to four: each a depth capture looking straight down, two float4s:
+// (centre x, y, cos yaw, sin yaw), (half x, half y, the capture's Z, its square side), and a third: (strength, the
+// deepest depth that stands for something, -, -).
+#define DSM_MAX_ROOFS 4
+uint NumRoofs;
+float4 Roofs[DSM_MAX_ROOFS * 3];
+Texture2D RoofDepth0;
+Texture2D RoofDepth1;
+Texture2D RoofDepth2;
+Texture2D RoofDepth3;
+SamplerState RoofSampler;
+
+// Mask brushes (UDreamSurfaceMaskComponent): three float4s each, a weather zone's footprint (DreamWeatherShared.h) and
+// the multipliers (wet, water, snow, dust) at full effect; the map holds their product.
+uint NumMasks;
+StructuredBuffer<float4> Masks;
+RWTexture2D<float4> OutMask;
+
+float RoofDepthAt(uint Index, float2 UV)
+{
+	if (Index == 0) { return RoofDepth0.SampleLevel(RoofSampler, UV, 0).r; }
+	if (Index == 1) { return RoofDepth1.SampleLevel(RoofSampler, UV, 0).r; }
+	if (Index == 2) { return RoofDepth2.SampleLevel(RoofSampler, UV, 0).r; }
+	return RoofDepth3.SampleLevel(RoofSampler, UV, 0).r;
+}
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
@@ -144,14 +178,22 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	float2 P = TexelWorld(DispatchThreadId.xy);
 	float Height = -1.0e9f;
 	float Strength = 0.0f;
+	float Low = 0.0f;
 
 	FDreamWindTerrainParams T = DW_UnpackTerrain(Terrain0, Terrain1, Terrain2);
 	float2 UV = DW_TerrainUV(float3(P.x, P.y, 0.0f), T);
 	if (DW_TerrainInside(UV, T) > 0.5f)
 	{
-		float4 Texel = TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0);
-		Height = DW_TerrainHeight(Texel, T);
+		Height = TerrainHeightAt(P, T);
 		Strength = 1.0f;
+		// The ground's lows (DSF_GroundLow): the heights on a ring around the texel, and halfway in.
+		float R = LowRadius;
+		float H = R * 0.5f;
+		float4 A = float4(TerrainHeightAt(P + float2(R, 0.0f), T), TerrainHeightAt(P - float2(R, 0.0f), T),
+			TerrainHeightAt(P + float2(0.0f, R), T), TerrainHeightAt(P - float2(0.0f, R), T));
+		float4 B = float4(TerrainHeightAt(P + float2(H, H), T), TerrainHeightAt(P - float2(H, H), T),
+			TerrainHeightAt(P + float2(H, -H), T), TerrainHeightAt(P + float2(-H, H), T));
+		Low = DSF_GroundLow(Height, A, B);
 	}
 	for (uint i = 0; i < NumShelters; ++i)
 	{
@@ -170,5 +212,87 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			Strength = max(Strength, Covered);
 		}
 	}
-	OutCover[DispatchThreadId.xy] = float2(Height, Strength);
+	for (uint r = 0; r < NumRoofs; ++r)
+	{
+		float4 R0 = Roofs[r * 3 + 0];
+		float4 R1 = Roofs[r * 3 + 1];
+		float4 R2 = Roofs[r * 3 + 2];
+		// Into the box's frame (rotate by -yaw), then the capture's image: x right = the box's +y, y down = its -x.
+		float dx = P.x - R0.x;
+		float dy = P.y - R0.y;
+		float lx = dx * R0.z + dy * R0.w;
+		float ly = -dx * R0.w + dy * R0.z;
+		if (abs(lx) <= R1.x && abs(ly) <= R1.y)
+		{
+			float2 UV = float2(ly / R1.w + 0.5f, -lx / R1.w + 0.5f);
+			float Depth = RoofDepthAt(r, UV);
+			if (Depth > 0.0f && Depth < R2.y)
+			{
+				Height = max(Height, R1.z - Depth);
+				Strength = max(Strength, saturate(R2.x));
+			}
+		}
+	}
+	OutCover[DispatchThreadId.xy] = float4(Height, Strength, Low, 0.0f);
+
+	float4 Mask = float4(1.0f, 1.0f, 1.0f, 1.0f);
+	for (uint m = 0; m < NumMasks; ++m)
+	{
+		float4 M0 = Masks[m * 3 + 0];
+		float4 M1 = Masks[m * 3 + 1];
+		float4 M2 = Masks[m * 3 + 2];
+		float W = 1.0f - smoothstep(0.0f, max(M1.z, 1.0f), DWX_ZoneSignedDistance(P, M0, M1));
+		Mask *= lerp(float4(1.0f, 1.0f, 1.0f, 1.0f), M2, W);
+	}
+	OutMask[DispatchThreadId.xy] = Mask;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The trail map: prints pressed into the snow and the dust (R, 0..1 of the way down) and water stirred by them (G), around
+// the camera. Each update carries the previous map over where the map moved, lets the prints fill (new snow, wind) and
+// the stirred water settle, then presses the new prints (UDreamSurfaceSubsystem::Stamp).
+
+float2 TrailCenter;      // world cm, this update
+float2 PreviousCenter;   // world cm, the previous map's
+float TrailExtent;       // world cm the map spans
+float PrintKeep;         // how much of a print stays over this update (new snow and wind fill it)
+float RippleKeep;        // how much of the stirred water's energy stays
+uint NumStamps;
+int2 TrailResolution;
+Texture2D PreviousTrails;
+SamplerState PreviousSampler;
+StructuredBuffer<float4> Stamps;  // two float4 each: (x, y, radius, strength), (presses snow/dust, stirs water, -, -)
+RWTexture2D<float4> OutTrails;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void TrailsCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= (uint)TrailResolution.x || DispatchThreadId.y >= (uint)TrailResolution.y)
+	{
+		return;
+	}
+	float2 UV = (float2(DispatchThreadId.xy) + 0.5f) / float2(TrailResolution);
+	float2 P = TrailCenter + (UV - 0.5f) * TrailExtent;
+
+	// The previous map where this texel was in it.
+	float2 Before = (P - PreviousCenter) / TrailExtent + 0.5f;
+	float2 T = float2(0.0f, 0.0f);
+	if (all(Before >= 0.0f) && all(Before <= 1.0f))
+	{
+		T = PreviousTrails.SampleLevel(PreviousSampler, Before, 0).rg;
+	}
+	T.x *= PrintKeep;
+	T.y *= RippleKeep;
+
+	for (uint i = 0; i < NumStamps; ++i)
+	{
+		float4 S0 = Stamps[i * 2 + 0];
+		float4 S1 = Stamps[i * 2 + 1];
+		float Disc = 1.0f - smoothstep(S0.z * 0.6f, S0.z, length(P - S0.xy));
+		T.x = max(T.x, Disc * S0.w * S1.x);
+		// A step stirs the water further than its print: the splash spreads some three times as wide.
+		float Splash = 1.0f - smoothstep(S0.z * 0.5f, S0.z * 3.0f, length(P - S0.xy));
+		T.y = max(T.y, Splash * S1.y);
+	}
+	OutTrails[DispatchThreadId.xy] = float4(T, 0.0f, 1.0f);
 }
