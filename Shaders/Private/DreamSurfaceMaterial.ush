@@ -147,6 +147,27 @@ float DSM_WetSpots(float2 WorldXY, float Time, float Rain)
 	return Spot;
 }
 
+// The trail map over a point (UDreamSurfaceInteractionComponent, UDreamSurfaceSubsystem::Stamp): the print's depth in
+// the snow and the dust (0..1), the water stirred there (0..1), and the print's slope (x, y, for its rim's shading); all 0
+// beyond the map. Place = DDW_SurfaceTrails.
+float4 DSM_Trail(float3 WorldPos, float4 Place, Texture2D TrailMap, SamplerState TrailSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, Place);
+	float In = DSM_Inside(UV, Place.w);
+	if (In <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float Width;
+	float Height;
+	TrailMap.GetDimensions(Width, Height);
+	float2 Texel = float2(1.0f / max(Width, 1.0f), 1.0f / max(Height, 1.0f));
+	float2 T = TrailMap.SampleLevel(TrailSampler, UV, 0).rg;
+	float DX = TrailMap.SampleLevel(TrailSampler, UV + float2(Texel.x, 0.0f), 0).r - TrailMap.SampleLevel(TrailSampler, UV - float2(Texel.x, 0.0f), 0).r;
+	float DY = TrailMap.SampleLevel(TrailSampler, UV + float2(0.0f, Texel.y), 0).r - TrailMap.SampleLevel(TrailSampler, UV - float2(0.0f, Texel.y), 0).r;
+	return float4(T.x * In, T.y * In, DX * In, DY * In);
+}
+
 // What the weather makes of a realistic surface (after Lagarde, "Water drop 3b", 2013).
 struct FDreamSurfaceLook
 {
@@ -158,8 +179,9 @@ struct FDreamSurfaceLook
 };
 
 // Rain = the rain landing there now (DSM_RainHere), Time in seconds: the puddles' ripples and the drops' wet spots.
+// Trail = DSM_Trail: prints in the snow and the dust, water stirred by a step.
 FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up,
-	float Rain, float Time)
+	float Rain, float Time, float4 Trail)
 {
 	FDreamSurfaceLook L;
 	float Dielectric = 1.0f - Metallic;
@@ -184,18 +206,28 @@ FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, f
 		float3 Ripples = DSM_Ripples(WorldPos.xy, Time, Rain, 22.0f);
 		Water = normalize(float3(-Ripples.x * 0.35f, -Ripples.y * 0.35f, 1.0f));
 	}
+	if (Puddle > 0.0f && Trail.y > 0.0f)
+	{
+		// Water stirred by a step: quick small rings where it was.
+		float3 Stir = DSM_Ripples(WorldPos.xy, Time * 2.5f, 1.0f, 14.0f);
+		Water = normalize(Water + float3(-Stir.x, -Stir.y, 0.0f) * (1.2f * Trail.y));
+	}
 	Color = lerp(Color, Color * 0.35f, Puddle * Dielectric);
 	Roughness = lerp(Roughness, 0.02f, Puddle);
 	Normal = normalize(lerp(Normal, Water, Puddle));
 
-	// Snow on what faces up, thicker the more it faces up, a broken edge; then dust under it.
+	// Snow on what faces up, thicker the more it faces up, a broken edge, thinned where it was trodden (the print's rim
+	// catches the light); then dust under it, trodden too.
 	float Snow = DSF_SnowCover(State.z, Up, Hollow);
+	float Trodden = Snow * Trail.x;
+	Snow = Snow * (1.0f - 0.75f * Trail.x);
 	Color = lerp(Color, float3(0.88f, 0.9f, 0.93f), Snow);
+	Color = Color * (1.0f - 0.12f * Trodden);
 	Roughness = lerp(Roughness, 0.6f, Snow);
 	Metallic = lerp(Metallic, 0.0f, Snow);
-	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Snow * 0.8f));
+	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Snow * 0.8f) + float3(-Trail.z, -Trail.w, 0.0f) * (4.0f * (Snow + Trodden)));
 
-	float Dust = State.w * saturate(Up * 1.2f + 0.1f) * (1.0f - Snow);
+	float Dust = State.w * saturate(Up * 1.2f + 0.1f) * (1.0f - Snow) * (1.0f - 0.7f * Trail.x);
 	Color = lerp(Color, float3(0.55f, 0.46f, 0.34f), Dust * 0.85f);
 	Roughness = lerp(Roughness, 0.95f, Dust);
 	Metallic = Metallic * (1.0f - Dust);
