@@ -739,6 +739,30 @@ The rest of this document is **Wind**.
 > apply). Module names, class names, `DreamWind.*` console variables and MPC parameter names are
 > unchanged.
 
+## Atmosphere
+
+Module `DreamAtmosphere`. The air's scattering from one physical model, `Shaders/Shared/DreamAtmosphereShared.h` and
+`DreamAtmosphereScattering.h`, compiled as HLSL for the GPU and as C++ (`DreamAtmosphereHlslShim.h`) for the CPU: a
+planet with a shell of air, Rayleigh scattering from the gas (blue, an 8 km scale height), Mie scattering and absorption
+from the haze (white, forward, 1.2 km), an ozone layer that absorbs (some 25 km up: it keeps the twilight zenith blue),
+the ground's albedo, and the light scattered many times folded into one table (Hillaire 2020). Luminance comes out per
+unit of the light's illuminance outside the air, so the sun and the moon read the same tables.
+
+The air is `FDreamAtmosphereParameters` (coefficients per megametre; an earth's by default), from *Project Settings ▸
+Dream Atmosphere* until a sky style sets its own (`UDreamAtmosphereSubsystem::SetParameters`). From it the world's
+`UDreamAtmosphereSubsystem` builds three lookup tables on the GPU (`UDreamAtmosphereTables`, render targets a material
+can sample), and rebuilds them only when the air changes:
+
+| table | size | holds |
+|---|---|---|
+| transmittance | 256 × 64 | the light's transmittance to the top of the air, by height and zenith angle (Bruneton's coordinates) |
+| multiple scattering | 32 × 32 | the light scattered many times, by height and light angle (dense about the horizon) |
+| sky | 64 × 32 × 32 | the sky seen from near the ground, by view elevation, angle round from the light and light elevation (both dense about the horizon, the light from 20 degrees under it) |
+
+The CPU's integrals are exact and slow (some milliseconds a sky value): they are for the few values gameplay and the sky
+want, and for the tests, which hold the GPU's tables to them (`DreamAtmosphere.Gpu.TablesMatchCpu`: 4 %, 8 % in
+twilight, where the earth's shadow edge is read from tables of finite resolution).
+
 ## Wind
 
 A dynamic, world-scale wind field, built to be **cheap where it counts and consistent everywhere**:
@@ -989,6 +1013,11 @@ effects driven by real weather.
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
 `DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
 subsystem tick with an impulse in whichever editor/game world is up.
+`DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
+overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
+as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
+with a blue zenith); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables to the CPU's integrals, and that they
+are rebuilt only when the air changes.
 
 ## Verification (2026-08-18)
 
