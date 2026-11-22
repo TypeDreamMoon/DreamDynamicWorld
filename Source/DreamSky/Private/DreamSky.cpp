@@ -461,6 +461,13 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 		Out.CloudShadeScale = Effective->CloudShadeScale.GetLinearColorValue(Elevation);
 		Out.PaintedCloudLitScale = Effective->PaintedCloudLitScale.GetLinearColorValue(Elevation);
 		Out.PaintedCloudShadeScale = Effective->PaintedCloudShadeScale.GetLinearColorValue(Elevation);
+		auto ToStyle = [Elevation](const FRuntimeFloatCurve& Curve)
+		{
+			const FRichCurve* Rich = Curve.GetRichCurveConst();
+			return Rich && Rich->GetNumKeys() > 0 ? FMath::Clamp(Rich->Eval(Elevation), 0.0f, 1.0f) : 0.0f;
+		};
+		Out.CloudToStyle = FVector4f(ToStyle(Effective->CloudLitToStyle), ToStyle(Effective->CloudShadeToStyle),
+			ToStyle(Effective->PaintedCloudLitToStyle), ToStyle(Effective->PaintedCloudShadeToStyle));
 		Out.ShadowReach = Effective->CloudShadowReach;
 	}
 	Out.SunScattering = CloudSunScattering;

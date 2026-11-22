@@ -701,3 +701,37 @@ bool FDreamSkyCloudLookParametersTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudToStyleTest, "DreamSky.Clouds.ColoursTowardStyle", DreamSky::Tests::Flags)
+bool FDreamSkyCloudToStyleTest::RunTest(const FString& Parameters)
+{
+	// The clouds' physical colours take the style's hue as the sun goes down: none of it at noon, at night all of it for
+	// the shade and most of it for the lit side (so the night's blue ambient floor never comes out saturated blue), the
+	// colour scales after it white.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("sky actor"), W.Sky) || !TestNotNull(TEXT("clock"), W.Clock))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	auto At = [&W, &Sky](int32 Hour)
+	{
+		FDreamWorldClockConfig Config;
+		Config.StartTime = FDateTime(2026, 6, 21, Hour, 0, 0);
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+		FDreamSkyCloudLookParameters P;
+		Sky.GetCloudLookParameters(P);
+		return P;
+	};
+	const FDreamSkyCloudLookParameters Noon = At(12);
+	TestTrue(FString::Printf(TEXT("noon: the physical hue as it is (%s)"), *Noon.CloudToStyle.ToString()), Noon.CloudToStyle.Equals(FVector4f(0.0f, 0.0f, 0.0f, 0.0f), 1e-5f));
+	const FDreamSkyCloudLookParameters Night = At(0);
+	TestNearlyEqual(TEXT("night: the toon shade all of the way to the style's hue"), Night.CloudToStyle.Y, 1.0f, 1e-5f);
+	TestNearlyEqual(TEXT("and the painted shade"), Night.CloudToStyle.W, 1.0f, 1e-5f);
+	TestTrue(FString::Printf(TEXT("the lit side most of the way (%s)"), *Night.CloudToStyle.ToString()), Night.CloudToStyle.X >= 0.5f && Night.CloudToStyle.Z >= 0.5f);
+	for (const FLinearColor& Scale : { Night.CloudLitScale, Night.CloudShadeScale, Night.PaintedCloudLitScale, Night.PaintedCloudShadeScale })
+	{
+		TestTrue(FString::Printf(TEXT("the scales white (%s)"), *Scale.ToString()), Scale.Equals(FLinearColor::White, 1e-4f));
+	}
+	return true;
+}

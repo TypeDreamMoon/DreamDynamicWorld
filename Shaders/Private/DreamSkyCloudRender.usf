@@ -78,7 +78,7 @@ float4 Parameters[30];
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[161];
+float4 LookParameters[162];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -447,10 +447,21 @@ float3 DSkyR_AirTransmittance(float Height, float LightZ)
 	return exp(-(Rayleigh + Mie + Ozone) * Air);
 }
 
+// A colour's hue taken a share (Toward) of the way to another's, its luminance kept.
+float3 DSkyR_TowardHue(float3 C, float3 Other, float Toward)
+{
+	const float3 Luma = float3(0.2126, 0.7152, 0.0722);
+	float L = dot(C, Luma);
+	float3 Hue = lerp(C / max(L, 1.0e-6), Other / max(dot(Other, Luma), 1.0e-6), saturate(Toward));
+	return Hue * (L / max(dot(Hue, Luma), 1.0e-6));
+}
+
 // The clouds' lit and shade colours (rgb; a as the style's: the rim, the opacity): from the physical sky's light -- the
 // sun's and the moon's outside the air through it to the clouds' base, the sky's ambient light (the shared parameters'
 // DDW_AmbientSky / Equator, as the sky works them out), as bright as the style's curves when it asks (their colour the
-// light's), times the style's scales (LookParameters[157..158]); the
+// light's), their hue taken toward the style's as far as it says at this sun (LookParameters[161]: at night all of the
+// way for the shade, most of it for the lit side, so a blue night floor never comes out saturated), times the style's
+// scales (LookParameters[157..160]); the
 // style's own curves (DDW_CloudLit / Shadow) when it asks for them (bCloudColorsAbsolute) or the atmosphere's tables are
 // not built.
 void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
@@ -473,13 +484,14 @@ void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
 		Light *= dot(P_CloudLit.rgb, Luma) / max(dot(Light, Luma), 1.0e-6);
 		Ambient *= dot(P_CloudShadow.rgb, Luma) / max(dot(Ambient, Luma), 1.0e-6);
 	}
-	// (The toon look's scales, or the painted look's.)
+	// (The hue toward the style's own, as far as the style says at this sun; then the toon look's scales, or the painted
+	// look's.)
 #if DSKY_LOOK == 2
-	Lit.rgb = Light * LookParameters[159].rgb;
-	Shade.rgb = Ambient * LookParameters[160].rgb;
+	Lit.rgb = DSkyR_TowardHue(Light, P_CloudLit.rgb, LookParameters[161].z) * LookParameters[159].rgb;
+	Shade.rgb = DSkyR_TowardHue(Ambient, P_CloudShadow.rgb, LookParameters[161].w) * LookParameters[160].rgb;
 #else
-	Lit.rgb = Light * LookParameters[157].rgb;
-	Shade.rgb = Ambient * LookParameters[158].rgb;
+	Lit.rgb = DSkyR_TowardHue(Light, P_CloudLit.rgb, LookParameters[161].x) * LookParameters[157].rgb;
+	Shade.rgb = DSkyR_TowardHue(Ambient, P_CloudShadow.rgb, LookParameters[161].y) * LookParameters[158].rgb;
 #endif
 }
 

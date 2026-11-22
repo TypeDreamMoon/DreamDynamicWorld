@@ -101,10 +101,12 @@ and painted clouds' lit and shade colours come from the physical sky's light too
 outside the air through it to the clouds' base for the lit tone, the sky's ambient light (as the sky works out
 `DDW_AmbientSky` / `Equator`) for the shade -- by default kept as bright as the style's `CloudLitColor` /
 `CloudShadowColor` at every moment, their colour the light's (`bCloudMatchStyleBrightness`), so a low sun reddens the
-clouds by itself -- times the style's `CloudLitScale` / `CloudShadeScale` curves (`PaintedCloudLitScale` / `PaintedCloudShadeScale`
-for the painted look): 1 at noon, and as the sun goes down a change of hue only, steering the shade back to the
-style's blue-lavender (the complement of the warm light) and taking some of the sunset's saturation off the lit side
-(more for the painted look) while it still warms with the light; `bCloudColorsAbsolute` goes back to the style's
+clouds by itself -- their hue steered toward the style's own colours as far as `CloudLitToStyle` / `CloudShadeToStyle`
+(`PaintedCloudLitToStyle` / `PaintedCloudShadeToStyle` for the painted look) say over the sun's elevation, their
+brightness kept: none at noon; as the sun goes down the shade back to the style's blue-lavender (the complement of the
+warm light) and some of the sunset's saturation off the lit side (more for the painted look), still warming with the
+light; at night the style's moonlit grey-blue, whatever hue the night's light has -- then times the style's
+`CloudLitScale` / `CloudShadeScale` curves (white; `PaintedCloudLitScale` / `PaintedCloudShadeScale`); `bCloudColorsAbsolute` goes back to the style's
 curves as they are. The realistic and painted
 looks take their settings from the style (`RealisticClouds`, `PaintedClouds`, and `CloudShadowReach`, how far their
 shading toward the light reaches), the level's cloud overrides over them; on the actor, `CloudSunScattering` (2.5)

@@ -847,8 +847,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute"))
 	bool bCloudMatchStyleBrightness = true;
 
-	/** The physical light on the toon clouds' lit side, times this, over the sun's elevation (1 at noon; at a low sun a
-	 *  hue change toward the style's own colours). */
+	/** The physical light on the toon clouds' lit side, times this, over the sun's elevation (white: as it comes, after
+	 *  the steer toward the style's hue below). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
 	FRuntimeCurveLinearColor CloudLitScale;
 
@@ -856,7 +856,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
 	FRuntimeCurveLinearColor CloudShadeScale;
 
-	/** The same two for the painted look (CloudLitScale and CloudShadeScale are the toon look's). */
+	/**
+	 * How far the toon clouds' lit and shade colours take the hue of the style's own (CloudLitColor, CloudShadowColor)
+	 * instead of the light's, over the sun's elevation, their brightness kept (0 the physical hue, 1 the style's): the
+	 * style's blue-lavender shade and softer sunset come back as the sun goes down, whatever hue the light has then.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Style's hue"))
+	FRuntimeFloatCurve CloudLitToStyle;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Style's hue"))
+	FRuntimeFloatCurve CloudShadeToStyle;
+	/** The same for the painted look. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Style's hue"))
+	FRuntimeFloatCurve PaintedCloudLitToStyle;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Style's hue"))
+	FRuntimeFloatCurve PaintedCloudShadeToStyle;
+
+	/** The same two scales for the painted look (CloudLitScale and CloudShadeScale are the toon look's). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
 	FRuntimeCurveLinearColor PaintedCloudLitScale;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
