@@ -3,6 +3,7 @@
 #include "DreamSkyCloudRenderer.h"
 #include "DreamSky.h"
 #include "DreamSkyModule.h"
+#include "DreamSkyStyle.h"
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSubsystem.h"
 
@@ -52,6 +53,23 @@ static TAutoConsoleVariable<float> CVarDreamSkyCloudRenderHistory(
 	TEXT("DreamSky.CloudRender.History"), 0.9f,
 	TEXT("How much of the previous frames the sky cloud renderer keeps (0 = none: every frame stands alone, its jittered")
 	TEXT(" samples show as noise; 0.9 = a tenth of each new frame)."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<float> CVarDreamSkyLightShafts(
+	TEXT("DreamSky.LightShafts"), 1.0f,
+	TEXT("Multiplies how bright the sky cloud renderer draws the light shafts below its clouds (the style's LightShafts);")
+	TEXT(" 0 = none."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarDreamSkyLightShaftsDebug(
+	TEXT("DreamSky.LightShafts.Debug"), 0,
+	TEXT("1 = the light shafts show, in grey over the scene, how much of the sun the air along each ray gets (the clouds'")
+	TEXT(" shadow alone, without the haze or the light). 0 = off."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarDreamSkyLightShaftSamples(
+	TEXT("DreamSky.LightShafts.Samples"), 24,
+	TEXT("How many samples of the air below the clouds a ray of the light shafts takes (4..128)."),
 	ECVF_RenderThreadSafe);
 
 namespace DreamSkyCloudRender
@@ -364,6 +382,54 @@ class FDreamSkyCloudCompositeBelowPS : public FGlobalShader
 	}
 };
 
+class FDreamSkyLightShaftsCS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyLightShaftsCS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyLightShaftsCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, ShaftShadow)
+		SHADER_PARAMETER_SAMPLER(SamplerState, ShaftShadowSampler)
+		SHADER_PARAMETER(FVector4f, ShadowPlacement)
+		SHADER_PARAMETER_ARRAY(FVector4f, ShaftParameters, [2])
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutShafts)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), 8);
+	}
+};
+
+class FDreamSkyLightShaftsCompositePS : public FGlobalShader
+{
+	DECLARE_GLOBAL_SHADER(FDreamSkyLightShaftsCompositePS);
+	SHADER_USE_PARAMETER_STRUCT(FDreamSkyLightShaftsCompositePS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT_INCLUDE(DreamSkyCloudRender::FCommonParameters, Common)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, Shafts)
+		SHADER_PARAMETER_ARRAY(FVector4f, ShaftParameters, [2])
+		RENDER_TARGET_BINDING_SLOTS()
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return DreamSkyCloudRender::Supported(Parameters);
+	}
+};
+
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyLightShaftsCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "LightShaftsCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FDreamSkyLightShaftsCompositePS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "LightShaftsCompositePS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudCompositeBelowPS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "CompositeBelowPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudMarchCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "MarchCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FDreamSkyCloudSunMapCS, "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudRender.usf", "SunMapCS", SF_Compute);
@@ -400,6 +466,8 @@ namespace DreamSkyCloudRender
 		FRDGTextureRef SunMaps[2] = {nullptr, nullptr};
 		FRDGTextureRef GroundMaps[2] = {nullptr, nullptr};
 		FRDGTextureRef StormProximity = nullptr;
+		/** The clouds' shadow on the ground as this graph wrote it (the light shafts read it). */
+		FRDGTextureRef Shadow = nullptr;
 		bool bSunMaps = false;
 		TMap<const FSceneView*, FBelow> Below;
 	};
@@ -512,6 +580,21 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
+
+		// The light shafts, where the clouds break the sun and their shadow is drawn.
+		const UDreamSkyStyle* Style = Actor->GetEffectiveStyle();
+		const float Shafts = Style ? FMath::Max(CVarDreamSkyLightShafts.GetValueOnGameThread(), 0.0f) * Sky->GetLightShaftStrength() : 0.0f;
+		if (Settings.bClouds && Settings.Shadow && Shafts > 0.0f)
+		{
+			const FDreamSkyLightShafts& S = Style->LightShafts;
+			const float Haze = 1.0f + FMath::Max(S.WeatherHaze, 0.0f) * FMath::Clamp(Sky->GetLook().Haze.A, 0.0f, 1.0f);
+			// (Per cm.)
+			Settings.Shafts[0] = FVector4f(Shafts, FMath::Max(S.Density, 0.0f) * 1.0e-5f * Haze, 1.0f / (FMath::Max(S.ScaleHeight, 0.05f) * 1.0e5f),
+				FMath::Clamp(S.Anisotropy, -0.9f, 0.9f));
+			Settings.Shafts[1] = FVector4f(FMath::Max(S.Distance, 0.1f) * 1.0e5f, float(FMath::Clamp(CVarDreamSkyLightShaftSamples.GetValueOnGameThread(), 4, 128)),
+				CVarDreamSkyLightShaftsDebug.GetValueOnGameThread() > 0 ? 1.0f : 0.0f, 0.0f);
+			Settings.bShafts = Settings.Shafts[0].Y > 0.0f;
+		}
 	}
 
 	TSharedRef<FDreamSkyCloudViewExtension, ESPMode::ThreadSafe> Self = StaticCastSharedRef<FDreamSkyCloudViewExtension>(AsShared());
@@ -681,8 +764,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 		}
 		Clouds = OutColor;
 
-		// Kept for the composite over the scene before the post processing, when the view looks down on clouds.
-		if (IsOverCloudBase(InView))
+		// Kept for the composite over the scene before the post processing, when the view looks down on clouds, and for
+		// the light shafts.
+		if (IsOverCloudBase(InView) || Settings.bShafts)
 		{
 			DreamSkyCloudRender::FBelow& Entry = GraphBuilder.Blackboard.GetOrCreate<DreamSkyCloudRender::FGraphClouds>().Below.FindOrAdd(&InView);
 			Entry.Color = OutColor;
@@ -878,6 +962,7 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundShadow %dx%d", Resolution.X, Resolution.Y), Shader, Params,
 			FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudMarchCS::GroupSize));
 		GraphBuilder.SetTextureAccessFinal(Shadow, ERHIAccess::SRVMask);
+		Graph.Shadow = Shadow;
 	}
 }
 
@@ -890,10 +975,88 @@ bool FDreamSkyCloudViewExtension::IsOverCloudBase(const FSceneView& InView) cons
 
 void FDreamSkyCloudViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView, FPostProcessingPassDelegateArray& InOutPassCallbacks, bool bIsPassEnabled)
 {
-	if (Pass == EPostProcessingPass::BeforeDOF && IsOverCloudBase(InView))
+	if (Pass != EPostProcessingPass::BeforeDOF)
+	{
+		return;
+	}
+	// (The shafts first: the clouds below the view cover the air beneath them.)
+	if (RenderSettings.bClouds && RenderSettings.bShafts && InView.IsPerspectiveProjection())
+	{
+		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::DrawLightShafts));
+	}
+	if (IsOverCloudBase(InView))
 	{
 		InOutPassCallbacks.Add(FPostProcessingPassDelegate::CreateRaw(this, &FDreamSkyCloudViewExtension::CompositeBelow));
 	}
+}
+
+FScreenPassTexture FDreamSkyCloudViewExtension::DrawLightShafts(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)
+{
+	FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
+	const DreamSkyCloudRender::FGraphClouds* Graph = GraphBuilder.Blackboard.Get<DreamSkyCloudRender::FGraphClouds>();
+	const DreamSkyCloudRender::FBelow* Entry = Graph ? Graph->Below.Find(&InView) : nullptr;
+	const FFrameSettings& Settings = RenderSettings;
+	if (!Entry || !Entry->SceneDepth || !SceneColor.IsValid() || !Settings.bShafts)
+	{
+		return SceneColor;
+	}
+	FRDGTextureRef Shadow = Graph->Shadow;
+	if (!Shadow)
+	{
+		FRHITexture* ShadowRHI = Settings.Shadow ? Settings.Shadow->TextureRHI.GetReference() : nullptr;
+		if (!ShadowRHI)
+		{
+			return SceneColor;
+		}
+		Shadow = RegisterExternalTexture(GraphBuilder, ShadowRHI, TEXT("DreamSky.CloudShadow"));
+	}
+	RDG_EVENT_SCOPE(GraphBuilder, "DreamSky.LightShafts");
+	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(InView.GetFeatureLevel());
+	auto FillCommon = [&](DreamSkyCloudRender::FCommonParameters& Common)
+	{
+		Common.View = InView.ViewUniformBuffer;
+		for (int32 Index = 0; Index < NumParameters; ++Index)
+		{
+			Common.Parameters[Index] = Entry->Parameters[Index];
+		}
+		for (int32 Index = 0; Index < NumLookParameters; ++Index)
+		{
+			Common.LookParameters[Index] = Entry->LookParameters[Index];
+		}
+		Common.CameraWorld = FVector3f(InView.ViewLocation);
+		Common.SkyDepth = Settings.SkyDepth;
+		Common.Downsample = Entry->Downsample;
+	};
+
+	// One ray per block of the clouds' rays, at their resolution; then up to the scene's, softened over the neighbours
+	// that stand as far.
+	const FIntPoint Half = FIntPoint::DivideAndRoundUp(Entry->SceneDepth->Desc.Extent, Entry->Downsample);
+	FRDGTextureRef Shafts = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Half, PF_FloatRGBA, FClearValueBinding::None,
+		TexCreate_ShaderResource | TexCreate_UAV), TEXT("DreamSky.LightShafts"));
+	{
+		FDreamSkyLightShaftsCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyLightShaftsCS::FParameters>();
+		FillCommon(Params->Common);
+		Params->SceneDepth = Entry->SceneDepth;
+		Params->ShaftShadow = Shadow;
+		Params->ShaftShadowSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+		Params->ShadowPlacement = Settings.ShadowPlacement;
+		Params->ShaftParameters[0] = Settings.Shafts[0];
+		Params->ShaftParameters[1] = Settings.Shafts[1];
+		Params->OutShafts = GraphBuilder.CreateUAV(Shafts);
+		TShaderMapRef<FDreamSkyLightShaftsCS> Shader(ShaderMap);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("March %dx%d", Half.X, Half.Y), Shader, Params, FComputeShaderUtils::GetGroupCount(Half, 8));
+	}
+	FDreamSkyLightShaftsCompositePS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyLightShaftsCompositePS::FParameters>();
+	FillCommon(Params->Common);
+	Params->SceneDepth = Entry->SceneDepth;
+	Params->Shafts = Shafts;
+	Params->ShaftParameters[0] = Settings.Shafts[0];
+	Params->ShaftParameters[1] = Settings.Shafts[1];
+	Params->RenderTargets[0] = FRenderTargetBinding(SceneColor.Texture, ERenderTargetLoadAction::ELoad);
+	TShaderMapRef<FDreamSkyLightShaftsCompositePS> Shader(ShaderMap);
+	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Composite"), Shader, Params, SceneColor.ViewRect,
+		TStaticBlendState<CW_RGB, BO_Add, BF_One, BF_One>::GetRHI());
+	return SceneColor;
 }
 
 FScreenPassTexture FDreamSkyCloudViewExtension::CompositeBelow(FRDGBuilder& GraphBuilder, const FSceneView& InView, const FPostProcessMaterialInputs& Inputs)

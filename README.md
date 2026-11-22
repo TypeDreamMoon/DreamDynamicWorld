@@ -157,6 +157,19 @@ true place, turning it a dark copper, and the moon's light fails to `Eclipse.Blo
 modifier's *Solar Eclipse* or *Lunar Eclipse* sets one by its coverage in any mode (`DreamSky.Modifier.Add Eclipse`,
 `BloodMoon`). Nothing is drawn, and nothing costs, without one.
 
+**Light shafts.** Under broken clouds the sky cloud renderer draws the sunlight the air below them scatters toward the
+view where their shadow lets it through: shafts falling through the gaps, seen whether the sun is in view or behind
+it. Each ray of the view is marched through the air under the clouds' base, reading at every step the clouds' own
+shadow on the ground (the texture the sun's light function reads) up the sun's direction, so the shafts stand where
+the shadows on the ground are. The style's `LightShafts` sets how bright they are drawn (`Intensity`), the haze they
+show in (`Density` per km at the ground, `ScaleHeight`, how much it scatters toward the sun, `Anisotropy`), how far
+along the view (`Distance`) and how much the weather's haze thickens it (`WeatherHaze`); they come in as the cover
+breaks (`CoverStart` to `CoverFull`: a clear sky casts none) and go with the sun under the horizon. A sky modifier's
+*Light Shafts* scales them. The march takes the same samples every frame (`DreamSky.LightShafts.Samples`, 24),
+nothing builds up over frames: a cinematic frame or a cut shows them as they are. `DreamSky.LightShafts` multiplies
+them (0 leaves them out); `DreamSky.LightShafts.Debug 1` shows in grey how much of the sun the air along each ray
+gets. They cost some 0.04 ms at 1080p, nothing under a clear sky or with the sun down.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

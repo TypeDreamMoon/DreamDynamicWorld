@@ -262,4 +262,53 @@ bool FDreamSkyEclipseTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyLightShaftsTest, "DreamSky.LightShafts", DreamSky::NightTests::Flags)
+bool FDreamSkyLightShaftsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	FNightWorld W(FDateTime(2026, 6, 21, 12, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("noon world"), W.IsValid()))
+	{
+		return false;
+	}
+	auto Cover = [&](float Coverage)
+	{
+		UDreamSkyModifier* M = NewObject<UDreamSkyModifier>(GetTransientPackage());
+		M->Settings.bOverride_CloudCoverage = true;
+		M->Settings.CloudCoverage = Coverage;
+		return M;
+	};
+	const float Intensity = W.Sky->GetEffectiveStyle()->LightShafts.Intensity;
+	UDreamSkyModifier* Clear = Cover(0.0f);
+	W.SkySubsystem->SetModifierAlpha(Clear, 1.0f);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("a clear sky casts none"), W.SkySubsystem->GetLightShaftStrength(), 0.0f);
+	W.SkySubsystem->RemoveModifier(Clear);
+	UDreamSkyModifier* Broken = Cover(0.5f);
+	W.SkySubsystem->SetModifierAlpha(Broken, 1.0f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("broken clouds at noon: the style's intensity"), W.SkySubsystem->GetLightShaftStrength(), Intensity, 1e-4f);
+	UDreamSkyModifier* Brighter = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Brighter->Settings.bOverride_LightShafts = true;
+	Brighter->Settings.LightShafts = 2.0f;
+	W.SkySubsystem->SetModifierAlpha(Brighter, 1.0f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("a modifier scales them"), W.SkySubsystem->GetLightShaftStrength(), 2.0f * Intensity, 1e-3f);
+	W.SkySubsystem->SetModifierAlpha(Brighter, 0.5f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("half in: along the logarithm"), W.SkySubsystem->GetLightShaftStrength(), FMath::Sqrt(2.0f) * Intensity, 1e-3f);
+	W.Clock->SetDateTime(FDateTime(2026, 6, 21, 23, 0, 0));
+	W.Clock->Tick(0.016f);
+	// (The moon's light makes them as well, while it is the main light and up.)
+	const FDreamSkyLighting& Night = W.SkySubsystem->GetLighting();
+	if (!Night.bMainLightIsMoon || Night.MainLightDirection.Z <= 0.0)
+	{
+		TestEqual(TEXT("none with the sun down"), W.SkySubsystem->GetLightShaftStrength(), 0.0f);
+	}
+	W.SkySubsystem->RemoveModifier(Broken);
+	W.SkySubsystem->RemoveModifier(Brighter);
+	return true;
+}
+
 #endif

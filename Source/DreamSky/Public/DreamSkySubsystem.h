@@ -137,6 +137,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	const FDreamSkyLook& GetLook() const { return Look; }
 
+	/**
+	 * How bright the light shafts below the clouds are drawn now (FDreamSkyLightShafts): the look's (style and modifiers)
+	 * as the cloud cover breaks the sun into them, gone with the main light under the horizon. 0: none drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetLightShaftStrength() const;
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }

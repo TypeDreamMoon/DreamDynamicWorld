@@ -132,6 +132,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
+	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	return Look;
 }
 

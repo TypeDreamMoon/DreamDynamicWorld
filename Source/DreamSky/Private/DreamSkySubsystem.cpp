@@ -231,6 +231,20 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Applied = Modified;
 }
 
+float UDreamSkySubsystem::GetLightShaftStrength() const
+{
+	const ADreamSky* Sky = GetSky();
+	const UDreamSkyStyle* Style = Sky ? Sky->GetEffectiveStyle() : nullptr;
+	if (!Style || !bHasApplied)
+	{
+		return 0.0f;
+	}
+	const FDreamSkyLightShafts& S = Style->LightShafts;
+	const float Broken = FMath::SmoothStep(FMath::Min(S.CoverStart, S.CoverFull - 0.01f), S.CoverFull, Look.CloudCoverage);
+	const float Up = FMath::SmoothStep(0.0f, 0.05f, float(Applied.MainLightDirection.Z));
+	return FMath::Max(Look.LightShafts, 0.0f) * Broken * Up;
+}
+
 void UDreamSkySubsystem::ApplyEclipses(FDreamSkyLighting& L, FDreamSkyLook& K, const UDreamSkyStyle& Style) const
 {
 	using namespace DreamSky::Eclipse;

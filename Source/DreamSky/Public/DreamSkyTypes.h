@@ -318,6 +318,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
 	/** Scales the night sky's own glow (the style's Airglow). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float AirglowScale = 1.0f;
+	/** How bright the light shafts below the clouds are drawn (the style's LightShafts.Intensity, a modifier's scale on it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightShafts = 0.0f;
 	/** How much of the sun's disk the moon covers, 0..1, and where the moon's centre stands on it (sun radii, DreamSky::Eclipse). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SolarEclipse = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D SolarEclipseOffset = FVector2D(1000.0, 0.0);
