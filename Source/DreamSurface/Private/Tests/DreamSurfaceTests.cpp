@@ -1,5 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceHlslShim.h"
+#include "DreamSurfaceInteraction.h"
 #include "DreamSurfaceMaps.h"
 #include "DreamSurfaceMask.h"
 #include "DreamSurfaceRoofCapture.h"
@@ -23,6 +25,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "Misc/App.h"
+#include "Misc/ScopeExit.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
 #include "Misc/AutomationTest.h"
@@ -489,6 +492,129 @@ bool FDreamSurfaceGpuRoofTest::RunTest(const FString& Parameters)
 	const FLinearColor Texel = Pixels[FMath::Clamp(int32(UV.Y * Size), 0, Size - 1) * Size + FMath::Clamp(int32(UV.X * Size), 0, Size - 1)];
 	AddInfo(FString::Printf(TEXT("cover map over the slab: height %.1f, strength %.2f"), Texel.R, Texel.G));
 	TestTrue(TEXT("the cover map holds the slab's height"), FMath::Abs(Texel.R - 310.0f) < 6.0f && Texel.G > 0.99f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceInteractionTest, "DreamSurface.Interaction", DreamSurface::Tests::Flags)
+bool FDreamSurfaceInteractionTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	auto MakeFoot = [&Params](UWorld* World, const FVector& At)
+	{
+		AActor* Walker = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform(At), Params);
+		UDreamSurfaceInteractionComponent* Foot = NewObject<UDreamSurfaceInteractionComponent>(Walker);
+		Walker->SetRootComponent(Foot);
+		Foot->bTraceGround = false;
+		Foot->RegisterComponent();
+		Foot->SetWorldLocation(At);
+		return Foot;
+	};
+	{
+		// Deep snow: a step finds snow and how deep, and leaves a print to draw.
+		UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+		Fixed->Preset = Blizzard();
+		FSurfaceWorld W(Fixed);
+		if (!TestNotNull(TEXT("surface"), W.Surface))
+		{
+			return false;
+		}
+		W.GoTo(At(12.0));
+		UDreamSurfaceInteractionComponent* Foot = MakeFoot(W.World, FVector(100, 100, 0));
+		const FDreamSurfaceContact Contact = Foot->PrintNow();
+		TestEqual(TEXT("a step in deep snow finds snow"), Contact.Kind, EDreamSurfaceContactKind::Snow);
+		TestTrue(TEXT("and how deep"), Contact.SnowDepth > 10.0f);
+		TestEqual(TEXT("one print waits to be drawn"), W.Surface->GetPendingStamps().Num(), 2);
+		// It prints again once it has moved a step, not before.
+		Foot->SetWorldLocation(FVector(105, 100, 0));
+		Foot->TickComponent(0.1f, LEVELTICK_All, nullptr);
+		TestEqual(TEXT("no print within a step"), Foot->GetPrintCount(), 1);
+		Foot->SetWorldLocation(FVector(130, 100, 0));
+		Foot->TickComponent(0.1f, LEVELTICK_All, nullptr);
+		TestEqual(TEXT("a print a step on"), Foot->GetPrintCount(), 2);
+	}
+	{
+		// After hours of rain: at the bottom of a hollow the foot stands in a puddle, on a crest only on wet ground.
+		UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+		Fixed->Preset = Rain();
+		FSurfaceWorld W(Fixed);
+		if (!TestNotNull(TEXT("surface"), W.Surface))
+		{
+			return false;
+		}
+		W.GoTo(At(12.0));
+		FVector Dip(0.0), Crest(0.0);
+		float Deepest = -1.0f, Highest = 2.0f;
+		for (int32 i = 0; i < 400; ++i)
+		{
+			const FVector P(i * 37.0, i * 11.0, 0.0);
+			const float H = DreamWind::Hlsl::DSF_Hollow(float(P.X), float(P.Y), 260.0f);
+			if (H > Deepest) { Deepest = H; Dip = P; }
+			if (H < Highest) { Highest = H; Crest = P; }
+		}
+		TestEqual(TEXT("in a hollow: a puddle"), MakeFoot(W.World, Dip)->PrintNow().Kind, EDreamSurfaceContactKind::Puddle);
+		TestEqual(TEXT("on a crest: wet ground"), MakeFoot(W.World, Crest)->PrintNow().Kind, EDreamSurfaceContactKind::Wet);
+		const FDreamSurfaceContact Contact = W.Surface->SampleContact(Dip, FVector::UpVector);
+		TestTrue(TEXT("the puddle's share"), Contact.Puddle > 0.5f);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuTrailsTest, "DreamSurface.Gpu.Trails", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuTrailsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Blizzard();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	// Every frame draws the maps here (the frames run faster than real time).
+	UDreamSurfaceSettings* Settings = GetMutableDefault<UDreamSurfaceSettings>();
+	const float Interval = Settings->MapInterval;
+	Settings->MapInterval = 0.0f;
+	ON_SCOPE_EXIT { Settings->MapInterval = Interval; };
+
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.GoTo(At(12.0));
+	const FVector Print(300, -200, 0);
+	W.Surface->Stamp(Print, 30.0f, 1.0f, true, true);
+	W.Clock->Tick(0.0f);
+	FlushRenderingCommands();
+
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Trails = Maps ? Maps->GetTrailMap() : nullptr;
+	if (!TestNotNull(TEXT("trail map (run the Setup)"), Trails))
+	{
+		return false;
+	}
+	auto TrailAt = [Trails, Maps](const FVector& P)
+	{
+		TArray<FLinearColor> Pixels;
+		Trails->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+		const int32 Size = Trails->SizeX;
+		const FVector2D UV = (FVector2D(P) - Maps->GetTrailCenter()) / UDreamSurfaceSettings::Get()->TrailExtent + 0.5;
+		return Pixels[FMath::Clamp(int32(UV.Y * Size), 0, Size - 1) * Size + FMath::Clamp(int32(UV.X * Size), 0, Size - 1)];
+	};
+	const FLinearColor Fresh = TrailAt(Print);
+	const FLinearColor Beside = TrailAt(Print + FVector(200, 0, 0));
+	AddInfo(FString::Printf(TEXT("fresh print %.2f (stirred %.2f), beside it %.2f"), Fresh.R, Fresh.G, Beside.R));
+	TestTrue(TEXT("the print is pressed in"), Fresh.R > 0.95f);
+	TestTrue(TEXT("nothing beside it"), Beside.R < 0.01f);
+	// An hour of heavy snow fills it.
+	W.GoTo(At(13.0));
+	FlushRenderingCommands();
+	const FLinearColor Filled = TrailAt(Print);
+	AddInfo(FString::Printf(TEXT("after an hour of snow %.2f"), Filled.R));
+	TestTrue(TEXT("new snow fills the print"), Filled.R < Fresh.R * 0.6f);
 	return true;
 }
 
