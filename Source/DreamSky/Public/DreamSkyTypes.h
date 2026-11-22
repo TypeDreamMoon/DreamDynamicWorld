@@ -143,9 +143,97 @@ struct DREAMSKY_API FDreamSkyToonBaked
 	FVector4f Key = FVector4f(0.7f, 0.45f, 0.5f, 0.55f);       // the key's weights: facing the light, facing up, height; a storm's darkening of the lit side
 	FVector4f Key2 = FVector4f(-0.3f, 0.6f, 3.0f, 2.0f);       // where the light starts, how far it ramps; the rim's power and strength
 	float RimFocus = 4.0f;                                       // how tightly the rim glows toward the light behind
+	/** FDreamSkyToonAdvanced, packed as DreamSkyStylized.ush's DSKY_TOON_ADV0..6 read it. */
+	FVector4f Advanced[7] = {
+		FVector4f(15000.0f, 0.35f, 0.65f, 120000.0f), FVector4f(0.94f, 0.04f, 0.12f, 0.05f), FVector4f(0.3f, 0.03f, 0.4f, 0.3f),
+		FVector4f(0.45f, 0.45f, 0.3f, 0.65f), FVector4f(0.2f, 0.7f, 0.3f, 0.7f), FVector4f(0.1f, 0.5f, 0.3f, 1.0f), FVector4f(1.6f, 1.4f, 0.8f, 0.0f) };
 	bool IsValid() const { return Ramp.Num() == RampSize; }
 	/** Blends toward another bake (a sky modifier's), by Alpha. */
 	void BlendToward(const FDreamSkyToonBaked& To, float Alpha);
+};
+
+/** The toon look's finer settings (FDreamSkyToonClouds::Advanced): the defaults are the look's own. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyToonAdvanced
+{
+	GENERATED_BODY()
+
+	/** How deep a cloud toward the light (m) counts as standing in the light's way, and the share of that depth over
+	 *  which the cast shade comes on (its start and its end). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cast Shade", meta = (ClampMin = "1", UIMax = "2000"))
+	float CastDepth = 150.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cast Shade", meta = (ClampMin = "0", ClampMax = "1"))
+	float CastFrom = 0.35f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cast Shade", meta = (ClampMin = "0", ClampMax = "1"))
+	float CastTo = 0.65f;
+
+	/** The shade's own light: a base, more facing up, more in a thin cloud (thin up to ThinColumn m tall), more high in it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (UIMin = "0", UIMax = "2"))
+	float AmbientBase = 0.94f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (UIMin = "0", UIMax = "1"))
+	float AmbientUp = 0.04f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (UIMin = "0", UIMax = "1"))
+	float AmbientThin = 0.12f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (ClampMin = "1", UIMax = "5000"))
+	float ThinColumn = 1200.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (UIMin = "0", UIMax = "1"))
+	float AmbientHeight = 0.05f;
+
+	/** How much darker a cloud is low down and facing down (its own shade under it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ambient", meta = (ClampMin = "0", ClampMax = "1"))
+	float UndersideSelfShade = 0.3f;
+
+	/** The low sun's colour on the lit side: from the sun's height (its sine) where it is all there to where it is gone,
+	 *  and how much more of it on the side of the sky toward the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sunrise", meta = (ClampMin = "-0.2", ClampMax = "1"))
+	float WarmFrom = 0.03f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sunrise", meta = (ClampMin = "0", ClampMax = "1"))
+	float WarmTo = 0.4f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sunrise", meta = (ClampMin = "0", ClampMax = "1"))
+	float WarmTowardSun = 0.3f;
+
+	/** An underside's glow: how much its thin gaps, its flanks and its side toward the sun count; a storm's share of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Underside", meta = (UIMin = "0", UIMax = "1"))
+	float UndersideGaps = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Underside", meta = (UIMin = "0", UIMax = "1"))
+	float UndersideFlanks = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Underside", meta = (UIMin = "0", UIMax = "1"))
+	float UndersideTowardSun = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Underside", meta = (ClampMin = "0", ClampMax = "1"))
+	float UndersideInStorm = 0.65f;
+
+	/** A deck's sunlit top seen from above: the light over which it goes from the half tone to the lit tone, and the
+	 *  height in the deck over which its top takes over from its underside. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckLitFrom = 0.2f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckLitTo = 0.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckTopFrom = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckTopTo = 0.7f;
+
+	/** The heights in a cloud over which the silver lining comes on. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rim", meta = (ClampMin = "0", ClampMax = "1"))
+	float RimHeightFrom = 0.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rim", meta = (ClampMin = "0", ClampMax = "1"))
+	float RimHeightTo = 0.5f;
+
+	/** How much of a storm's darkening its top keeps (its base takes all of it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Storm", meta = (ClampMin = "0", ClampMax = "1"))
+	float StormTopDarkening = 0.3f;
+
+	/** Far clouds sinking into the sky's colour: the veil's power, and how much more under a storm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Distance", meta = (ClampMin = "0.1", UIMax = "5"))
+	float VeilPower = 1.6f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Distance", meta = (ClampMin = "0", UIMax = "5"))
+	float VeilStormPower = 1.4f;
+
+	/** The cracks torn in a thinning deck: the size of their noise (1 = the look's own) and how unevenly it tears. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0.1", UIMax = "4"))
+	float CrackScale = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deck", meta = (ClampMin = "0", UIMax = "2"))
+	float CrackTear = 0.8f;
 };
 
 /**
@@ -214,6 +302,11 @@ struct DREAMSKY_API FDreamSkyToonClouds
 	/** How dark a storm leaves the lit side (the shade goes all the way). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Tones", meta = (ClampMin = "0", ClampMax = "1"))
 	float StormLitDarkening = 0.55f;
+
+	/** The finer settings: the cast shade, the shade's own light, the sunrise colour, the undersides, decks, rim,
+	 *  storm, distance and cracks. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Toon Advanced", AdvancedDisplay)
+	FDreamSkyToonAdvanced Advanced;
 
 	/** The ramps sampled, and the constants, for the renderer. */
 	void Bake(FDreamSkyToonBaked& Out) const;
@@ -293,6 +386,61 @@ struct DREAMSKY_API FDreamSkyPaintedClouds
 	/** The least a cloud's base keeps of its shade, however deep in the cloud's own shadow (from below a cloud is never black). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones", meta = (ClampMin = "0", ClampMax = "1"))
 	float BaseFloor = 0.85f;
+
+	/** How fast the low sun's colour on the lit side fades as the sun climbs (over 1 / this of its height's sine). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0.1", UIMax = "20"))
+	float WarmFade = 5.0f;
+
+	/** How much more of the low sun's colour on the side of the sky toward the sun. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float WarmTowardSun = 0.65f;
+
+	/** The most the low sun's hue may tint the lit tone. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "1", UIMax = "4"))
+	float WarmMax = 2.0f;
+
+	/** How much the colour of the sky above tints the shade. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float SkyInShade = 0.25f;
+
+	/** The key at a cloud's base, of its top (the base in its own shade). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float KeyAtBase = 0.7f;
+
+	/** The core's key at the base and at the top of a cloud (DCL_ShadePainted). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", UIMax = "2"))
+	float KeyLow = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", UIMax = "2"))
+	float KeyHigh = 1.0f;
+
+	/** An overcast deck reads as thin (half tone) up to this thickness (m) ... */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "1", UIMax = "5000"))
+	float DeckThinColumn = 600.0f;
+
+	/** ... the less so the darker the storm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckStormThinning = 0.8f;
+
+	/** A deck's soft gradient from its shade to the half tone, over this light. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckFrom = 0.05f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float DeckTo = 0.6f;
+
+	/** How dark a storm leaves the lit side, and how much of its darkening the tops keep. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float StormLitDarkening = 0.55f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float StormTopDarkening = 0.3f;
+
+	/** Of the base's floor (BaseFloor), how much the top keeps, and how much a storm takes off it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float FloorAtTop = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tones|Advanced", AdvancedDisplay, meta = (ClampMin = "0", ClampMax = "1"))
+	float FloorInStorm = 0.5f;
+
+	/** Blends toward another set (a sky modifier's), by Alpha. */
+	static FDreamSkyPaintedClouds Lerp(const FDreamSkyPaintedClouds& A, const FDreamSkyPaintedClouds& B, float Alpha);
 };
 
 /**
@@ -336,6 +484,21 @@ struct FDreamSkyCloudLookParameters
 	float PaintRimPower = 4.0f;
 	float PaintShadeAtBase = 0.84f;
 	float PaintBaseFloor = 0.85f;
+	float PaintWarmFade = 5.0f;
+	float PaintWarmTowardSun = 0.65f;
+	float PaintWarmMax = 2.0f;
+	float PaintSkyInShade = 0.25f;
+	float PaintKeyAtBase = 0.7f;
+	float PaintKeyLow = 1.0f;
+	float PaintKeyHigh = 1.0f;
+	float PaintDeckThinColumn = 600.0f;
+	float PaintDeckStormThinning = 0.8f;
+	float PaintDeckFrom = 0.05f;
+	float PaintDeckTo = 0.6f;
+	float PaintStormLitDarkening = 0.55f;
+	float PaintStormTopDarkening = 0.3f;
+	float PaintFloorAtTop = 0.3f;
+	float PaintFloorInStorm = 0.5f;
 	// Toon (FDreamSkyToonClouds, baked; the sky modifiers' blend of it).
 	FDreamSkyToonBaked Toon;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
@@ -486,6 +649,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MilkyWay = 0.0f;
 	/** The toon clouds' tones baked (the style's ToonClouds, the sky modifiers' blended toward theirs). */
 	FDreamSkyToonBaked Toon;
+	/** The painted clouds' settings (the style's PaintedClouds, the sky modifiers' blended toward theirs). */
+	FDreamSkyPaintedClouds Painted;
 	/** How much of the sun's disk the moon covers, 0..1, and where the moon's centre stands on it (sun radii, DreamSky::Eclipse). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SolarEclipse = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FVector2D SolarEclipseOffset = FVector2D(1000.0, 0.0);

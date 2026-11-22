@@ -69,6 +69,42 @@ struct DREAMSKY_API FDreamSkyAurora
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "4", EditCondition = "bStylizedTones"))
 	float ToneSoftness = 1.0f;
 
+	/** The banded tones' brightness at their first and second steps (the third reaches the full: 1 minus both). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneLevel1 = 0.22f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bStylizedTones"))
+	float ToneLevel2 = 0.33f;
+
+	/** The curtains' ribbons: how long along the oval and how wide across their noise is (km), and how thin the ribbons
+	 *  are drawn (a power: higher, thinner). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "10", UIMax = "5000"))
+	float RibbonLength = 900.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "10", UIMax = "2000"))
+	float RibbonWidth = 260.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "1", UIMax = "40"))
+	float RibbonSharpness = 13.0f;
+
+	/** The rays along a curtain: how far apart (km), how much they stand out, and how fast the curtain fades upward
+	 *  (the rays reach higher). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "1", UIMax = "300"))
+	float RaySpacing = 45.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "0", UIMax = "4"))
+	float RayContrast = 1.4f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "0.1", UIMax = "6"))
+	float UpwardFade = 1.5f;
+
+	/** Its sharp lower edge and its top (km up), and how bright the band along the lower edge shines. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "50", UIMax = "200"))
+	float LowerEdge = 95.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "100", UIMax = "600"))
+	float TopAltitude = 320.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "0", UIMax = "3"))
+	float EdgeBand = 0.7f;
+
+	/** How wide the oval the curtains stand in is, in ArcWidths. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora|Shape", meta = (ClampMin = "0.5", UIMax = "10"))
+	float OvalWidth = 3.5f;
+
 	/** Artistic mode (no latitude): how present it is, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))
 	float ArtisticPresence = 0.0f;
@@ -668,6 +704,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
+
+	/** How fast the stars twinkle (1 = the look's own). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4"))
+	float StarTwinkleSpeed = 1.0f;
+
+	/** How big the stars are drawn (1 = the look's own; a star is never drawn smaller than about a pixel). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0.1", UIMax = "4"))
+	float StarSize = 1.0f;
+
+	/** The stylized scatter's dimmest stars, of its brightest. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "StarField == EDreamSkyStarField::Stylized"))
+	float StarDimmest = 0.35f;
 
 	// ---- Clouds -------------------------------------------------------------------------------
 

@@ -677,6 +677,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
 	Clock.SetVectorParameter(MPC_MoonLook, FLinearColor(FMath::Max(Style.MoonTerminatorSoftness, 0.002f), FMath::Max(Style.MoonEarthshine, 0.0f), 0.0f, 0.0f));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
+	Clock.SetVectorParameter(MPC_StarLook, FLinearColor(FMath::Max(Style.StarSize, 0.1f), FMath::Max(Style.StarTwinkleSpeed, 0.0f), FMath::Clamp(Style.StarDimmest, 0.0f, 1.0f), 0.0f));
 	// The celestial sphere: its north pole as high as the latitude, toward north; the March equinox on the celestial
 	// equator, as far west of the meridian (its hour angle) as the local sidereal time.
 	{
@@ -720,6 +721,10 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
 		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
+		const FDreamSkyAurora& AS = Style.Aurora;
+		Clock.SetVectorParameter(MPC_AuroraShape, FLinearColor(FMath::Max(AS.RibbonLength, 10.0f), FMath::Max(AS.RibbonWidth, 10.0f), FMath::Max(AS.RibbonSharpness, 1.0f), FMath::Max(AS.RaySpacing, 1.0f)));
+		Clock.SetVectorParameter(MPC_AuroraShape2, FLinearColor(FMath::Max(AS.RayContrast, 0.0f), FMath::Max(AS.UpwardFade, 0.1f), FMath::Clamp(AS.ToneLevel1, 0.0f, 1.0f), FMath::Clamp(AS.ToneLevel2, 0.0f, 1.0f)));
+		Clock.SetVectorParameter(MPC_AuroraShape3, FLinearColor(AS.LowerEdge, FMath::Max(AS.TopAltitude, AS.LowerEdge + 10.0f), FMath::Max(AS.EdgeBand, 0.0f), FMath::Max(AS.OvalWidth, 0.5f)));
 		Clock.SetVectorParameter(MPC_AuroraTones, FLinearColor(Style.Aurora.ToneStep1, Style.Aurora.ToneStep2, Style.Aurora.ToneStep3, FMath::Max(Style.Aurora.ToneSoftness, 0.0f)));
 	}
 	// The eclipses: the moon on the sun (and the corona near totality), the umbra on the moon.

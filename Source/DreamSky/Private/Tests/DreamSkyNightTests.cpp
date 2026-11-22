@@ -677,6 +677,14 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("and its own half tone, underside, key and rim"), Baked.Half == FVector4f(0.96f, 0.97f, 1.03f, 0.55f)
 		&& Baked.Deep == FVector4f(0.62f, 0.64f, 0.7f, 0.35f) && Baked.Key == FVector4f(0.7f, 0.45f, 0.5f, 0.55f)
 		&& Baked.Key2 == FVector4f(-0.3f, 0.6f, 3.0f, 2.0f) && Baked.RimFocus == 4.0f);
+	const FDreamSkyToonBaked Fixed;
+	bool bAdvanced = true;
+	for (int32 Index = 0; Index < 7; ++Index)
+	{
+		const FVector4f D = Baked.Advanced[Index] - Fixed.Advanced[Index];
+		bAdvanced &= FMath::Max(FMath::Max(FMath::Abs(D.X), FMath::Abs(D.Y)), FMath::Max(FMath::Abs(D.Z), FMath::Abs(D.W))) < 1.0e-3f;
+	}
+	TestTrue(TEXT("and its own finer settings"), bAdvanced);
 
 	// A curve in place of the bands.
 	FDreamSkyToonClouds Curved;
@@ -706,6 +714,20 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("halfway to its tones at half strength"), Half.Ramp[100].X, 0.5f * (Baked.Ramp[100].X + 1.0f), 1.0e-4f);
 	TestNearlyEqual(TEXT("and halfway to its half tone"), Half.Half.W, 0.5f * (0.55f + 0.95f), 1.0e-4f);
 	W.SkySubsystem->RemoveModifier(Flat);
+
+	// The painted clouds' settings too.
+	const FDreamSkyPaintedClouds& Style = W.Sky->GetEffectiveStyle()->PaintedClouds;
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("the sky's look carries the style's painted settings"), W.SkySubsystem->GetLook().Painted.HalfToneAt, Style.HalfToneAt, 1.0e-5f);
+	UDreamSkyModifier* Paint = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Paint->Settings.bOverride_PaintedClouds = true;
+	Paint->Settings.PaintedClouds.HalfToneAt = 0.12f;
+	Paint->Settings.PaintedClouds.WarmMax = 3.0f;
+	W.SkySubsystem->SetModifierAlpha(Paint, 0.5f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("halfway to the modifier's painted tones"), W.SkySubsystem->GetLook().Painted.HalfToneAt, 0.5f * (Style.HalfToneAt + 0.12f), 1.0e-4f);
+	TestNearlyEqual(TEXT("and its finer settings"), W.SkySubsystem->GetLook().Painted.WarmMax, 0.5f * (Style.WarmMax + 3.0f), 1.0e-4f);
+	W.SkySubsystem->RemoveModifier(Paint);
 	return true;
 }
 

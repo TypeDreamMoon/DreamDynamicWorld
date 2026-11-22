@@ -147,6 +147,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_ToonClouds"))
 	FDreamSkyToonClouds ToonClouds;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_PaintedClouds = false;
+	/** The painted clouds' settings to blend to (their tones, tints, key, rim, decks, storms). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_PaintedClouds"))
+	FDreamSkyPaintedClouds PaintedClouds;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_MilkyWay = false;
 	/** Multiplies how bright the Milky Way is drawn. */

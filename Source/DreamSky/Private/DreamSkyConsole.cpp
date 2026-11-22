@@ -112,6 +112,16 @@ namespace DreamSky::Console
 			S.ToonClouds.UndersideDeepTint = FLinearColor(0.4f, 0.42f, 0.52f);
 			S.ToonClouds.UndersideBands = { FDreamSkyToneBand(0.4f, 0.6f, 0.5f), FDreamSkyToneBand(0.85f, 0.3f, 1.0f) };
 		}
+		else if (Name.Equals(TEXT("PaintedCrisp"), ESearchCase::IgnoreCase))
+		{
+			// The painted clouds' tones moved down and hard-edged, the half tone warmer, a storm-dark lit side.
+			S.bOverride_PaintedClouds = true;
+			S.PaintedClouds.HalfToneAt = 0.18f;
+			S.PaintedClouds.LitToneAt = 0.42f;
+			S.PaintedClouds.ToneSoftness = 0.01f;
+			S.PaintedClouds.HalfToneTint = FLinearColor(1.08f, 0.95f, 0.88f);
+			S.PaintedClouds.SkyInShade = 0.6f;
+		}
 		else if (Name.Equals(TEXT("Clear"), ESearchCase::IgnoreCase))
 		{
 			S.bOverride_CloudCoverage = true;
@@ -125,7 +135,7 @@ namespace DreamSky::Console
 		}
 		else
 		{
-			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear, Aurora, City, Eclipse, BloodMoon, ToonSteps, ToonSoft)."), *Name);
+			UE_LOG(LogDreamSky, Warning, TEXT("No ready-made sky modifier called %s (Gloom, Crimson, Clear, Aurora, City, Eclipse, BloodMoon, ToonSteps, ToonSoft, PaintedCrisp)."), *Name);
 			return nullptr;
 		}
 		return M;
@@ -147,7 +157,7 @@ namespace DreamSky::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs AddCommand(
 		TEXT("DreamSky.Modifier.Add"),
-		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear | Aurora | City | Eclipse | BloodMoon | ToonSteps | ToonSoft> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
+		TEXT("DreamSky.Modifier.Add <asset path | Gloom | Crimson | Clear | Aurora | City | Eclipse | BloodMoon | ToonSteps | ToonSoft | PaintedCrisp> [fade seconds]: adds a sky modifier, fading in (no time: its own)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamSkySubsystem* Sky = Find(World);

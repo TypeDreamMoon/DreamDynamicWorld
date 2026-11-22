@@ -203,6 +203,127 @@ namespace DreamWorld::ShowcaseSetup
 		return SurfaceSetup::SaveAsset(Mesh) ? Mesh : nullptr;
 	}
 
+	/** A range of the far land: a band of distance from the set's middle, a span of azimuth, and how high it rises. */
+	struct FFarRange
+	{
+		double Azimuth0, Azimuth1;   // degrees clockwise from north (+X), the span it stands in
+		double Near, Far;            // cm from the middle, the band it stands in
+		double Peak;                 // cm, its highest
+		double Scale;                // cm, the size of its ridges
+	};
+
+	/** The far land's ranges: near hills, mid mountains and a far range in different directions, low hills all round. */
+	const FFarRange FarRanges[] = {
+		{ 195.0, 265.0, 500000.0, 750000.0, 60000.0, 220000.0 },      // near hills, south-west, 5-7.5 km, to 600 m
+		{ 10.0, 110.0, 550000.0, 800000.0, 45000.0, 200000.0 },       // near hills, north-east (behind the wide shot's set)
+		{ 240.0, 330.0, 1200000.0, 1600000.0, 130000.0, 400000.0 },   // mid mountains, west, 12-16 km, to 1.3 km
+		{ 140.0, 230.0, 2400000.0, 3000000.0, 200000.0, 600000.0 },   // the far range, south, 24-30 km, to 2 km
+		{ 0.0, 360.0, 2000000.0, 3300000.0, 60000.0, 500000.0 },      // low ranges all round, closing the horizon
+	};
+
+	/** How far the land rises above the set's level at a point (cm): the ranges, each ridged and broken up. */
+	double FarHeight(double X, double Y)
+	{
+		const FVector2D Middle(Setup::ShowcaseFarCenter);
+		const FVector2D P = FVector2D(X, Y) - Middle;
+		const double R = P.Size();
+		const double Azimuth = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(P.Y, P.X)) + 360.0, 360.0);
+		double H = 0.0;
+		for (const FFarRange& Range : FarRanges)
+		{
+			// Soft in distance and in azimuth, so a range rises and falls away rather than standing in a box.
+			const double Mid = 0.5 * (Range.Near + Range.Far), Half = 0.5 * (Range.Far - Range.Near);
+			const double InBand = FMath::Exp(-FMath::Square((R - Mid) / Half) * 1.5);
+			const double Span = Range.Azimuth1 - Range.Azimuth0;
+			const double Into = FMath::Fmod(Azimuth - Range.Azimuth0 + 360.0, 360.0);
+			const double InSpan = Span >= 359.0 ? 1.0 : (Into <= Span ? FMath::Sin(UE_DOUBLE_PI * Into / Span) : 0.0);
+			if (InBand * InSpan < 1.0e-3)
+			{
+				continue;
+			}
+			// Ridges: two octaves of folded noise, peaks sharp, valleys broad.
+			const FVector2D Q = FVector2D(X, Y) / Range.Scale + FVector2D(Range.Azimuth0 * 0.37, Range.Near * 1.0e-6);
+			const double Ridge = 1.0 - FMath::Abs(FMath::PerlinNoise2D(Q)) * 1.2;
+			const double Detail = 1.0 - FMath::Abs(FMath::PerlinNoise2D(Q * 2.7 + FVector2D(13.1, 7.7)));
+			const double Shape = FMath::Clamp(0.65 * Ridge + 0.35 * Detail, 0.0, 1.0);
+			H = FMath::Max(H, Range.Peak * InBand * FMath::Pow(InSpan, 0.6) * (0.25 + 0.75 * FMath::Square(Shape)));
+		}
+		return H;
+	}
+
+	/**
+	 * The land around the set out to the horizon: rings round the set's middle from just inside the ground's edge to
+	 * 35 km, closer near the set. Near the set it follows the set's ground (SurfaceSetup's height) a little below it, so
+	 * the ground's edge meets it without a step; from a few hundred metres out it rises into the far ranges. For the
+	 * air between the eye and the land (aerial perspective, fog) and the snow on the far peaks.
+	 */
+	UStaticMesh* EnsureFarLand()
+	{
+		constexpr int32 Rings = 150, Sides = 360;
+		const double Inner = 3900.0, Outer = 3500000.0, Below = 20.0;
+		const FVector2D Middle(Setup::ShowcaseFarCenter);
+		auto HeightAt = [&](double X, double Y, double R)
+		{
+			// The set's ground near it, the far land beyond; a little under the set's ground where they overlap.
+			const double Blend = FMath::SmoothStep(15000.0, 250000.0, R);
+			return FMath::Lerp(SurfaceSetup::GroundHeight(X, Y) - Below, FarHeight(X, Y) - 3.0, Blend);
+		};
+		auto Build = [&](bool bFlip)
+		{
+			FMeshDescription Description;
+			FStaticMeshAttributes Attributes(Description);
+			Attributes.Register();
+			TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
+			TVertexInstanceAttributesRef<FVector2f> UVs = Attributes.GetVertexInstanceUVs();
+			const FPolygonGroupID Group = Description.CreatePolygonGroup();
+			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Land");
+			TArray<FVertexInstanceID> Instances;
+			Instances.Reserve((Rings + 1) * Sides);
+			for (int32 Ring = 0; Ring <= Rings; ++Ring)
+			{
+				const double R = Inner * FMath::Pow(Outer / Inner, double(Ring) / Rings);
+				for (int32 Side = 0; Side < Sides; ++Side)
+				{
+					const double Angle = 2.0 * UE_DOUBLE_PI * Side / Sides;
+					const double X = Middle.X + R * FMath::Cos(Angle), Y = Middle.Y + R * FMath::Sin(Angle);
+					const FVertexID Vertex = Description.CreateVertex();
+					Positions[Vertex] = FVector3f(float(X - Middle.X), float(Y - Middle.Y), float(HeightAt(X, Y, R)));
+					const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
+					UVs.Set(Instance, 0, FVector2f(float(X / 2000.0), float(Y / 2000.0)));
+					Instances.Add(Instance);
+				}
+			}
+			for (int32 Ring = 0; Ring < Rings; ++Ring)
+			{
+				for (int32 Side = 0; Side < Sides; ++Side)
+				{
+					const int32 Next = (Side + 1) % Sides;
+					const FVertexInstanceID A = Instances[Ring * Sides + Side];
+					const FVertexInstanceID B = Instances[Ring * Sides + Next];
+					const FVertexInstanceID C = Instances[(Ring + 1) * Sides + Next];
+					const FVertexInstanceID D = Instances[(Ring + 1) * Sides + Side];
+					Description.CreateTriangle(Group, bFlip ? TArray<FVertexInstanceID>{ A, C, B } : TArray<FVertexInstanceID>{ A, B, C });
+					Description.CreateTriangle(Group, bFlip ? TArray<FVertexInstanceID>{ A, D, C } : TArray<FVertexInstanceID>{ A, C, D });
+				}
+			}
+			FStaticMeshOperations::ComputeTriangleTangentsAndNormals(Description);
+			FStaticMeshOperations::ComputeTangentsAndNormals(Description, EComputeNTBsFlags::Normals | EComputeNTBsFlags::Tangents | EComputeNTBsFlags::WeightedNTBs);
+			return Description;
+		};
+		// Whichever winding faces up.
+		FMeshDescription Description = Build(false);
+		bool bDown = false;
+		{
+			FStaticMeshAttributes Attributes(Description);
+			bDown = Attributes.GetVertexInstanceNormals()[FVertexInstanceID(0)].Z < 0.0f;
+		}
+		if (bDown)
+		{
+			Description = Build(true);
+		}
+		return SurfaceSetup::SaveMesh(Setup::ShowcaseFarLandPackage, MoveTemp(Description), TEXT("Land"), 0.0f);
+	}
+
 	struct FShowcaseKit
 	{
 		UStaticMesh* Cube = nullptr;
@@ -223,6 +344,7 @@ namespace DreamWorld::ShowcaseSetup
 		UMaterialInterface* ToonYellow = nullptr;
 		UMaterialInterface* Leaves = nullptr;
 		UStaticMesh* Pond = nullptr;
+		UStaticMesh* FarLand = nullptr;
 
 		bool Load()
 		{
@@ -248,8 +370,9 @@ namespace DreamWorld::ShowcaseSetup
 			// A muted green for the grove's crowns.
 			Leaves = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceLeaves"), Demo, FLinearColor(0.2f, 0.27f, 0.16f), 0.75f, 0.0f);
 			Pond = EnsurePond();
+			FarLand = EnsureFarLand();
 			return Cube && Cylinder && Sphere && Cone && Ground && Figure && Terrain && Water && Glass && Stone && Paving && Metal && Wood
-				&& ToonRed && ToonBlue && ToonYellow && Leaves && Pond;
+				&& ToonRed && ToonBlue && ToonYellow && Leaves && Pond && FarLand;
 		}
 	};
 
@@ -299,12 +422,13 @@ namespace DreamWorld::ShowcaseSetup
 		PassThrough(AddBox(World, Kit, Kit.Wood, Center + FVector(80.0, 60.0, 40.0), FVector(140.0, 90.0, 80.0), TEXT("Hut_Table")));
 		PassThrough(SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Center + FVector(-20.0, 60.0, 22.0), FVector(0.4, 0.4, 0.45), FRotator::ZeroRotator, TEXT("Hut_Stool")));
 
-		// A lamp under the roof over the table: warm (3200 K) and dim, a few candela, well under a lux on the walls.
+		// A lamp under the roof over the table: warm (3200 K) and dim (1.5 cd): by day the window lights the room, the lamp
+		// only warms its corners; by night it is what the room is seen by.
 		APointLight* Lamp = World.SpawnActor<APointLight>(Center + FVector(60.0, 60.0, Height - 50.0), FRotator::ZeroRotator);
 		UPointLightComponent* Light = CastChecked<UPointLightComponent>(Lamp->GetLightComponent());
 		Light->SetMobility(EComponentMobility::Movable);
 		Light->IntensityUnits = ELightUnits::Candelas;
-		Light->SetIntensity(3.0f);
+		Light->SetIntensity(1.5f);
 		Light->bUseTemperature = true;
 		Light->SetTemperature(3200.0f);
 		Light->SetAttenuationRadius(800.0f);
@@ -529,6 +653,14 @@ namespace DreamWorld::ShowcaseSetup
 		AddPorch(*World, Kit, FVector(1960.0, 700.0, -3.0));
 		AddWindow(*World, Kit, FVector(850.0, 820.0, 120.0));
 		SurfaceSetup::AddMesh(*World, Kit.Pond, Kit.Water, FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FVector(1.0), FRotator::ZeroRotator, TEXT("Pond"));
+
+		// The land out to the horizon, its ranges in the distance: no collision (nothing walks or lands there), left out
+		// of the wind's level heights.
+		if (AStaticMeshActor* Far = SurfaceSetup::AddMesh(*World, Kit.FarLand, Kit.Terrain, FVector(Setup::ShowcaseFarCenter, 0.0), FVector(1.0), FRotator::ZeroRotator, TEXT("FarLand")))
+		{
+			Far->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			PassThrough(Far);
+		}
 
 		// The grove on the rolling ground to the left, the campfire and the crates to the right, the snow field far ahead.
 		AddGrove(*World, Kit, FVector2D(500.0, 2100.0));

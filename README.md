@@ -144,9 +144,14 @@ captured light has no hot spot.
 many as wanted, each where it changes, how softly and to which tone, or a free `ToneCurve` in their place -- the half
 tone (`HalfToneMix`, `HalfToneTint`), an underside's own steps and deepest shade (`UndersideBands`,
 `UndersideDeepTint`), how the light on a billow is reckoned (`KeyFacing`, `KeyUp`, `KeyHeight`, `KeyHeightPivot`,
-`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side.
+`KeyLow`, `KeyRange`), the silver lining (`RimPower`, `RimStrength`, `RimFocus`) and how dark a storm leaves the lit side; its `Advanced` group has the rest -- how deep a cloud toward the light casts
+its shade, the shade's own light (base, facing up, thin, high), the low sun's colour, an underside's glow, a deck's
+sunlit top, where the silver lining comes on, how much of a storm's darkening the tops keep, how far clouds sink into
+the sky's colour, and the size and tearing of the cracks in a thinning deck.
 The painted look (`PaintedClouds`) adds its half tone, the light's falloff into a cloud, its rim, its shade at the base
-and the least a base keeps. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
+and the least a base keeps, and in its advanced settings the low sun's colour, the sky's in the shade, the key at a
+cloud's base, a deck's soft gradient, a storm's darkening and the base floor's reach; a sky modifier's *Painted
+Clouds* blends to another set of all of these, as *Toon Clouds* does for the toon look. The defaults are the looks as they were. A sky modifier's *Toon Clouds* brings another set
 of toon tones and blends to it as it fades in (the ramps sampled and mixed). The level's style overrides go over all of
 it as over the rest of the style. The renderer takes them with its own parameters; no shared parameter, no texture.
 
@@ -157,7 +162,9 @@ change shape (two copies of one smooth noise field drifting apart, lit where the
 oval and strongest where a broad field of activity is up; each view ray is walked up through the shell at fourteen
 heights, so a ribbon becomes a curtain standing over it, striated with rays that reach higher than the rest. It keeps
 this soft light under the toon and painted clouds too; `Aurora.bStylizedTones` (off by default) bands it into three
-clean tones there instead, at `ToneStep1..3` with `ToneSoftness` (`DDW_AuroraTones`). The clouds
+clean tones there instead, at `ToneStep1..3` with `ToneSoftness` and `ToneLevel1..2` (`DDW_AuroraTones`). Its
+*Shape* settings (`DDW_AuroraShape`, `2`, `3`) set the ribbons' length, width and sharpness, the rays' spacing and
+contrast, how fast a curtain fades upward, its lower edge and top, the edge band's brightness and the oval's width. The clouds
 stand in front of it and it lights the sky light a little. It shows once the sky is dark (from
 the end of the civil twilight), as present as the world's latitude makes it in the realistic celestial mode
 (`Aurora.StartLatitude` to `FullLatitude`, 50 to 66 degrees by default) or as the style's
@@ -244,7 +251,8 @@ stars of the Yale Bright Star Catalogue, 5th revised edition (Hoffleit & Warren,
 it stands for the clock's latitude and local sidereal time (the shared parameters' `DDW_StarPole`, the north celestial
 pole in the world, and `DDW_StarEquinox`, the March equinox), each as bright as its magnitude -- `StarContrast` sets how
 much brighter each magnitude is drawn (1 = 2.512 times, as in the sky; 0.8 by default keeps the faint ones in sight) --
-and in its own colour from its B-V index; the style's star intensity curve and `StarTwinkle` apply as before, and an
+and in its own colour from its B-V index; the style's star intensity curve and `StarTwinkle` apply as before (`StarTwinkleSpeed`, `StarSize` and, for the
+stylized scatter, `StarDimmest` too, `DDW_StarLook`), and an
 eclipse's totality still leaves only the brightest. *Stylized* is the scatter of stars of `StarDensity` the dome drew
 before (`DreamSky.StarField 0|1` picks either whatever the style says). The stars are read from a small map, `T_DreamStarMap` (512 x 512 cells on an octahedral map of the sphere, the
 brightest star nearest each), which Setup builds from the catalogue's file: `-StarCatalogue=<path>`, by default
@@ -600,6 +608,12 @@ snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWind
 wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
 pass-through).
 
+**The far land.** Beyond the set the land runs on to the horizon (`SM_DreamShowcaseFarLand`, rings out to 35 km under
+the terrain material, so snow lies on it): it meets the set's ground without a step and rises into near hills 5–7.5 km
+out to the south-west and north-east (to some 600 m), mid mountains 12–16 km to the west (to 1.3 km) and a far range
+24–30 km to the south (to 2 km), with low ranges closing the horizon all round. It is there for what lies between the
+eye and the land — the aerial perspective, the fog — and has no collision.
+
 **The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule
 (`UDreamWeatherSelector_Sequence`) that repeats every 24 hours:
 
@@ -624,9 +638,11 @@ sequence in Sequencer to scrub it.
 
 **Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
 shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
-day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
-sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
+day and a storm by night (the schedule has them the other way round), looks at the far land from beside the hut (9 m
+up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
+on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
+`Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
+<screenshots> <out>` for the overviews (rows the weathers, columns the views; the far land's own sheet). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.

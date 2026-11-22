@@ -137,6 +137,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.LensFlare = FMath::Max(LensFlare.Intensity, 0.0f);
 	Look.MilkyWay = MilkyWay.bEnabled ? FMath::Max(MilkyWay.Intensity, 0.0f) : 0.0f;
 	ToonClouds.Bake(Look.Toon);
+	Look.Painted = PaintedClouds;
 	return Look;
 }
 
@@ -427,6 +428,14 @@ void FDreamSkyToonClouds::Bake(FDreamSkyToonBaked& Out) const
 	Out.Key = FVector4f(KeyFacing, KeyUp, KeyHeight, FMath::Clamp(StormLitDarkening, 0.0f, 1.0f));
 	Out.Key2 = FVector4f(KeyLow, FMath::Max(KeyRange, 0.01f), FMath::Max(RimPower, 0.5f), FMath::Max(RimStrength, 0.0f));
 	Out.RimFocus = FMath::Max(RimFocus, 0.5f);
+	const FDreamSkyToonAdvanced& A = Advanced;
+	Out.Advanced[0] = FVector4f(FMath::Max(A.CastDepth, 1.0f) * 100.0f, A.CastFrom, FMath::Max(A.CastTo, A.CastFrom + 0.001f), FMath::Max(A.ThinColumn, 1.0f) * 100.0f);
+	Out.Advanced[1] = FVector4f(A.AmbientBase, A.AmbientUp, A.AmbientThin, A.AmbientHeight);
+	Out.Advanced[2] = FVector4f(A.UndersideSelfShade, A.WarmFrom, FMath::Max(A.WarmTo, A.WarmFrom + 0.001f), A.WarmTowardSun);
+	Out.Advanced[3] = FVector4f(A.UndersideGaps, A.UndersideFlanks, A.UndersideTowardSun, A.UndersideInStorm);
+	Out.Advanced[4] = FVector4f(A.DeckLitFrom, FMath::Max(A.DeckLitTo, A.DeckLitFrom + 0.001f), A.DeckTopFrom, FMath::Max(A.DeckTopTo, A.DeckTopFrom + 0.001f));
+	Out.Advanced[5] = FVector4f(A.RimHeightFrom, FMath::Max(A.RimHeightTo, A.RimHeightFrom + 0.001f), A.StormTopDarkening, FMath::Max(A.CrackScale, 0.1f));
+	Out.Advanced[6] = FVector4f(FMath::Max(A.VeilPower, 0.1f), FMath::Max(A.VeilStormPower, 0.0f), FMath::Max(A.CrackTear, 0.0f), 0.0f);
 }
 
 void FDreamSkyToonBaked::BlendToward(const FDreamSkyToonBaked& To, float Alpha)
@@ -449,4 +458,46 @@ void FDreamSkyToonBaked::BlendToward(const FDreamSkyToonBaked& To, float Alpha)
 	Key = FMath::Lerp(Key, To.Key, Alpha);
 	Key2 = FMath::Lerp(Key2, To.Key2, Alpha);
 	RimFocus = FMath::Lerp(RimFocus, To.RimFocus, Alpha);
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Advanced); ++Index)
+	{
+		Advanced[Index] = FMath::Lerp(Advanced[Index], To.Advanced[Index], Alpha);
+	}
+}
+
+FDreamSkyPaintedClouds FDreamSkyPaintedClouds::Lerp(const FDreamSkyPaintedClouds& A, const FDreamSkyPaintedClouds& B, float Alpha)
+{
+	FDreamSkyPaintedClouds Out = A;
+	Out.Extinction = FMath::Lerp(A.Extinction, B.Extinction, Alpha);
+	Out.PaintGain = FMath::Lerp(A.PaintGain, B.PaintGain, Alpha);
+	Out.EdgeSoftness = FMath::Lerp(A.EdgeSoftness, B.EdgeSoftness, Alpha);
+	Out.HalfToneAt = FMath::Lerp(A.HalfToneAt, B.HalfToneAt, Alpha);
+	Out.LitToneAt = FMath::Lerp(A.LitToneAt, B.LitToneAt, Alpha);
+	Out.ToneSoftness = FMath::Lerp(A.ToneSoftness, B.ToneSoftness, Alpha);
+	Out.SilverLining = FMath::Lerp(A.SilverLining, B.SilverLining, Alpha);
+	Out.BillowShade = FMath::Lerp(A.BillowShade, B.BillowShade, Alpha);
+	Out.HalfToneMix = FMath::Lerp(A.HalfToneMix, B.HalfToneMix, Alpha);
+	Out.KeyFalloff = FMath::Lerp(A.KeyFalloff, B.KeyFalloff, Alpha);
+	Out.RimFalloff = FMath::Lerp(A.RimFalloff, B.RimFalloff, Alpha);
+	Out.RimPower = FMath::Lerp(A.RimPower, B.RimPower, Alpha);
+	Out.ShadeAtBase = FMath::Lerp(A.ShadeAtBase, B.ShadeAtBase, Alpha);
+	Out.BaseFloor = FMath::Lerp(A.BaseFloor, B.BaseFloor, Alpha);
+	Out.WarmFade = FMath::Lerp(A.WarmFade, B.WarmFade, Alpha);
+	Out.WarmTowardSun = FMath::Lerp(A.WarmTowardSun, B.WarmTowardSun, Alpha);
+	Out.WarmMax = FMath::Lerp(A.WarmMax, B.WarmMax, Alpha);
+	Out.SkyInShade = FMath::Lerp(A.SkyInShade, B.SkyInShade, Alpha);
+	Out.KeyAtBase = FMath::Lerp(A.KeyAtBase, B.KeyAtBase, Alpha);
+	Out.KeyLow = FMath::Lerp(A.KeyLow, B.KeyLow, Alpha);
+	Out.KeyHigh = FMath::Lerp(A.KeyHigh, B.KeyHigh, Alpha);
+	Out.DeckThinColumn = FMath::Lerp(A.DeckThinColumn, B.DeckThinColumn, Alpha);
+	Out.DeckStormThinning = FMath::Lerp(A.DeckStormThinning, B.DeckStormThinning, Alpha);
+	Out.DeckFrom = FMath::Lerp(A.DeckFrom, B.DeckFrom, Alpha);
+	Out.DeckTo = FMath::Lerp(A.DeckTo, B.DeckTo, Alpha);
+	Out.StormLitDarkening = FMath::Lerp(A.StormLitDarkening, B.StormLitDarkening, Alpha);
+	Out.StormTopDarkening = FMath::Lerp(A.StormTopDarkening, B.StormTopDarkening, Alpha);
+	Out.FloorAtTop = FMath::Lerp(A.FloorAtTop, B.FloorAtTop, Alpha);
+	Out.FloorInStorm = FMath::Lerp(A.FloorInStorm, B.FloorInStorm, Alpha);
+	Out.LitTint = FMath::Lerp(A.LitTint, B.LitTint, Alpha);
+	Out.ShadeTint = FMath::Lerp(A.ShadeTint, B.ShadeTint, Alpha);
+	Out.HalfToneTint = FMath::Lerp(A.HalfToneTint, B.HalfToneTint, Alpha);
+	return Out;
 }
