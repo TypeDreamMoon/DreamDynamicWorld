@@ -92,6 +92,10 @@ bool FDreamWeatherFXPrecipitationTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("the effect was handed every path"), Uploaded.Num(), S->PathCount);
 		// (The effect stores them in single precision.)
 		TestTrue(TEXT("the latest ones"), Uploaded.Num() > 0 && Uploaded.Last().Equals(FX->GetPaths(UDreamWeatherFXSubsystem::RainLayer).GetEnds().Last(), 0.05));
+		// The drops run from each path's own start (DreamFallPath.dfm), so the starts go with the ends.
+		const TArray<FVector> Starts = UNiagaraDataInterfaceArrayFunctionLibrary::GetNiagaraArrayVector(Effect, TEXT("User.Starts"));
+		TestEqual(TEXT("and every path's start"), Starts.Num(), S->PathCount);
+		TestTrue(TEXT("the latest one"), Starts.Num() > 0 && Starts.Last().Equals(FX->GetPaths(UDreamWeatherFXSubsystem::RainLayer).GetStarts().Last(), 0.05));
 	}
 	else
 	{
@@ -183,6 +187,22 @@ bool FDreamWeatherFXAssetsTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("the lightning bolt is built (DFX/Effects/NS_DreamLightningBolt.dfs)"), Cast<UNiagaraSystem>(S->LightningBolt.TryLoad()));
 	TestNotNull(TEXT("the bolt material is built (DShader/Weather/M_DreamLightningBolt.dss)"),
 		LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Weather/M_DreamLightningBolt.M_DreamLightningBolt")));
+
+	// Every effect on the fall paths takes their starts: its drops run from a path's start to its end.
+	auto TakesStarts = [](const UNiagaraSystem* System)
+	{
+		if (!System)
+		{
+			return false;
+		}
+		TArray<FNiagaraVariable> Exposed;
+		System->GetExposedParameters().GetParameters(Exposed);
+		return Exposed.ContainsByPredicate([](const FNiagaraVariable& V) { return V.GetName() == TEXT("User.Starts"); });
+	};
+	for (const FSoftObjectPath& Path : { S->Rain.System, S->Snow.System, S->Dust.System, S->WindDebris })
+	{
+		TestTrue(FString::Printf(TEXT("%s takes the paths' starts (User.Starts)"), *Path.GetAssetName()), TakesStarts(Cast<UNiagaraSystem>(Path.TryLoad())));
+	}
 	return true;
 }
 

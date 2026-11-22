@@ -357,7 +357,8 @@ directional light from the strike, shadows optional). The flash is brightened wi
 traced a few hundred a second: each starts high above, falls down and downwind and ends where it hits something
 — ground, roof, canopy — or passes under a shelter (`FDreamWeatherFallPaths`). The effects (`NS_DreamRain`, from
 `DFX/Effects/NS_DreamRain.dfs`) draw thousands of drops by picking paths at random (`DreamFallPath.dfm`): a drop
-falls along its path and dies where it lands, and splashes open where landed paths end. No drop queries
+falls along its path, from that path's own start to its end at the speed it was traced with (a gust after the trace
+never slants it through a roof), and dies where it lands, and splashes open where landed paths end. No drop queries
 collision, no rain falls indoors, and the splashes land on what the rain lands on. Amounts, fall speeds, wind
 drift and the paths are in *Project Settings ▸ Dream Weather Effects*; an effect only lives while its
 precipitation falls. The weather hands every frame to listeners through `UDreamWeatherSubsystem::OnWeatherFrame`.
@@ -927,7 +928,8 @@ eases; clouds gather before a change and rain follows it), modifiers (fades, pri
 falloff on the CPU agreeing with the point query), events with hysteresis, the wind and the environment the sky
 reads, temperature with height and snow above the freezing line, snapshots of modifiers, shelters, lightning
 (strike counts, determinism, rods, the multi-stroke flash), the fall paths (a roof, the open, a shelter without
-geometry, wind, the forward bias, spreading) and `DreamWeather.FX.*` the rain effects driven by real weather.
+geometry, wind, the forward bias, spreading, a drop's own segment across a gust) and `DreamWeather.FX.*` the rain
+effects driven by real weather.
 `Automation RunTests DreamWind.` — `DreamWind.Shared.*` are pure C++ over the shared model
 (determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),

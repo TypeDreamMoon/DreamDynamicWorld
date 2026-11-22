@@ -1,9 +1,9 @@
 // DreamWeather: rain around the view (GPU).
 //
 // Driven by UDreamWeatherPrecipitationComponent, which follows the view and fills the user parameters every
-// frame: the fall paths it traced (Paths / Normals, see DreamFallPath.dfm), the drops' velocity (down and
-// downwind) and how hard it rains (DropRate / SplashRate). Drops fall along the paths and die where they
-// land; splashes open where landed paths end. Nothing here queries collision.
+// frame: the fall paths it traced (Paths / Starts / Normals, see DreamFallPath.dfm) and how hard it rains
+// (DropRate / SplashRate). Drops fall along the paths, each from its path's start to its end, and die where
+// they land; splashes open where landed paths end. Nothing here queries collision.
 System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
@@ -14,8 +14,8 @@ System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
 
     Properties = {
         DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Starts;
         DI<ArrayFloat3> Normals;
-        Vector FallVelocity = (0, 0, -900)       [ Group="Motion"; Description="cm/s, down and downwind." ];
         float  DropRate     = 0.0                [ Group="Amount"; Description="Drops spawned per second." ];
         float  SplashRate   = 0.0                [ Group="Amount"; Description="Splashes spawned per second." ];
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the drops spawned now that start part way down their path (1 for the frame that fills the air at once)." ];
@@ -50,7 +50,7 @@ System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
                 SpriteSizeMode = NonUniform,
                 SpriteSize     = hlsl { float2(User.DropWidth, User.DropLength) }
             );
-            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = false, Anywhere = User.Anywhere);
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere);
         }
 
         ParticleUpdate = {
@@ -97,7 +97,7 @@ System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
                 SpriteSizeMode    = Uniform,
                 UniformSpriteSize = User.SplashSize
             );
-            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = true);
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = true);
             // Sit the crown on the surface: its sprite is centred, the crown rises from the bottom edge.
             Position Particles.Position = hlsl { Particles.Position + Particles.DreamSurfaceNormal * (User.SplashSize * 0.45) };
         }

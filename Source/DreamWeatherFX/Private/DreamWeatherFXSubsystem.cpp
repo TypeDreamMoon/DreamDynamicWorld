@@ -26,8 +26,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogDreamWeatherFX, Log, All);
 namespace DreamWeatherFX
 {
 	static const FName Paths(TEXT("User.Paths"));
+	static const FName Starts(TEXT("User.Starts"));
 	static const FName Normals(TEXT("User.Normals"));
-	static const FName FallVelocity(TEXT("User.FallVelocity"));
 	static const FName DropRate(TEXT("User.DropRate"));
 	static const FName SplashRate(TEXT("User.SplashRate"));
 	static const FName Anywhere(TEXT("User.Anywhere"));
@@ -393,6 +393,7 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	if (State.Paths.GetGeneration() != State.UploadedGeneration && State.SinceUpload >= S->UploadInterval)
 	{
 		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector4(Effect, Paths, State.Paths.GetEnds());
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(Effect, Starts, State.Paths.GetStarts());
 		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(Effect, Normals, State.Paths.GetNormals());
 		State.UploadedGeneration = State.Paths.GetGeneration();
 		State.SinceUpload = 0.0f;
@@ -429,7 +430,6 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s fills the air: %.0f drops (%.1f s average fall)"),
 			Index == RainLayer ? TEXT("Rain") : Index == SnowLayer ? TEXT("Snow") : TEXT("Dust"), InTheAir, float(FallSeconds / double(Count)));
 	}
-	Effect->SetVariableVec3(FallVelocity, State.FallVelocity);
 	Effect->SetVariableFloat(DropRate, SpawnRate);
 	Effect->SetVariableFloat(SplashRate, State.SplashRate);
 	Effect->SetVariableFloat(Anywhere, SpawnAnywhere);
@@ -506,6 +506,7 @@ void UDreamWeatherFXSubsystem::UpdateDebris(UDreamWorldSubsystem& Clock, float S
 	if (Blown.Paths.GetGeneration() != DebrisUploaded && Blown.Paths.GetEnds().Num() > 0)
 	{
 		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector4(DebrisEffect, Paths, Blown.Paths.GetEnds());
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(DebrisEffect, Starts, Blown.Paths.GetStarts());
 		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(DebrisEffect, Normals, Blown.Paths.GetNormals());
 		DebrisUploaded = Blown.Paths.GetGeneration();
 	}
@@ -513,7 +514,6 @@ void UDreamWeatherFXSubsystem::UpdateDebris(UDreamWorldSubsystem& Clock, float S
 	SeasonDebris(Clock.GetDateTime(), Clock.GetCelestialSettings().Latitude < 0.0, Color);
 	DebrisEffect->SetVariableFloat(TEXT("User.DebrisRate"), DebrisRate);
 	DebrisEffect->SetVariableLinearColor(TEXT("User.DebrisColor"), Color);
-	DebrisEffect->SetVariableVec3(FallVelocity, Blown.FallVelocity);
 	if (DebrisRate > 0.0f && !DebrisEffect->IsActive())
 	{
 		DebrisEffect->Activate(true);

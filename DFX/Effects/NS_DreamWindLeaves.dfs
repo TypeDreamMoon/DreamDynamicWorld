@@ -27,8 +27,8 @@ System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
         float  Lift        = 60.0             [ Group="Wind"; Description="cm/s of extra lift per unit of gust." ];
         float  Gravity     = -140.0           [ Group="Wind"; Description="cm/s^2; light leaves sink slowly." ];
         DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Starts;
         DI<ArrayFloat3> Normals;
-        Vector FallVelocity = (1200, 0, -100)  [ Group="Debris"; Description="The dust layer's path velocity, cm/s." ];
         float  DebrisRate  = 0.0              [ Group="Debris"; Description="Pieces spawned per second along the paths." ];
         float  DebrisSize  = 9.0              [ Group="Debris"; Description="Piece size, cm." ];
         Color  DebrisColor = (0.75, 0.42, 0.10, 1.0) [ Group="Debris" ];
@@ -115,7 +115,7 @@ System(Name="Wind/Effects/NS_DreamWindLeaves", Root="Plugin.DreamDynamicWorld")
                 UniformSpriteSize    = User.DebrisSize,
                 SpriteRotationMode   = Random
             );
-            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = false, Anywhere = 1.0);
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = 1.0);
             // Leaves mostly, a twig now and then (a long thin sprite); shades of the season's colour.
             Vector2 Particles.SpriteSize = hlsl {
                 float2(User.DebrisSize * lerp(0.7, 1.3, rand(1.0)) * (rand(1.0) < 0.2 ? 3.0 : 1.2), User.DebrisSize * lerp(0.6, 1.0, rand(1.0)))
