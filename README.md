@@ -57,6 +57,15 @@ Events (Blueprint-assignable): `OnHourChanged`, `OnDateChanged`, `OnSunrise`, `O
 Other subsystems update inside the clock's tick, in order, through `OnWorldTick`, and spread occasional heavy
 work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 
+**Shared render targets** (`DreamWorldSharedTargets.h`). The weather map, the five surface maps, the wind's
+volumes and terrain map and the clouds' panorama are assets, one each for the whole engine, while every world
+(the editor's, a play-in-editor one) keeps its own clock, weather, view and material parameter collection. One
+world owns them at a time: a game world, else the first play-in-editor world (Simulate too), else the editor
+world; a test's or tool's own world takes part by its kind once it asks. Every writer asks before it draws
+(`DreamWorld::SharedTargets::FWriter`) and draws everything afresh when they come back to it (play in editor
+ended). Without this the play session's ground flickered between its own maps and the editor world's.
+`DreamWorld.SharedTargets 0` lets every world write them again, to compare.
+
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
@@ -1110,7 +1119,7 @@ usable in your own levels; none of the runtime depends on them.
   previous window), so following the camera costs no copy; cells that were outside the old window start
   from zero. Two levels share one shader: the far level runs the same pass with 4× voxels; consumers
   take the near level inside its window and the far level outside it. Only one world drives the shared
-  render targets at a time (game worlds beat the editor world).
+  render targets at a time (the plugin's shared render target rule: see *Clock and sky*).
 * The wind's part of the shared collection is ten float4 (`DreamWind_P0..P2`, `V0`/`V1` near window,
   `V2`/`V3` far window, `T0..T2` terrain map) in exactly the layout `DW_UnpackParams` / `DW_UnpackVolume` /
   `DW_UnpackTerrain` expect; the DI and the compute pass use the same packing. Parameter ids are derived
