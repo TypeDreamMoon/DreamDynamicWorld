@@ -142,6 +142,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float LensFlare = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_MilkyWay = false;
+	/** Multiplies how bright the Milky Way is drawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_MilkyWay", ClampMin = "0", UIMax = "8"))
+	float MilkyWay = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_SolarEclipse = false;
 	/** How much of the sun's disk the moon covers, 0..1 (1: total; the sky darkens, the corona shows). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_SolarEclipse", ClampMin = "0", ClampMax = "1"))

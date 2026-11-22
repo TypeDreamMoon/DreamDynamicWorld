@@ -135,6 +135,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
 	Look.LensFlare = FMath::Max(LensFlare.Intensity, 0.0f);
+	Look.MilkyWay = MilkyWay.bEnabled ? FMath::Max(MilkyWay.Intensity, 0.0f) : 0.0f;
 	return Look;
 }
 

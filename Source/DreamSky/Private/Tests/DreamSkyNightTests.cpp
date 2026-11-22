@@ -577,6 +577,40 @@ bool FDreamSkyRainbowTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyMilkyWayTest, "DreamSky.MilkyWay", DreamSky::NightTests::Flags)
+bool FDreamSkyMilkyWayTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// (A moonless summer night in the mountains: the new moon of 2026-08-12, near midnight.)
+	FNightWorld W(FDateTime(2026, 8, 12, 23, 30, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("new moon night world"), W.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("the air's own light, drawn unless the project turns it off"), W.Sky->GetEffectiveStyle()->MilkyWay.bEnabled);
+	const float Dark = W.SkySubsystem->GetMilkyWayVisibility();
+	TestTrue(FString::Printf(TEXT("a moonless night shows it (%.3f)"), Dark), Dark > 0.8f);
+	TestTrue(TEXT("and the dome is told to draw it"), W.Parameter(MPC_MilkyWay).G > 0.0f);
+	UDreamSkyModifier* City = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	City->Settings.bOverride_LightPollution = true;
+	City->Settings.LightPollution = 0.06f;
+	W.SkySubsystem->SetModifierAlpha(City, 1.0f);
+	W.Clock->Tick(0.016f);
+	const float Lit = W.SkySubsystem->GetMilkyWayVisibility();
+	TestTrue(FString::Printf(TEXT("a bright city all but hides it (%.3f)"), Lit), Lit < 0.1f * Dark);
+	W.SkySubsystem->RemoveModifier(City);
+	W.Clock->SetTimeOfDay(19.3f);
+	W.Clock->Tick(0.016f);
+	TestTrue(FString::Printf(TEXT("not in the twilight (%.3f)"), W.SkySubsystem->GetMilkyWayVisibility()), W.SkySubsystem->GetMilkyWayVisibility() < 0.2f);
+	W.Clock->SetTimeOfDay(12.0f);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("not by day"), W.SkySubsystem->GetMilkyWayVisibility(), 0.0f);
+	TestEqual(TEXT("nor drawn"), W.Parameter(MPC_MilkyWay).G, 0.0f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCatalogueStarsTest, "DreamSky.Stars.Catalogue", DreamSky::NightTests::Flags)
 bool FDreamSkyCatalogueStarsTest::RunTest(const FString& Parameters)
 {

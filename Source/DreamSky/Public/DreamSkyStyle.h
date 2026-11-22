@@ -193,6 +193,54 @@ struct DREAMSKY_API FDreamSkyLightShafts
 	float CoverFull = 0.35f;
 };
 
+/**
+ * The Milky Way behind the stars (T_DreamMilkyWay, made from noise by Setup), where it stands on the celestial sphere
+ * for the latitude and the sidereal time: the band widening and brightening toward the centre in Sagittarius, its star
+ * clouds, its dust lanes and the Great Rift. Only on a dark night: the twilight, moonlight, a city's light, haze and fog
+ * all wash it out -- a full moon or a bright city all but hides it, a moonless night in the country shows it best.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMilkyWay
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way")
+	bool bEnabled = true;
+
+	/** How bright it is drawn on the darkest night (in the dome's measure, as the stars' intensity curve). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 0.35f;
+
+	/** A power on its light: above 1 the star clouds stand out more against the faint band, below 1 it is flatter. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0.25", UIMax = "3"))
+	float Contrast = 1.0f;
+
+	/** How dark its dust lanes and the Great Rift are (0 = none). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "3"))
+	float Dust = 1.0f;
+
+	/** Its colour: warm white toward the centre, cooler along the arms (0 = grey, 1 = as made). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", UIMax = "2"))
+	float Saturation = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (HideAlphaChannel))
+	FLinearColor Tint = FLinearColor::White;
+
+	/** The sun's elevation (degrees) where it starts to show, and where the night is dark enough for all of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (UIMin = "-20", UIMax = "0"))
+	float ShowsBelow = -10.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (UIMin = "-25", UIMax = "0"))
+	float FullBelow = -18.0f;
+
+	/** How much a full moon high up washes it out (0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonWash = 0.92f;
+
+	/** The city's light (the dome's LightPollution) that leaves a third of it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ClampMin = "0.001", UIMax = "0.1"))
+	float CityWash = 0.02f;
+};
+
 /** Which stars the dome draws. */
 UENUM(BlueprintType)
 enum class EDreamSkyStarField : uint8
@@ -552,6 +600,9 @@ public:
 	/** Relative number of stars (the stylized scatter). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4", EditCondition = "StarField == EDreamSkyStarField::Stylized"))
 	float StarDensity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ShowOnlyInnerProperties))
+	FDreamSkyMilkyWay MilkyWay;
 
 	/** How much brighter the catalogue's stars are drawn for each magnitude (1 = as in the sky, 2.512 times; less
 	 *  keeps the faint ones in sight next to the bright). */

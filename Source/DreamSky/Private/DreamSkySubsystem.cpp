@@ -689,6 +689,22 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_StarPole, FLinearColor(float(Pole.X), float(Pole.Y), float(Pole.Z), bCatalogue ? 1.0f : 0.0f));
 		Clock.SetVectorParameter(MPC_StarEquinox, FLinearColor(float(Equinox.X), float(Equinox.Y), float(Equinox.Z), FMath::Clamp(Style.StarContrast, 0.1f, 1.0f)));
 	}
+	// The Milky Way, as much as the night lets it show.
+	{
+		const FDreamSkyMilkyWay& MW = Style.MilkyWay;
+		const FDreamCelestialState& Heavens = Clock.GetCelestial();
+		const FDreamWorldEnvironment& Env = Clock.GetEnvironment();
+		const float Dark = FMath::SmoothStep(-MW.ShowsBelow, FMath::Max(-MW.FullBelow, -MW.ShowsBelow + 0.1f), -Applied.SunElevation);
+		const float MoonLight = Heavens.MoonIllumination * FMath::SmoothStep(-2.0f, 10.0f, Heavens.MoonElevation);
+		const float Moon = 1.0f - FMath::Clamp(MW.MoonWash, 0.0f, 1.0f) * FMath::Pow(FMath::Clamp(MoonLight, 0.0f, 1.0f), 0.6f);
+		const float City = FMath::Exp(-1.0986f * FMath::Max(Look.LightPollution, 0.0f) / FMath::Max(MW.CityWash, 1.0e-3f));
+		const float Air = (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) * (Env.bActive ? (1.0f - 0.9f * FMath::Clamp(Env.Fog, 0.0f, 1.0f)) * (1.0f - 0.4f * FMath::Clamp(Env.CloudCoverage, 0.0f, 1.0f)) : 1.0f);
+		MilkyWayVisibility = Dark * Moon * City * Air;
+		const float Shows = FMath::Max(Look.MilkyWay, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f) * MilkyWayVisibility;
+		const FLinearColor Light = MW.Tint * Shows;
+		Clock.SetVectorParameter(MPC_MilkyWay, FLinearColor(Light.R, Light.G, Light.B, FMath::Max(MW.Contrast, 0.25f)));
+		Clock.SetVectorParameter(MPC_MilkyWayDust, FLinearColor(FMath::Max(MW.Dust, 0.0f), FMath::Max(MW.Saturation, 0.0f), 0.0f, 0.0f));
+	}
 	// The aurora toward the magnetic pole (north, or south below the equator in the realistic mode), as bright as the
 	// night shows it.
 	{
