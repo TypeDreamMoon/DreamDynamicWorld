@@ -229,9 +229,12 @@ void UDreamWeatherStatusComponent::UpdateBreath()
 			USkeletalMeshComponent* Body = Owner->FindComponentByClass<USkeletalMeshComponent>();
 			const bool bSocket = Body && !BreathSocket.IsNone() && Body->DoesSocketExist(BreathSocket);
 			USceneComponent* Parent = bSocket ? Body : Owner->GetRootComponent();
-			const FVector Offset = bSocket ? FVector(0.0, 15.0, 0.0) : SampleOffset + FVector(0.0, 0.0, 100.0);
-			Breath = UNiagaraFunctionLibrary::SpawnSystemAttached(System, Parent, bSocket ? BreathSocket : NAME_None, Offset, FRotator::ZeroRotator,
-				EAttachLocation::KeepRelativeOffset, false, true);
+			// At the socket, or at the mouth in the actor's frame (forward +X) - turned with it, never scaled with a
+			// stretched root.
+			const FTransform Frame = bSocket ? Body->GetSocketTransform(BreathSocket) : Parent->GetComponentTransform();
+			const FVector Mouth = Frame.GetLocation() + Frame.GetRotation().RotateVector(bSocket ? FVector::ZeroVector : BreathOffset);
+			Breath = UNiagaraFunctionLibrary::SpawnSystemAttached(System, Parent, bSocket ? BreathSocket : NAME_None, Mouth, Frame.Rotator(),
+				EAttachLocation::KeepWorldPosition, false, true);
 		}
 	}
 	if (Breath)
