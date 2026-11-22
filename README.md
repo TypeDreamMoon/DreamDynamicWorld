@@ -139,6 +139,13 @@ and how far toward the pole the arc stands and how wide it is. A sky modifier's 
 holds it off); `DreamSky.Modifier.Add Aurora` tries it. It costs some 0.09 ms of the base pass at 1080p while it
 shows, nothing while it does not.
 
+**Night glow and light pollution.** From sunset on the night sky has a faint glow of its own (the style's
+`NightGlow.Airglow`, a little stronger low down), and a city's light climbs from the horizon
+(`NightGlow.LightPollution`, 0 = the wilderness; its colour, and `Climb`, how high it reaches). Weather haze spreads
+it further up and brighter, and the sky cloud renderer lights the clouds' bases with it (`CloudUnderLight`): an
+overcast over a city glows warm from below. A sky modifier's *Light Pollution* sets it for a place (a modifier held
+by a volume over a town, say) and its *Airglow* scales the glow; `DreamSky.Modifier.Add City` tries it.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

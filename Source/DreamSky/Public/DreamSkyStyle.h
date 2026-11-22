@@ -64,6 +64,36 @@ struct DREAMSKY_API FDreamSkyAurora
  * The defaults are a restrained stylized palette. A project makes its own by duplicating the default
  * asset (Setup creates /DreamDynamicWorld/Sky/DS_DreamSkyStylized) and editing the curves.
  */
+/**
+ * The night sky's own light: the faint airglow of the upper air everywhere, and a city's light pollution, a warm glow
+ * climbing from the horizon that the clouds' bases catch (an overcast over a city glows orange from below).
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyNightGlow
+{
+	GENERATED_BODY()
+
+	/** The airglow added to the whole night sky, in the dome's measure (a dark night's zenith is some 0.006). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (HideAlphaChannel))
+	FLinearColor Airglow = FLinearColor(0.0010f, 0.0016f, 0.0011f, 1.0f);
+
+	/** How strong a city's glow is at the horizon, in the dome's measure (0: none, the wilderness; 0.02 a town; 0.08 a city). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ClampMin = "0", UIMax = "0.3"))
+	float LightPollution = 0.0f;
+
+	/** Its colour (sodium orange; whiter for modern lights). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (HideAlphaChannel))
+	FLinearColor LightPollutionColor = FLinearColor(1.0f, 0.58f, 0.28f, 1.0f);
+
+	/** How high it climbs into the sky: the sine of the elevation where it has fallen to a third. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ClampMin = "0.01", ClampMax = "1"))
+	float Climb = 0.18f;
+
+	/** How much of it the clouds' bases catch (and weather haze spreads it further up the sky). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ClampMin = "0", UIMax = "4"))
+	float CloudUnderLight = 3.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -80,6 +110,9 @@ public:
 
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
+
+	/** How much of the night's own glow and a city's light shows at a sun elevation (degrees), 0..1: from sunset on. */
+	static float GlowNight(float SunElevation);
 
 	/** Lights, ambient, fog and exposure at a moment (before any smoothing). */
 	FDreamSkyLighting EvaluateLighting(const FDreamCelestialState& Celestial) const;
@@ -213,6 +246,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ShowOnlyInnerProperties))
 	FDreamSkyAurora Aurora;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Glow", meta = (ShowOnlyInnerProperties))
+	FDreamSkyNightGlow NightGlow;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

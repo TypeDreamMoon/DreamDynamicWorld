@@ -38,7 +38,11 @@ namespace DreamSky::Names
 	// with how far toward the pole the arc stands (km) and how wide it is (km) in their a.
 	inline const FName MPC_Aurora(TEXT("DDW_Aurora"));
 	inline const FName MPC_AuroraLow(TEXT("DDW_AuroraLow"));
-	inline const FName MPC_AuroraHigh(TEXT("DDW_AuroraHigh"));          // rgb = height fog colour, a = how much of the dome weather fog hides
+	inline const FName MPC_AuroraHigh(TEXT("DDW_AuroraHigh"));
+	// The night's glow: airglow rgb (the night in), how much of the city's light the clouds' bases catch; a city's
+	// light at the horizon rgb (the night and the haze in), how high it climbs (sine of the elevation).
+	inline const FName MPC_NightGlow(TEXT("DDW_NightGlow"));
+	inline const FName MPC_LightPollution(TEXT("DDW_LightPollution"));          // rgb = height fog colour, a = how much of the dome weather fog hides
 
 	// lighting, for every material
 	inline const FName MPC_MainLight(TEXT("DDW_MainLight"));            // direction toward the light, a = illuminance (lux)

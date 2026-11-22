@@ -30,7 +30,7 @@
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
 // its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
-float4 Parameters[19];
+float4 Parameters[21];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -50,6 +50,8 @@ float4 Parameters[19];
 #define P_Haze         Parameters[16]
 #define P_Flash        Parameters[17]
 #define P_SkyModClouds Parameters[18]
+#define P_NightGlow    Parameters[19]
+#define P_LightPollution Parameters[20]
 #define DCS_MAP_ADJUST P_SkyModClouds
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
@@ -269,6 +271,14 @@ float DSkyR_StormReach(float2 World2)
 // bands that no history averages away. (Not the two fine steps: the march's own jitter already parts the rays by up to a
 // step there; varied as well, some fell under the length the march leaves its fine walk at, and the march cost up to
 // half as much again.)
+// A city's light from below as a cloud catches it at a height in it (0 base .. 1 top): the light pollution at the horizon
+// (DDW_LightPollution) times how much the bases catch (DDW_NightGlow.a), most at the base.
+float3 DSkyR_UnderLight(float Height)
+{
+	float FromBase = 1.0 - saturate(Height);
+	return P_LightPollution.rgb * P_NightGlow.a * FromBase * FromBase;
+}
+
 float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter, float2 World2)
 {
 	float LayerStep = 2.0 * P.FineStep;
@@ -473,6 +483,8 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		CloudNoiseSampler, CameraWorld, Tone, Halo, SkyBehind, P_CloudLit, P_CloudShadow, P_Extra, Sun, P_MainLightColor, SceneT,
 		DSkyR_MaxDist, Core);
 	SurfaceDepth = VC.a > 0.0 ? W.SurfaceT : -1.0;
+	// A city's light from below on the cloud's base (DSkyR_UnderLight).
+	VC.rgb += DSkyR_UnderLight(W.Here.Height) * VC.a;
 	return VC * P_CloudShadow.a;
 }
 
@@ -679,6 +691,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// engine's painted clouds keep their blue-lavender.
 			float FromBase = 1.0 - saturate(C.Height);
 			Paint = max(Paint, Shade * 0.85 * lerp(1.0, 0.3, FromBase * FromBase * FromBase) * (1.0 - 0.5 * Storm));
+			Paint += DSkyR_UnderLight(C.Height);
 			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint * LP_PaintGain, Dt);
 #else
 			float3 Sun = SunColor * DSkyR_AirTransmittance(World.z, LightDir.z) * DCL_SunScatter(Tau, Cos, L) * EarthLit;
@@ -695,7 +708,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 				float Patch = CloudNoise.SampleLevel(CloudNoiseSampler, float3(Drift / (1100000.0 * Scale), 0.83), 0).g;
 				Shade01 *= 1.0 + (Patch - 0.5) * 2.0 * LP_DeckMottle * C.Deck;
 			}
-			float3 Glow = P_CloudShadow.rgb * LP_ShadeTint * LP_Glow * Shade01 * (1.0 - 0.8 * Storm);
+			float3 Glow = P_CloudShadow.rgb * LP_ShadeTint * LP_Glow * Shade01 * (1.0 - 0.8 * Storm) + DSkyR_UnderLight(C.Height);
 			DCM_Integrate(M, SigmaT, SigmaT * (Albedo * Sun + Glow), Dt);
 #endif
 		}

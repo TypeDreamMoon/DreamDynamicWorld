@@ -193,6 +193,17 @@ float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Secon
 	return Sum * (Aurora.x * 2.0 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
 }
 
+// The night sky's own light: NightGlow = (airglow, -), brighter low down where the eye looks through more of the glowing
+// upper air; LightPollution = (a city's light at the horizon, how high it climbs: the sine of the elevation where it
+// has fallen to a third), dropping off upward and dying out a little under the horizon.
+float3 DSky_NightGlow(float3 V, float4 NightGlow, float4 LightPollution)
+{
+	float Up = max(V.z, 0.0);
+	float3 Glow = NightGlow.rgb * (1.0 + 1.5 * (1.0 - Up));
+	Glow += LightPollution.rgb * exp(-Up / max(LightPollution.a, 0.01)) * smoothstep(-0.08, 0.0, V.z);
+	return Glow;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Volumetric clouds, toon: the cloud layer (shaped in DreamSkyCloudShape.ush) walked to its surface, which is then lit
 // once, by its normal and its own shadow toward the main light, and banded into the style's few tones: volumes with a
@@ -923,14 +934,15 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
-// Aurora, AuroraLow, AuroraHigh: see DSky_Aurora.
+// Aurora, AuroraLow, AuroraHigh: see DSky_Aurora. NightGlow, LightPollution: see DSky_NightGlow.
 // Cloud0 = (cover, -, scale, tones), Cloud1 = (wind drift, -, -), Cloud2 = (-, zenith thinning, -, fair-weather towers),
 // Cloud3 = (visibility, cm; haze height, cm; high cloud cover; high cloud altitude, cm).
 // Capture is 1 while the dome is drawn into the sky light (reflection capture pass), 0 on screen.
 float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Zenith, float4 Horizon, float4 Ground,
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
-	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh,
+	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
+	float4 LightPollution,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
 {
@@ -985,6 +997,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += SunDisk.rgb * DSky_Disk(V, Sun, SunDisk.a) * smoothstep(-0.02, 0.0, V.z) * Clear * Clear * Clear * Clear * SunShare;
 	// The aurora, in front of the stars and the moon, behind the high cloud (it lights the sky light a little too).
 	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, Seconds);
+	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
+	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
 
 	Sky = Sky * (1.0 - High.a) + High.rgb;
 	Sky = Sky * (1.0 - Shafts.a) + Shafts.rgb;

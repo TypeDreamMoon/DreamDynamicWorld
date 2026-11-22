@@ -143,4 +143,44 @@ bool FDreamSkyAuroraTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyNightGlowTest, "DreamSky.Night.GlowAndLightPollution", DreamSky::NightTests::Flags)
+bool FDreamSkyNightGlowTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+	TestEqual(TEXT("no glow by day"), UDreamSkyStyle::GlowNight(10.0f), 0.0f);
+	TestEqual(TEXT("in full by the end of the civil twilight"), UDreamSkyStyle::GlowNight(-6.0f), 1.0f);
+
+	FNightWorld W(FDateTime(2026, 12, 21, 0, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	const UDreamSkyStyle* Style = W.Sky->GetEffectiveStyle();
+	FLinearColor Glow = W.Parameter(MPC_NightGlow);
+	TestTrue(TEXT("the airglow at night"), Glow.G > 0.0f && FMath::IsNearlyEqual(Glow.G, Style->NightGlow.Airglow.G, 1e-6f));
+	TestNearlyEqual(TEXT("how much the bases catch"), Glow.A, Style->NightGlow.CloudUnderLight, 1e-6f);
+	TestEqual(TEXT("no city by default (the wilderness)"), W.Parameter(MPC_LightPollution).R, 0.0f);
+
+	// A modifier brings a city's light: at the horizon its colour times the strength.
+	UDreamSkyModifier* City = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	City->Settings.bOverride_LightPollution = true;
+	City->Settings.LightPollution = 0.06f;
+	City->Settings.bOverride_Airglow = true;
+	City->Settings.Airglow = 2.0f;
+	W.SkySubsystem->AddModifier(City, 0.0f);
+	W.Clock->Tick(0.016f);
+	const FLinearColor Light = W.Parameter(MPC_LightPollution);
+	TestNearlyEqual(TEXT("the city's light, in its colour"), Light.R, 0.06f * Style->NightGlow.LightPollutionColor.R, 1e-4f);
+	TestNearlyEqual(TEXT("how high it climbs"), Light.A, Style->NightGlow.Climb, 1e-5f);
+	TestNearlyEqual(TEXT("the airglow doubled"), W.Parameter(MPC_NightGlow).G, 2.0f * Style->NightGlow.Airglow.G, 1e-6f);
+
+	// By day neither shows.
+	W.Clock->SetTimeOfDay(12.0f);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("no city light by day"), W.Parameter(MPC_LightPollution).R, 0.0f);
+	TestEqual(TEXT("no airglow by day"), W.Parameter(MPC_NightGlow).G, 0.0f);
+	return true;
+}
+
 #endif

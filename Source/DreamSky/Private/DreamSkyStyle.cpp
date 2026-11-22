@@ -131,6 +131,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.StarIntensity = FMath::Max(0.0f, Eval(StarIntensity, E));
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
+	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	return Look;
 }
 
@@ -144,6 +145,12 @@ float UDreamSkyStyle::EvaluateAuroraPresence(const FDreamCelestialSettings& Sett
 	const float From = FMath::Min(Aurora.StartLatitude, Aurora.FullLatitude);
 	const float To = FMath::Max(Aurora.StartLatitude, Aurora.FullLatitude);
 	return To > From ? FMath::SmoothStep(From, To, Latitude) : (Latitude >= To ? 1.0f : 0.0f);
+}
+
+float UDreamSkyStyle::GlowNight(float SunElevation)
+{
+	// (A city's lights come on as the sun sets and stand out by the end of the civil twilight.)
+	return 1.0f - FMath::SmoothStep(-6.0f, 2.0f, SunElevation);
 }
 
 float UDreamSkyStyle::AuroraNight(float SunElevation)

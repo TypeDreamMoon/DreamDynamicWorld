@@ -526,6 +526,15 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
 		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
 	}
+	// The night's own glow, and a city's light from the horizon (weather haze spreading it further up and brighter).
+	{
+		const float Night = UDreamSkyStyle::GlowNight(Applied.SunElevation);
+		const FLinearColor Airglow = Style.NightGlow.Airglow * (FMath::Max(Look.AirglowScale, 0.0f) * Night);
+		Clock.SetVectorParameter(MPC_NightGlow, With(Airglow, FMath::Max(Style.NightGlow.CloudUnderLight, 0.0f)));
+		const float City = FMath::Max(Look.LightPollution, 0.0f) * Night * (1.0f + Look.Haze.A);
+		const float Climb = FMath::Clamp(Style.NightGlow.Climb, 0.01f, 1.0f) * (1.0f + 1.5f * Look.Haze.A);
+		Clock.SetVectorParameter(MPC_LightPollution, With(Style.NightGlow.LightPollutionColor * City, Climb));
+	}
 
 	// Drift: shapes per game hour along CloudDirection, from the world time, so a given moment always shows
 	// the same clouds. Wrapped to keep the shader's float precision.

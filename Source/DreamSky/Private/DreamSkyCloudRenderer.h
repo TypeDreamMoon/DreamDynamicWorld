@@ -37,7 +37,7 @@ public:
 
 	/** The shared parameter collection's vectors the march reads, in this order (DreamSkyCloudRender.usf's DSKY_V_*). */
 	static const TArray<FName>& GetParameterNames();
-	static constexpr int32 NumParameters = 19;
+	static constexpr int32 NumParameters = 21;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
 	static constexpr int32 NumLookParameters = 11;
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
