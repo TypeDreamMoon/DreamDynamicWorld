@@ -202,6 +202,17 @@ sets how many (`Intensity`), how big (`DropSize`) and how far they bend the pict
 `DreamSky.ScreenDroplets <intensity>` draws them whatever the style says (-1 = the style's). They cost some 0.05 ms at
 1080p while the lens is wet, nothing while it is dry.
 
+**Frost on the lens.** With the style's `ScreenFrost.bEnabled` (off by default, as the drops) frost grows on the lens
+in the same pass: in from the rim, the corners first, its front feathered with crystals and a frosted pane behind it
+that blurs and whitens the picture, its facets' edges and grains catching the light. It grows while the view is out in
+the snow in the cold -- from `StartsBelow` (0 C) to as much as it gets at `FullBelow` (-8 C), more in the wind -- over
+`FreezeSeconds`; out in the cold once the snow is over it stays, fading over `LingerSeconds`; indoors (the view probe)
+or in the warm it melts over `MeltSeconds`, into drops on the lens when those are drawn. A cinematic frame or a jump
+of the clock shows it as it would be by then. How frosted it is, `UDreamSkySubsystem::GetScreenFrost`, is kept whether
+or not it is drawn. The style sets how thick (`Intensity`), the crystals' size (`CrystalSize`), how much it blurs
+(`Blur`) and bends (`Refraction`) the picture, and its `Tint`; `DreamSky.ScreenFrost <intensity>` draws it whatever the
+style says (-1 = the style's).
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

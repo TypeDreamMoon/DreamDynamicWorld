@@ -18,6 +18,8 @@ class FDreamSkyScreenPS : public FGlobalShader
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(FVector4f, Screen)
+		SHADER_PARAMETER(FVector4f, Frost)
+		SHADER_PARAMETER(FVector4f, FrostTint)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, InputSampler)
 		SHADER_PARAMETER(FVector2f, InputInvExtent)
@@ -54,6 +56,8 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
 	FDreamSkyScreenPS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyScreenPS::FParameters>();
 	Params->Screen = Settings.Screen;
+	Params->Frost = Settings.Frost;
+	Params->FrostTint = Settings.FrostTint;
 	Params->InputTexture = SceneColor.Texture;
 	Params->InputSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	const FIntPoint Extent = SceneColor.Texture->Desc.Extent;
@@ -66,6 +70,6 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	Params->Seconds = View.Family ? float(FMath::Fmod(View.Family->Time.GetWorldTimeSeconds(), 3600.0)) : 0.0f;
 	Params->RenderTargets[0] = Output.GetRenderTargetBinding();
 	TShaderMapRef<FDreamSkyScreenPS> Shader(ShaderMap);
-	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Drops"), Shader, Params, Output.ViewRect);
+	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Lens"), Shader, Params, Output.ViewRect);
 	return FScreenPassTexture(Output);
 }
