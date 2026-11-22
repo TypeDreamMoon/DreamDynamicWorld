@@ -55,6 +55,8 @@ public:
 	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	/** The modifiers' presets (a forced weather's among them) live as long as their modifiers. */
+	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 
 	// ---- What runs ----------------------------------------------------------------------------
 

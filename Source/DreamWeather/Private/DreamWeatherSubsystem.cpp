@@ -588,6 +588,17 @@ bool UDreamWeatherSubsystem::HasModifier(FDreamWeatherModifierHandle Handle) con
 	return Modifiers.ContainsByPredicate([&Handle](const FModifier& M) { return M.Id == Handle.Id && !M.bRemoving; });
 }
 
+void UDreamWeatherSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	Super::AddReferencedObjects(InThis, Collector);
+	// (The modifiers are not reflected: a preset only a modifier holds, as DreamWeather.Set loads one, would be collected
+	// under it.)
+	for (FModifier& M : CastChecked<UDreamWeatherSubsystem>(InThis)->Modifiers)
+	{
+		Collector.AddReferencedObject(M.Desc.Preset);
+	}
+}
+
 FDreamWeatherModifierHandle UDreamWeatherSubsystem::ForceWeather(UDreamWeatherPreset* Preset, float TransitionSeconds)
 {
 	// Fading the old forcing out while the new one fades in would let the schedule show through halfway (a scheduled
