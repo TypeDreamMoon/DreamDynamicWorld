@@ -303,9 +303,13 @@ any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
-sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`, 2.5 EV: a room lit only through its
-door and windows, with little bounced light, is still dark at 1) and can scale the sky light and the sun and moon
-there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
+sides are closed. Indoors the sky lifts the exposure (`InteriorExposureLift`, 2.5 EV: a room lit only through its
+door and windows, with little bounced light, is still dark at 1) and raises the sky light (`InteriorSkyLightScale`,
+2.5): with Lumen the sky light is occluded, so what the doors and windows let in brightens and the corners stay dark.
+Without Lumen nothing bounces in; `bInteriorFill` (off by default) then adds a weak fill that ignores occlusion
+(`InteriorFill` of the outdoor sky light, and as much on the shared ambient gradient). Neither lights a room with
+small windows by itself: place lights in it, as a level would anyway. The sun and moon can be scaled indoors too;
+`DDW_Interior` carries how far the view is indoors to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game

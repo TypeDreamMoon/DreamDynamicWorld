@@ -880,9 +880,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (UIMin = "0", UIMax = "4"))
 	float InteriorExposureLift = 2.5f;
 
-	/** Sky light intensity indoors, as a multiplier (lower it when the sky light has no occlusion of its own). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
-	float InteriorSkyLightScale = 1.0f;
+	/**
+	 * Sky light intensity indoors, as a multiplier: with Lumen the sky light is occluded, so only what the doors and
+	 * windows let in brightens (the room's corners stay dark). Lower it toward 1 where the sky light has no occlusion of
+	 * its own: there it brightens the whole room alike.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "4"))
+	float InteriorSkyLightScale = 2.5f;
+
+	/**
+	 * A weak fill indoors, for projects without Lumen (no light bounces in through the doors and windows there): an
+	 * ambient that ignores occlusion, the sky light raised by InteriorFill of its outdoor strength and the shared
+	 * parameters' ambient gradient with it, as far as the view is indoors. Off by default.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior")
+	bool bInteriorFill = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2", EditCondition = "bInteriorFill"))
+	float InteriorFill = 0.3f;
 
 	/** Sun and moon light indoors, as a multiplier. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
