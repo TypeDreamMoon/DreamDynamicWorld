@@ -9,6 +9,8 @@
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
+#include "DreamWeatherZone.h"
+#include "DreamWorldCelestial.h"
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -139,6 +141,7 @@ namespace DreamWorldPlay
 		Sky->Style = LoadObject<UDreamSkyStyle>(nullptr, TEXT("/DreamDynamicWorld/Sky/DS_DreamSkyStylized.DS_DreamSkyStylized"));
 		Sky->TimeOfDay = 10.0f;
 		Sky->Clock.StartTime = FDateTime(2026, 6, 21, 10, 0, 0);
+		Sky->Clock.StartTime = FDateTime(2026, 6, 21, 10, 0, 0);
 		Sky->SetActorLabel(TEXT("DreamSky"));
 		World->SpawnActor<ADreamWindGlobal>(FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator)->SetActorLabel(TEXT("DreamWindGlobal"));
 
@@ -158,6 +161,17 @@ namespace DreamWorldPlay
 		AddHut(*World, FVector(1200.0, 0.0, 0.0));
 		AddPorch(*World, FVector(0.0, 0.0, 0.0));
 		AddGrove(*World, FVector(-1400.0, 0.0, 0.0));
+
+		// A storm that drifts in from the west on the morning of the showcase's day: over the area around ten, gone by
+		// half past twelve.
+		ADreamWeatherStorm* Storm = World->SpawnActor<ADreamWeatherStorm>(FVector(-3500000.0, 0.0, 0.0), FRotator::ZeroRotator);
+		Storm->SetActorLabel(TEXT("DriftingStorm"));
+		Storm->Zone->Extent = FVector2D(800000.0, 800000.0);
+		Storm->Zone->BlendDistance = 600000.0f;
+		Storm->Zone->Motion.Velocity = FVector2D(25.0, 0.0);
+		Storm->Zone->Motion.LifetimeHours = 4.0f;
+		Storm->Zone->Motion.bDestroyWhenDone = false;
+		Storm->Zone->Motion.StartSeconds = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 21, 8, 30, 0));
 
 
 		World->SpawnActor<APlayerStart>(FVector(0.0, -1200.0, 100.0), FRotator(0.0, 90.0, 0.0));
