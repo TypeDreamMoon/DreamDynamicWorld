@@ -16,8 +16,9 @@ struct DREAMWEATHERFX_API FDreamPrecipitationLayer
 	GENERATED_BODY()
 
 	/**
-	 * The effect. Every frame it is given its fall paths (User.Paths, User.Normals: see DreamFallPath.dfm), the
-	 * drops' velocity (User.FallVelocity) and how many drops and splashes to spawn (User.DropRate, User.SplashRate).
+	 * The effect. Every frame it is given its fall paths (User.Paths, User.Starts, User.Normals: see
+	 * DreamFallPath.dfm; a drop runs from its path's start to its end) and how many drops and splashes to spawn
+	 * (User.DropRate, User.SplashRate).
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation", meta = (AllowedClasses = "/Script/Niagara.NiagaraSystem"))
 	FSoftObjectPath System;

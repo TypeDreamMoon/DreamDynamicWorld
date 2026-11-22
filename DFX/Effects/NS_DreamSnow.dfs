@@ -1,8 +1,8 @@
 // DreamWeather: snow around the view (GPU).
 //
 // Driven like the rain by UDreamWeatherFXSubsystem: the fall paths it traced for the snow (slow and far blown,
-// so they slant much more than rain), the flakes' velocity and how hard it snows. Flakes fall along the paths
-// with a gentle side-to-side sway that comes back to the path, and die where it lands.
+// so they slant much more than rain) and how hard it snows. Flakes fall along the paths, each at its own
+// path's velocity, with a gentle side-to-side sway that comes back to the path, and die where it lands.
 System(Name="Weather/Effects/NS_DreamSnow", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
@@ -13,8 +13,8 @@ System(Name="Weather/Effects/NS_DreamSnow", Root="Plugin.DreamDynamicWorld")
 
     Properties = {
         DI<ArrayFloat4> Paths;
+        DI<ArrayFloat3> Starts;
         DI<ArrayFloat3> Normals;
-        Vector FallVelocity = (0, 0, -130)       [ Group="Motion"; Description="cm/s, down and downwind." ];
         float  DropRate     = 0.0                [ Group="Amount"; Description="Flakes spawned per second." ];
         float  SplashRate   = 0.0                [ Group="Amount"; Description="Unused by snow." ];
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the flakes spawned now that start part way down their path (1 for the frame that fills the air at once)." ];
@@ -49,7 +49,7 @@ System(Name="Weather/Effects/NS_DreamSnow", Root="Plugin.DreamDynamicWorld")
                 UniformSpriteSizeMin = hlsl { User.FlakeSize * 0.6 },
                 UniformSpriteSizeMax = hlsl { User.FlakeSize * 1.4 }
             );
-            DreamFallPath(Paths = User.Paths, Normals = User.Normals, FallVelocity = User.FallVelocity, AtEnd = false, Anywhere = User.Anywhere);
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere);
             float Particles.SnowPhase = hlsl { rand(6.2831853) };
         }
 
@@ -57,7 +57,7 @@ System(Name="Weather/Effects/NS_DreamSnow", Root="Plugin.DreamDynamicWorld")
             ParticleState();
             // Sway around the path: the sideways velocity is a sine, so the flake keeps coming back to its path.
             Vector Particles.Velocity = hlsl {
-                User.FallVelocity + float3(sin(Particles.Age * 1.7 + Particles.SnowPhase),
+                Particles.DreamPathVelocity + float3(sin(Particles.Age * 1.7 + Particles.SnowPhase),
                                            cos(Particles.Age * 1.3 + Particles.SnowPhase * 1.7), 0.0) * User.Sway
             };
             SolveForcesAndVelocity();
