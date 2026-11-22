@@ -448,7 +448,7 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 		float3 V(G.Get(C::CloudCoverage), G.Get(C::CloudDarkness), G.Get(C::Precipitation));
 		for (int32 i = 0; i + 2 < Records.Num(); i += 3)
 		{
-			V = DWX_ApplyZone(V, float2(float(At.X), float(At.Y)), ToHlsl(Records[i]), ToHlsl(Records[i + 1]), ToHlsl(Records[i + 2]));
+			V = DWX_ApplyZone(V, float2(float(At.X), float(At.Y)), ToHlsl(Records[i]), ToHlsl(Records[i + 1]), ToHlsl(Records[i + 2]), FDreamZonePoints(Records));
 		}
 		V = DWX_GatePrecipitation(V, float2(float(UDreamWeatherSettings::Get()->PrecipitationCloudCover.X), float(UDreamWeatherSettings::Get()->PrecipitationCloudCover.Y)));
 		const FDreamWeatherSample S = W.Weather->SampleWeather(At);

@@ -12,6 +12,7 @@
 class UBoxComponent;
 class UCapsuleComponent;
 class UDreamWeatherPreset;
+class USplineComponent;
 
 UINTERFACE(MinimalAPI, meta = (CannotImplementInterfaceInBlueprint))
 class UDreamWeatherInfluence : public UInterface
@@ -61,6 +62,8 @@ enum class EDreamWeatherZoneShape : uint8
 {
 	Box,
 	Circle,
+	/** Any outline: Points, or a closed spline (SetPolygonFromSpline, ADreamWeatherOutlineZone). */
+	Polygon,
 };
 
 /**
@@ -89,7 +92,7 @@ struct DREAMWEATHER_API FDreamWeatherZoneMotion
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion", meta = (EditCondition = "bEnabled"))
 	FVector2D Velocity = FVector2D(20.0, 0.0);
 
-	/** Follow the first spline of the zone's actor instead (at PathSpeed), from its start. */
+	/** Follow the first spline of the zone's actor instead (at PathSpeed), from its start (an outline is not a path). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion", meta = (EditCondition = "bEnabled"))
 	bool bFollowPath = false;
 
@@ -125,8 +128,9 @@ struct DREAMWEATHER_API FDreamWeatherZoneMotion
 
 /**
  * A region of the world with weather of its own: a storm over the bay, a valley that is always foggy, a
- * desert. The footprint is a box or a circle seen from above (turned with the component's yaw), standing on
- * the whole height unless bLimitHeight; the zone has full effect inside and fades over BlendDistance outside.
+ * desert. The footprint is a box, a circle or any outline seen from above (turned with the component's yaw),
+ * standing on the whole height unless bLimitHeight; the zone has full effect inside and fades over BlendDistance
+ * outside. The sky, the ground and the point queries weigh it with the same code (DreamWeatherShared.h).
  */
 UCLASS(ClassGroup = "Dream", meta = (BlueprintSpawnableComponent, DisplayName = "Dream Weather Zone"))
 class DREAMWEATHER_API UDreamWeatherZoneComponent : public USceneComponent, public IDreamWeatherInfluence
@@ -140,8 +144,16 @@ public:
 	EDreamWeatherZoneShape Shape = EDreamWeatherZoneShape::Box;
 
 	/** Half size of the footprint, cm (a circle uses X as its radius). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone", meta = (ClampMin = "100"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone", meta = (ClampMin = "100", EditCondition = "Shape != EDreamWeatherZoneShape::Polygon"))
 	FVector2D Extent = FVector2D(100000.0, 100000.0);
+
+	/**
+	 * The outline of a Polygon footprint, cm, in the zone's frame (from its location, turned with its yaw), in order
+	 * around it either way; the last point joins the first. At most 64 (a longer outline is thinned). Set it at run
+	 * time with SetPolygonPoints.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Zone", meta = (EditCondition = "Shape == EDreamWeatherZoneShape::Polygon"))
+	TArray<FVector2D> Points;
 
 	/** Distance outside the footprint over which the zone fades out, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone", meta = (ClampMin = "100"))
@@ -210,6 +222,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
 	void StartMotion(double AtWorldSeconds = -1.0);
 
+	/** Make the footprint this outline (Points' frame) and the shape Polygon. */
+	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
+	void SetPolygonPoints(const TArray<FVector2D>& InPoints);
+
+	/**
+	 * Make the footprint a spline's outline seen from above (closed whether or not the spline is), a point every
+	 * Spacing cm along it, and the shape Polygon. The spline is not read again: call this again after moving it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
+	void SetPolygonFromSpline(const USplineComponent* Spline, float Spacing = 2000.0f);
+
+	/** The component tag of a spline that outlines a zone (a path lookup passes it by). */
+	static const FName OutlineTag;
+
 	/** The value the zone sets for a channel (registry index), or false when it leaves the channel alone. */
 	bool GetChannelValue(int32 ChannelIndex, float& OutValue) const;
 
@@ -222,6 +248,21 @@ public:
 	/** ...where and how strong it is at a world time. */
 	bool MakeMapRecordAt(double WorldSeconds, FVector4f& Z0, FVector4f& Z1, FVector4f& Z2) const;
 
+	/**
+	 * ...with a polygon's points added to OutPoints (Z1.x is the first one's index in it). Records made this way go
+	 * into a buffer with AppendPolygonPoints; the record-only overloads draw a polygon as its bounding circle.
+	 */
+	bool MakeMapRecordAt(double WorldSeconds, FVector4f& Z0, FVector4f& Z1, FVector4f& Z2, TArray<FVector4f>& OutPoints) const;
+
+	/** The footprint alone as the shared header reads it (Z0, Z1), a polygon's points added to OutPoints. */
+	void MakeFootprintRecord(double WorldSeconds, FVector4f& Z0, FVector4f& Z1, TArray<FVector4f>& OutPoints) const;
+
+	/**
+	 * Finish a zone buffer: Records holds records of Float4sPerZone float4s whose polygons index Points (as
+	 * MakeMapRecordAt makes them); the points go after the records and the polygons index the buffer.
+	 */
+	static void AppendPolygonPoints(TArray<FVector4f>& Records, int32 Float4sPerZone, const TArray<FVector4f>& Points);
+
 	//~ IDreamWeatherInfluence
 	virtual void ApplyWeatherInfluence(const FVector& Position, FDreamWeatherValues& InOut) const override;
 	virtual void ApplyWeatherInfluenceAt(const FVector& Position, double WorldSeconds, FDreamWeatherValues& InOut) const override;
@@ -233,8 +274,15 @@ public:
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
+#endif
 
 private:
+	/** Points as the shared header reads them (rebuilt when they change). */
+	void RebuildPolygon();
+	TArray<FVector4f> PolygonRecord;
+
 	/** The world clock's time (zero without one). */
 	double NowSeconds() const;
 
@@ -286,4 +334,30 @@ public:
 	bool bStartOnBeginPlay = false;
 
 	virtual void BeginPlay() override;
+};
+
+/**
+ * A weather zone of any shape: its footprint is the Outline spline seen from above (closed), a point every
+ * OutlineSpacing cm along it. Drag the spline's points to draw a snowfield, a storm front, a valley of fog.
+ */
+UCLASS(ClassGroup = "Dream", hidecategories = (Collision, Physics, Input, Replication, HLOD, Cooking, Networking), meta = (DisplayName = "Dream Weather Zone (Outline)"))
+class DREAMWEATHER_API ADreamWeatherOutlineZone : public ADreamWeatherZone
+{
+	GENERATED_BODY()
+
+public:
+	ADreamWeatherOutlineZone();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Zone")
+	TObjectPtr<USplineComponent> Outline;
+
+	/** cm between the outline's points (fewer when the outline is long: at most 64). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone", meta = (ClampMin = "100"))
+	float OutlineSpacing = 2000.0f;
+
+	/** Take the outline again after the spline moved at run time. */
+	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
+	void UpdateFootprint();
+
+	virtual void OnConstruction(const FTransform& Transform) override;
 };

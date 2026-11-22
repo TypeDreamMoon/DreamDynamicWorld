@@ -16,7 +16,7 @@
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
 
 // A zone here is four float4s: DreamWeatherShared.h's three, then (snow ratio, temperature offset, dust, wind), a value
-// below DSM_UNSET meaning "not set here".
+// below DSM_UNSET meaning "not set here". The points of the polygon footprints follow the NumZones records.
 #define DSM_ZONE_FLOAT4S 4
 #define DSM_UNSET -9999.0f
 // A step is three float4s: the global weather (coverage, darkness, precipitation, snow ratio), the global channels
@@ -76,8 +76,8 @@ FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, fl
 		float4 Z1 = Zones[i * DSM_ZONE_FLOAT4S + 1];
 		float4 Z2 = Zones[i * DSM_ZONE_FLOAT4S + 2];
 		float4 Z3 = Zones[i * DSM_ZONE_FLOAT4S + 3];
-		V = DWX_ApplyZone(V, P, Z0, Z1, Z2);
-		float W = DWX_ZoneWeight(P, Z0, Z1, Z2.w);
+		float W = DWX_ZoneWeight(P, Z0, Z1, Z2.w, Zones);
+		V = DWX_ApplyZoneWeight(V, Z2, W);
 		SnowRatio = DSM_Pull(SnowRatio, Z3.x, W);
 		TempOffset = DSM_Pull(TempOffset, Z3.y, W);
 		Dust = DSM_Pull(Dust, Z3.z, W);

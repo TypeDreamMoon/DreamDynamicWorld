@@ -123,7 +123,7 @@ TArray<TPair<FDreamStormPlan, float>> ADreamWeatherStormSpawner::WeightsAt(const
 		const FVector2D Center = CenterAt(Plan, WorldSeconds);
 		const FVector4f Z0(float(Center.X), float(Center.Y), 1.0f, 0.0f);
 		const FVector4f Z1(Plan.Radius, Plan.Radius, BlendDistance, 1.0f);
-		const float W = DWX_ZoneWeight(float2(float(Position.X), float(Position.Y)), ToHlsl(Z0), ToHlsl(Z1), Fade);
+		const float W = DWX_ZoneWeight(float2(float(Position.X), float(Position.Y)), ToHlsl(Z0), ToHlsl(Z1), Fade, FDreamZonePoints());
 		if (W > 0.0f)
 		{
 			Out.Emplace(Plan, W);
