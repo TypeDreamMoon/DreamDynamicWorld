@@ -193,7 +193,16 @@ void UDreamSkyStyle::ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamS
 		return;
 	}
 	L.ExposureEV100 -= InteriorExposureLift * In;
+	const float OutdoorSkyLight = L.SkyLightIntensity;
 	L.SkyLightIntensity *= FMath::Lerp(1.0f, InteriorSkyLightScale, In);
+	if (bInteriorFill && InteriorFill > 0.0f)
+	{
+		const float Fill = InteriorFill * In;
+		L.SkyLightIntensity += Fill * OutdoorSkyLight;
+		L.AmbientSky *= 1.0f + Fill;
+		L.AmbientEquator *= 1.0f + Fill;
+		L.AmbientGround *= 1.0f + Fill;
+	}
 	const float Directional = FMath::Lerp(1.0f, InteriorDirectionalScale, In);
 	L.SunIlluminance *= Directional;
 	L.MoonIlluminance *= Directional;

@@ -600,6 +600,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon")
 	bool bNightLightAlwaysUp = true;
 
+	/** How soft the moon's terminator is (in the sunlight's cosine across it; small = a crisp edge). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0.002", UIMax = "0.5"))
+	float MoonTerminatorSoftness = 0.12f;
+
+	/** The earthshine on the moon's dark side at its strongest (near the new moon), of the lit side's brightness. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
+	float MoonEarthshine = 0.06f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
 
@@ -758,6 +766,14 @@ public:
 	FDreamSkyToonClouds ToonClouds;
 
 	/**
+	 * How much of the sun the toon and painted clouds' shadows on the ground take between broken clouds (1 = all of it,
+	 * as under the realistic ones; lower, they lie lighter and keep some of the sun's warmth, as in a painted
+	 * background), rising to all of it as the cover closes.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float StylizedCloudShadow = 1.0f;
+
+	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
 	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
 	 * out the clouds beyond it.
@@ -880,9 +896,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (UIMin = "0", UIMax = "4"))
 	float InteriorExposureLift = 2.5f;
 
-	/** Sky light intensity indoors, as a multiplier (lower it when the sky light has no occlusion of its own). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
-	float InteriorSkyLightScale = 1.0f;
+	/**
+	 * Sky light intensity indoors, as a multiplier: with Lumen the sky light is occluded, so only what the doors and
+	 * windows let in brightens (the room's corners stay dark). Lower it toward 1 where the sky light has no occlusion of
+	 * its own: there it brightens the whole room alike.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "4"))
+	float InteriorSkyLightScale = 2.5f;
+
+	/**
+	 * A weak fill indoors, for projects without Lumen (no light bounces in through the doors and windows there): an
+	 * ambient that ignores occlusion, the sky light raised by InteriorFill of its outdoor strength and the shared
+	 * parameters' ambient gradient with it, as far as the view is indoors. Off by default.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior")
+	bool bInteriorFill = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2", EditCondition = "bInteriorFill"))
+	float InteriorFill = 0.3f;
 
 	/** Sun and moon light indoors, as a multiplier. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))

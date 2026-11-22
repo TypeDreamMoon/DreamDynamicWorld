@@ -60,8 +60,10 @@ work through its scheduler (`GetScheduler()`, a per-frame millisecond budget).
 **Sky** (`ADreamSky` + `UDreamSkySubsystem`). The actor owns the lights the sky drives — the sun (the
 atmosphere sun, index 0) and the moon, a sky light that captures the dome, a height fog and an unbound post
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
-`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase, stars, high cloud and rain
-shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+`Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
+moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full,
+`DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
@@ -96,10 +98,10 @@ shading toward the light reaches), the level's cloud overrides over them; on the
 brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
 comes out light grey) and `CloudShadowTracingDistance` (6 km) is how far each sample looks toward the sun. A map of
 the optical depth toward the sun round the view shades them and casts their shadows on the ground (a light function
-the sky puts on its sun, `M_DreamCloudShadow`): under the toon and painted clouds the shadows take only 0.55 of the
-sun off the ground between broken clouds — a painted background's cloud shadows lie light and warm — rising to all
-of it as the cover closes (an overcast casts no sun shadows); under the realistic ones all of it (the `GroundShadow`
-override sets it for any look). A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
+the sky puts on its sun, `M_DreamCloudShadow`): they take all of the sun off the ground under every look; the style's
+`StylizedCloudShadow` lowers that between broken clouds under the toon and painted ones (say 0.55: a painted
+background's cloud shadows lie light and warm), rising to all of it as the cover closes (an overcast casts no sun
+shadows); the `GroundShadow` override sets it for any look. A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
 in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
 between the view and the ground are drawn over the scene too, just before the post processing: there they cover
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
@@ -304,9 +306,13 @@ any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
-sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`, 2.5 EV: a room lit only through its
-door and windows, with little bounced light, is still dark at 1) and can scale the sky light and the sun and moon
-there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
+sides are closed. Indoors the sky lifts the exposure (`InteriorExposureLift`, 2.5 EV: a room lit only through its
+door and windows, with little bounced light, is still dark at 1) and raises the sky light (`InteriorSkyLightScale`,
+2.5): with Lumen the sky light is occluded, so what the doors and windows let in brightens and the corners stay dark.
+Without Lumen nothing bounces in; `bInteriorFill` (off by default) then adds a weak fill that ignores occlusion
+(`InteriorFill` of the outdoor sky light, and as much on the shared ambient gradient). Neither lights a room with
+small windows by itself: place lights in it, as a level would anyway. The sun and moon can be scaled indoors too;
+`DDW_Interior` carries how far the view is indoors to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
