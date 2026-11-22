@@ -46,6 +46,13 @@ UDreamWeatherFXSettings::UDreamWeatherFXSettings()
 	Snow.WindDrift = 0.8f;
 	Snow.MaxSlant = 2.0f;
 	LightningBolt = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamLightningBolt.NS_DreamLightningBolt"));
+	Dust.System = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamDust.NS_DreamDust"));
+	Dust.DropsPerSecond = 2500.0f;
+	Dust.SplashesPerSecond = 0.0f;
+	Dust.FallSpeed = 120.0f;
+	Dust.WindDrift = 1.0f;
+	Dust.MaxSlant = 12.0f;
+	WindDebris = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/Effects/NS_DreamWindLeaves.NS_DreamWindLeaves"));
 }
 
 UDreamWeatherFXSubsystem* UDreamWeatherFXSubsystem::Get(const UObject* WorldContextObject)
@@ -67,7 +74,7 @@ bool UDreamWeatherFXSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 void UDreamWeatherFXSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	Effects.SetNum(2);
+	Effects.SetNum(NumLayers);
 	if (UDreamWeatherSubsystem* Weather = Collection.InitializeDependency<UDreamWeatherSubsystem>())
 	{
 		WeatherSubsystem = Weather;
@@ -93,6 +100,11 @@ void UDreamWeatherFXSubsystem::Deinitialize()
 		}
 	}
 	Bolts.Reset();
+	if (DebrisEffect)
+	{
+		DebrisEffect->DestroyComponent();
+		DebrisEffect = nullptr;
+	}
 	for (TObjectPtr<UNiagaraComponent>& Effect : Effects)
 	{
 		if (Effect)
@@ -199,7 +211,12 @@ UNiagaraComponent* UDreamWeatherFXSubsystem::GetEffect(int32 Layer) const
 
 void UDreamWeatherFXSubsystem::StopPrecipitation()
 {
-	for (int32 i = 0; i < 2; ++i)
+	DebrisRate = 0.0f;
+	if (DebrisEffect)
+	{
+		DebrisEffect->SetVariableFloat(TEXT("User.DebrisRate"), 0.0f);
+	}
+	for (int32 i = 0; i < NumLayers; ++i)
 	{
 		States[i].DropRate = 0.0f;
 		States[i].SplashRate = 0.0f;
@@ -235,9 +252,9 @@ void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, U
 		StopPrecipitation();
 		return;
 	}
-	if (Effects.Num() != 2)
+	if (Effects.Num() != NumLayers)
 	{
-		Effects.SetNum(2);
+		Effects.SetNum(NumLayers);
 	}
 
 	const FVector ViewLocation = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
@@ -250,6 +267,16 @@ void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, U
 	}
 	UpdateLayer(RainLayer, S->Rain, FMath::Clamp(View.Rain, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
 	UpdateLayer(SnowLayer, S->Snow, FMath::Clamp(View.Snow, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
+
+	// Blown dust, and the debris of a strong wind: both on the dust layer's nearly flat paths, which run while either blows.
+	FLinearColor DebrisColor;
+	const bool bSouth = Clock.GetCelestialSettings().Latitude < 0.0;
+	const float Debris = FMath::SmoothStep(float(S->DebrisWindSpeed.X), float(FMath::Max(S->DebrisWindSpeed.Y, S->DebrisWindSpeed.X + 1.0)), float(Wind.Size2D()))
+		* SeasonDebris(Clock.GetDateTime(), bSouth, DebrisColor);
+	const float Dust = FMath::Clamp(View.Dust, 0.0f, 1.0f);
+	const float Blown = FMath::Max(Dust, FMath::Min(Debris, 1.0f));
+	UpdateLayer(DustLayer, S->Dust, Blown, Weather, ViewLocation, Forward, Wind, DeltaTime, Blown > 0.0f ? Dust / Blown : 0.0f);
+	UpdateDebris(Clock, Debris, ViewLocation);
 }
 
 UNiagaraComponent* UDreamWeatherFXSubsystem::EnsureEffect(int32 Index, const FDreamPrecipitationLayer& Layer, const FVector& ViewLocation)
@@ -280,7 +307,7 @@ UNiagaraComponent* UDreamWeatherFXSubsystem::EnsureEffect(int32 Index, const FDr
 }
 
 void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitationLayer& Layer, float Strength, UDreamWeatherSubsystem& Weather,
-	const FVector& ViewLocation, const FVector& Forward, const FVector& Wind, float DeltaTime)
+	const FVector& ViewLocation, const FVector& Forward, const FVector& Wind, float DeltaTime, float DropShare)
 {
 	using namespace DreamWeatherFX;
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
@@ -323,6 +350,12 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	Params.StartHeight = S->PathStartHeight;
 	Params.MaxLength = S->PathMaxLength;
 	Params.Channel = S->PathChannel;
+	if (Index == DustLayer)
+	{
+		// Blown along the ground: short, low paths (a dust path starts some 70 m upwind, a few metres up).
+		Params.StartHeight = FMath::Min(Params.StartHeight, 600.0f);
+		Params.MaxLength = FMath::Min(Params.MaxLength, 1200.0f);
+	}
 	auto Covered = [&Weather](const FVector& P) { return 1.0f - Weather.GetExposureAt(P); };
 
 	// A view that jumped far (a teleport, a cut) gets a whole new buffer at once; otherwise the buffer turns over
@@ -343,7 +376,7 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 
 	const int32 Count = State.Paths.GetEnds().Num();
 	const float Landed = Count > 0 ? float(State.Paths.CountLanded()) / float(Count) : 0.0f;
-	State.DropRate = Layer.DropsPerSecond * Strength;
+	State.DropRate = Layer.DropsPerSecond * Strength * FMath::Clamp(DropShare, 0.0f, 1.0f);
 	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed;
 
 	Effect = EnsureEffect(Index, Layer, ViewLocation);
@@ -372,7 +405,7 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 		State.bFillPending = true;
 		Effect->Activate(true);
 		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s starts: %d paths (%.0f%% landed), %.0f drops/s, %.0f splashes/s, falling (%.0f, %.0f, %.0f) cm/s"),
-			Index == RainLayer ? TEXT("Rain") : TEXT("Snow"), Count, Landed * 100.0f, State.DropRate, State.SplashRate,
+			Index == RainLayer ? TEXT("Rain") : Index == SnowLayer ? TEXT("Snow") : TEXT("Dust"), Count, Landed * 100.0f, State.DropRate, State.SplashRate,
 			State.FallVelocity.X, State.FallVelocity.Y, State.FallVelocity.Z);
 	}
 
@@ -394,10 +427,95 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 		SpawnAnywhere = InTheAir / FMath::Max(InTheAir + State.DropRate * DeltaTime, 1.0f);
 		State.FillCount = InTheAir;
 		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s fills the air: %.0f drops (%.1f s average fall)"),
-			Index == RainLayer ? TEXT("Rain") : TEXT("Snow"), InTheAir, float(FallSeconds / double(Count)));
+			Index == RainLayer ? TEXT("Rain") : Index == SnowLayer ? TEXT("Snow") : TEXT("Dust"), InTheAir, float(FallSeconds / double(Count)));
 	}
 	Effect->SetVariableVec3(FallVelocity, State.FallVelocity);
 	Effect->SetVariableFloat(DropRate, SpawnRate);
 	Effect->SetVariableFloat(SplashRate, State.SplashRate);
 	Effect->SetVariableFloat(Anywhere, SpawnAnywhere);
+}
+
+float UDreamWeatherFXSubsystem::SeasonDebris(const FDateTime& Date, bool bSouthernHemisphere, FLinearColor& OutColor)
+{
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	// Quarters of the year from 1 March, each season whole in its middle month, blending over the month at a turn.
+	const int32 Year = Date.GetMonth() >= 3 ? Date.GetYear() : Date.GetYear() - 1;
+	const FDateTime March(Year, 3, 1);
+	const double Quarter = (Date - March).GetTotalDays() / (FDateTime(Year + 1, 3, 1) - March).GetTotalDays() * 4.0 + (bSouthernHemisphere ? 2.0 : 0.0);
+	const float Amount[4] = { S->DebrisSeasonAmount.X, S->DebrisSeasonAmount.Y, S->DebrisSeasonAmount.Z, S->DebrisSeasonAmount.W };
+	const FLinearColor Colors[4] = { S->DebrisSpring, S->DebrisSummer, S->DebrisAutumn, S->DebrisWinter };
+	float Weights[4];
+	float Sum = 0.0f;
+	for (int32 i = 0; i < 4; ++i)
+	{
+		double Q = FMath::Fmod(Quarter - double(i) + 8.0, 4.0);
+		Q = Q > 2.0 ? Q - 4.0 : Q;
+		Weights[i] = float(FMath::Clamp((FMath::Min(Q, 1.0 - Q) + 1.0 / 6.0) * 3.0, 0.0, 1.0));
+		Sum += Weights[i];
+	}
+	float Out = 0.0f;
+	OutColor = FLinearColor::Black;
+	for (int32 i = 0; i < 4; ++i)
+	{
+		const float W = Sum > 0.0f ? Weights[i] / Sum : 0.25f;
+		Out += Amount[i] * W;
+		OutColor += Colors[i] * W;
+	}
+	return FMath::Max(Out, 0.0f);
+}
+
+void UDreamWeatherFXSubsystem::UpdateDebris(UDreamWorldSubsystem& Clock, float Strength, const FVector& ViewLocation)
+{
+	using namespace DreamWeatherFX;
+	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
+	const FLayerState& Blown = States[DustLayer];
+	DebrisRate = S->DebrisPerSecond * FMath::Max(Strength, 0.0f);
+	if (DebrisRate <= 0.0f && !DebrisEffect)
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!DebrisEffect && World)
+	{
+		UNiagaraSystem* System = Cast<UNiagaraSystem>(S->WindDebris.TryLoad());
+		if (!System)
+		{
+			return;
+		}
+		UObject* Outer = World->GetWorldSettings() ? static_cast<UObject*>(World->GetWorldSettings()) : static_cast<UObject*>(World);
+		DebrisEffect = NewObject<UNiagaraComponent>(Outer, NAME_None, RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+		DebrisEffect->SetAsset(System);
+		DebrisEffect->SetAutoActivate(false);
+		DebrisEffect->SetAutoDestroy(false);
+		DebrisEffect->SetUsingAbsoluteLocation(true);
+		DebrisEffect->SetUsingAbsoluteRotation(true);
+		DebrisEffect->SetWorldLocation(ViewLocation);
+		DebrisEffect->RegisterComponentWithWorld(World);
+		// Around the view only: the demo spawn box is off.
+		DebrisEffect->SetVariableFloat(TEXT("User.SpawnRate"), 0.0f);
+		DebrisUploaded = 0;
+	}
+	if (!DebrisEffect)
+	{
+		return;
+	}
+	if (!DebrisEffect->GetComponentLocation().Equals(ViewLocation, 1.0))
+	{
+		DebrisEffect->SetWorldLocation(ViewLocation);
+	}
+	if (Blown.Paths.GetGeneration() != DebrisUploaded && Blown.Paths.GetEnds().Num() > 0)
+	{
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector4(DebrisEffect, Paths, Blown.Paths.GetEnds());
+		UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(DebrisEffect, Normals, Blown.Paths.GetNormals());
+		DebrisUploaded = Blown.Paths.GetGeneration();
+	}
+	FLinearColor Color;
+	SeasonDebris(Clock.GetDateTime(), Clock.GetCelestialSettings().Latitude < 0.0, Color);
+	DebrisEffect->SetVariableFloat(TEXT("User.DebrisRate"), DebrisRate);
+	DebrisEffect->SetVariableLinearColor(TEXT("User.DebrisColor"), Color);
+	DebrisEffect->SetVariableVec3(FallVelocity, Blown.FallVelocity);
+	if (DebrisRate > 0.0f && !DebrisEffect->IsActive())
+	{
+		DebrisEffect->Activate(true);
+	}
 }
