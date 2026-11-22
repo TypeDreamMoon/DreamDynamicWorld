@@ -10,6 +10,9 @@
 #include "CollisionQueryParams.h"
 #include "Engine/HitResult.h"
 #include "Engine/World.h"
+#include "Camera/PlayerCameraManager.h"
+#include "DreamWindCameraShake.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/WorldSettings.h"
 #include "NiagaraComponent.h"
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
@@ -214,6 +217,19 @@ void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, U
 	UpdateBolts(Weather, DeltaTime);
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
 	UWorld* World = GetWorld();
+	if (World && World->IsGameWorld() && S->bWindCameraShake)
+	{
+		// Every local player's camera buffets in a strong wind.
+		for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+		{
+			APlayerController* Player = It->Get();
+			if (Player && Player->IsLocalController() && Player->PlayerCameraManager
+				&& !Player->PlayerCameraManager->FindCameraModifierByClass(UDreamWindCameraModifier::StaticClass()))
+			{
+				UDreamWindCameraModifier::Enable(Player);
+			}
+		}
+	}
 	if (!World || !S->bPrecipitation || (!World->IsGameWorld() && !S->bPrecipitationInEditor))
 	{
 		StopPrecipitation();
