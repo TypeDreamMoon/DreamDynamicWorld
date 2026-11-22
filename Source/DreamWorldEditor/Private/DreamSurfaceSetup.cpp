@@ -13,6 +13,9 @@
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherZone.h"
+#include "DreamWindEditorLibrary.h"
+#include "DreamWindGlobalActor.h"
+#include "DreamWindPassThroughComponent.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Camera/CameraActor.h"
@@ -22,6 +25,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstanceConstant.h"
 #include "MeshDescription.h"
@@ -324,7 +328,7 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	UWorld::InitializationValues Values;
 	Values.RequiresHitProxies(false);
 	Values.ShouldSimulatePhysics(false);
-	Values.EnableTraceCollision(false);
+	Values.EnableTraceCollision(true);   // the wind terrain bake traces the level
 	Values.CreateNavigation(false);
 	Values.CreateAISystem(false);
 	Values.AllowAudioPlayback(false);
@@ -430,6 +434,34 @@ bool DreamWorld::Setup::BuildSurfaceTestMap(UDreamSkyStyle* Style)
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_SnowRatio, 1.0f);
 	SnowZone->Zone->Channels.Add(DreamWeather::Tags::Channel_Temperature, -20.0f);
 	SnowZone->SetActorLabel(TEXT("SnowZone"));
+
+	// The wind's baked level heights over the test area: roofs keep the rain off, and the puddles follow the ground's
+	// dips (DSF_GroundLow) - the pond's hollow, the rolling ground's valleys.
+	// Props, pillars and the window are left out of it (pass-through): their tops are no roof over the ground beside them.
+	static const TSet<FString> Props = { TEXT("StoneBlock"), TEXT("MetalBall"), TEXT("WoodPost"), TEXT("StoneUnderCanopy"), TEXT("ToonBox"),
+		TEXT("ToonBall"), TEXT("ToonCone"), TEXT("ToonFigure"), TEXT("CanopyPillar"), TEXT("PergolaPillar"), TEXT("WindowPane"),
+		TEXT("WindowHead"), TEXT("WindowSill"), TEXT("WindowJamb"), TEXT("WindowStand") };
+	for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+	{
+		FString Label = It->GetActorLabel();
+		int32 Suffix = INDEX_NONE;
+		if (Label.FindLastChar(TEXT('_'), Suffix))
+		{
+			Label.LeftInline(Suffix);   // a repeated label comes back as Name_1, Name_2
+		}
+		if (Props.Contains(Label))
+		{
+			It->Tags.AddUnique(UDreamWindPassThroughComponent::PassThroughTag);
+		}
+	}
+	ADreamWindGlobal* Wind = World->SpawnActor<ADreamWindGlobal>(FVector(0.0, 0.0, 0.0), FRotator::ZeroRotator);
+	Wind->SetActorLabel(TEXT("Wind"));
+	Wind->TerrainBakeBounds = FBox(FVector(-2000.0, -4000.0, -500.0), FVector(7000.0, 3000.0, 1500.0));
+	Wind->TerrainBakeSettings.Resolution = 512;
+	if (!UDreamWindEditorLibrary::BakeTerrainMapForActor(Wind))
+	{
+		UE_LOG(LogDreamWorld, Warning, TEXT("Surface test level: the wind terrain map could not be baked; puddles follow the hollow pattern only."));
+	}
 
 	ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(0.0, 0.0, 260.0), FRotator(-12.0, 15.0, 0.0));
 	if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))
