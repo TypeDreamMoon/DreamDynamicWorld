@@ -311,6 +311,18 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Storms
+
+**Moving storms.** Any zone can move: *Motion* (`FDreamWeatherZoneMotion`) gives it a drift (km per game hour) or a
+path (the first spline of its actor, at `PathSpeed`, looping or not), a lifetime and fades in and out (game hours).
+Where it is and how strong is a pure function of the world time from `StartSeconds` — the same on every machine, after
+a load, in a replay, and for a past moment the surfaces integrate over (`ApplyWeatherInfluenceAt` places the zone for
+the time it is asked about). A zone whose motion has no start time has no effect until `StartMotion`. The actor itself
+stays where it was placed (`GetFootprintCenter` says where its weather is); the weather map, so the sky's clouds, and
+the lightning (it strikes where the lightning is strongest) go with it. `ADreamWeatherStorm` is a ready one: a round
+zone of `WP_Storm` 15 km in radius with a `Path` spline; spawn it and call `StartMotion`, give it a start time, or tick
+`bStartOnBeginPlay`. `bAffectsQueries` off leaves a zone only drawing into the weather map.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
@@ -333,7 +345,8 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 
 `UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
-in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round) and a grove (leaves), under
+in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves) and a storm
+that drifts in from the west on the morning of 21 June (over the area around ten, gone by half past twelve), under
 weather that runs clear → rain → storm → cloudy every three hours. `-ForceAudio` builds the graphs again, `-Force`
 the level.
 
