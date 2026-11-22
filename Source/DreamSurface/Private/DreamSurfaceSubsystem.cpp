@@ -2,6 +2,7 @@
 
 #include "DreamSurfaceSubsystem.h"
 #include "DreamSurfaceHlslShim.h"
+#include "DreamSurfaceMaps.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSettings.h"
 
@@ -50,8 +51,13 @@ void UDreamSurfaceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		{
 			ViewState = FDreamSurfaceState();
 			ViewStep = TNumericLimits<int64>::Min();
+			if (Maps)
+			{
+				Maps->Stop(ClockSubsystem.Get());
+			}
 		});
 	}
+	Maps = MakeShared<FDreamSurfaceMaps>();
 }
 
 void UDreamSurfaceSubsystem::Deinitialize()
@@ -62,6 +68,7 @@ void UDreamSurfaceSubsystem::Deinitialize()
 		Weather->OnWeatherStopped.Remove(StoppedHandle);
 	}
 	History.Reset();
+	Maps.Reset();
 	Super::Deinitialize();
 }
 
@@ -190,6 +197,10 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 	{
 		ViewState = FDreamSurfaceState();
 		ViewStep = TNumericLimits<int64>::Min();
+		if (Maps)
+		{
+			Maps->Stop(&Clock);
+		}
 		return;
 	}
 	const double Now = Clock.GetWorldSeconds();
@@ -206,7 +217,57 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 		ViewAnchor = At;
 		ViewStep = StepIndex;
 		ViewStepStart = IntegrateSteps(At, StepIndex - MemorySteps(), StepIndex, FDreamSurfaceState(), true);
+		BuildMapSteps(StepIndex);
 	}
 	const float Partial = float((Now - double(StepIndex) * Seconds) / 3600.0);
 	ViewState = Step(ViewStepStart, DriveAt(ViewAnchor, double(StepIndex) * Seconds, true), UDreamSurfaceSettings::Get()->Rates, Partial);
+	MapSteps.PartialHours = Partial;
+
+	if (Maps)
+	{
+		Maps->Update(*this, Clock, Weather);
+	}
+}
+
+void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutAir) const
+{
+	using C = FDreamWeatherChannels;
+	const double T = double(StepIndex) * StepSeconds();
+	const FDreamWeatherValues Global = GlobalAtStep(StepIndex);
+	// The map applies the zones per texel to these three channels (DreamWeatherMap.usf's way); the air is the view's.
+	OutWeather = FVector4f(Global.Get(C::CloudCoverage), Global.Get(C::CloudDarkness), Global.Get(C::Precipitation), Global.Get(C::SnowRatio));
+	const UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get();
+	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
+	if (!Weather || !Clock)
+	{
+		OutAir = FVector4f(15.0f, 0.0f, 0.0f, -1.0f);
+		return;
+	}
+	const FDreamWeatherSample W = Weather->SampleWeatherAt(ViewAnchor, Global, T);
+	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), T);
+	OutAir = FVector4f(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
+}
+
+void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)
+{
+	MapSteps.Step = StepIndex;
+	MapSteps.Steps.Reset(MemorySteps() * 2);
+	for (int64 k = StepIndex - MemorySteps(); k < StepIndex; ++k)
+	{
+		FVector4f Weather, Air;
+		MapStepRecord(k, Weather, Air);
+		MapSteps.Steps.Add(Weather);
+		MapSteps.Steps.Add(Air);
+	}
+	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialAir);
+}
+
+void UDreamSurfaceSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)
+{
+	Super::AddReferencedObjects(InThis, Collector);
+	UDreamSurfaceSubsystem* This = CastChecked<UDreamSurfaceSubsystem>(InThis);
+	if (This->Maps)
+	{
+		This->Maps->AddReferencedObjects(Collector);
+	}
 }

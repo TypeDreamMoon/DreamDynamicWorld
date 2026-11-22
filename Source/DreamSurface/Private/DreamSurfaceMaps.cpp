@@ -1,0 +1,248 @@
+// Copyright DreamMoon. All Rights Reserved.
+
+#include "DreamSurfaceMaps.h"
+#include "DreamSurfaceMapRenderer.h"
+#include "DreamSurfaceModule.h"
+#include "DreamSurfaceSettings.h"
+#include "DreamSurfaceSubsystem.h"
+
+#include "DreamWeatherSettings.h"
+#include "DreamWeatherShelter.h"
+#include "DreamWeatherSubsystem.h"
+#include "DreamWindSubsystem.h"
+#include "DreamWorldSubsystem.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
+#include "Misc/App.h"
+#include "UObject/UObjectIterator.h"
+
+namespace DreamSurface::Maps
+{
+	static TAutoConsoleVariable<int32> CVarIntegrateEveryFrame(
+		TEXT("DreamSurface.IntegrateEveryFrame"), 0,
+		TEXT("1: integrate the surface maps' whole memory on every update (to measure what an integration costs)."),
+		ECVF_Default);
+
+	/** Loads a map's render target and makes it something a compute pass can write. */
+	UTextureRenderTarget2D* LoadTarget(const FSoftObjectPath& Path, EPixelFormat Format)
+	{
+		UTextureRenderTarget2D* RT = Cast<UTextureRenderTarget2D>(Path.TryLoad());
+		if (RT && (!RT->bSupportsUAV || RT->GetFormat() != Format))
+		{
+			RT->bSupportsUAV = true;
+			RT->InitCustomFormat(FMath::Max(16, RT->SizeX), FMath::Max(16, RT->SizeY), Format, true);
+			RT->UpdateResourceImmediate(false);
+		}
+		return RT;
+	}
+
+	/** Minus the centre (add a world position), 1 / extent, 1 when live: what a material needs to find its texel. */
+	FLinearColor Placement(const FVector2D& Center, float Extent, bool bLive)
+	{
+		return bLive ? FLinearColor(float(-Center.X), float(-Center.Y), 1.0f / FMath::Max(Extent, 1.0f), 1.0f) : FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+}
+
+FDreamSurfaceMaps::FDreamSurfaceMaps()
+	: Renderer(MakeShared<FDreamSurfaceMapRenderer, ESPMode::ThreadSafe>())
+{
+}
+
+FDreamSurfaceMaps::~FDreamSurfaceMaps() = default;
+
+void FDreamSurfaceMaps::AddReferencedObjects(FReferenceCollector& Collector)
+{
+	Collector.AddReferencedObject(Near.Target);
+	Collector.AddReferencedObject(Far.Target);
+	Collector.AddReferencedObject(Cover);
+}
+
+uint32 FDreamSurfaceMaps::GetDrawCount() const
+{
+	return Renderer ? Renderer->GetDrawCount() : 0;
+}
+
+uint32 FDreamSurfaceMaps::GetIntegrateCount() const
+{
+	return Renderer ? Renderer->GetIntegrateCount() : 0;
+}
+
+bool FDreamSurfaceMaps::Resolve()
+{
+	if (Near.Target && Far.Target && Cover)
+	{
+		return true;
+	}
+	const double Now = FPlatformTime::Seconds();
+	if (Now - LastResolve < 5.0)
+	{
+		return false;
+	}
+	LastResolve = Now;
+	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
+	using namespace DreamSurface::Maps;
+	Near.Target = LoadTarget(S->NearMapTexture, PF_FloatRGBA);
+	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
+	Cover = LoadTarget(S->CoverMapTexture, PF_G32R32F);
+	if (!Near.Target || !Far.Target || !Cover)
+	{
+		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, cover %s"),
+			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
+	}
+	return Near.Target && Far.Target && Cover;
+}
+
+void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
+{
+	Near.bLive = false;
+	Far.bLive = false;
+	Near.Step = TNumericLimits<int64>::Min();
+	Far.Step = TNumericLimits<int64>::Min();
+	if (Clock)
+	{
+		using namespace DreamSurface::Names;
+		const FLinearColor Off(0.0f, 0.0f, 0.0f, 0.0f);
+		Clock->SetVectorParameter(MPC_SurfaceNear, Off);
+		Clock->SetVectorParameter(MPC_SurfaceFar, Off);
+		Clock->SetVectorParameter(MPC_SurfaceView, Off);
+	}
+}
+
+void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather)
+{
+	using namespace DreamSurface::Names;
+	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
+	const FDreamSurfaceState& View = Surface.GetViewState();
+	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
+	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, 0.0f));
+
+	UWorld* World = Surface.GetWorld();
+	const bool bCanRender = S->bSurfaceMaps && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
+	if (!bCanRender || !Resolve())
+	{
+		Clock.SetVectorParameter(MPC_SurfaceNear, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		Clock.SetVectorParameter(MPC_SurfaceFar, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+		return;
+	}
+
+	const double Now = FPlatformTime::Seconds();
+	const TArray<FVector4f>& Zones = Weather.GetMapZones();
+	const bool bZonesChanged = Zones != LastZones || bIntegrateRequested || DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0;
+	LastZones = Zones;
+	bIntegrateRequested = false;
+
+	// The near map moves in eighths of its size (each move integrates it afresh), the far one with the weather map.
+	const FVector View2D = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+	const float NearExtent = FMath::Max(1000.0f, S->NearMapExtent);
+	const double Snap = NearExtent / 8.0;
+	const FVector2D NearCenter(FMath::GridSnap(View2D.X, Snap), FMath::GridSnap(View2D.Y, Snap));
+	const float FarExtent = FMath::Max(NearExtent, UDreamWeatherSettings::Get()->WeatherMapExtent);
+	const double FarTexel = FarExtent / FMath::Max(1, Far.Target->SizeX);
+	const FVector2D FarCenter(FMath::GridSnap(View2D.X, FarTexel * 8.0), FMath::GridSnap(View2D.Y, FarTexel * 8.0));
+
+	DrawState(0, Near, NearCenter, NearExtent, bZonesChanged, Surface, Weather, Now);
+	DrawState(1, Far, FarCenter, FarExtent, bZonesChanged, Surface, Weather, Now);
+	DrawCover(Clock, NearCenter, NearExtent, Now);
+
+	using namespace DreamSurface::Maps;
+	Clock.SetVectorParameter(MPC_SurfaceNear, Placement(Near.Center, Near.Extent, Near.bLive));
+	Clock.SetVectorParameter(MPC_SurfaceFar, Placement(Far.Center, Far.Extent, Far.bLive));
+}
+
+void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, UDreamSurfaceSubsystem& Surface, UDreamWeatherSubsystem& Weather, double Now)
+{
+	const FDreamSurfaceMapSteps& Steps = Surface.GetMapSteps();
+	const bool bIntegrate = bForce || !Map.bLive || Steps.Step != Map.Step || Center != Map.Center || Extent != Map.Extent;
+	if (!bIntegrate && Now - Map.LastDraw < UDreamSurfaceSettings::Get()->MapInterval)
+	{
+		return;
+	}
+	FDreamSurfaceMapRenderer::FStateArgs Args;
+	Args.Target = Map.Target->GameThread_GetRenderTargetResource();
+	if (!Args.Target)
+	{
+		return;
+	}
+	Args.Center = FVector2f(Center);
+	Args.Extent = Extent;
+	Args.bIntegrate = bIntegrate;
+	if (bIntegrate)
+	{
+		Args.Steps = Steps.Steps;
+	}
+	Args.StepHours = float(UDreamSurfaceSubsystem::StepSeconds() / 3600.0);
+	Args.PartialWeather = Steps.PartialWeather;
+	Args.PartialAir = Steps.PartialAir;
+	Args.PartialHours = Steps.PartialHours;
+	const FDreamSurfaceRates& Rates = UDreamSurfaceSettings::Get()->Rates;
+	Args.Rates[0] = Rates.R0();
+	Args.Rates[1] = Rates.R1();
+	Args.Rates[2] = Rates.R2();
+	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
+	Args.Zones = Weather.GetMapZones();
+	Renderer->EnqueueState(Slot, MoveTemp(Args));
+	Map.Center = Center;
+	Map.Extent = Extent;
+	Map.Step = Steps.Step;
+	Map.LastDraw = Now;
+	Map.bLive = true;
+}
+
+void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now)
+{
+	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
+	if (Center == CoverCenter && Now - LastCoverDraw < S->CoverInterval)
+	{
+		return;
+	}
+	FDreamSurfaceMapRenderer::FCoverArgs Args;
+	Args.Target = Cover->GameThread_GetRenderTargetResource();
+	if (!Args.Target)
+	{
+		return;
+	}
+	Args.Center = FVector2f(Center);
+	Args.Extent = Extent;
+
+	// The wind's baked level heights: the level's top surfaces.
+	UWorld* World = Clock.GetWorld();
+	const UDreamWindSubsystem* Wind = World && UDreamWeatherSettings::Get()->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
+	if (Wind)
+	{
+		const FDreamWindFrameData& Frame = Wind->GetFrameData();
+		UTextureRenderTarget2D* Terrain = Frame.TerrainTexture.Get();
+		if (Terrain && Frame.T1.X > 0.5f)
+		{
+			Args.Terrain = Terrain->GameThread_GetRenderTargetResource();
+			Args.TerrainParams[0] = Frame.T0;
+			Args.TerrainParams[1] = Frame.T1;
+			Args.TerrainParams[2] = Frame.T2;
+		}
+	}
+
+	// Shelter boxes in reach of the map.
+	const FBox2D Reach(FVector2D(Center) - FVector2D(Extent), FVector2D(Center) + FVector2D(Extent));
+	for (TObjectIterator<UDreamWeatherShelterComponent> It; It; ++It)
+	{
+		const UDreamWeatherShelterComponent* Box = *It;
+		if (!Box || Box->GetWorld() != World || !Box->IsRegistered())
+		{
+			continue;
+		}
+		const FTransform& T = Box->GetComponentTransform();
+		const FVector C = T.GetLocation();
+		const float Radius = float(FVector2D(Box->Extent.X, Box->Extent.Y).Size()) + Box->FadeDistance;
+		if (!Reach.ExpandBy(Radius).IsInside(FVector2D(C)))
+		{
+			continue;
+		}
+		const float Yaw = FMath::DegreesToRadians(float(T.Rotator().Yaw));
+		Args.Shelters.Add(FVector4f(float(C.X), float(C.Y), FMath::Cos(Yaw), FMath::Sin(Yaw)));
+		Args.Shelters.Add(FVector4f(float(Box->Extent.X), float(Box->Extent.Y), float(C.Z + Box->Extent.Z), Box->FadeDistance));
+		Args.Shelters.Add(FVector4f(Box->Strength, 0.0f, 0.0f, 0.0f));
+	}
+	Renderer->EnqueueCover(MoveTemp(Args));
+	CoverCenter = Center;
+	LastCoverDraw = Now;
+}

@@ -368,8 +368,26 @@ CPU queries and the GPU surface map alike.
 
 **Queries.** `UDreamSurfaceSubsystem::SampleSurface(Position)` (and `SampleSurfaceAt(Position, WorldSeconds)`),
 `GetSnowDepthAt(Position)` in cm, `GetViewState()` — the state in the open at the view this frame. A query
-integrates the whole memory (some 190 steps of the weather at that point), so ask it for the places that matter
-(the player, a footstep), not for thousands of points a frame.
+integrates the whole memory (some 190 steps of the weather at that point, about 0.1 ms), so ask it for the places
+that matter (the player, a footstep), not for thousands of points a frame.
+
+**Surface maps.** For the materials, the subsystem keeps the same state on the GPU in maps around the camera
+(`Shaders/Private/DreamSurfaceMap.usf`): a **near map** (`RT_DreamSurfaceNear`, 256², *Near Map Extent* 128 m,
+moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
+**cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
+step, the zones applied where the texel is (as the weather map applies them), then the shared formula — so a map texel
+and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`). The whole memory is integrated when a step
+goes by, the map moves or the zones change; in between each update only adds the part of the current step gone by.
+The maps hold the state **in the open**; the cover map holds, per texel, the height up to which something keeps the
+sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a surface below it. Two things
+differ from a query: under partial cover (the windward edge of the eaves) a query integrates the reduced weather while
+a material scales the open state; and the map applies zones to cloud cover, darkness and precipitation only (as the
+weather map does), with the view's temperature, wind and dust. The maps are placed by `DDW_SurfaceNear / Far` in the
+shared collection, beyond both the view's state stands (`DDW_SurfaceView`). GPU cost: some 0.03 ms a frame (both maps
+and the cover), 0.2 ms for an integration.
+
+Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
+`Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration).
 
 The rest of this document is **Wind**.
 
