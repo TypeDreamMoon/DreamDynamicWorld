@@ -847,14 +847,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute"))
 	bool bCloudMatchStyleBrightness = true;
 
-	/** The physical light on the clouds' lit side, times this, over the sun's elevation (set at noon to the style's lit
-	 *  colour; a low sun then warms the clouds by itself). */
+	/** The physical light on the toon clouds' lit side, times this, over the sun's elevation (1 at noon; at a low sun a
+	 *  hue change toward the style's own colours). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
 	FRuntimeCurveLinearColor CloudLitScale;
 
 	/** The sky's ambient light on the clouds' shade, times this, over the sun's elevation (set at noon to the style's shade). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
 	FRuntimeCurveLinearColor CloudShadeScale;
+
+	/** The same two for the painted look (CloudLitScale and CloudShadeScale are the toon look's). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
+	FRuntimeCurveLinearColor PaintedCloudLitScale;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
+	FRuntimeCurveLinearColor PaintedCloudShadeScale;
 
 	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades

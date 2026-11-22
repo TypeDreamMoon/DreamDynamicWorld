@@ -78,7 +78,7 @@ float4 Parameters[30];
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[159];
+float4 LookParameters[161];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -473,8 +473,14 @@ void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
 		Light *= dot(P_CloudLit.rgb, Luma) / max(dot(Light, Luma), 1.0e-6);
 		Ambient *= dot(P_CloudShadow.rgb, Luma) / max(dot(Ambient, Luma), 1.0e-6);
 	}
+	// (The toon look's scales, or the painted look's.)
+#if DSKY_LOOK == 2
+	Lit.rgb = Light * LookParameters[159].rgb;
+	Shade.rgb = Ambient * LookParameters[160].rgb;
+#else
 	Lit.rgb = Light * LookParameters[157].rgb;
 	Shade.rgb = Ambient * LookParameters[158].rgb;
+#endif
 }
 
 // The sky's height fog over a cloud Distance along V, as the engine's renderer lays it over its own clouds (its
