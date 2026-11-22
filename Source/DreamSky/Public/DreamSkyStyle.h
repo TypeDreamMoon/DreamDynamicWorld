@@ -192,6 +192,17 @@ struct DREAMSKY_API FDreamSkyLightShafts
 	float CoverFull = 0.35f;
 };
 
+/** Which stars the dome draws. */
+UENUM(BlueprintType)
+enum class EDreamSkyStarField : uint8
+{
+	/** A scatter of stars of the style's density, turning with the sky. */
+	Stylized,
+	/** The real sky's: the Yale Bright Star Catalogue's some 9100 stars to magnitude 6.5, each where it is for the
+	 *  latitude and the sidereal time, as bright as its magnitude and its own colour (T_DreamStarMap, built by Setup). */
+	Catalogue,
+};
+
 /** The lens flare's look (FDreamSkyLensFlare). */
 UENUM(BlueprintType)
 enum class EDreamSkyLensFlarePreset : uint8
@@ -533,9 +544,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
 
-	/** Relative number of stars. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4"))
+	/** Which stars: the real sky's, or a stylized scatter. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars")
+	EDreamSkyStarField StarField = EDreamSkyStarField::Catalogue;
+
+	/** Relative number of stars (the stylized scatter). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", UIMax = "4", EditCondition = "StarField == EDreamSkyStarField::Stylized"))
 	float StarDensity = 1.0f;
+
+	/** How much brighter the catalogue's stars are drawn for each magnitude (1 = as in the sky, 2.512 times; less
+	 *  keeps the faint ones in sight next to the bright). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0.1", ClampMax = "1", EditCondition = "StarField == EDreamSkyStarField::Catalogue"))
+	float StarContrast = 0.8f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ShowOnlyInnerProperties))
 	FDreamSkyAurora Aurora;

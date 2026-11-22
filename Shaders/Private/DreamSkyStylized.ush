@@ -193,6 +193,86 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 	return Present * step(Hidden, R.z) * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
 }
 
+// A direction to an octahedral map's 0..1 coordinates, and back (as DreamStarMap.h builds the star map).
+float2 DSky_OctEncode(float3 D)
+{
+	D /= abs(D.x) + abs(D.y) + abs(D.z);
+	float2 P = D.xy;
+	if (D.z < 0.0)
+	{
+		P = (1.0 - abs(D.yx)) * float2(D.x >= 0.0 ? 1.0 : -1.0, D.y >= 0.0 ? 1.0 : -1.0);
+	}
+	return P * 0.5 + 0.5;
+}
+
+float3 DSky_OctDecode(float2 UV)
+{
+	float2 P = UV * 2.0 - 1.0;
+	float3 D = float3(P, 1.0 - abs(P.x) - abs(P.y));
+	float T = saturate(-D.z);
+	D.xy += float2(D.x >= 0.0 ? -T : T, D.y >= 0.0 ? -T : T);
+	return normalize(D);
+}
+
+// A star's colour from its B-V index: blue-white, white, yellow, orange.
+float3 DSky_StarColor(float BV)
+{
+	float3 C = lerp(float3(0.66, 0.76, 1.0), float3(1.0, 1.0, 1.0), smoothstep(-0.25, 0.2, BV));
+	C = lerp(C, float3(1.0, 0.87, 0.68), smoothstep(0.2, 0.9, BV));
+	return lerp(C, float3(1.0, 0.7, 0.48), smoothstep(0.9, 1.7, BV));
+}
+
+// The catalogue's stars (the star map Setup builds, DreamStarMap.h): the sphere set by its pole and the March equinox
+// in the world (Pole.xyz, Equinox.xyz); each cell of the map round the view's holds a star, drawn a point some pixel
+// across, brighter for each magnitude by Equinox.w (1 = as in the sky), the brightest a little larger, in its colour.
+// Hidden: the share of them, the dimmest first, left out (from how many stars are brighter than a magnitude).
+float3 DSky_CatalogueStars(float3 V, float4 Pole, float4 Equinox, Texture2D StarMap, float Twinkle, float Seconds, float Hidden)
+{
+	if (V.z <= 0.0)
+	{
+		return 0.0;
+	}
+	float3 Z = normalize(Pole.xyz);
+	float3 X = normalize(Equinox.xyz - Z * dot(Equinox.xyz, Z));
+	float3 Y = cross(X, Z);
+	float3 E = float3(dot(V, X), dot(V, Y), dot(V, Z));
+	uint Width, Height;
+	StarMap.GetDimensions(Width, Height);
+	float Size = float(Width);
+	int2 Cell = int2(floor(DSky_OctEncode(E) * Size));
+	// (The pixel's footprint on the sphere, radians; the direction runs on smoothly where the cells do not.)
+	float Pixel = max(length(fwidth(E)), 1.0e-5);
+	float Faintest = Hidden > 0.0 ? 6.5 + log10(max(1.0 - Hidden, 1.0e-4)) / 0.48 : 99.0;
+	float3 Light = 0.0;
+	UNROLL
+	for (int Dy = -1; Dy <= 1; ++Dy)
+	{
+		UNROLL
+		for (int Dx = -1; Dx <= 1; ++Dx)
+		{
+			int2 C = Cell + int2(Dx, Dy);
+			if (any(C < 0) || any(C >= int(Width)))
+			{
+				continue;
+			}
+			float4 T = StarMap.Load(int3(C, 0));
+			float Magnitude = 8.0 - (T.b * 255.0 - 1.0) * (10.0 / 254.0);
+			if (T.b <= 0.0 || Magnitude > Faintest)
+			{
+				continue;
+			}
+			float3 S = DSky_OctDecode((float2(C) + 0.5 + T.rg * 3.0 - 1.5) / Size);
+			float Bright = min(pow(10.0, -0.4 * Equinox.w * (Magnitude - 2.0)), 6.0);
+			float Radius = Pixel * (0.65 + 0.45 * saturate(Bright) + 0.35 * saturate((Bright - 1.0) / 3.0));
+			float Point = 1.0 - smoothstep(Radius - 0.5 * Pixel, Radius + 0.5 * Pixel, length(E - S));
+			float Seed = frac(T.r * 7.13 + T.g * 3.71 + T.a * 1.37);
+			float Flicker = 1.0 - Twinkle * 0.5 * (1.0 + sin(Seconds * (1.5 + 3.0 * Seed) + Seed * 40.0));
+			Light += DSky_StarColor(T.a * 2.4 - 0.4) * Bright * Point * Flicker;
+		}
+	}
+	return Light * saturate(V.z * 5.0);
+}
+
 // The aurora: curtains of light along the magnetic latitude, from some 95 km up (their sharp lower edge, where a band
 // shines brighter) to 330 km, toward the pole, in three layers one behind another. Each view ray is read at six heights,
 // where it meets each over the planet's curve; each layer's curtain there folds along its length in great S-bends that
@@ -1013,7 +1093,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
 	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
-	SamplerState PanoramaSampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
+	SamplerState PanoramaSampler, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float3 Camera, float2 ScreenUV,
+	float Seconds, float Capture)
 {
 	V = normalize(V);
 	float3 Sun = normalize(SunDir.xyz);
@@ -1060,7 +1141,12 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
 	// The sky light sees no stars, and only a share of the sun disk (a full disk makes a hot spot in the
 	// captured light that every rough surface would reflect).
-	Sky += Stars.x * DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds, Stars.w) * (1.0 - MoonCover) * Clear * (1.0 - Capture);
+	if (Capture < 0.5 && Stars.x > 0.0)
+	{
+		float3 StarLight = StarPole.w > 0.5 ? DSky_CatalogueStars(V, StarPole, StarEquinox, StarMap, Stars.z, Seconds, Stars.w)
+			: DSky_Stars(V, Time.z, Stars.y, Stars.z, Seconds, Stars.w);
+		Sky += Stars.x * StarLight * (1.0 - MoonCover) * Clear;
+	}
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);
 	// (In an eclipse the moon's disk masks the sun's; the corona shows round it at totality.)

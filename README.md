@@ -221,6 +221,20 @@ temperature from `StartsAbove` (24 C) to full at `FullAbove` (36 C), the sun's h
 wind stirs it away. `Intensity` sets how far it shifts the picture (1 = some 2.5 pixels at 1080p), `Speed` how fast
 it shimmers; `DreamSky.HeatHaze <intensity>` draws it whatever the style says (-1 = the style's).
 
+**Stars.** The style's `StarField` picks the dome's stars. *Catalogue*, the default, is the real sky's: the some 9100
+stars of the Yale Bright Star Catalogue, 5th revised edition (Hoffleit & Warren, 1991), down to magnitude 6.5, each where
+it stands for the clock's latitude and local sidereal time (the shared parameters' `DDW_StarPole`, the north celestial
+pole in the world, and `DDW_StarEquinox`, the March equinox), each as bright as its magnitude -- `StarContrast` sets how
+much brighter each magnitude is drawn (1 = 2.512 times, as in the sky; 0.8 by default keeps the faint ones in sight) --
+and in its own colour from its B-V index; the style's star intensity curve and `StarTwinkle` apply as before, and an
+eclipse's totality still leaves only the brightest. *Stylized* is the scatter of stars of `StarDensity` the dome drew
+before (`DreamSky.StarField 0|1` picks either whatever the style says). The stars are read from a small map, `T_DreamStarMap` (512 x 512 cells on an octahedral map of the sphere, the
+brightest star nearest each), which Setup builds from the catalogue's file: `-StarCatalogue=<path>`, by default
+`<project>/Saved/StarData/bsc5.dat.gz` (the gzipped file as the catalogue is distributed, e.g. by the Harvard-Smithsonian
+Center for Astrophysics' Telescope Data Center or the CDS as V/50); with no file there Setup leaves the map as it is, and
+a file that does not read as the catalogue (far from its 9110 records, or places and magnitudes out of their ranges) is
+an error and leaves it as it is too. The catalogue's file itself is not part of the plugin; the map is.
+
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
 0.43) at 50.4 to 53.5 with its colours turned about, and the darker sky between the two. It shows while there is rain

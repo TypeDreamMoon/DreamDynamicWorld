@@ -12,11 +12,17 @@
 
 #include "Components/PostProcessComponent.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "JsonObjectConverter.h"
 #include "Misc/App.h"
 #include "SceneViewExtension.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamSkySubsystem)
+
+static TAutoConsoleVariable<int32> CVarDreamSkyStarField(
+	TEXT("DreamSky.StarField"), -1,
+	TEXT("The dome's stars whatever the style says: 0 the stylized scatter, 1 the catalogue's; -1 = the style's StarField."),
+	ECVF_Default);
 
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
 
@@ -667,6 +673,22 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
 	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
+	// The celestial sphere: its north pole as high as the latitude, toward north; the March equinox on the celestial
+	// equator, as far west of the meridian (its hour angle) as the local sidereal time.
+	{
+		using DreamWorld::Celestial::DirectionFromAngles;
+		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
+		const double Latitude = FMath::Clamp(Settings.Latitude, -89.9, 89.9);
+		const FVector Pole = DirectionFromAngles(Latitude, 0.0, Settings.NorthYaw);
+		const FVector Meridian = DirectionFromAngles(90.0 - Latitude, 180.0, Settings.NorthYaw);
+		const FVector East = DirectionFromAngles(0.0, 90.0, Settings.NorthYaw);
+		const double Hour = FMath::DegreesToRadians(double(Clock.GetCelestial().StarRotation));
+		const FVector Equinox = FMath::Cos(Hour) * Meridian - FMath::Sin(Hour) * East;
+		const int32 Forced = CVarDreamSkyStarField.GetValueOnGameThread();
+		const bool bCatalogue = Forced >= 0 ? Forced > 0 : Style.StarField == EDreamSkyStarField::Catalogue;
+		Clock.SetVectorParameter(MPC_StarPole, FLinearColor(float(Pole.X), float(Pole.Y), float(Pole.Z), bCatalogue ? 1.0f : 0.0f));
+		Clock.SetVectorParameter(MPC_StarEquinox, FLinearColor(float(Equinox.X), float(Equinox.Y), float(Equinox.Z), FMath::Clamp(Style.StarContrast, 0.1f, 1.0f)));
+	}
 	// The aurora toward the magnetic pole (north, or south below the equator in the realistic mode), as bright as the
 	// night shows it.
 	{
