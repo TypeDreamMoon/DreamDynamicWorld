@@ -147,6 +147,59 @@ bool FDreamWorldRealisticSunTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldStarRotationTest, "DreamWorld.Celestial.StarRotation", DreamWorld::Tests::Flags)
+bool FDreamWorldStarRotationTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWorld;
+	FDreamCelestialSettings Artistic;
+	Artistic.Mode = EDreamCelestialMode::Artistic;
+	FDreamCelestialSettings Greenwich;
+	Greenwich.Mode = EDreamCelestialMode::Realistic;
+	Greenwich.Latitude = 51.48;
+	Greenwich.Longitude = 0.0;
+	Greenwich.UtcOffsetHours = 0.0f;
+	auto SiderealHours = [](const FDreamCelestialSettings& S, double Seconds) { return double(Celestial::Evaluate(S, Seconds).StarRotation) / 15.0; };
+	auto HoursApart = [](double A, double B) { return FMath::Abs(FMath::Fmod(A - B + 36.0, 24.0) - 12.0); };
+
+	// The epoch: Greenwich sidereal time at 2000-01-01 12:00 UT is 18.697 h.
+	TestTrue(TEXT("J2000.0: 18.70 h at Greenwich"), HoursApart(SiderealHours(Greenwich, Tests::At(2000, 1, 1, 12)), 18.697) < 0.01);
+
+	// A January evening: the artistic sky turns with the real one (Orion high in the south at 21:00), 4.69 h.
+	const double Evening = Tests::At(2026, 1, 15, 21);
+	const double Art = SiderealHours(Artistic, Evening);
+	TestTrue(FString::Printf(TEXT("15 January 21:00, artistic %.2f h against Greenwich %.2f h"), Art, SiderealHours(Greenwich, Evening)),
+		HoursApart(Art, SiderealHours(Greenwich, Evening)) < 0.1);
+	TestTrue(FString::Printf(TEXT("and the real value (%.2f h)"), Art), HoursApart(Art, 4.69) < 0.1);
+
+	// Night after night at the same hour the stars stand some four minutes further on (a sidereal day is 23 h 56 m);
+	// over a year that adds up to a whole turn.
+	int32 Off = 0;
+	double Total = 0.0;
+	for (int32 Day = 0; Day < 365; ++Day)
+	{
+		const double Tonight = SiderealHours(Artistic, Evening + Day * 86400.0);
+		const double Tomorrow = SiderealHours(Artistic, Evening + (Day + 1) * 86400.0);
+		const double Minutes = FMath::Fmod(Tomorrow - Tonight + 24.0, 24.0) * 60.0;
+		Off += FMath::IsNearlyEqual(Minutes, 3.94, 0.05) ? 0 : 1;
+		Total += Minutes;
+	}
+	TestEqual(TEXT("every night four minutes earlier"), Off, 0);
+	TestTrue(FString::Printf(TEXT("a whole turn in a year (%.0f min)"), Total), FMath::IsNearlyEqual(Total, 1440.0, 5.0));
+
+	// Continuous: through midnight and across the turn of the year it moves by its rate, never by a jump.
+	int32 Jumps = 0;
+	for (const double Start : { Tests::At(2026, 1, 15, 23), Tests::At(2026, 12, 31, 23) })
+	{
+		for (int32 Minute = 0; Minute < 120; ++Minute)
+		{
+			const double Step = FMath::Fmod(SiderealHours(Artistic, Start + (Minute + 1) * 60.0) - SiderealHours(Artistic, Start + Minute * 60.0) + 24.0, 24.0);
+			Jumps += FMath::IsNearlyEqual(Step * 60.0, 1.0027, 0.002) ? 0 : 1;
+		}
+	}
+	TestEqual(TEXT("no jump at midnight or new year"), Jumps, 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldMoonPhaseTest, "DreamWorld.Celestial.MoonPhase", DreamWorld::Tests::Flags)
 bool FDreamWorldMoonPhaseTest::RunTest(const FString& Parameters)
 {

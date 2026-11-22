@@ -40,7 +40,8 @@ sky still leaves one for the project.
 **World clock** (`UDreamWorldSubsystem`). World time is a double count of seconds in the world's own
 calendar; real time times the time scale moves it (*Day Length Minutes*, default 24 = one real minute per
 game hour). Sun and moon are a pure function of it: *Artistic* mode (sunrise and sunset hours, the sun's
-height at midday, the moon kept opposite the sun if you like — the same every day) or *Realistic* mode
+height at midday, the moon kept opposite the sun if you like — the same every day; the stars turn with the
+local sidereal time of that date and hour, so the constellations rise when they really do) or *Realistic* mode
 (latitude, longitude, UTC offset, the date: NOAA sun, low-precision moon with its real phase; about a
 degree). Setting the time, a snapshot or scrubbing puts the whole sky exactly where it would have been.
 
@@ -968,7 +969,8 @@ usable in your own levels; none of the runtime depends on them.
 `Tools/TestHost/Invoke-DreamDynamicWorldTests.ps1` builds the test host and runs everything headlessly
 (see `Tools/TestHost/README.md`). `DreamWorld.*` covers the clock (run, events, jumps, transitions,
 snapshots), the sun and moon (artistic path; Tokyo's solstice noon, the equinox, Sydney; the 2026 lunar and
-solar eclipses for the moon's phase), the scheduler, the parameter ids and the view probe (a closed room, a
+solar eclipses for the moon's phase), the stars' sidereal time (the epoch, a January evening in both modes, four
+minutes a night, no jump at midnight), the scheduler, the parameter ids and the view probe (a closed room, a
 porch, the open; rays spread over the round, easing, teleports). `DreamSky.*` checks that a style's
 day is continuous (the main light never jumps, sun and moon never light at once, exposure eases), drives a
 sky actor in a game world (snap on jumps, easing while the clock runs, the night hand-over) and the indoor and
