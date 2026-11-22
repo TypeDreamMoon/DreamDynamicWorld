@@ -92,7 +92,10 @@ under the sky's height fog as the engine fogs its own clouds; they take the dome
 looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
 normal and its shadow toward the light and painted in the style's few tones), **realistic** (the density lit by
 scattering: soft) and **painted** (the density painted in the style's lit, half and shade tones by the light through
-it: hard-edged, opaque, with a silver lining near the sun, an anime background's clouds). The realistic and painted
+it: hard-edged, opaque, with a silver lining near the sun, an anime background's clouds). The light reaches each
+sample of the realistic look through the air as the atmosphere's transmittance table has it (DreamAtmosphere, the
+same air the sky is made of) once it is built, an analytic air of the same coefficients before
+(`DreamSky.CloudRender.Atmosphere 0` keeps to that). The realistic and painted
 looks take their settings from the style (`RealisticClouds`, `PaintedClouds`, and `CloudShadowReach`, how far their
 shading toward the light reaches), the level's cloud overrides over them; on the actor, `CloudSunScattering` (2.5)
 brightens the sun's and the moon's scattering in them (their multiple scattering loses light: at 1 a sunlit cumulus
