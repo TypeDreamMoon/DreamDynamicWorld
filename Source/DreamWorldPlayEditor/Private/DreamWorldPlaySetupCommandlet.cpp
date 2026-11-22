@@ -9,6 +9,7 @@
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindGlobalActor.h"
+#include "DreamWeatherStormSpawner.h"
 #include "DreamWeatherZone.h"
 #include "DreamWorldCelestial.h"
 
@@ -172,6 +173,15 @@ namespace DreamWorldPlay
 		Storm->Zone->Motion.LifetimeHours = 4.0f;
 		Storm->Zone->Motion.bDestroyWhenDone = false;
 		Storm->Zone->Motion.StartSeconds = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 6, 21, 8, 30, 0));
+
+		// And storms that come by themselves with the season.
+		ADreamWeatherStormSpawner* Spawner = World->SpawnActor<ADreamWeatherStormSpawner>(FVector::ZeroVector, FRotator::ZeroRotator);
+		Spawner->SetActorLabel(TEXT("StormSpawner"));
+		FDreamStormKind& Thunder = Spawner->Kinds.AddDefaulted_GetRef();
+		Thunder.Preset = Preset(TEXT("WP_Storm"));
+		Thunder.Winter = 0.2f;
+		FDreamStormKind& Squall = Spawner->Kinds.AddDefaulted_GetRef();
+		Squall.Preset = Preset(TEXT("WP_Rain"));
 
 
 		World->SpawnActor<APlayerStart>(FVector(0.0, -1200.0, 100.0), FRotator(0.0, 90.0, 0.0));
