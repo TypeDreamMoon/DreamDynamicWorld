@@ -323,6 +323,15 @@ the lightning (it strikes where the lightning is strongest) go with it. `ADreamW
 zone of `WP_Storm` 15 km in radius with a `Path` spline; spawn it and call `StartMotion`, give it a start time, or tick
 `bStartOnBeginPlay`. `bAffectsQueries` off leaves a zone only drawing into the weather map.
 
+**Storms that come by themselves.** `ADreamWeatherStormSpawner` cuts time into slots (`SlotHours`); each slot holds a
+storm or not by the season's chance (`SeasonChance`), drawn from the world seed and the slot alone. A storm is of a
+kind drawn by the season's weights (`Kinds`: a preset with spring–winter weights), starts somewhere in its slot, lives
+`LifetimeHours`, and crosses on a straight line from the prevailing direction (± `DirectionVariation`) through a point
+within `PassRadius` of the spawner — place it where storms should pass. The spawner is itself the weather influence:
+a query for any moment, now or past, gets the storms alive then, so the surfaces' integration sees storms long gone.
+While a storm lives the spawner keeps an `ADreamWeatherStorm` for it that only draws it into the weather map (the
+sky). `GetStormsAt(WorldSeconds)` lists the storms of any moment, for a forecast.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
@@ -346,7 +355,8 @@ Multiplayer is not done yet; the clock's drive and the modifiers are the one pla
 `UnrealEditor-Cmd.exe <project> -run=DreamWorldPlaySetup -ShowcaseMap` (after `DreamDynamicWorldSetup`) writes
 `/DreamDynamicWorld/Play/Maps/Lvl_DreamWorldPlay` and the audio assets under `/DreamDynamicWorld/Audio`: a hut (go
 in: the rain goes dull; stand in the door), a porch (a roof overhead, open all round), a grove (leaves) and a storm
-that drifts in from the west on the morning of 21 June (over the area around ten, gone by half past twelve), under
+that drifts in from the west on the morning of 21 June (over the area around ten, gone by half past twelve) and a
+storm spawner, under
 weather that runs clear → rain → storm → cloudy every three hours. `-ForceAudio` builds the graphs again, `-Force`
 the level.
 
