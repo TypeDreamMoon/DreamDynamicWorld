@@ -134,6 +134,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
+	Look.LensFlare = FMath::Max(LensFlare.Intensity, 0.0f);
 	return Look;
 }
 

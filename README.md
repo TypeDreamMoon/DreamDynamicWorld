@@ -180,6 +180,16 @@ nothing builds up over frames: a cinematic frame or a cut shows them as they are
 them (0 leaves them out); `DreamSky.LightShafts.Debug 1` shows in grey how much of the sun the air along each ray
 gets. They cost some 0.04 ms at 1080p, nothing under a clear sky or with the sun down.
 
+**Lens flare.** With the sun in view the sky draws its lens flare over the scene after the depth of field, in one of
+the style's `LensFlare.Preset`s: *Natural* (a soft glow, a faint ring and ghosts of a few colours along the line from
+the sun through the middle of the view), *Anamorphic* (a long blue streak across the sun) or *Stylized* (flat hexagons
+and a crisp ring, for the toon and painted looks); *None* draws none. It is as bright as the sun shows on screen over
+`LensFlare.Threshold` (1 = white), times `Intensity`, in the sun's own colour times `Tint`: the brightness is measured
+from the frame itself over the sun's disk, so clouds drifting over the sun, a wall in front of it or an eclipse weaken
+it or take it away, and it fades as the sun leaves the view. Nothing builds up over frames. A sky modifier's *Lens
+Flare* scales it; `DreamSky.LensFlare` multiplies it (0 = none) and `DreamSky.LensFlare.Preset` forces a preset. It
+costs some 0.03 ms at 1080p, whatever draws the clouds.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

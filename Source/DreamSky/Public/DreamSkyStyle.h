@@ -192,6 +192,45 @@ struct DREAMSKY_API FDreamSkyLightShafts
 	float CoverFull = 0.35f;
 };
 
+/** The lens flare's look (FDreamSkyLensFlare). */
+UENUM(BlueprintType)
+enum class EDreamSkyLensFlarePreset : uint8
+{
+	None,
+	/** A soft glow about the sun, a faint ring, ghosts of a few colours across the view. */
+	Natural,
+	/** A long blue streak across the sun, oval ghosts stretched with it. */
+	Anamorphic,
+	/** Flat hexagons in a few clean tones and a crisp ring (for the toon and painted looks). */
+	Stylized,
+};
+
+/**
+ * The sun's lens flare, over the scene after the depth of field: as bright as the sun shows on screen over the
+ * threshold -- measured from the frame itself, so the clouds, a wall or an eclipse in front of the sun weaken it, and
+ * it is gone with the sun out of view.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyLensFlare
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare")
+	EDreamSkyLensFlarePreset Preset = EDreamSkyLensFlarePreset::Natural;
+
+	/** How bright the flare is drawn for the sun's brightness over the threshold. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ClampMin = "0", UIMax = "8"))
+	float Intensity = 1.0f;
+
+	/** How bright the sun has to show on screen before it flares (1 = white on screen). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ClampMin = "0", UIMax = "10"))
+	float Threshold = 1.0f;
+
+	/** Over the sun's own colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (HideAlphaChannel))
+	FLinearColor Tint = FLinearColor::White;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -355,6 +394,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Shafts", meta = (ShowOnlyInnerProperties))
 	FDreamSkyLightShafts LightShafts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Lens Flare", meta = (ShowOnlyInnerProperties))
+	FDreamSkyLensFlare LensFlare;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

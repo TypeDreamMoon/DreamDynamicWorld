@@ -1,0 +1,146 @@
+// Copyright DreamMoon. All Rights Reserved.
+
+// DreamSkyLensFlare.usf -- the sun's lens flare (FDreamSkyLensFlare), over the scene after the depth of field:
+//   MeasureCS  how bright the sun shows on screen: the scene's colour over the sun's disk, where it falls inside the view
+//              (clouds, walls, an eclipse in front of it all take their share), into a single texel.
+//   FlarePS    the flare's ghosts, halo and streaks along the line from the sun through the middle of the view, as bright
+//              as the sun shows over the threshold, in its colour.
+
+#include "/Engine/Private/Common.ush"
+
+float4 SunDirection;   // toward the sun (translated world = world for a direction), w = the disk's angular radius (rad)
+float4 Flare;          // x intensity, y threshold, z preset (1 natural, 2 anamorphic, 3 stylized)
+float4 FlareTint;
+Texture2D SceneColorTexture;
+SamplerState SceneColorSampler;
+float2 SceneColorInvExtent;
+RWTexture2D<float4> OutMeasure;   // rgb = the sun's mean colour on screen (pre-exposed), a = the share of it in view
+Texture2D<float4> Measure;
+groupshared float4 GroupSum[64];
+
+// Where the sun stands on screen (pixels in the scene textures); false behind the view.
+bool DSkyF_SunPixel(out float2 Pixel, out float RadiusPixels)
+{
+	float4 Clip = mul(float4(SunDirection.xyz, 0.0), View.TranslatedWorldToClip);
+	Pixel = 0;
+	RadiusPixels = 0;
+	if (Clip.w <= 1.0e-4)
+	{
+		return false;
+	}
+	float2 Ndc = Clip.xy / Clip.w;
+	Pixel = View.ViewRectMin.xy + (Ndc * float2(0.5, -0.5) + 0.5) * View.ViewSizeAndInvSize.xy;
+	// (The disk's radius on screen from the projection's focal length.)
+	RadiusPixels = tan(SunDirection.w) * View.ViewToClip[1][1] * 0.5 * View.ViewSizeAndInvSize.y;
+	return true;
+}
+
+[numthreads(64, 1, 1)]
+void MeasureCS(uint Index : SV_GroupIndex)
+{
+	float2 Sun;
+	float Radius;
+	bool bFront = DSkyF_SunPixel(Sun, Radius);
+	// 64 points over the disk (a sunflower spiral), each counted where it falls in the view.
+	float R = sqrt((float(Index) + 0.5) / 64.0) * max(Radius, 1.0);
+	float A = float(Index) * 2.39996323;
+	float2 P = Sun + R * float2(cos(A), sin(A));
+	float2 Local = P - View.ViewRectMin.xy;
+	bool bInside = bFront && all(Local >= 0.0) && all(Local < View.ViewSizeAndInvSize.xy);
+	float3 C = bInside ? SceneColorTexture.SampleLevel(SceneColorSampler, P * SceneColorInvExtent, 0).rgb : 0.0;
+	// (Summed across the group in shared memory.)
+	float4 Sample = float4(C, bInside ? 1.0 : 0.0);
+	GroupSum[Index] = Sample;
+	GroupMemoryBarrierWithGroupSync();
+	for (uint Step = 32; Step > 0; Step >>= 1)
+	{
+		if (Index < Step)
+		{
+			GroupSum[Index] += GroupSum[Index + Step];
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+	if (Index == 0)
+	{
+		float4 Total = GroupSum[0];
+		OutMeasure[uint2(0, 0)] = float4(Total.rgb / max(Total.a, 1.0), Total.a / 64.0);
+	}
+}
+
+// A soft disk, a little brighter toward its rim.
+float DSkyF_Ghost(float2 Q, float2 Centre, float Radius)
+{
+	float D = length(Q - Centre);
+	return smoothstep(Radius, Radius * 0.6, D) * (0.5 + 0.5 * saturate(D / Radius));
+}
+
+// A flat hexagon with a crisp (antialiased) edge.
+float DSkyF_Hexagon(float2 Q, float2 Centre, float Radius, float Aa)
+{
+	float2 D = abs(Q - Centre);
+	float Hex = max(D.x * 0.866025 + D.y * 0.5, D.y);
+	return 1.0 - smoothstep(Radius - Aa, Radius + Aa, Hex);
+}
+
+void FlarePS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
+{
+	float2 Pixel = SvPosition.xy;
+	float4 M = Measure.Load(int3(0, 0, 0));
+	float2 Sun;
+	float Radius;
+	if (!DSkyF_SunPixel(Sun, Radius) || M.a <= 0.0)
+	{
+		discard;
+	}
+	float Luma = dot(M.rgb, float3(0.2126, 0.7152, 0.0722));
+	float Excess = max(Luma - Flare.y, 0.0) * Flare.x * M.a;
+	if (Excess <= 0.0)
+	{
+		discard;
+	}
+	// The sun's own colour at unit brightness, the flare's tint over it.
+	float3 Light = M.rgb / max(Luma, 1.0e-4) * FlareTint.rgb * Excess;
+	// Positions in the view's height units about its middle: the ghosts lie along the line from the sun through it.
+	float2 Middle = View.ViewRectMin.xy + 0.5 * View.ViewSizeAndInvSize.xy;
+	float Unit = 2.0 / View.ViewSizeAndInvSize.y;
+	float2 Q = (Pixel - Middle) * Unit;
+	float2 S = (Sun - Middle) * Unit;
+	float Aa = Unit * 1.0;
+	// (As the sun nears the view's edge less of its disk is measured in view: the flare fades with it.)
+	float3 Sum = 0.0;
+	int Preset = int(Flare.z + 0.5);
+	if (Preset == 1)
+	{
+		// Natural: a soft glow about the sun, a faint ring, ghosts of a few colours across the middle.
+		float D = length(Q - S);
+		Sum += float3(1.0, 0.95, 0.85) * 0.06 * exp(-D * 9.0);
+		Sum += float3(0.55, 0.75, 1.0) * 0.010 * exp(-pow((D - 0.42) / 0.035, 2.0));
+		Sum += float3(1.00, 0.80, 0.55) * 0.020 * DSkyF_Ghost(Q, S * 0.45, 0.025);
+		Sum += float3(0.60, 0.95, 0.70) * 0.012 * DSkyF_Ghost(Q, S * -0.20, 0.060);
+		Sum += float3(0.55, 0.70, 1.00) * 0.010 * DSkyF_Ghost(Q, S * -0.55, 0.035);
+		Sum += float3(0.85, 0.60, 1.00) * 0.008 * DSkyF_Ghost(Q, S * -0.85, 0.110);
+		Sum += float3(1.00, 0.85, 0.60) * 0.014 * DSkyF_Ghost(Q, S * -1.25, 0.050);
+	}
+	else if (Preset == 2)
+	{
+		// Anamorphic: a long blue streak across the sun, oval ghosts stretched with it.
+		float2 D = Q - S;
+		Sum += float3(0.45, 0.65, 1.0) * 0.16 * exp(-abs(D.y) / 0.005) * exp(-abs(D.x) / 1.1);
+		Sum += float3(0.35, 0.55, 1.0) * 0.04 * exp(-abs(D.y) / 0.03) * exp(-abs(D.x) / 0.5);
+		Sum += float3(0.60, 0.80, 1.0) * 0.04 * exp(-length(D * float2(0.6, 2.0)) * 10.0);
+		Sum += float3(0.40, 0.60, 1.00) * 0.012 * DSkyF_Ghost(Q * float2(0.5, 1.0), S * float2(0.5, 1.0) * -0.35, 0.05);
+		Sum += float3(0.50, 0.70, 1.00) * 0.008 * DSkyF_Ghost(Q * float2(0.5, 1.0), S * float2(0.5, 1.0) * -0.90, 0.08);
+	}
+	else
+	{
+		// Stylized: flat hexagons in a few clean tones and a crisp ring, for the toon and painted looks.
+		float D = length(Q - S);
+		Sum += float3(1.0, 0.95, 0.85) * 0.05 * (1.0 - smoothstep(0.06 - Aa, 0.06 + Aa, D));
+		Sum += float3(1.0, 0.90, 0.70) * 0.012 * (1.0 - smoothstep(0.004, 0.004 + Aa, abs(D - 0.30)));
+		Sum += float3(1.00, 0.85, 0.55) * 0.022 * DSkyF_Hexagon(Q, S * 0.40, 0.030, Aa);
+		Sum += float3(0.70, 0.95, 0.80) * 0.014 * DSkyF_Hexagon(Q, S * -0.30, 0.070, Aa);
+		Sum += float3(0.65, 0.80, 1.00) * 0.012 * DSkyF_Hexagon(Q, S * -0.70, 0.045, Aa);
+		Sum += float3(0.95, 0.75, 1.00) * 0.010 * DSkyF_Hexagon(Q, S * -1.10, 0.090, Aa);
+	}
+	Out = float4(Sum * Light, 0.0);
+}

@@ -326,4 +326,27 @@ bool FDreamSkyLightShaftsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyLensFlareTest, "DreamSky.LensFlare", DreamSky::NightTests::Flags)
+bool FDreamSkyLensFlareTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	FNightWorld W(FDateTime(2026, 6, 21, 12, 0, 0), 35.68, 139.69, 9.0f);
+	if (!TestTrue(TEXT("noon world"), W.IsValid()))
+	{
+		return false;
+	}
+	const FDreamSkyLensFlare& Flare = W.Sky->GetEffectiveStyle()->LensFlare;
+	TestTrue(TEXT("a flare by default"), Flare.Preset != EDreamSkyLensFlarePreset::None);
+	TestNearlyEqual(TEXT("as bright as the style says"), W.SkySubsystem->GetLook().LensFlare, Flare.Intensity, 1e-5f);
+	UDreamSkyModifier* Dim = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Dim->Settings.bOverride_LensFlare = true;
+	Dim->Settings.LensFlare = 0.25f;
+	W.SkySubsystem->SetModifierAlpha(Dim, 1.0f);
+	W.Clock->Tick(0.016f);
+	TestNearlyEqual(TEXT("a modifier scales it"), W.SkySubsystem->GetLook().LensFlare, 0.25f * Flare.Intensity, 1e-4f);
+	W.SkySubsystem->RemoveModifier(Dim);
+	return true;
+}
+
 #endif
