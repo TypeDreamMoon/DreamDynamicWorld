@@ -966,6 +966,43 @@ bool FDreamWeatherFallPathsTest::RunTest(const FString& Parameters)
 	const int64 Traced = Paths.GetTracesCast() - Before;
 	TestTrue(FString::Printf(TEXT("a quarter of the buffer (%lld)"), Traced), FMath::Abs(Traced - Params.Capacity / 4) <= 1);
 	TestTrue(TEXT("and the effects hear of it"), Paths.GetGeneration() != Generation);
+
+	// A drop is its own path's segment. The wind turns (a gust) after half the buffer was traced: those paths keep the
+	// start they were traced from, and a drop runs from it to the end at (end - start) / w. Sent instead from the end
+	// less the new wind times its fall time, it would start kilometres off and slant through whatever stands beside
+	// its landing point (rain cutting through a hut's roof).
+	Params.ForwardBias = 0.0f;
+	Paths.Fill(World, View, FVector::ForwardVector, Windy, Params, Open);
+	const TArray<FVector> StartsBefore = Paths.GetStarts();
+	const TArray<FVector4> EndsBefore = Paths.GetEnds();
+	const FVector Gust(-600, 300, -900);
+	Paths.Update(World, View, FVector::ForwardVector, Gust, Params.RefreshSeconds * 0.5f, Params, Open);
+	const int32 Count = Paths.GetEnds().Num();
+	TestEqual(TEXT("a start for every path"), Paths.GetStarts().Num(), Count);
+	int32 Kept = 0, Along = 0, OwnSpeed = 0, Clear = 0, NotFromTheGust = 0, FromTheGust = 0;
+	for (int32 i = 0; i < FMath::Min(Count, Paths.GetStarts().Num()); ++i)
+	{
+		const FVector Start = Paths.GetStarts()[i];
+		const FVector4& E = Paths.GetEnds()[i];
+		const FVector End(E.X, E.Y, E.Z);
+		const bool bKept = Start.Equals(StartsBefore[i], 0.01) && E.Equals(EndsBefore[i], 0.01);
+		const FVector TracedWith = bKept ? Windy : Gust;
+		const FVector DropVelocity = (End - Start) / FMath::Max(E.W, 1.0e-6);
+		Kept += bKept ? 1 : 0;
+		Along += (DropVelocity.GetSafeNormal() | TracedWith.GetSafeNormal()) > 0.9999 ? 1 : 0;
+		OwnSpeed += FMath::IsNearlyEqual(DropVelocity.Size(), TracedWith.Size(), 1.0) ? 1 : 0;
+		FHitResult Hit;
+		Clear += World->LineTraceSingleByChannel(Hit, Start, End - (End - Start).GetSafeNormal() * 2.0, ECC_Visibility) ? 0 : 1;
+		const double FromGust = FVector::Dist(Start, End - Gust * E.W);
+		NotFromTheGust += bKept && FromGust > 100.0 ? 1 : 0;
+		FromTheGust += !bKept && FromGust < 1.0 ? 1 : 0;
+	}
+	TestTrue(FString::Printf(TEXT("half the paths still from before the gust (%d)"), Kept), FMath::Abs(Kept - Count / 2) <= 1);
+	TestEqual(TEXT("every drop runs along the wind its path was traced in"), Along, Count);
+	TestEqual(TEXT("at that wind's speed"), OwnSpeed, Count);
+	TestEqual(TEXT("through nothing until its end (the roof, the ground)"), Clear, Count);
+	TestEqual(TEXT("a path from before the gust does not start where the gust would put it"), NotFromTheGust, Kept);
+	TestEqual(TEXT("one traced in the gust does"), FromTheGust, Count - Kept);
 	return true;
 }
 

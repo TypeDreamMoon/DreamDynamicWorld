@@ -62,6 +62,7 @@ const FName FDreamWeatherFallPaths::RoofTag(TEXT("DreamWeather.Roof"));
 void FDreamWeatherFallPaths::Reset()
 {
 	Ends.Reset();
+	Starts.Reset();
 	Normals.Reset();
 	Landed.Reset();
 	Surfaces.Reset();
@@ -85,6 +86,7 @@ void FDreamWeatherFallPaths::Fill(UWorld* World, const FVector& ViewLocation, co
 {
 	const int32 Capacity = FMath::Max(Params.Capacity, 1);
 	Ends.SetNum(Capacity);
+	Starts.SetNum(Capacity);
 	Normals.SetNum(Capacity);
 	Landed.SetNumZeroed(Capacity);
 	Surfaces.SetNumZeroed(Capacity);
@@ -192,6 +194,7 @@ void FDreamWeatherFallPaths::TraceOne(UWorld* World, int32 Index, const FVector&
 
 	const double Speed = FMath::Max(FallVelocity.Size(), 1.0);
 	Ends[Index] = FVector4(End.X, End.Y, End.Z, FVector::Dist(Start, End) / Speed);
+	Starts[Index] = Start;
 	Normals[Index] = Normal;
 	Landed[Index] = bLanded ? 1 : 0;
 	Surfaces[Index] = uint8(Surface);
