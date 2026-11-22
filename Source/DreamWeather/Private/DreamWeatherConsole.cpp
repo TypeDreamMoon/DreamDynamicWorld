@@ -3,6 +3,7 @@
 #include "DreamWeatherChannels.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
+#include "DreamWeatherSettings.h"
 #include "DreamWeatherSubsystem.h"
 
 #include "DreamWorldSubsystem.h"
@@ -174,7 +175,8 @@ namespace DreamWeather::Console
 		TEXT("DreamWeather.MarkEdge"),
 		TEXT("DreamWeather.MarkEdge [channel=SnowRatio] [radius m=60] [step m=1] [level=0.5] [post height m=1.5] | off: posts on the ground where")
 		TEXT(" the point queries (SampleWeather) cross a level of a channel around the view, to see the zones' edges as gameplay reads them beside")
-		TEXT(" what the sky and the ground show."),
+		TEXT(" what the sky and the ground show. The channel Air is the air's temperature at the base height (degrees), not the Temperature")
+		TEXT(" channel's offset: where the ground's snow settles or melts."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamWeatherSubsystem* Weather = Find(World);
@@ -193,8 +195,9 @@ namespace DreamWeather::Console
 			{
 				return;
 			}
-			const int32 Channel = FindChannel(Args.Num() > 0 ? Args[0] : TEXT("SnowRatio"));
-			if (Channel == INDEX_NONE)
+			const bool bAir = Args.Num() > 0 && Args[0].Equals(TEXT("Air"), ESearchCase::IgnoreCase);
+			const int32 Channel = bAir ? INDEX_NONE : FindChannel(Args.Num() > 0 ? Args[0] : TEXT("SnowRatio"));
+			if (!bAir && Channel == INDEX_NONE)
 			{
 				UE_LOG(LogDreamWeather, Warning, TEXT("No weather channel '%s'."), *Args[0]);
 				return;
@@ -213,8 +216,9 @@ namespace DreamWeather::Console
 			{
 				for (int32 x = 0; x < Side; ++x)
 				{
-					const FVector P(View.X + (x - N) * Step, View.Y + (y - N) * Step, View.Z);
-					Values[y * Side + x] = Weather->SampleWeather(P).Values.Get(Channel);
+					const FVector P(View.X + (x - N) * Step, View.Y + (y - N) * Step, bAir ? UDreamWeatherSettings::Get()->BaseHeight : View.Z);
+					const FDreamWeatherSample Sample = Weather->SampleWeather(P);
+					Values[y * Side + x] = bAir ? Sample.Temperature : Sample.Values.Get(Channel);
 				}
 			}
 			UStaticMesh* Post = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
@@ -275,6 +279,6 @@ namespace DreamWeather::Console
 				}
 			}
 			UE_LOG(LogDreamWeather, Display, TEXT("MarkEdge: %d posts where %s crosses %.2f within %.0f m of the view."), Count,
-				*FDreamWeatherChannels::Get()[Channel].Channel.ToString(), Level, Radius / 100.0);
+				bAir ? TEXT("the air temperature") : *FDreamWeatherChannels::Get()[Channel].Channel.ToString(), Level, Radius / 100.0);
 		}));
 }

@@ -327,7 +327,11 @@ the CPU queries: what the sky shows over a valley is where the ground gets wet a
 polygon's points follow the zone records in the maps' zone buffers. `DreamWeather.MarkEdge [channel] [radius m] [step
 m] [level] [post height m]` puts red posts on the ground where the point queries cross a level of a channel around
 the view (`DreamWeather.MarkEdge off` takes them away), to see a zone's edge as gameplay has it beside the clouds and
-the ground. Rain, snow and lightning are held to what
+the ground. The channel `Air` is the air's temperature at the base height rather than the `Temperature` channel (an
+offset on the climate's hour). In a warm season a cold zone's snow lies where the air stays below freezing
+(`DreamWeather.MarkEdge Air 5000 40 0.5 150` rings the showcase's snowfield); where it freezes all round, snow lies
+wherever any falls (`DreamWeather.MarkEdge Precipitation 40 0.5 0.03` in the surface test level). Rain, snow and
+lightning are held to what
 the clouds allow, after every preset, modifier and zone (*Project Settings ▸ Dream Weather ▸ Clouds*): no
 precipitation below 75% cover, in full from 90% (`PrecipitationCloudCover`), and lightning only from a dark, closed
 cover (`LightningCloudDarkness` 0.45–0.75, `LightningCloudCover` 0.85–0.97). A change of weather therefore stops
