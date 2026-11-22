@@ -27,6 +27,9 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
 #include "Misc/PackageName.h"
+#include "NiagaraActor.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 #include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
@@ -113,6 +116,16 @@ namespace DreamWorldPlay
 				Crown->Tags.Add(FDreamWeatherFallPaths::LeavesTag);
 			}
 			++Index;
+		}
+		// Leaves on the wind through the grove (the wind's own leaf effect), lit by the sky: dull under cloud, dark at night.
+		if (UNiagaraSystem* Leaves = LoadObject<UNiagaraSystem>(nullptr, TEXT("/DreamDynamicWorld/Wind/Effects/NS_DreamWindLeaves.NS_DreamWindLeaves")))
+		{
+			ANiagaraActor* Actor = World.SpawnActor<ANiagaraActor>(Center + FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator);
+			Actor->SetActorLabel(TEXT("GroveLeaves"));
+			UNiagaraComponent* Effect = Actor->GetNiagaraComponent();
+			Effect->SetAsset(Leaves);
+			Effect->SetVariableVec3(TEXT("User.SpawnExtent"), FVector(900.0, 700.0, 300.0));
+			Effect->SetVariableFloat(TEXT("User.SpawnRate"), 60.0f);
 		}
 	}
 
