@@ -808,9 +808,12 @@ public:
 
 	// ---- Indoors (the view probe) --------------------------------------------------------------
 
-	/** Exposure lift (EV) indoors, so a room lit only by its windows is not black (the eye adapts too). */
+	/**
+	 * Exposure lift (EV) indoors, so a room lit only by its windows is not black (the eye adapts too; small windows
+	 * and weak bounced light need some 2.5).
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (UIMin = "0", UIMax = "4"))
-	float InteriorExposureLift = 1.0f;
+	float InteriorExposureLift = 2.5f;
 
 	/** Sky light intensity indoors, as a multiplier (lower it when the sky light has no occlusion of its own). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
