@@ -65,6 +65,22 @@ float DSM_SnowSoft(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 Vi
 // How open a surface is to the sky (1 open .. 0 covered): the cover map holds per texel the height up to which something
 // keeps the sky off (R) and how fully (G); a surface below it (less the roof's clearance) is covered, softly.
 // Params = DDW_SurfaceParams (deepest snow, roof clearance, cover softness, -).
+// Each texel around the point is asked on its own and the answers blended: a filtered height would mix a roof's height
+// with an open texel's (nothing above: far below everything) and cut the cover off at every texel's edge.
+float DSM_CoveredAt(float2 UV, float2 Size, float Z, float4 Params, Texture2D CoverMap, SamplerState CoverSampler)
+{
+	float2 Texel = UV * Size - 0.5f;
+	float2 F = frac(Texel);
+	float2 Corner = (floor(Texel) + 1.0f) / Size;   // where the four texels meet
+	float4 Height = CoverMap.GatherRed(CoverSampler, Corner);
+	float4 Strength = CoverMap.GatherGreen(CoverSampler, Corner);
+	float4 Covered = Strength * saturate((Height - Params.y - Z) / max(Params.z, 1.0f) + 0.5f);
+	// Gather order: (0, 1), (1, 1), (1, 0), (0, 0).
+	return lerp(lerp(Covered.w, Covered.z, F.x), lerp(Covered.x, Covered.y, F.x), F.y);
+}
+
+// ...over a tent three texels wide (four of those blends half a texel apart), so a roof's or a crown's edge on the
+// ground is a soft line some metre wide, not the texels' steps.
 float DSM_Exposure(float3 WorldPos, float4 NearPlace, float4 Params, Texture2D CoverMap, SamplerState CoverSampler)
 {
 	float2 UV = DSM_MapUV(WorldPos, NearPlace);
@@ -73,10 +89,14 @@ float DSM_Exposure(float3 WorldPos, float4 NearPlace, float4 Params, Texture2D C
 	{
 		return 1.0f;
 	}
-	float2 Cover = CoverMap.SampleLevel(CoverSampler, UV, 0).rg;
-	float Below = Cover.x - Params.y - WorldPos.z;
-	float Covered = Cover.y * saturate(Below / max(Params.z, 1.0f) + 0.5f);
-	return 1.0f - Covered * In;
+	float2 Size;
+	CoverMap.GetDimensions(Size.x, Size.y);
+	float2 Half = 0.5f / Size;
+	float Covered = DSM_CoveredAt(UV + float2(-Half.x, -Half.y), Size, WorldPos.z, Params, CoverMap, CoverSampler)
+		+ DSM_CoveredAt(UV + float2(Half.x, -Half.y), Size, WorldPos.z, Params, CoverMap, CoverSampler)
+		+ DSM_CoveredAt(UV + float2(-Half.x, Half.y), Size, WorldPos.z, Params, CoverMap, CoverSampler)
+		+ DSM_CoveredAt(UV + float2(Half.x, Half.y), Size, WorldPos.z, Params, CoverMap, CoverSampler);
+	return 1.0f - Covered * 0.25f * In;
 }
 
 // How far the ground lies below its surroundings at a point, cm (DSF_GroundLow, from the wind's baked level heights):

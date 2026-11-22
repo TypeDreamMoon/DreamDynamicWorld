@@ -150,10 +150,26 @@ DSF_FN float DSF_PuddleAt(float Water, float Depth, float Softness)
 	return smoothstep(Level - Softness, Level + Softness, saturate(Depth));
 }
 
-// A hash of a lattice point, 0..1.
+// A hash of one cell's own values, 0..1 (a drop's place, a ring's start): each cell asks it about itself only.
 DSF_FN float DSF_Hash(float X, float Y)
 {
 	return frac(sin(X * 127.1f + Y * 311.7f) * 43758.5453f);
+}
+
+// A hash of a lattice point, 0..1, in integer arithmetic. Value noise asks it about a corner from each cell sharing it,
+// so the answers must agree to the bit: a float hash (DSF_Hash) does not, as the compiler may round (IY + 1) * k one way
+// in one cell and another in the next, which its large multiplier turns into a different value - a seam along every
+// lattice line.
+DSF_FN float DSF_LatticeHash(int X, int Y, uint Seed)
+{
+	uint H = uint(X) * 0x9E3779B1u + Seed;
+	H = (H ^ (H >> 16u)) * 0x7feb352du;
+	H = (H ^ (H >> 15u)) * 0x846ca68bu;
+	H = H ^ (H >> 16u) ^ (uint(Y) * 0x85EBCA77u);
+	H = (H ^ (H >> 16u)) * 0x7feb352du;
+	H = (H ^ (H >> 15u)) * 0x846ca68bu;
+	H = H ^ (H >> 16u);
+	return float(H & 0x00ffffffu) * (1.0f / 16777216.0f);
 }
 
 // The ground's hollow pattern at a world point (cm): 1 at the bottom of a dip, 0 on a crest. Two octaves of value
@@ -172,8 +188,11 @@ DSF_FN float DSF_Hollow(float WorldX, float WorldY, float Scale)
 		float FY = Y - IY;
 		float UX = FX * FX * (3.0f - 2.0f * FX);
 		float UY = FY * FY * (3.0f - 2.0f * FY);
-		float Bottom = lerp(DSF_Hash(IX, IY), DSF_Hash(IX + 1.0f, IY), UX);
-		float Top = lerp(DSF_Hash(IX, IY + 1.0f), DSF_Hash(IX + 1.0f, IY + 1.0f), UX);
+		int CX = int(IX);
+		int CY = int(IY);
+		uint Seed = uint(Octave) * 0x632BE5ABu;
+		float Bottom = lerp(DSF_LatticeHash(CX, CY, Seed), DSF_LatticeHash(CX + 1, CY, Seed), UX);
+		float Top = lerp(DSF_LatticeHash(CX, CY + 1, Seed), DSF_LatticeHash(CX + 1, CY + 1, Seed), UX);
 		N += A * lerp(Bottom, Top, UY);
 		X = X * 2.03f + 17.0f;
 		Y = Y * 2.03f + 17.0f;
