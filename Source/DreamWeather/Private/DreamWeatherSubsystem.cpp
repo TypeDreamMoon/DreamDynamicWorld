@@ -981,11 +981,13 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 
 	// The map's records are made whether or not anything can draw them (the CPU reference uses them too).
 	MapZones.Reset();
+	TArray<FVector4f> PolygonPoints;
+	const double WorldSeconds = Clock.GetWorldSeconds();
 	for (IDreamWeatherInfluence* Influence : SortedInfluences())
 	{
 		const UDreamWeatherZoneComponent* Zone = Cast<UDreamWeatherZoneComponent>(Influence);
 		FVector4f Z0, Z1, Z2;
-		if (Zone && Zone->MakeMapRecord(Z0, Z1, Z2))
+		if (Zone && Zone->MakeMapRecordAt(WorldSeconds, Z0, Z1, Z2, PolygonPoints))
 		{
 			MapZones.Add(Z0);
 			MapZones.Add(Z1);
@@ -998,6 +1000,9 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 	{
 		MapZones.RemoveAt(0, MapZones.Num() - MaxFloats);
 	}
+	// The polygons' points after the records.
+	MapZoneCount = MapZones.Num() / 3;
+	UDreamWeatherZoneComponent::AppendPolygonPoints(MapZones, 3, PolygonPoints);
 
 	const bool bCanRender = S->bWeatherMap && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
 	const double Now = FPlatformTime::Seconds();
@@ -1037,6 +1042,7 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 		Args.Global = Global;
 		Args.PrecipitationGate = FVector2f(S->PrecipitationCloudCover);
 		Args.Zones = MapZones;
+		Args.NumZones = MapZoneCount;
 		if (Args.Target)
 		{
 			MapRenderer->EnqueueUpdate(MoveTemp(Args));

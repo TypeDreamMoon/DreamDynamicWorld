@@ -240,6 +240,8 @@ public:
 
 	/** The map's records of the influences drawn into it this frame (three float4 per zone), for tests. */
 	const TArray<FVector4f>& GetMapZones() const { return MapZones; }
+	/** How many zone records GetMapZones starts with (the polygons' points follow them). */
+	int32 GetMapZoneCount() const { return MapZoneCount; }
 
 	/** Maps drawn so far. */
 	uint32 GetWeatherMapDrawCount() const;
@@ -345,6 +347,7 @@ private:
 	TSharedPtr<FDreamWeatherMapRenderer, ESPMode::ThreadSafe> MapRenderer;
 	FVector2D MapCenter = FVector2D::ZeroVector;
 	TArray<FVector4f> MapZones;
+	int32 MapZoneCount = 0;
 	FVector4f LastMapGlobal = FVector4f::Zero();
 	TArray<FVector4f> LastMapZones;
 	FVector2D LastMapCenter = FVector2D(1.0e30, 1.0e30);

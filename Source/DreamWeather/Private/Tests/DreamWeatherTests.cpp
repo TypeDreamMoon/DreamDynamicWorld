@@ -17,6 +17,7 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/SplineComponent.h"
 #include "Engine/CollisionProfile.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
@@ -440,13 +441,14 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 	// The map's records, run through the shared code on the CPU, give the query's answer: what the sky shows
 	// is what gameplay reads.
 	const TArray<FVector4f>& Records = W.Weather->GetMapZones();
-	TestEqual(TEXT("four zones in the map"), Records.Num(), 12);
+	TestEqual(TEXT("four zones in the map"), W.Weather->GetMapZoneCount(), 4);
+	TestEqual(TEXT("and no polygon points after them"), Records.Num(), 12);
 	using namespace DreamWind::Hlsl;
 	const FDreamWeatherValues& G = W.Weather->GetGlobalValues();
 	for (const FVector& At : { FVector(-300, 0, 0), FVector(1400, 300, 0), FVector(5000, 0, 0), FVector(8050, 40, 0) })
 	{
 		float3 V(G.Get(C::CloudCoverage), G.Get(C::CloudDarkness), G.Get(C::Precipitation));
-		for (int32 i = 0; i + 2 < Records.Num(); i += 3)
+		for (int32 i = 0; i < W.Weather->GetMapZoneCount() * 3; i += 3)
 		{
 			V = DWX_ApplyZone(V, float2(float(At.X), float(At.Y)), ToHlsl(Records[i]), ToHlsl(Records[i + 1]), ToHlsl(Records[i + 2]), FDreamZonePoints(Records));
 		}
@@ -455,6 +457,118 @@ bool FDreamWeatherZoneTest::RunTest(const FString& Parameters)
 		TestNearlyEqual(*FString::Printf(TEXT("map precipitation matches the query at %s"), *At.ToString()), V.z, S.Precipitation, 1e-4f);
 		TestNearlyEqual(*FString::Printf(TEXT("map coverage matches the query at %s"), *At.ToString()), V.x, S.CloudCoverage, 1e-4f);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherPolygonZoneTest, "DreamWeather.Zones.Polygon", DreamWeather::Tests::Flags)
+bool FDreamWeatherPolygonZoneTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	using namespace DreamWind::Hlsl;
+
+	// The shared distance: a square outline is the box of the same size, whichever way round it goes.
+	{
+		const TArray<FVector4f> Square = { FVector4f(-1000, -1000, 1414.3f, 0), FVector4f(1000, -1000, 0, 0), FVector4f(1000, 1000, 0, 0), FVector4f(-1000, 1000, 0, 0) };
+		const TArray<FVector4f> Reversed = { FVector4f(-1000, 1000, 1414.3f, 0), FVector4f(1000, 1000, 0, 0), FVector4f(1000, -1000, 0, 0), FVector4f(-1000, -1000, 0, 0) };
+		const float4 Z0(300.0f, -200.0f, 1.0f, 0.0f);
+		const float4 Box(1000.0f, 1000.0f, 5000.0f, float(DWX_SHAPE_BOX));
+		const float4 Polygon(0.0f, 4.0f, 5000.0f, float(DWX_SHAPE_POLYGON));
+		for (const FVector2D& P : { FVector2D(300, -200), FVector2D(1000, 0), FVector2D(1900, 300), FVector2D(-2500, -2600), FVector2D(-650, 700) })
+		{
+			const float2 At(float(P.X), float(P.Y));
+			const float Expected = DWX_ZoneSignedDistance(At, Z0, Box, FDreamZonePoints());
+			TestNearlyEqual(*FString::Printf(TEXT("a square outline is its box at %s"), *P.ToString()), DWX_ZoneSignedDistance(At, Z0, Polygon, FDreamZonePoints(Square)), Expected, 0.05f);
+			TestNearlyEqual(*FString::Printf(TEXT("either way round at %s"), *P.ToString()), DWX_ZoneSignedDistance(At, Z0, Polygon, FDreamZonePoints(Reversed)), Expected, 0.05f);
+		}
+	}
+
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	// An L: the quarter north-east of its centre is cut out.
+	const TArray<FVector2D> L = { FVector2D(-2000, -2000), FVector2D(2000, -2000), FVector2D(2000, 0), FVector2D(0, 0), FVector2D(0, 2000), FVector2D(-2000, 2000) };
+	ADreamWeatherZone* Zone = W.AddZone(FVector::ZeroVector, 0.0f, 1000.0f, 0, { { Channel_Precipitation, 1.0f }, { Channel_CloudCoverage, 1.0f } });
+	Zone->Zone->SetPolygonPoints(L);
+	W.Clock->Tick(0.0f);
+
+	auto Rain = [&W](double X, double Y) { return W.Weather->SampleWeather(FVector(X, Y, 0.0)).Precipitation; };
+	TestNearlyEqual(TEXT("full effect in an arm"), Rain(1000, -1000), 1.0f, 1e-4f);
+	TestNearlyEqual(TEXT("and in the other"), Rain(-1000, 1500), 1.0f, 1e-4f);
+	TestNearlyEqual(TEXT("nothing deep in the cut-out quarter"), Rain(1500, 1500), 0.0f, 1e-4f);
+	const float Cover0 = W.Weather->GetGlobalValues().Get(C::CloudCoverage);
+	const float Edge = 1.0f - FMath::SmoothStep(0.0f, 1000.0f, 300.0f);
+	TestNearlyEqual(TEXT("the blend runs from the cut's edge"), W.Weather->SampleWeather(FVector(1200, 300, 0)).CloudCoverage, Cover0 + (1.0f - Cover0) * Edge, 1e-3f);
+
+	// Turned with the zone's yaw: a quarter turn puts the cut-out north-west.
+	Zone->Zone->SetWorldRotation(FRotator(0.0, 90.0, 0.0));
+	TestNearlyEqual(TEXT("turned: the cut is north-west"), Rain(-1500, 1500), 0.0f, 1e-4f);
+	TestNearlyEqual(TEXT("turned: the north-east is an arm"), Rain(1500, 1500), 1.0f, 1e-4f);
+	Zone->Zone->SetWorldRotation(FRotator::ZeroRotator);
+
+	// The weather map's records, run through the shared code on the CPU, give the query's answer around the outline.
+	W.Clock->Tick(0.0f);
+	const TArray<FVector4f>& Records = W.Weather->GetMapZones();
+	TestEqual(TEXT("one zone in the map"), W.Weather->GetMapZoneCount(), 1);
+	TestEqual(TEXT("its six points after it"), Records.Num(), 3 + 6);
+	const FDreamWeatherValues& G = W.Weather->GetGlobalValues();
+	for (const FVector2D& At : { FVector2D(1000, -1000), FVector2D(1500, 1500), FVector2D(1200, 300), FVector2D(300, 1200), FVector2D(-2400, 0), FVector2D(2600, 2600) })
+	{
+		float3 V(G.Get(C::CloudCoverage), G.Get(C::CloudDarkness), G.Get(C::Precipitation));
+		V = DWX_ApplyZone(V, float2(float(At.X), float(At.Y)), ToHlsl(Records[0]), ToHlsl(Records[1]), ToHlsl(Records[2]), FDreamZonePoints(Records));
+		const FDreamWeatherSample S = W.Weather->SampleWeather(FVector(At, 0.0));
+		TestNearlyEqual(*FString::Printf(TEXT("map coverage matches the query at %s"), *At.ToString()), V.x, S.CloudCoverage, 1e-4f);
+	}
+	// Without a buffer for the points a record falls back to the circle around them.
+	FVector4f Z0, Z1, Z2;
+	TestTrue(TEXT("a record without points"), Zone->Zone->MakeMapRecord(Z0, Z1, Z2) && Z1.W == float(DWX_SHAPE_CIRCLE) && FMath::IsNearlyEqual(Z1.X, float(FVector2D(2000, 2000).Size()), 1.0f));
+
+	// A long outline is thinned to what the shared code reads.
+	TArray<FVector2D> Round;
+	for (int32 i = 0; i < 200; ++i)
+	{
+		const double A = UE_TWO_PI * i / 200.0;
+		Round.Add(FVector2D(FMath::Cos(A), FMath::Sin(A)) * 1500.0);
+	}
+	Zone->Zone->SetPolygonPoints(Round);
+	TArray<FVector4f> Thinned;
+	Zone->Zone->MakeFootprintRecord(0.0, Z0, Z1, Thinned);
+	TestEqual(TEXT("thinned to 64 points"), Thinned.Num(), int32(DWX_MAX_POLYGON_POINTS));
+	TestNearlyEqual(TEXT("and still round"), Rain(0, 1450), 1.0f, 1e-4f);
+
+	// A drawn outline: the actor's closed spline, a point every OutlineSpacing along it.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherOutlineZone* Drawn = W.World->SpawnActor<ADreamWeatherOutlineZone>(FVector(20000, 0, 0), FRotator::ZeroRotator, Params);
+	Drawn->Zone->BlendDistance = 1000.0f;
+	Drawn->Zone->Channels.Add(Channel_Precipitation, 1.0f);
+	Drawn->Zone->Channels.Add(Channel_CloudCoverage, 1.0f);
+	Drawn->Outline->ClearSplinePoints(false);
+	for (const FVector2D& P : L)
+	{
+		Drawn->Outline->AddSplinePoint(FVector(P, 0.0), ESplineCoordinateSpace::Local, false);
+	}
+	for (int32 i = 0; i < L.Num(); ++i)
+	{
+		Drawn->Outline->SetSplinePointType(i, ESplinePointType::Linear, false);
+	}
+	Drawn->Outline->UpdateSpline();
+	Drawn->OutlineSpacing = 500.0f;
+	Drawn->UpdateFootprint();
+	TestTrue(TEXT("an outline zone is a polygon"), Drawn->Zone->Shape == EDreamWeatherZoneShape::Polygon && Drawn->Zone->Points.Num() == 32);
+	TestNearlyEqual(TEXT("drawn: an arm"), Rain(21000, -1000), 1.0f, 1e-4f);
+	TestNearlyEqual(TEXT("drawn: the cut"), Rain(21500, 1500), 0.0f, 1e-4f);
+	// Its outline is no path: a drifting outline zone that follows a path stays where it is without one.
+	Drawn->Zone->Motion.bEnabled = true;
+	Drawn->Zone->Motion.bFollowPath = true;
+	Drawn->Zone->Motion.Velocity = FVector2D::ZeroVector;
+	Drawn->Zone->Motion.LifetimeHours = 0.0f;
+	Drawn->Zone->Motion.StartSeconds = 0.0;
+	TestTrue(TEXT("the outline is not a path"), Drawn->Zone->GetFootprintCenterAt(7200.0).Equals(FVector(20000, 0, 0), 1.0));
 	return true;
 }
 
