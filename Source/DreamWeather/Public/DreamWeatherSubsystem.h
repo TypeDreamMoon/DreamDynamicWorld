@@ -109,6 +109,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	float GetTemperatureAt(FVector Position) const;
 
+	/**
+	 * The air's temperature at a point from the climate, the season, the hour and the height alone, plus Offset (the
+	 * weather's Temperature channel), less of a daily swing under CloudCoverage, at a world time. No influences: what a
+	 * temperature volume that replaces the temperature measures itself against.
+	 */
+	float GetBaseTemperatureAt(const FVector& Position, float Offset, float CloudCoverage, double WorldSeconds) const
+	{
+		return TemperatureFor(Position, Offset, CloudCoverage, WorldSeconds);
+	}
+
 	/** How open a point is to the sky, 0 under a roof .. 1 in the open (shelters and the wind's baked level heights). */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	float GetExposureAt(FVector Position) const;
