@@ -13,7 +13,7 @@ namespace DreamSky::Screen
 {
 	/**
 	 * What the game thread decided for the frame's lens and the air before it (UDreamSkySubsystem::GetScreenWetness,
-	 * GetScreenFrost and GetHeatHaze, the style's ScreenDroplets, ScreenFrost and HeatHaze).
+	 * GetScreenFrost, GetHeatHaze and GetRainbow, the style's ScreenDroplets, ScreenFrost, HeatHaze and Rainbow).
 	 */
 	struct FSettings
 	{
@@ -28,8 +28,16 @@ namespace DreamSky::Screen
 		FVector4f Haze = FVector4f(0.0f, 0.05f, 5000.0f, 60000.0f);
 		/** x how fast it shimmers. */
 		FVector4f HazeMotion = FVector4f(1.0f, 0.0f, 0.0f, 0.0f);
+		/** The rainbow: x strength, y the second bow's, z how patchy, w how wide its colours spread. */
+		FVector4f Rainbow = FVector4f(0.0f, 0.43f, 0.4f, 1.0f);
+		/** xyz away from the main light, w its illuminance (lux). */
+		FVector4f RainbowAxis = FVector4f(0.0f, 0.0f, -1.0f, 0.0f);
+		/** rgb the light's colour; z/w unused. */
+		FVector4f RainbowLight = FVector4f(1.0f, 1.0f, 1.0f, 0.0f);
+		/** x/y the distance (cm) the rain that shows it starts / shows fully. */
+		FVector4f RainbowRange = FVector4f(2000.0f, 25000.0f, 0.0f, 0.0f);
 	};
 
-	/** Draws the hot air's shimmer, the drops and the frost over the finished picture (DreamSkyScreen.usf) into the pass's output. */
+	/** Draws the rainbow, the hot air's shimmer, the drops and the frost over the finished picture (DreamSkyScreen.usf) into the pass's output. */
 	FScreenPassTexture AddPasses(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessMaterialInputs& Inputs, const FSettings& Settings);
 }

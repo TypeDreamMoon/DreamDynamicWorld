@@ -345,6 +345,46 @@ struct DREAMSKY_API FDreamSkyHeatHaze
 	float Speed = 1.0f;
 };
 
+/**
+ * A rainbow: 42 degrees round the point straight away from the sun (or the moon), with the fainter second bow beyond
+ * it, colours turned about, and the darker sky between -- while there is rain in the air (as it falls, and a while
+ * after) and the light low enough and not behind the clouds.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyRainbow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow")
+	bool bEnabled = true;
+
+	/** How bright it is drawn (1 = as the light gives). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0", UIMax = "4"))
+	float Intensity = 1.0f;
+
+	/** The second bow's brightness, of the first's. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0", UIMax = "1"))
+	float SecondBow = 0.43f;
+
+	/** How wide its colours spread (1 = as the sun's disc spreads them). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0.5", UIMax = "3"))
+	float Width = 1.0f;
+
+	/** How broken the bows are where the rain is thinner, 0 whole .. 1 in pieces. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0", ClampMax = "1"))
+	float Patchiness = 0.4f;
+
+	/** How long (s) the rain stays in the air once it has stopped falling. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0", UIMax = "600"))
+	float LingerSeconds = 90.0f;
+
+	/** How far off (m) the rain that shows it starts, and where it shows fully. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "0", UIMax = "1000"))
+	float NearDistance = 20.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ClampMin = "1", UIMax = "5000"))
+	float FullDistance = 250.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -520,6 +560,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heat Haze", meta = (ShowOnlyInnerProperties))
 	FDreamSkyHeatHaze HeatHaze;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ShowOnlyInnerProperties))
+	FDreamSkyRainbow Rainbow;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

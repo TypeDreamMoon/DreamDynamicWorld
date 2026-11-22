@@ -6,7 +6,8 @@
 //             each living a while and drying off, and drops running down once it is wet through; each bends the picture
 //             behind it like a little lens. And frost (GetScreenFrost): needles and ferns growing in from the rim,
 //             corners first, over a frosted film that blurs and whitens the picture. And under it all, what is not on
-//             the lens: the shimmer of hot air (GetHeatHaze), what lies far off near the horizon wavering as it rises.
+//             the lens: the shimmer of hot air (GetHeatHaze), what lies far off near the horizon wavering as it rises;
+//             and the rainbow (GetRainbow) in the rain beyond, round the point straight away from the light.
 
 #include "/Engine/Private/Common.ush"
 
@@ -15,6 +16,10 @@ float4 Frost;           // x how frosted 0..1, y intensity, z crystal size, w ho
 float4 FrostTint;       // rgb the frost's colour, w how far its crystals bend the picture
 float4 Haze;            // x the hot air's shimmer, y the band round the horizon (sine), z/w the distance (cm) it starts / is full
 float4 HazeMotion;      // x how fast it shimmers
+float4 Rainbow;         // x the rainbow's strength, y the second bow's, z how patchy, w how wide its colours spread
+float4 RainbowAxis;     // xyz away from the main light, w its illuminance (lux)
+float4 RainbowLight;    // rgb the light's colour
+float4 RainbowRange;    // x/y the distance (cm) the rain that shows it starts / shows fully
 Texture2D SceneDepth;   // at the render's resolution, in the view's rect
 Texture2D InputTexture;
 SamplerState InputSampler;
@@ -157,15 +162,20 @@ float DSkyS_Frost(float2 UV, float2 P, float Amount, float Size, inout float2 Of
 	return Density;
 }
 
-// The hot air's shimmer at this point of the picture, in output pixels: what lies far off, near the horizon, wavers,
-// rising. (Locked to the world's directions, not the screen: it stands where it is as the view turns.)
-float2 DSkyS_Haze(float2 UV)
+// The view's ray through this point of the picture, in the world, and how far off (cm) what it meets lies.
+void DSkyS_ViewRay(float2 UV, out float3 Ray, out float Distance)
 {
 	float2 DepthPixel = View.ViewRectMin.xy + UV * View.ViewSizeAndInvSize.xy;
 	float DeviceZ = SceneDepth.Load(int3(DepthPixel, 0)).r;
 	float3 ViewDir = float3((2.0 * UV.x - 1.0) / View.ViewToClip[0][0], (1.0 - 2.0 * UV.y) / View.ViewToClip[1][1], 1.0);
-	float Distance = ConvertFromDeviceZ(DeviceZ) * length(ViewDir);
-	float3 Ray = normalize(mul(float4(ViewDir, 0.0), View.ViewToTranslatedWorld).xyz);
+	Distance = ConvertFromDeviceZ(DeviceZ) * length(ViewDir);
+	Ray = normalize(mul(float4(ViewDir, 0.0), View.ViewToTranslatedWorld).xyz);
+}
+
+// The hot air's shimmer at this point of the picture, in output pixels: what lies far off, near the horizon, wavers,
+// rising. (Locked to the world's directions, not the screen: it stands where it is as the view turns.)
+float2 DSkyS_Haze(float3 Ray, float Distance)
+{
 	float Strength = Haze.x * exp(-abs(Ray.z) / max(Haze.y, 1.0e-3)) * smoothstep(Haze.z, Haze.w, Distance);
 	if (Strength < 1.0e-3)
 	{
@@ -181,6 +191,44 @@ float2 DSkyS_Haze(float2 UV)
 		DSkyS_Noise(float2(Ray.x * 140.0 + 3.0, Climb * 2.3)) + DSkyS_Noise(float2(Ray.y * 140.0, Climb * 2.3 + 9.0)) - 1.0,
 		DSkyS_Noise(float2(Ray.x * 140.0 + 29.0, Climb * 2.7 - T)) + DSkyS_Noise(float2(Ray.y * 140.0 + 7.0, Climb * 2.7 - T + 4.0)) - 1.0);
 	return Wave * float2(0.4, 1.0) * Strength * 2.5 * (OutputRectSize.y / 1080.0);
+}
+
+// The colours across a bow, 0 its violet edge .. 1 its red one.
+float3 DSkyS_Spectrum(float T)
+{
+	float3 C = exp(-Square((T - float3(0.82, 0.5, 0.18)) / float3(0.2, 0.2, 0.18)));
+	C.r += 0.3 * exp(-Square((T - 0.04) / 0.09));
+	return C;
+}
+
+// What the rain beyond adds to the picture for the rainbow (the light it sends back), and how much darker the sky
+// between the two bows is (into Shade).
+float3 DSkyS_Rainbow(float3 Ray, float Distance, inout float Shade)
+{
+	float3 Axis = RainbowAxis.xyz;
+	float Angle = acos(clamp(dot(Ray, Axis), -1.0, 1.0)) * (180.0 / PI);
+	if (Angle > 56.0)
+	{
+		return 0.0;
+	}
+	float Reach = smoothstep(RainbowRange.x, RainbowRange.y, Distance);
+	// (Broken where the rain is thinner: noise round the bow, from its own way round the axis.)
+	float3 Across = normalize(cross(Axis, float3(0.0, 0.0, 1.0)) + float3(1.0e-4, 0.0, 0.0));
+	float3 Up = cross(Across, Axis);
+	float3 Side = Ray - Axis * dot(Ray, Axis);
+	float2 Round = float2(dot(Side, Across), dot(Side, Up)) / max(length(Side), 1.0e-4);
+	float Whole = lerp(1.0, smoothstep(0.2, 0.65, DSkyS_Noise(Round * 2.5 + 7.1)), Rainbow.z);
+	float Strength = Rainbow.x * Reach * Whole;
+	float Spread = Rainbow.w;
+	// (The first bow, violet inside at 40.6 degrees to red outside at 42.3; the second, turned about, 50.4 to 53.5;
+	// a glow inside the first, and the darker band between.)
+	float3 Bows = DSkyS_Spectrum((Angle - 41.45) / (2.0 * Spread) + 0.5)
+		+ Rainbow.y * DSkyS_Spectrum(0.5 - (Angle - 51.95) / (3.4 * Spread));
+	float Inside = 0.12 * smoothstep(41.0, 39.5, Angle) * exp(-max(39.5 - Angle, 0.0) / 12.0);
+	Shade *= 1.0 - 0.15 * Strength * smoothstep(42.3, 43.5, Angle) * smoothstep(50.4, 49.2, Angle);
+	// (As bright as the light it sends back, at the view's exposure.)
+	float Light = RainbowAxis.w * View.PreExposure * 0.05;
+	return RainbowLight.rgb * Light * Strength * (Bows + Inside);
 }
 
 float3 DSkyS_Sample(float2 Pixel)
@@ -217,11 +265,23 @@ void ScreenPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		Bend += FrostOffset * FrostTint.w;
 	}
 	float2 Bent = InPixel + Bend * float2(1.0 / Aspect, 1.0) * InputRectSize;
+	float3 Ray = float3(0.0, 0.0, 1.0);
+	float Distance = 0.0;
+	if (Haze.x > 0.0 || Rainbow.x > 0.0)
+	{
+		DSkyS_ViewRay(UV, Ray, Distance);
+	}
 	if (Haze.x > 0.0)
 	{
-		Bent += DSkyS_Haze(UV) * InputRectSize / OutputRectSize;
+		Bent += DSkyS_Haze(Ray, Distance) * InputRectSize / OutputRectSize;
 	}
 	float3 C = DSkyS_Sample(Bent);
+	float3 Bow = 0.0;
+	float BowShade = 1.0;
+	if (Rainbow.x > 0.0)
+	{
+		Bow = DSkyS_Rainbow(Ray, Distance, BowShade);
+	}
 	if (Frosted > 0.0)
 	{
 		// (Seen through the frost the picture is a blur: a disc of taps as wide as the frost is thick, turned at random
@@ -245,6 +305,8 @@ void ScreenPS(float4 SvPosition : SV_POSITION, out float4 Out : SV_Target0)
 		C = 0.4 * C + 0.15 * (DSkyS_Sample(Bent + float2(S, 0)) + DSkyS_Sample(Bent - float2(S, 0))
 			+ DSkyS_Sample(Bent + float2(0, S)) + DSkyS_Sample(Bent - float2(0, S)));
 	}
+	// (The rainbow is in the air beyond: blurred by the frost no more than it is soft already.)
+	C = C * BowShade + Bow;
 	float Luma = dot(C, float3(0.2126, 0.7152, 0.0722));
 	C = C * Shade + Glint * 0.6 * max(Luma, 0.2);
 	if (Frosted > 0.0)

@@ -262,13 +262,22 @@ void UDreamSkySubsystem::UpdateScreen(const UDreamWorldSubsystem& Clock, const U
 	const float Dry = 1.0f - FMath::Clamp(Env.Precipitation, 0.0f, 1.0f);
 	HeatHaze = Hot * SunUp * Clear * Dry * (1.0f - 0.5f * Wind);
 
+	// The rainbow: rain in the air, the light low and out of the clouds. (Below the horizon its top would be too.)
+	const FDreamSkyRainbow& Rb = Style.Rainbow;
+	const float Step = FMath::Max(DeltaTime, 0.0f);
+	const float RainSeconds = Rain > RainInAir ? 5.0f : FMath::Max(Rb.LingerSeconds, 0.01f);
+	RainInAir = bAtOnce ? Rain : FMath::Lerp(RainInAir, Rain, 1.0f - FMath::Exp(-Step / RainSeconds));
+	const float LightZ = float(Applied.MainLightDirection.Z);
+	const float Low = (1.0f - FMath::SmoothStep(0.5f, 0.67f, LightZ)) * FMath::SmoothStep(-0.02f, 0.03f, LightZ);
+	const float LightOut = (1.0f - FMath::SmoothStep(0.55f, 0.95f, Env.bActive ? Env.CloudCoverage : 0.0f)) * (Applied.bMainLightIsMoon ? 1.0f : Applied.SunOvercastScale);
+	Rainbow = FMath::Min(2.0f * RainInAir, 1.0f) * Low * LightOut;
+
 	if (bAtOnce)
 	{
 		ScreenWetness = Target;
 		ScreenFrost = FrostTarget;
 		return;
 	}
-	const float Step = FMath::Max(DeltaTime, 0.0f);
 	const float FrostSeconds = FrostTarget > ScreenFrost ? F.FreezeSeconds : FMath::Lerp(F.LingerSeconds, F.MeltSeconds, Thaw);
 	const float Frost = FMath::Lerp(ScreenFrost, FrostTarget, 1.0f - FMath::Exp(-Step / FMath::Max(FrostSeconds, 0.01f)));
 	// (What melts is water on the lens a while.)

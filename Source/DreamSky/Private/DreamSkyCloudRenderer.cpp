@@ -97,6 +97,11 @@ static TAutoConsoleVariable<float> CVarDreamSkyHeatHaze(
 	TEXT("The hot air's shimmer at this intensity whatever the style says (0 = none); -1 = the style's HeatHaze."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<float> CVarDreamSkyRainbow(
+	TEXT("DreamSky.Rainbow"), -1.0f,
+	TEXT("The rainbow at this intensity whatever the style says (0 = none); -1 = the style's Rainbow."),
+	ECVF_RenderThreadSafe);
+
 namespace DreamSkyCloudRender
 {
 	BEGIN_SHADER_PARAMETER_STRUCT(FCommonParameters, )
@@ -673,6 +678,23 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.Screen.Haze = FVector4f(Haze, FMath::Sin(FMath::DegreesToRadians(FMath::Max(Hz.BandDegrees, 0.1f))), Near,
 				FMath::Max(Hz.FullDistance * 100.0f, Near + 100.0f));
 			Settings.Screen.HazeMotion = FVector4f(FMath::Max(Hz.Speed, 0.0f), 0.0f, 0.0f, 0.0f);
+		}
+
+		// And the rainbow, while there is rain in the air in the low light.
+		const FDreamSkyRainbow& Rb = Style->Rainbow;
+		const float ForcedBow = CVarDreamSkyRainbow.GetValueOnGameThread();
+		const float BowStrength = ForcedBow >= 0.0f ? ForcedBow : (Rb.bEnabled ? FMath::Max(Rb.Intensity, 0.0f) : 0.0f);
+		const float Bow = Sky->GetRainbow() * BowStrength;
+		if (Bow > 1.0e-3f)
+		{
+			const FDreamSkyLighting& L = Sky->GetLighting();
+			const FVector Away = -L.MainLightDirection.GetSafeNormal();
+			Settings.Screen.bEnabled = true;
+			Settings.Screen.Rainbow = FVector4f(Bow, FMath::Clamp(Rb.SecondBow, 0.0f, 1.0f), FMath::Clamp(Rb.Patchiness, 0.0f, 1.0f), FMath::Max(Rb.Width, 0.5f));
+			Settings.Screen.RainbowAxis = FVector4f(float(Away.X), float(Away.Y), float(Away.Z), FMath::Max(L.MainLightIlluminance, 0.0f));
+			Settings.Screen.RainbowLight = FVector4f(L.MainLightColor.R, L.MainLightColor.G, L.MainLightColor.B, 0.0f);
+			const float Near = FMath::Max(Rb.NearDistance, 0.0f) * 100.0f;
+			Settings.Screen.RainbowRange = FVector4f(Near, FMath::Max(Rb.FullDistance * 100.0f, Near + 100.0f), 0.0f, 0.0f);
 		}
 	}
 

@@ -221,6 +221,16 @@ temperature from `StartsAbove` (24 C) to full at `FullAbove` (36 C), the sun's h
 wind stirs it away. `Intensity` sets how far it shifts the picture (1 = some 2.5 pixels at 1080p), `Speed` how fast
 it shimmers; `DreamSky.HeatHaze <intensity>` draws it whatever the style says (-1 = the style's).
 
+**Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
+first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
+0.43) at 50.4 to 53.5 with its colours turned about, and the darker sky between the two. It shows while there is rain
+in the air -- as it falls, and for `LingerSeconds` (90) after -- with the light lower than 42 degrees and not behind
+the clouds (a full overcast hides it), in the rain from `NearDistance` (20 m) to fully at `FullDistance` (250 m): so
+mostly as a shower clears in the low sun of the morning or the evening, and as a faint moonbow by a bright moon. It
+is the air's own light, so the style's `Rainbow` is on by default; `Intensity` sets how bright, `Width` how far its
+colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
+`DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

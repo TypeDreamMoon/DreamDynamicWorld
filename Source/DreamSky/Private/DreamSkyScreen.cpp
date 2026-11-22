@@ -24,6 +24,10 @@ class FDreamSkyScreenPS : public FGlobalShader
 		SHADER_PARAMETER(FVector4f, FrostTint)
 		SHADER_PARAMETER(FVector4f, Haze)
 		SHADER_PARAMETER(FVector4f, HazeMotion)
+		SHADER_PARAMETER(FVector4f, Rainbow)
+		SHADER_PARAMETER(FVector4f, RainbowAxis)
+		SHADER_PARAMETER(FVector4f, RainbowLight)
+		SHADER_PARAMETER(FVector4f, RainbowRange)
 		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)
@@ -66,6 +70,10 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	Params->FrostTint = Settings.FrostTint;
 	Params->Haze = Settings.Haze;
 	Params->HazeMotion = Settings.HazeMotion;
+	Params->Rainbow = Settings.Rainbow;
+	Params->RainbowAxis = Settings.RainbowAxis;
+	Params->RainbowLight = Settings.RainbowLight;
+	Params->RainbowRange = Settings.RainbowRange;
 	Params->View = View.ViewUniformBuffer;
 	// (The depth at the render's own resolution: the shimmer reads it through the view's rect.)
 	FRDGTextureRef Depth = Inputs.SceneTextures.SceneTextures ? Inputs.SceneTextures.SceneTextures->GetParameters()->SceneDepthTexture : nullptr;
@@ -73,6 +81,7 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	{
 		Depth = GSystemTextures.GetDepthDummy(GraphBuilder);
 		Params->Haze.X = 0.0f;
+		Params->Rainbow.X = 0.0f;
 	}
 	Params->SceneDepth = Depth;
 	Params->InputTexture = SceneColor.Texture;

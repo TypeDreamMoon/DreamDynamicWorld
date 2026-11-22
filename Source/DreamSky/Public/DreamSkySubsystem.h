@@ -167,6 +167,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetHeatHaze() const { return HeatHaze; }
 
+	/**
+	 * How strongly a rainbow shows, 0..1: rain in the air (as it falls, and the style's Rainbow.LingerSeconds after),
+	 * the main light low (below 42 degrees) and not behind the clouds. Kept whether or not it is drawn.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetRainbow() const { return Rainbow; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -252,6 +259,9 @@ private:
 	float ScreenWetness = 0.0f;
 	float ScreenFrost = 0.0f;
 	float HeatHaze = 0.0f;
+	/** The rain in the air, 0..1: as it falls, lingering once it stops. */
+	float RainInAir = 0.0f;
+	float Rainbow = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;
