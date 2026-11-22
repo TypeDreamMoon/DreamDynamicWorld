@@ -42,6 +42,7 @@
 #include "LevelSequenceActor.h"
 #include "Materials/MaterialInterface.h"
 #include "MovieScene.h"
+#include "MovieSceneMetaData.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 
@@ -84,6 +85,8 @@ namespace DreamWorld::ShowcaseSetup
 	{
 		ULevelSequence* Sequence = FreshAsset<ULevelSequence>(Setup::ShowcaseDuskSequencePackage);
 		Sequence->Initialize();
+		// Initialize stamps the machine's user name as author; the shipped asset should not carry it.
+		Sequence->RemoveMetaData<UMovieSceneMetaData>();
 		UMovieScene* Scene = Sequence->GetMovieScene();
 		const FFrameRate Tick = Scene->GetTickResolution();
 		auto At = [&Tick](double Seconds) { return (Seconds * Tick).FloorToFrame(); };
