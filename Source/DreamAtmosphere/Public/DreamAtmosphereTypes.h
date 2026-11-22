@@ -107,3 +107,37 @@ struct DREAMATMOSPHERE_API FDreamAtmosphereBakedSky
 	/** Whether it holds a sky for this air. */
 	bool IsFor(const FDreamAtmosphereParameters& Parameters) const { return Zenith.Num() > 1 && Zenith.Num() == Horizon.Num() && BakedFor.Equals(Parameters); }
 };
+
+/**
+ * The weather as the aerial perspective takes it (a sky sets it every frame from its clouds, fog and dust; the default
+ * is clear air). Under a cloud deck the air is lit by the grey deck instead of the sun: DirectLight dims the sun's and
+ * the moon's share of the light the air scatters, DiffuseLight gives the hidden share back as an even grey skylight
+ * (as bright as the clear sky's horizon), and the grade's weather (Saturation, Tint with its exposure) goes over it
+ * all as it goes over the sky.
+ */
+USTRUCT(BlueprintType)
+struct DREAMATMOSPHERE_API FDreamAtmosphereWeather
+{
+	GENERATED_BODY()
+
+	/** The share of the sun's and the moon's light that reaches the air through the clouds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
+	float DirectLight = 1.0f;
+
+	/** The light the cloud deck gives the air instead, as a share of the clear sky's horizon (grey). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
+	float DiffuseLight = 0.0f;
+
+	/** The saturation the weather leaves the scattered light (1 as the air has it). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weather", meta = (ClampMin = "0"))
+	float Saturation = 1.0f;
+
+	/** A colour over the scattered light, its exposure in (dust's ochre, an overcast's dimming). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weather")
+	FLinearColor Tint = FLinearColor::White;
+
+	bool IsClear() const
+	{
+		return DirectLight >= 1.0f && DiffuseLight <= 0.0f && Saturation == 1.0f && Tint.Equals(FLinearColor::White, 1.0e-6f);
+	}
+};

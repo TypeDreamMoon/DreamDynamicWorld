@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamAtmosphereAerial.h"
 #include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereSubsystem.h"
 #include "DreamAtmosphereTables.h"
@@ -218,6 +219,94 @@ bool FDreamSkyAtmosphereBakedTest::RunTest(const FString& Parameters)
 	Settle();
 	TestFalse(TEXT("a bake of other air is not taken"), Atmosphere->IsSkyReady());
 	TestEqual(TEXT("and the dome draws the gradient (no table)"), Atmosphere->GetSkyDecode(), 0.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyAtmosphereWeatherTest, "DreamSky.Atmosphere.AerialWeather", DreamSkyAtmosphereTests::Flags)
+bool FDreamSkyAtmosphereWeatherTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSkyAtmosphereTests;
+	namespace Aerial = DreamAtmosphere::Aerial;
+
+	// The frame: clear weather leaves it exactly as it was; an overcast dims the lights and lends the air a grey.
+	Aerial::FFrame Clear;
+	Clear.SunLight = FVector3f(11.0f, 10.0f, 9.0f);
+	Clear.MoonLight = FVector3f(1.0f, 1.0f, 1.2f);
+	const FLinearColor Horizon(0.4f, 0.6f, 1.0f);
+	Aerial::FFrame Same = Clear;
+	Aerial::ApplyWeather(Same, FDreamAtmosphereWeather(), Horizon);
+	TestTrue(TEXT("clear weather: the lights untouched"), Same.SunLight == Clear.SunLight && Same.MoonLight == Clear.MoonLight);
+	TestTrue(TEXT("no veil, the identity grade"), Same.VeilLight == FVector3f::ZeroVector && Same.WeatherGrade == FVector4f(1.0f, 1.0f, 1.0f, 1.0f));
+	FDreamAtmosphereWeather Deck;
+	Deck.DirectLight = 0.25f;
+	Deck.DiffuseLight = 0.75f;
+	Deck.Saturation = 0.3f;
+	Deck.Tint = FLinearColor(0.7f, 0.7f, 0.7f);
+	Aerial::FFrame Grey = Clear;
+	Aerial::ApplyWeather(Grey, Deck, Horizon);
+	TestTrue(TEXT("the sun and the moon dimmed by the direct share"), Grey.SunLight.Equals(Clear.SunLight * 0.25f, 1.0e-5f) && Grey.MoonLight.Equals(Clear.MoonLight * 0.25f, 1.0e-5f));
+	TestTrue(TEXT("the veil: the clear horizon's brightness, grey, times the diffuse share"),
+		FMath::IsNearlyEqual(Grey.VeilLight.X, Luma(Horizon) * 0.75f, 1.0e-5f) && Grey.VeilLight.X == Grey.VeilLight.Y && Grey.VeilLight.Y == Grey.VeilLight.Z);
+	TestTrue(TEXT("the grade carried"), Grey.WeatherGrade.Equals(FVector4f(0.7f, 0.7f, 0.7f, 0.3f), 1.0e-6f));
+
+	// The sky sets it from the weather every frame.
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	if (!TestNotNull(TEXT("world"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT { World->DestroyWorld(false); };
+	UDreamWorldSubsystem* Clock = World->GetSubsystem<UDreamWorldSubsystem>();
+	UDreamAtmosphereSubsystem* Atmosphere = UDreamAtmosphereSubsystem::Get(World);
+	if (!Atmosphere)
+	{
+		AddInfo(TEXT("The atmosphere is off in the project settings: nothing to weather."));
+		return true;
+	}
+	FActorSpawnParameters Spawn;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSky* Sky = World->SpawnActor<ADreamSky>(Spawn);
+	if (!TestNotNull(TEXT("clock"), Clock) || !TestNotNull(TEXT("sky actor"), Sky) || !TestNotNull(TEXT("style"), Sky->GetEffectiveStyle()))
+	{
+		return false;
+	}
+	const UDreamSkyStyle* Style = Sky->GetEffectiveStyle();
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 6, 21, 12, 0, 0);
+	Config.bAnimate = false;
+	Clock->ApplyClockConfig(Config, true);
+	auto WeatherFor = [&](float Coverage, float Darkness, float Precipitation, float Dust)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.CloudCoverage = Coverage;
+		Env.CloudDarkness = Darkness;
+		Env.Precipitation = Precipitation;
+		Env.Dust = Dust;
+		Clock->SetEnvironment(Env);
+		Clock->Tick(0.016f);
+		return Atmosphere->GetWeather();
+	};
+
+	TestTrue(TEXT("a fair sky: the air as clear as without weather (the noon blue stays)"), WeatherFor(0.3f, 0.0f, 0.0f, 0.0f).IsClear());
+
+	const FDreamAtmosphereWeather Overcast = WeatherFor(1.0f, 0.0f, 0.0f, 0.0f);
+	const float Expected = 1.0f - Style->OvercastLightDimming;
+	TestTrue(FString::Printf(TEXT("an overcast hides the sun from the air (%.2f of it, expected %.2f)"), Overcast.DirectLight, Expected),
+		FMath::IsNearlyEqual(Overcast.DirectLight, Expected, 1.0e-4f));
+	TestTrue(FString::Printf(TEXT("and gives the rest back as the deck's grey (%.2f)"), Overcast.DiffuseLight), FMath::IsNearlyEqual(Overcast.DiffuseLight, 1.0f - Expected, 1.0e-4f));
+	TestTrue(FString::Printf(TEXT("greyer (saturation %.2f)"), Overcast.Saturation), Overcast.Saturation < 0.9f);
+	TestTrue(FString::Printf(TEXT("and dimmer (tint %.2f)"), Luma(Overcast.Tint)), Luma(Overcast.Tint) < 0.99f);
+
+	const FDreamAtmosphereWeather Storm = WeatherFor(1.0f, 1.0f, 1.0f, 0.0f);
+	TestTrue(FString::Printf(TEXT("a storm's deck is darker (%.2f against %.2f)"), Storm.DiffuseLight, Overcast.DiffuseLight), Storm.DiffuseLight < Overcast.DiffuseLight);
+
+	const FDreamAtmosphereWeather Dusty = WeatherFor(0.3f, 0.0f, 0.0f, 1.0f);
+	TestTrue(TEXT("dust dims the sun in the air and turns it ochre"), Dusty.DirectLight < 1.0f && Dusty.Tint.R > Dusty.Tint.B);
+
+	Clock->SetEnvironment(FDreamWorldEnvironment());
+	Clock->Tick(0.016f);
+	TestTrue(TEXT("no weather: clear air again"), Atmosphere->GetWeather().IsClear());
 	return true;
 }
 

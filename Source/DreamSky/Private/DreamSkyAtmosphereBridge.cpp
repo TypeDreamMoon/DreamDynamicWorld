@@ -68,6 +68,30 @@ namespace DreamSkyAtmosphereBridgeImpl
 		return C;
 	}
 
+	/**
+	 * The weather for the aerial perspective. The clouds hide the sun from the air as from the ground (the style's
+	 * overcast dimming, the dust's), whether or not they cast their own shadow on the ground: the air under them is lit by
+	 * the deck instead, a grey as bright as the clear sky's horizon, darker under a storm. The grade's weather goes over
+	 * it as over the sky, so the far land greys and dims with the horizon behind it. Clear weather leaves the air alone.
+	 */
+	FDreamAtmosphereWeather AerialWeather(const UDreamSkyStyle& Style, const FDreamWorldEnvironment& Environment)
+	{
+		FDreamAtmosphereWeather W;
+		if (!Environment.bActive)
+		{
+			return W;
+		}
+		const float Cover = FDreamSkyGrade::Overcast(Environment);
+		const float Dust = FMath::Clamp(Environment.Dust, 0.0f, 1.0f);
+		W.DirectLight = (1.0f - FMath::Clamp(Style.OvercastLightDimming, 0.0f, 1.0f) * Cover) * (1.0f - FMath::Clamp(Style.DustSunDimming, 0.0f, 1.0f) * Dust);
+		W.DiffuseLight = (1.0f - W.DirectLight) * (1.0f - FMath::Clamp(Style.StormDarkening, 0.0f, 1.0f) * FMath::Clamp(Environment.CloudDarkness, 0.0f, 1.0f));
+		float EV = 0.0f;
+		Style.Grade.EvaluateWeather(Environment, W.Saturation, EV, W.Tint);
+		W.Tint = W.Tint * FMath::Pow(2.0f, EV);
+		W.Tint.A = 1.0f;
+		return W;
+	}
+
 	void BindDome(ADreamSky& Sky, const UDreamAtmosphereSubsystem* Atmosphere)
 	{
 		UTexture* Table = Atmosphere ? Atmosphere->GetSkyTexture() : nullptr;
@@ -122,6 +146,10 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 		Grade.GradientBlend = FMath::Clamp(CVarDreamSkyGradientBlendOverride.GetValueOnGameThread(), 0.0f, 1.0f);
 	}
 	const bool bPhysical = CVarDreamSkyPhysicalSky.GetValueOnGameThread() != 0 && Atmosphere && Atmosphere->IsSkyReady() && Grade.GradientBlend < 1.0f;
+	if (Atmosphere)
+	{
+		Atmosphere->SetWeather(AerialWeather(Style, Environment));
+	}
 
 	if (bPhysical)
 	{

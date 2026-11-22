@@ -137,4 +137,11 @@ struct DREAMSKY_API FDreamSkyGrade
 
 	/** The grade for a sun elevation (degrees) and the weather (ignored unless Environment.bActive). */
 	FDreamSkyGradeValues Evaluate(float SunElevation, const FDreamWorldEnvironment& Environment) const;
+
+	/** The weather's part of the grade alone (identity unless Environment.bActive): saturation, exposure (EV), tint. The
+	 *  aerial perspective takes the same over the air. */
+	void EvaluateWeather(const FDreamWorldEnvironment& Environment, float& OutSaturation, float& OutEV, FLinearColor& OutTint) const;
+
+	/** How overcast the weather makes the sky (0 clear .. 1 closed): from half cover, or rain under any. */
+	static float Overcast(const FDreamWorldEnvironment& Environment);
 };

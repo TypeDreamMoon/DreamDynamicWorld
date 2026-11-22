@@ -575,7 +575,8 @@ rain, snow, wind, dust, cold, heat, soaked and freezing. With `bWriteMaterialPar
 The weather's effects have a third layer of fall paths, the **dust layer** (*Dream Weather Effects ▸ Dust and
 Debris*): nearly flat, downwind, a few metres up, ending at walls, roofs and shelters — traced only while dust blows or
 the wind is strong. `NS_DreamDust` streams motes along them, swirling about their paths, with a few large soft puffs
-for the near haze (its amount is the Dust channel). In a strong wind (`DebrisWindSpeed`) the wind's debris — leaves,
+for the near haze (its amount is the Dust channel; what is already flying fades with the dust within half a second,
+so no haze outlives the storm though its particles live 20 s). In a strong wind (`DebrisWindSpeed`) the wind's debris — leaves,
 and the odd twig — starts along the same paths (`NS_DreamWindLeaves`, its Debris emitter; `M_DreamWindDebris`) and the
 wind field carries it. How much debris and its colour follow the season (`DebrisSeasonAmount`, `DebrisSpring` …
 `DebrisWinter`: autumn leaves, a bare winter). Nothing blows in indoors.
@@ -927,7 +928,14 @@ Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea lev
 the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
 when it takes the atmosphere on). The lights it uses until the sky style drives them: *Lights* (the sun's and the full
 moon's illuminance outside the air, in the scene's units; the clock's sun and moon give the directions, the moon's
-phase dims it). `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk along each cell's ray.
+phase dims it). **It follows the weather** (`FDreamAtmosphereWeather`, which a sky sets every frame): under a cloud
+deck the air is lit by the deck, not the sun — the sun's and the moon's share dimmed by the style's *Overcast Light
+Dimming* (and dust's *Dust Sun Dimming*), the rest given back as an even grey as bright as the clear sky's horizon
+(darker under a storm, *Storm Darkening*), and the grade's weather (*Overcast Saturation*, *Overcast Exposure*, *Fog
+Grey*, the dust's tint) over it as over the sky, so overcast hills turn grey and dim, not a fair day's blue. Fair
+weather leaves the air exactly as it was; `r.DreamAtmosphere.AerialWeather 0` keeps it clear air whatever the weather,
+to compare. `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk
+along each cell's ray; `DreamSky.Atmosphere.AerialWeather` the weather the sky hands it.
 
 ## Wind
 

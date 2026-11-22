@@ -3,6 +3,7 @@
 #include "DreamAtmosphereAerial.h"
 #include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereTables.h"
+#include "DreamAtmosphereTypes.h"
 
 #include "DataDrivenShaderPlatformInfo.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -42,6 +43,8 @@ BEGIN_SHADER_PARAMETER_STRUCT(FDreamAtmosphereAerialCommon, )
 	SHADER_PARAMETER(FVector3f, SunLight)
 	SHADER_PARAMETER(FVector3f, MoonDirection)
 	SHADER_PARAMETER(FVector3f, MoonLight)
+	SHADER_PARAMETER(FVector3f, VeilLight)
+	SHADER_PARAMETER(FVector4f, WeatherGrade)
 	SHADER_PARAMETER(float, MaxDistance)
 	SHADER_PARAMETER(float, DistanceScale)
 	SHADER_PARAMETER(float, SkyDistance)
@@ -152,6 +155,8 @@ namespace DreamAtmosphere::Aerial
 		P.SunLight = Frame.SunLight;
 		P.MoonDirection = Frame.MoonDirection;
 		P.MoonLight = Frame.MoonLight;
+		P.VeilLight = Frame.VeilLight;
+		P.WeatherGrade = Frame.WeatherGrade;
 		P.MaxDistance = FMath::Max(Frame.MaxDistanceKm, 0.01f);
 		P.DistanceScale = FMath::Max(Frame.DistanceScale, 0.0f);
 		P.SkyDistance = Frame.SkyDistanceKm;
@@ -271,5 +276,17 @@ namespace DreamAtmosphere::Aerial
 		F.Steps = FMath::Clamp(S->AerialSteps, 2, 32);
 		F.bEnabled = S->bAerialPerspective;
 		return F;
+	}
+
+	void ApplyWeather(FFrame& Frame, const FDreamAtmosphereWeather& Weather, const FLinearColor& ClearHorizon)
+	{
+		const float Direct = FMath::Clamp(Weather.DirectLight, 0.0f, 1.0f);
+		Frame.SunLight *= Direct;
+		Frame.MoonLight *= Direct;
+		const float Grey = FMath::Max(0.2126f * ClearHorizon.R + 0.7152f * ClearHorizon.G + 0.0722f * ClearHorizon.B, 0.0f)
+			* FMath::Clamp(Weather.DiffuseLight, 0.0f, 1.0f);
+		Frame.VeilLight = FVector3f(Grey, Grey, Grey);
+		Frame.WeatherGrade = FVector4f(FMath::Max(Weather.Tint.R, 0.0f), FMath::Max(Weather.Tint.G, 0.0f), FMath::Max(Weather.Tint.B, 0.0f),
+			FMath::Max(Weather.Saturation, 0.0f));
 	}
 }

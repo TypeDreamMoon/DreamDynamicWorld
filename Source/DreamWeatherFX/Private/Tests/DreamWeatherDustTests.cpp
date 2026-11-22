@@ -93,6 +93,11 @@ bool FDreamWeatherDustTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("along the ground, downwind (%s)"), *Fall.ToString()), Fall.Size2D() > 3.0 * FMath::Abs(Fall.Z));
 	TestEqual(TEXT("a full buffer of dust paths"), Effects->GetPaths(FX::DustLayer).GetEnds().Num(), UDreamWeatherFXSettings::Get()->PathCount);
 	TestTrue(FString::Printf(TEXT("an autumn gale carries debris (%.0f/s)"), Effects->GetDebrisRate()), Effects->GetDebrisRate() > 0.0f);
+	for (int32 i = 0; i < 60; ++i)
+	{
+		Frame();
+	}
+	TestNearlyEqual(TEXT("the storm's dust is all in the air"), Effects->GetPresence(FX::DustLayer), 1.0f, 1.0e-3f);
 
 	// A gale with no dust: the paths run for the debris, but no motes.
 	Fixed->Preset = MakePreset(TEXT("Gale"), { { Channel_CloudCoverage, 0.3f }, { Channel_Dust, 0.0f }, { Channel_Wind, 1.0f } });
@@ -100,6 +105,14 @@ bool FDreamWeatherDustTest::RunTest(const FString& Parameters)
 	Frame();
 	TestEqual(TEXT("a clean gale: no motes"), Effects->GetDropRate(FX::DustLayer), 0.0f);
 	TestTrue(TEXT("but debris"), Effects->GetDebrisRate() > 0.0f);
+	// The motes and puffs still flying (they live 20 s) fade with the dust, not cut off and not lingering.
+	const float Fading = Effects->GetPresence(FX::DustLayer);
+	TestTrue(FString::Printf(TEXT("the dust in the air fades (%.2f)"), Fading), Fading > 0.0f && Fading < 1.0f);
+	for (int32 i = 0; i < 60; ++i)
+	{
+		Frame();
+	}
+	TestEqual(TEXT("and is gone within a second or two, long before its particles would die"), Effects->GetPresence(FX::DustLayer), 0.0f);
 	return true;
 }
 
