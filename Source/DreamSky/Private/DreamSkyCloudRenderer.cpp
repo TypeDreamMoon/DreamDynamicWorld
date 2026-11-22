@@ -3,6 +3,7 @@
 #include "DreamSkyCloudRenderer.h"
 #include "DreamAtmosphereSubsystem.h"
 #include "DreamAtmosphereTables.h"
+#include "Engine/TextureRenderTargetVolume.h"
 #include "DreamSky.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
@@ -12,6 +13,7 @@
 #include "DataDrivenShaderPlatformInfo.h"
 #include "Engine/Texture.h"
 #include "Engine/World.h"
+#include "GlobalRenderResources.h"
 #include "GlobalShader.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Materials/MaterialParameterCollectionInstance.h"
@@ -89,6 +91,11 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderAtmosphere(
 	TEXT("1: the clouds' light through the air from the atmosphere's tables (DreamAtmosphere) once built; 0: the analytic air."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderColours(
+	TEXT("DreamSky.CloudRender.Colours"), -1,
+	TEXT("The toon and painted clouds' colours whatever the style says: 0 from the physical sky's light, 1 the style's curves as they are; -1 = the style's bCloudColorsAbsolute."),
+	ECVF_RenderThreadSafe);
+
 static TAutoConsoleVariable<float> CVarDreamSkyScreenDroplets(
 	TEXT("DreamSky.ScreenDroplets"), -1.0f,
 	TEXT("The rain drops on the lens at this intensity whatever the style says (0 = none); -1 = the style's ScreenDroplets."),
@@ -124,6 +131,8 @@ namespace DreamSkyCloudRender
 		SHADER_PARAMETER_SAMPLER(SamplerState, TransmittanceSampler)
 		SHADER_PARAMETER(FIntPoint, TransmittanceSize)
 		SHADER_PARAMETER_ARRAY(FVector4f, Atmosphere, [5])
+		SHADER_PARAMETER_TEXTURE(Texture3D, SkyTable)
+		SHADER_PARAMETER_SAMPLER(SamplerState, SkyTableSampler)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool Supported(const FGlobalShaderPermutationParameters& Parameters)
@@ -530,6 +539,8 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_Cloud0"), TEXT("DDW_Cloud1"), TEXT("DDW_Cloud2"), TEXT("DDW_Cloud3"), TEXT("DDW_CloudLit"), TEXT("DDW_CloudShadow"),
 		TEXT("DDW_MainLight"), TEXT("DDW_MainLightColor"), TEXT("DDW_CloudLayer"), TEXT("DDW_WeatherMap"), TEXT("DDW_SkyExtra"),
 		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"), TEXT("DDW_SkyModClouds"), TEXT("DDW_NightGlow"), TEXT("DDW_LightPollution"),
+		TEXT("DDW_MoonDir"), TEXT("DDW_SkyGrade0"), TEXT("DDW_SkyGrade1"), TEXT("DDW_SkyGrade2"), TEXT("DDW_SkyGrade3"),
+		TEXT("DDW_AtmosphereSun"), TEXT("DDW_AtmosphereMoon"), TEXT("DDW_AmbientSky"), TEXT("DDW_AmbientEquator"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;
@@ -545,11 +556,14 @@ void FDreamSkyCloudViewExtension::FillAtmosphere(DreamSkyCloudRender::FCommonPar
 	{
 		Common.Atmosphere[Index] = Settings.Atmosphere[Index];
 	}
+	const bool bSky = Settings.SkyTable && Settings.SkyTable->TextureRHI;
+	Common.SkyTable = bSky ? Settings.SkyTable->TextureRHI.GetReference() : GBlackVolumeTexture->TextureRHI.GetReference();
+	Common.SkyTableSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 }
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 2, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -589,6 +603,8 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[154] = FVector4f(L.PaintKeyAtBase, L.PaintKeyLow, L.PaintKeyHigh, FMath::Max(L.PaintDeckThinColumn, 1.0f) * 100.0f);
 	Out[155] = FVector4f(L.PaintDeckStormThinning, L.PaintDeckFrom, FMath::Max(L.PaintDeckTo, L.PaintDeckFrom + 0.001f), L.PaintStormLitDarkening);
 	Out[156] = FVector4f(L.PaintStormTopDarkening, L.PaintFloorAtTop, L.PaintFloorInStorm, 0.0f);
+	Out[157] = FVector4f(L.CloudLitScale.R, L.CloudLitScale.G, L.CloudLitScale.B, L.bCloudColorsAbsolute ? 1.0f : 0.0f);
+	Out[158] = FVector4f(L.CloudShadeScale.R, L.CloudShadeScale.G, L.CloudShadeScale.B, L.bCloudMatchStyleBrightness ? 1.0f : 0.0f);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -663,9 +679,17 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 			Settings.TransmittanceSize = FIntPoint(Tables->GetTransmittance()->SizeX, Tables->GetTransmittance()->SizeY);
 			Tables->GetBuiltParameters().Pack(Settings.Atmosphere);
 		}
+		if (Tables && Tables->GetSky())
+		{
+			Settings.SkyTable = Tables->GetSky()->GetResource();
+		}
 		Settings.Look = int32(Actor->GetEffectiveCloudLook());
 		FDreamSkyCloudLookParameters Look;
 		Actor->GetCloudLookParameters(Look);
+		if (CVarDreamSkyCloudRenderColours.GetValueOnGameThread() >= 0)
+		{
+			Look.bCloudColorsAbsolute = CVarDreamSkyCloudRenderColours.GetValueOnGameThread() > 0;
+		}
 		// (The toon tones as the sky modifiers have blended them.)
 		if (Sky->GetLook().Toon.IsValid())
 		{

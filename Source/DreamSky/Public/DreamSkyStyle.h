@@ -842,6 +842,29 @@ public:
 	float StylizedCloudShadow = 1.0f;
 
 	/**
+	 * The clouds' lit and shade colours as the style's own curves (CloudLitColor, CloudShadowColor) have them, instead of
+	 * from the physical sky's light (DreamAtmosphere): the sun's and the moon's light through the air for the lit tone,
+	 * the sky's ambient light for the shade, each times CloudLitScale / CloudShadeScale. (Without the atmosphere's
+	 * tables the curves are used anyway.)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds")
+	bool bCloudColorsAbsolute = false;
+
+	/** The physical colours kept as bright as the style's curves at every moment (only their colour from the light: a
+	 *  low sun's red, the sky's blue in the shade), before the scales below. Off: the physical brightness, times them. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute"))
+	bool bCloudMatchStyleBrightness = true;
+
+	/** The physical light on the clouds' lit side, times this, over the sun's elevation (set at noon to the style's lit
+	 *  colour; a low sun then warms the clouds by itself). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
+	FRuntimeCurveLinearColor CloudLitScale;
+
+	/** The sky's ambient light on the clouds' shade, times this, over the sun's elevation (set at noon to the style's shade). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Clouds", meta = (EditCondition = "!bCloudColorsAbsolute", XAxisName = "Sun elevation", YAxisName = "Scale"))
+	FRuntimeCurveLinearColor CloudShadeScale;
+
+	/**
 	 * How far the realistic and painted clouds' shading toward the light reaches, cm: a cloud's shade toward the sun fades
 	 * out by where its shadow would land this far off (from a quarter of it on), so a far tower's shadow does not black
 	 * out the clouds beyond it.

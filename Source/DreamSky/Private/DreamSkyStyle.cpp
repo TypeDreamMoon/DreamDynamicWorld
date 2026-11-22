@@ -107,6 +107,9 @@ UDreamSkyStyle::UDreamSkyStyle()
 		{ 5.0f, C(0.560f, 0.520f, 0.780f) }, { 10.0f, C(0.950f, 0.960f, 1.250f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) },
 		{ 60.0f, C(1.400f, 1.520f, 1.780f) } });
 
+	// (The physical light on the clouds as it is: the style's brightness matched, bCloudMatchStyleBrightness.)
+	SetKeys(CloudLitScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
+	SetKeys(CloudShadeScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
 	SetKeys(AmbientScale, { { -12.0f, 1.0f }, { 60.0f, 1.0f } });
 	SetKeys(SkyLightIntensity, { { -12.0f, 1.0f }, { 0.0f, 0.9f }, { 60.0f, 1.0f } });
 	SetKeys(FogDensity, { { -10.0f, 0.020f }, { 0.0f, 0.025f }, { 5.0f, 0.020f }, { 60.0f, 0.015f } });
