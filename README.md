@@ -274,8 +274,9 @@ any more.
 
 **Indoors.** The clock probes the view (`GetViewOcclusion`): rings of rays around the camera, a few a frame, a
 full round every 0.35 s, tell how enclosed it is (*Interior*), whether a roof is overhead (*Overhead*) and which
-sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`) and can scale the sky light and the
-sun and moon there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
+sides are closed. The sky lifts the exposure indoors (`InteriorExposureLift`, 2.5 EV: a room lit only through its
+door and windows, with little bounced light, is still dark at 1) and can scale the sky light and the sun and moon
+there; `DDW_Interior` carries it to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
