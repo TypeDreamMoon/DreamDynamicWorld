@@ -7,6 +7,8 @@
 #include "Curves/CurveFloat.h"
 #include "Curves/CurveLinearColor.h"
 #include "DreamSkyTypes.h"
+#include "DreamAtmosphereTypes.h"
+#include "DreamSkyGrade.h"
 #include "DreamSkyStyle.generated.h"
 
 /**
@@ -536,6 +538,16 @@ public:
 	/** < 1 keeps the horizon colour low, > 1 lets it climb. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dome", meta = (ClampMin = "0.05", UIMax = "4"))
 	float HorizonExponent = 0.45f;
+
+	// ---- Atmosphere and grade ------------------------------------------------------------------
+
+	/** The air this sky is made of (DreamAtmosphere): the physical sky, its light through the air and the distance's haze. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Atmosphere")
+	FDreamAtmosphereParameters Atmosphere;
+
+	/** The style's look over the physical sky: exposure, saturation, hue, contrast and tints over the day, the weather's part. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade", meta = (ShowOnlyInnerProperties))
+	FDreamSkyGrade Grade;
 
 	// ---- Sun ----------------------------------------------------------------------------------
 

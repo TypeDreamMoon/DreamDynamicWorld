@@ -19,6 +19,7 @@ public class DreamSky : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"DreamDynamicWorld",
+			"DreamAtmosphere",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamAtmosphereHlslShim.h"
+#include "DreamAtmosphereSettings.h"
 #include "DreamAtmosphereTypes.h"
 
 #include "Misc/AutomationTest.h"
@@ -60,6 +61,11 @@ bool FDreamAtmosphereTransmittanceTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("no light from under the horizon"), Under.x == 0.0f && Under.y == 0.0f && Under.z == 0.0f);
 	TestTrue(TEXT("light from over it"), DSA_LightTransmittance(A, Ground, 0.05f).x > 0.0f);
 	TestTrue(TEXT("a light just under the horizon still lights the air 10 km up"), DSA_LightTransmittance(A, Ground + 10.0f, -0.05f).x > 0.0f);
+
+	// The settings' sun outside the air comes down to the sky style's noon sun: about 10 in the scene's units at 60 degrees.
+	const float3 At60 = DSA_TransmittanceToTopDirect(A, Ground, FMath::Sin(FMath::DegreesToRadians(60.0f)));
+	const float Ground60 = UDreamAtmosphereSettings::Get()->SunIlluminance * Luma(At60);
+	TestTrue(FString::Printf(TEXT("the default sun is about 10 at 60 degrees on the ground (%.2f)"), Ground60), FMath::IsNearlyEqual(Ground60, 10.0f, 0.5f));
 
 	// The table's coordinates round trip over its range.
 	int32 Off = 0;

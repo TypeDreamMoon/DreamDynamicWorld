@@ -822,15 +822,30 @@ The CPU's integrals are exact and slow (some milliseconds a sky value): they are
 want, and for the tests, which hold the GPU's tables to them (`DreamAtmosphere.Gpu.TablesMatchCpu`: 4 %, 8 % in
 twilight, where the earth's shadow edge is read from tables of finite resolution).
 
+**The sky style's air and grade.** A sky style carries the air it is made of (*Atmosphere*, an
+`FDreamAtmosphereParameters`) and its look over it (*Grade*, `FDreamSkyGrade`): the air gives how bright the sky is
+and how its hue turns with the sun; the grade gives the style's look on top, the same for every colour that comes from
+the air (the dome, the fog, the clouds' sky, the ambient light), by one function shared by the shaders and the CPU
+(`Shaders/Shared/DreamSkyGradeShared.h`, `DSG_Grade`). Over the day (curves over the sun's elevation): exposure,
+saturation, hue, contrast, a tint over the whole sky, and a zenith and a horizon tint that blend down the sky
+(*Tint Spread*); the twilight's *Afterglow*; the weather's part (*Grade ▸ Weather*: what an overcast takes, the dust's
+colour, how grey fog makes it). *Gradient Blend* (0 in every built-in style) goes back to the analytic gradient of the
+*Dome* group. A new grade is the identity. (The sky reads them once it takes the atmosphere on: until then the dome is the
+gradient.) `DreamSky.Grade` checks the grade (the identity, each control, the tints down the sky, the weather).
+
 **Aerial perspective.** The air between the eye and the scene: every frame a froxel volume in front of the camera (32 ×
 32 cells, 32 depth slices to 64 km, denser near the eye) holds the light the air scatters toward the eye from the sun and
 the moon and what it lets through, from the same model and tables
 (`Shaders/Private/DreamAtmosphereAerial.usf`); a full-screen pass lays it over the opaque scene by its depth, before the
 depth of field. Distant land turns blue and pale and meets the sky at the horizon; at night only the moon's faint light
-is in it. The sky dome (beyond *Sky Distance*) is left alone: it carries the air already. The world's own view
-extension draws it (`FDreamAtmosphereViewExtension`, ahead of the sky's passes there); no extension hook comes between
-the lighting and the translucency, where the engine's fog goes, so near translucency takes the air of what stands behind
-it (little, that near). *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
+is in it. The sky is left alone (the far plane, and the dome beyond *Sky Distance*): the dome carries the air already,
+and the sky cloud renderer lays its own haze over its clouds by their depth. The world's own view extension draws it
+(`FDreamAtmosphereViewExtension`, priority 10: extensions run highest first, so it comes before every pass the sky's
+extension adds there, the clouds it lays over the scene from above the cloud base among them, which therefore never
+take this air twice). No extension hook comes between the lighting and the translucency, where the engine's fog goes
+(`PrePostProcessPass` takes the renderer's internal inputs, out of a plugin's reach), so near translucency takes the air
+of what stands behind it: little, that near. The way to have it exact later: a material function for translucent
+materials that reads the volume at the pixel's own depth, and the composite leaving those pixels to it. *Project Settings ▸ Dream Atmosphere ▸ Aerial Perspective*: on or off, how far, *Distance
 Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea level, the volume's cells and steps;
 `r.DreamAtmosphere.AerialPerspective 0` turns it off to compare. **The height fog is the weather's**: the air itself is
 the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
