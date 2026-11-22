@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSkyModule.h"
+#include "DreamSkyAtmosphereBridge.h"
 #include "DreamWorldParameters.h"
 #include "Interfaces/IPluginManager.h"
 #include "UObject/CoreRedirects.h"
@@ -79,6 +80,7 @@ void FDreamSkyModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, MPC_AmbientEquator, FLinearColor(0.3f, 0.3f, 0.35f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_AmbientGround, FLinearColor(0.1f, 0.1f, 0.1f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_DayPhase, FLinearColor(1.0f, 0.0f, 0.0f, 0.5f));
+	DreamSky::AtmosphereBridge::RegisterParameters(Owner);
 }
 
 void FDreamSkyModule::ShutdownModule()
