@@ -332,7 +332,9 @@ the listener — the view the world is looked at from — every frame the weathe
   shelter box, or any surface a metre above the view is a roof, the rest is ground.
 * **Thunder.** Every `OnLightningStrike` is heard after its `ThunderDelay`: a clap (`ThunderNear`) closer than
   `ThunderNearDistance` (3 km), a rumble (`ThunderFar`, or the clap low-passed) out to `ThunderMaxDistance` (15 km),
-  quieter and duller with distance, from the side it struck on.
+  quieter and duller with distance, from the side it struck on. A near clap ducks the wind and the rain for a
+  moment (`ThunderDuckDb`, −4 dB, back over `ThunderDuckSeconds`, 1.5 s; `bThunderDucking`), so thunder hits
+  whatever the recordings; far thunder ducks nothing.
 * **Walls and roofs.** The view probe (`GetViewOcclusion`: how enclosed, a roof overhead, how closed each side is)
   muffles outdoor sound (a low-pass from 20 kHz down to `MinCutoffHz` in a closed room), quietens it (to
   `InteriorMinVolume`) and moves it toward the open sides: inside the hut the rain is dull, in its doorway it comes
