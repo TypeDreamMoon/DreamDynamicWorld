@@ -22,15 +22,15 @@ struct DREAMSKY_API FDreamSkyAurora
 
 	/** How bright it draws at its strongest, in the dome's own measure (a dark night's zenith is some 0.006). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "0.3"))
-	float Brightness = 0.05f;
+	float Brightness = 0.12f;
 
 	/** Its colour low down, near its lower edge (the green of oxygen some 100 km up). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (HideAlphaChannel))
-	FLinearColor LowColor = FLinearColor(0.15f, 1.0f, 0.45f, 1.0f);
+	FLinearColor LowColor = FLinearColor(0.30f, 0.90f, 0.56f, 1.0f);
 
 	/** Its colour at the top of the curtains (the red and violet some 250 km up and more). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (HideAlphaChannel))
-	FLinearColor HighColor = FLinearColor(0.75f, 0.2f, 0.55f, 1.0f);
+	FLinearColor HighColor = FLinearColor(0.62f, 0.30f, 0.58f, 1.0f);
 
 	/** How fast the curtains fold, ripple and drift (1 = as a quiet night's, some tens of seconds a fold). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", UIMax = "8"))
@@ -51,6 +51,10 @@ struct DREAMSKY_API FDreamSkyAurora
 	/** Realistic mode: the latitude from which it shows in full. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "90"))
 	float FullLatitude = 66.0f;
+
+	/** Under the toon and painted clouds, its light goes in three clean tones (as the clouds' own). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora")
+	bool bStylizedTones = true;
 
 	/** Artistic mode (no latitude): how present it is, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aurora", meta = (ClampMin = "0", ClampMax = "1"))

@@ -213,6 +213,8 @@ private:
 	FDreamSkyLighting Applied;
 	FDreamSkyLook Look;
 	bool bHasApplied = false;
+	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
+	bool bStylizedClouds = false;
 	uint32 LastJumpSerial = 0;
 	FDelegateHandle TickHandle;
 	FDelegateHandle CaptureHandle;

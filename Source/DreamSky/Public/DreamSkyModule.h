@@ -34,7 +34,7 @@ namespace DreamSky::Names
 	// The sky modifiers' change to the weather map's cloud cover and darkness: x = how much of the cover is replaced, y =
 	// what replaces it, z, w the same for the darkness (all 0: none).
 	inline const FName MPC_SkyModClouds(TEXT("DDW_SkyModClouds"));
-	// The aurora: strength (night and presence in), speed, toward the magnetic pole (x, y); its low and high colours,
+	// The aurora: strength (night and presence in; negative: in the stylized looks' banded tones), speed, toward the magnetic pole (x, y); its low and high colours,
 	// with how far toward the pole the arc stands (km) and how wide it is (km) in their a.
 	inline const FName MPC_Aurora(TEXT("DDW_Aurora"));
 	inline const FName MPC_AuroraLow(TEXT("DDW_AuroraLow"));

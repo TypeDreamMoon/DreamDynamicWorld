@@ -107,7 +107,11 @@ bool FDreamSkyAuroraTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		const FLinearColor A = W.Parameter(MPC_Aurora);
-		TestTrue(FString::Printf(TEXT("strong in the arctic night (%.4f)"), A.R), A.R > 0.5f * W.Sky->GetEffectiveStyle()->Aurora.Brightness);
+		TestTrue(FString::Printf(TEXT("strong in the arctic night (%.4f)"), A.R), FMath::Abs(A.R) > 0.5f * W.Sky->GetEffectiveStyle()->Aurora.Brightness);
+		TestTrue(TEXT("in the toon clouds' banded tones (negative)"), A.R < 0.0f);
+		W.Sky->CloudLook = EDreamSkyCloudLook::Realistic;
+		W.Clock->Tick(0.016f);
+		TestTrue(TEXT("under realistic clouds, smooth (positive)"), W.Parameter(MPC_Aurora).R > 0.0f);
 		TestTrue(TEXT("toward the north"), A.B > 0.99f && FMath::Abs(A.A) < 0.01f);
 		TestNearlyEqual(TEXT("the arc's distance"), W.Parameter(MPC_AuroraLow).A, W.Sky->GetEffectiveStyle()->Aurora.ArcDistance, 1e-3f);
 	}
@@ -119,7 +123,7 @@ bool FDreamSkyAuroraTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		const FLinearColor A = W.Parameter(MPC_Aurora);
-		TestTrue(TEXT("strong in the antarctic night"), A.R > 0.0f);
+		TestTrue(TEXT("strong in the antarctic night"), FMath::Abs(A.R) > 0.0f);
 		TestTrue(TEXT("toward the south"), A.B < -0.99f);
 	}
 	// Tokyo: none, until a modifier brings it; by day not even then.
@@ -135,7 +139,7 @@ bool FDreamSkyAuroraTest::RunTest(const FString& Parameters)
 		Bring->Settings.Aurora = 1.0f;
 		W.SkySubsystem->AddModifier(Bring, 0.0f);
 		W.Clock->Tick(0.016f);
-		TestTrue(TEXT("a modifier brings it at night"), W.Parameter(MPC_Aurora).R > 0.0f);
+		TestTrue(TEXT("a modifier brings it at night"), FMath::Abs(W.Parameter(MPC_Aurora).R) > 0.0f);
 		W.Clock->SetTimeOfDay(12.0f);
 		W.Clock->Tick(0.016f);
 		TestEqual(TEXT("but not by day"), W.Parameter(MPC_Aurora).R, 0.0f);

@@ -150,47 +150,72 @@ float DSky_Stars(float3 V, float Rotation, float Density, float Twinkle, float S
 	return Present * Point * lerp(0.35, 1.0, R.z) * Flicker * saturate(V.z * 5.0);
 }
 
-// The aurora: curtains of light along the magnetic latitude, from some 100 km up (their sharp lower edge) to 320 km,
-// toward the pole. Each view ray is read at eight heights, where it meets each over the planet's curve: the arc there
-// (ArcDistance toward the pole, ArcWidth wide) folded along its length and drifting, striated with rays, green low
-// down going to red and violet at the top, brightest a little above its lower edge.
+// The aurora: curtains of light along the magnetic latitude, from some 95 km up (their sharp lower edge, where a band
+// shines brighter) to 330 km, toward the pole, in three layers one behind another. Each view ray is read at six heights,
+// where it meets each over the planet's curve; each layer's curtain there folds along its length in great S-bends that
+// drift and slowly change shape (and the whole field warps more slowly still), striated with rays in its body above the
+// bright band; green low down going to red and violet at the top. (Six heights: the bright band is wide enough not to fall
+// between them.) A negative strength draws it for the stylized looks:
+// its light banded in three clean tones.
 // Aurora = (strength, speed, toward the pole x, y), Low = (low colour, arc distance km), High = (high colour, arc width km).
 float3 DSky_Aurora(float3 V, float4 Aurora, float4 Low, float4 High, float Seconds)
 {
-	if (Aurora.x <= 0.0 || V.z <= 0.0)
+	if (Aurora.x == 0.0 || V.z <= 0.0)
 	{
 		return 0;
 	}
+	float Strength = abs(Aurora.x);
 	float2 Pole = dot(Aurora.zw, Aurora.zw) > 1.0e-6 ? normalize(Aurora.zw) : float2(1.0, 0.0);
 	float2 East = float2(-Pole.y, Pole.x);
 	float Flat = length(V.xy);
 	float2 Out = Flat > 1.0e-4 ? V.xy / Flat : Pole;
 	float T = Seconds * Aurora.y;
 	float3 Sum = 0;
-	const int Heights = 8;
+	const int Heights = 6;
 	[unroll]
 	for (int i = 0; i < Heights; ++i)
 	{
 		float H = (float(i) + 0.5) / float(Heights);
-		float Altitude = lerp(100.0, 320.0, H);
+		float Altitude = lerp(95.0, 330.0, H);
 		// (Where the ray reaches that height over a 6371 km planet, and how far off along the ground.)
 		float a = Flat * Flat / (2.0 * 6371.0);
 		float Along = 2.0 * Altitude / (V.z + sqrt(V.z * V.z + 4.0 * a * Altitude));
 		float2 P = Out * (Along * Flat);
 		float East1 = dot(P, East);
 		float North1 = dot(P, Pole);
-		// The arc folds along its length (two scales of folds, drifting apart), and ripples with rays.
-		float Fold = (DSky_ValueNoise(float2(East1 * 0.004 + T * 0.020, 1.7)) - 0.5) * 280.0
-			+ (DSky_ValueNoise(float2(East1 * 0.015 - T * 0.050, 5.3)) - 0.5) * 70.0;
-		float X = (North1 - Low.a - Fold) / max(High.a, 1.0);
-		float Band = exp(-X * X);
-		float Rays = 0.45 + 0.55 * DSky_ValueNoise(float2(East1 * 0.11 + T * 0.30, 9.1 + H * 0.4));
-		float Rise = smoothstep(0.0, 0.1, H) * (1.0 - smoothstep(0.3, 1.0, H));
+		// The bright band along the lower edge, the body fading upward above it, nothing under the edge.
+		float Edge = exp(-pow((H - 0.07) / 0.08, 2.0));
+		float Body = smoothstep(0.0, 0.04, H) * (1.0 - smoothstep(0.1, 1.0, H));
 		float3 Colour = lerp(Low.rgb, High.rgb, smoothstep(0.3, 0.9, H));
-		Sum += Colour * Band * Rays * Rise;
+		float Warp = (DSky_ValueNoise(float2(East1 * 0.0012 + T * 0.003, 3.1)) - 0.5) * 240.0;
+		[unroll]
+		for (int Layer = 0; Layer < 3; ++Layer)
+		{
+			float L = float(Layer);
+			float Fold = (DSky_ValueNoise(float2(East1 * 0.0032 + T * 0.010 + L * 7.3, 1.7 + L)) - 0.5) * 460.0
+				+ (DSky_ValueNoise(float2(East1 * 0.011 - T * 0.026 + L * 3.1, 5.3 + L)) - 0.5) * 120.0 + Warp;
+			float Width = max(High.a, 1.0) * (0.55 + 0.3 * L);
+			float X = (North1 - Low.a - L * 85.0 - Fold) / Width;
+			float Curtain = exp(-X * X);
+			if (Curtain < 0.01)
+			{
+				continue;
+			}
+			float Rays = 0.4 + 0.6 * DSky_ValueNoise(float2(East1 * 0.085 + T * 0.22 + L * 11.0, 9.1 + H * 0.3));
+			float Light = 1.6 * Edge + Body * lerp(1.0, Rays, smoothstep(0.05, 0.25, H));
+			Sum += Colour * Curtain * Light * (Layer == 0 ? 1.0 : (Layer == 1 ? 0.55 : 0.3));
+		}
 	}
 	// (Low over the horizon it is seen through more air: it fades into it.)
-	return Sum * (Aurora.x * 2.0 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
+	Sum *= Strength * (1.2 / float(Heights)) * smoothstep(0.0, 0.08, V.z);
+	if (Aurora.x < 0.0)
+	{
+		// The stylized looks: three tones with clean edges, the hue kept.
+		float Level = dot(Sum, float3(0.3, 0.6, 0.1)) / Strength;
+		float Stepped = 0.22 * smoothstep(0.13, 0.15, Level) + 0.33 * smoothstep(0.28, 0.31, Level) + 0.45 * smoothstep(0.5, 0.54, Level);
+		Sum *= Stepped / max(Level, 1.0e-4);
+	}
+	return Sum;
 }
 
 // The night sky's own light: NightGlow = (airglow, -), brighter low down where the eye looks through more of the glowing

@@ -215,6 +215,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->ApplyLighting(Applied, *Style, bSnap);
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
+	bStylizedClouds = Sky->GetEffectiveCloudLook() != EDreamSkyCloudLook::Realistic;
 	WriteParameters(Clock, *Style, Sky->DrawsClouds());
 	LogLighting(Clock);
 	Applied = Modified;
@@ -521,7 +522,8 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
 		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
 		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
-		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f);
+		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
+			* (Style.Aurora.bStylizedTones && bStylizedClouds ? -1.0f : 1.0f);
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
 		Clock.SetVectorParameter(MPC_AuroraHigh, With(Style.Aurora.HighColor, FMath::Max(Style.Aurora.ArcWidth, 1.0f)));
