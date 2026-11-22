@@ -465,4 +465,111 @@ bool FDreamSkyScreenFrostTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyHeatHazeTest, "DreamSky.HeatHaze", DreamSky::NightTests::Flags)
+bool FDreamSkyHeatHazeTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	auto Air = [](FNightWorld& W, float Temperature, float Coverage, float Rain, float Wind)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.Temperature = Temperature;
+		Env.CloudCoverage = Coverage;
+		Env.Precipitation = Rain;
+		Env.Wind = Wind;
+		W.Clock->SetEnvironment(Env);
+		W.Clock->Tick(0.016f);
+		return W.SkySubsystem->GetHeatHaze();
+	};
+	{
+		FNightWorld W(FDateTime(2026, 7, 20, 13, 0, 0), 35.68, 139.69, 9.0f);
+		if (!TestTrue(TEXT("summer noon world"), W.IsValid()))
+		{
+			return false;
+		}
+		TestTrue(TEXT("the air's own shimmer, drawn unless the project turns it off"), W.Sky->GetEffectiveStyle()->HeatHaze.bEnabled);
+		W.Clock->Tick(0.016f);
+		const float Hot = Air(W, 38.0f, 0.0f, 0.0f, 0.0f);
+		if (W.Clock->GetEnvironment().Temperature != 38.0f)
+		{
+			AddWarning(TEXT("the world's weather was set over the test's: the shimmer is not checked"));
+			return true;
+		}
+		TestTrue(FString::Printf(TEXT("a hot clear noon shimmers (%.3f)"), Hot), Hot > 0.9f);
+		TestEqual(TEXT("a mild day does not"), Air(W, 18.0f, 0.0f, 0.0f, 0.0f), 0.0f);
+		const float Warm = Air(W, 30.0f, 0.0f, 0.0f, 0.0f);
+		TestTrue(FString::Printf(TEXT("a warm one a little (%.3f)"), Warm), Warm > 0.1f && Warm < Hot);
+		TestTrue(TEXT("overcast stops it"), Air(W, 38.0f, 1.0f, 0.0f, 0.0f) < 0.01f);
+		TestTrue(TEXT("so does the rain"), Air(W, 38.0f, 0.3f, 1.0f, 0.0f) < 0.01f);
+		const float Windy = Air(W, 38.0f, 0.0f, 0.0f, 1.0f);
+		TestTrue(FString::Printf(TEXT("the wind stirs it away (%.3f)"), Windy), Windy < 0.6f * Hot);
+	}
+	{
+		FNightWorld W(FDateTime(2026, 7, 20, 23, 0, 0), 35.68, 139.69, 9.0f);
+		if (TestTrue(TEXT("summer night world"), W.IsValid()))
+		{
+			W.Clock->Tick(0.016f);
+			TestEqual(TEXT("no sun, no shimmer"), Air(W, 38.0f, 0.0f, 0.0f, 0.0f), 0.0f);
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyRainbowTest, "DreamSky.Rainbow", DreamSky::NightTests::Flags)
+bool FDreamSkyRainbowTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+
+	auto Weather = [](FNightWorld& W, float Rain, float Coverage, float Seconds)
+	{
+		FDreamWorldEnvironment Env;
+		Env.bActive = true;
+		Env.Precipitation = Rain;
+		Env.CloudCoverage = Coverage;
+		W.Clock->SetEnvironment(Env);
+		for (float T = 0.0f; T < Seconds; T += 0.5f)
+		{
+			W.Clock->Tick(0.5f);
+		}
+		return W.SkySubsystem->GetRainbow();
+	};
+	{
+		// (A summer evening: the sun some 15 degrees up in the west.)
+		FNightWorld W(FDateTime(2026, 7, 20, 17, 30, 0), 35.68, 139.69, 9.0f);
+		if (!TestTrue(TEXT("summer evening world"), W.IsValid()))
+		{
+			return false;
+		}
+		TestTrue(TEXT("the air's own light, drawn unless the project turns it off"), W.Sky->GetEffectiveStyle()->Rainbow.bEnabled);
+		const float Elevation = FMath::RadiansToDegrees(FMath::Asin(float(W.SkySubsystem->GetLighting().MainLightDirection.Z)));
+		TestTrue(FString::Printf(TEXT("the sun is low (%.1f degrees)"), Elevation), Elevation > 3.0f && Elevation < 30.0f);
+		TestEqual(TEXT("no rain, no rainbow"), Weather(W, 0.0f, 0.2f, 1.0f), 0.0f);
+		const float Shower = Weather(W, 1.0f, 0.3f, 10.0f);
+		if (W.Clock->GetEnvironment().Precipitation < 0.99f)
+		{
+			AddWarning(TEXT("the world's weather was set over the test's: the rainbow is not checked"));
+			return true;
+		}
+		TestTrue(FString::Printf(TEXT("a shower in the low sun shows one (%.3f)"), Shower), Shower > 0.5f);
+		TestTrue(TEXT("not with the sun behind an overcast"), Weather(W, 1.0f, 1.0f, 1.0f) < 0.01f);
+		const float After = Weather(W, 0.0f, 0.2f, 5.0f);
+		TestTrue(FString::Printf(TEXT("the rain over, it stays a while (%.3f)"), After), After > 0.5f);
+		const float Later = Weather(W, 0.0f, 0.2f, 300.0f);
+		TestTrue(FString::Printf(TEXT("and fades as the air dries (%.3f)"), Later), Later < 0.1f);
+		Weather(W, 1.0f, 0.3f, 10.0f);
+		W.Clock->SetCinematicModeOverride(true);
+		TestEqual(TEXT("a cinematic frame is where it is heading at once"), Weather(W, 0.0f, 0.2f, 0.5f), 0.0f);
+		W.Clock->SetCinematicModeOverride(false);
+	}
+	{
+		FNightWorld W(FDateTime(2026, 7, 20, 12, 0, 0), 35.68, 139.69, 9.0f);
+		if (TestTrue(TEXT("summer noon world"), W.IsValid()))
+		{
+			TestEqual(TEXT("the sun too high: the bow is below the horizon"), Weather(W, 1.0f, 0.3f, 10.0f), 0.0f);
+		}
+	}
+	return true;
+}
+
 #endif

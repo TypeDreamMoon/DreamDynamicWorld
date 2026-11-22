@@ -9,7 +9,9 @@
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
 #include "SceneView.h"
+#include "SceneTexturesConfig.h"
 #include "ShaderParameterStruct.h"
+#include "SystemTextures.h"
 
 class FDreamSkyScreenPS : public FGlobalShader
 {
@@ -20,6 +22,14 @@ class FDreamSkyScreenPS : public FGlobalShader
 		SHADER_PARAMETER(FVector4f, Screen)
 		SHADER_PARAMETER(FVector4f, Frost)
 		SHADER_PARAMETER(FVector4f, FrostTint)
+		SHADER_PARAMETER(FVector4f, Haze)
+		SHADER_PARAMETER(FVector4f, HazeMotion)
+		SHADER_PARAMETER(FVector4f, Rainbow)
+		SHADER_PARAMETER(FVector4f, RainbowAxis)
+		SHADER_PARAMETER(FVector4f, RainbowLight)
+		SHADER_PARAMETER(FVector4f, RainbowRange)
+		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, SceneDepth)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, InputSampler)
 		SHADER_PARAMETER(FVector2f, InputInvExtent)
@@ -58,6 +68,22 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	Params->Screen = Settings.Screen;
 	Params->Frost = Settings.Frost;
 	Params->FrostTint = Settings.FrostTint;
+	Params->Haze = Settings.Haze;
+	Params->HazeMotion = Settings.HazeMotion;
+	Params->Rainbow = Settings.Rainbow;
+	Params->RainbowAxis = Settings.RainbowAxis;
+	Params->RainbowLight = Settings.RainbowLight;
+	Params->RainbowRange = Settings.RainbowRange;
+	Params->View = View.ViewUniformBuffer;
+	// (The depth at the render's own resolution: the shimmer reads it through the view's rect.)
+	FRDGTextureRef Depth = Inputs.SceneTextures.SceneTextures ? Inputs.SceneTextures.SceneTextures->GetParameters()->SceneDepthTexture : nullptr;
+	if (!Depth || !View.IsPerspectiveProjection())
+	{
+		Depth = GSystemTextures.GetDepthDummy(GraphBuilder);
+		Params->Haze.X = 0.0f;
+		Params->Rainbow.X = 0.0f;
+	}
+	Params->SceneDepth = Depth;
 	Params->InputTexture = SceneColor.Texture;
 	Params->InputSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	const FIntPoint Extent = SceneColor.Texture->Desc.Extent;
@@ -70,6 +96,6 @@ FScreenPassTexture DreamSky::Screen::AddPasses(FRDGBuilder& GraphBuilder, const 
 	Params->Seconds = View.Family ? float(FMath::Fmod(View.Family->Time.GetWorldTimeSeconds(), 3600.0)) : 0.0f;
 	Params->RenderTargets[0] = Output.GetRenderTargetBinding();
 	TShaderMapRef<FDreamSkyScreenPS> Shader(ShaderMap);
-	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Lens"), Shader, Params, Output.ViewRect);
+	FPixelShaderUtils::AddFullscreenPass(GraphBuilder, ShaderMap, RDG_EVENT_NAME("Screen"), Shader, Params, Output.ViewRect);
 	return FScreenPassTexture(Output);
 }
