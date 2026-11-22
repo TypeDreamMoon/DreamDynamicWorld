@@ -501,11 +501,11 @@ on every run, so rerun it after updating the plugin to take in what it has gaine
 hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
 **hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
 a window looking out, a roof the rain knows — and a **porch** before its door that only a roof capture box tells the
-weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip; a **grove** on the
-rolling ground has crowns tagged as leaves (the rain sounds on them); a **campfire** warms the air around it (a
-temperature volume) and keeps the ground round it clear of snow and puddles (a mask brush); **crates** slide and tip in
-a gale (`UDreamWindForceComponent`); an irregular **snow field** (a polygon zone) lies far ahead; a **storm** drifts in
-from the west in the morning of the first day. A wind terrain map baked over the set gives the roofs and the dips the
+weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
+the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
+sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
+snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
+**snow field** (a polygon zone) lies far ahead; a **storm** drifts in from the west in the morning of the first day. A wind terrain map baked over the set gives the roofs and the dips the
 puddles follow (props, posts and the crates are pass-through).
 
 **The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule

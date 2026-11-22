@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 
 class AStaticMeshActor;
+struct FMeshDescription;
 class UDreamSkyStyle;
 class UMaterialInterface;
 class UStaticMesh;
@@ -37,6 +38,9 @@ namespace DreamWorld::SurfaceSetup
 	 * (the wind terrain bake) hits its roofs and props: until then only some of it may be there.
 	 */
 	void ReadyCollision(UWorld& World);
+
+	/** A static mesh built afresh from a mesh description, with one material slot. */
+	UStaticMesh* SaveMesh(const TCHAR* Path, FMeshDescription&& Description, const TCHAR* Slot);
 }
 
 namespace DreamWorld::Setup

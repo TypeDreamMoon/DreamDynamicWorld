@@ -1,6 +1,8 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldShowcaseSetup.h"
+#include "DreamSurfaceSetup.h"
+#include "DreamWindTerrainMap.h"
 
 #include "DreamSky.h"
 #include "DreamSkyConditions.h"
@@ -21,7 +23,11 @@
 #include "Engine/Level.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
 #include "LevelSequence.h"
+#include "Materials/MaterialInterface.h"
+#include "MeshDescription.h"
+#include "StaticMeshAttributes.h"
 #include "LevelSequenceActor.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
@@ -157,7 +163,59 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("crates the wind pushes"), Crates >= 3);
 	const TArray<ADreamWindGlobal*> Winds = ActorsOf<ADreamWindGlobal>(World);
-	TestTrue(TEXT("wind with the level's heights baked"), Winds.Num() == 1 && Winds[0]->TerrainMap != nullptr);
+	if (TestTrue(TEXT("wind with the level's heights baked"), Winds.Num() == 1 && Winds[0]->TerrainMap && Winds[0]->TerrainMap->IsValidMap()))
+	{
+		// The bake saw the set's collision: the hut's roof (its top near 320 cm) is in the heights, the square beside it is low.
+		const UDreamWindTerrainMap* Map = Winds[0]->TerrainMap;
+		auto HeightAt = [Map](double X, double Y) { return double(Map->Sample(FVector2D(X, Y)).W) + Map->HeightRange.X; };
+		TestTrue(*FString::Printf(TEXT("the hut's roof in the heights (%.0f cm)"), HeightAt(2450.0, 700.0)), HeightAt(2450.0, 700.0) > 280.0);
+		TestTrue(*FString::Printf(TEXT("the square low (%.0f cm)"), HeightAt(1100.0, 300.0)), HeightAt(1100.0, 300.0) < 50.0);
+	}
+
+	// The crowns in a muted green, not a toon colour.
+	for (AStaticMeshActor* Actor : ActorsOf<AStaticMeshActor>(World))
+	{
+		if (Actor->Tags.Contains(FDreamWeatherFallPaths::LeavesTag))
+		{
+			const UMaterialInterface* Material = Actor->GetStaticMeshComponent()->GetMaterial(0);
+			TestEqual(TEXT("a crown's material"), Material ? Material->GetName() : FString(), FString(TEXT("MI_DreamSurfaceLeaves")));
+		}
+	}
+
+	// The pond's rim lies just inside the bank's waterline all round: under water at the rim, above it a little further out.
+	for (AStaticMeshActor* Actor : ActorsOf<AStaticMeshActor>(World))
+	{
+		if (!Actor->GetActorLabel().StartsWith(TEXT("Pond")))
+		{
+			continue;
+		}
+		const UStaticMesh* Mesh = Actor->GetStaticMeshComponent()->GetStaticMesh();
+		const FMeshDescription* Description = Mesh ? Mesh->GetMeshDescription(0) : nullptr;
+		if (!TestNotNull(TEXT("the pond's own mesh"), Description))
+		{
+			break;
+		}
+		TestTrue(TEXT("the pond's level"), FMath::IsNearlyEqual(Actor->GetActorLocation().Z, DreamWorld::Setup::ShowcasePondLevel, 0.1));
+		FStaticMeshConstAttributes Attributes(*Description);
+		const TVertexAttributesConstRef<FVector3f> Positions = Attributes.GetVertexPositions();
+		int32 Rim = 0, Wet = 0, Dry = 0;
+		for (const FVertexID Vertex : Description->Vertices().GetElementIDs())
+		{
+			const FVector2D Local(Positions[Vertex].X, Positions[Vertex].Y);
+			if (Local.Size() < 1.0)
+			{
+				continue;
+			}
+			const FVector2D At = FVector2D(Actor->GetActorLocation()) + Local;
+			const FVector2D Beyond = At + Local.GetSafeNormal() * (2.0 * DreamWorld::Setup::ShowcasePondInset);
+			++Rim;
+			Wet += DreamWorld::SurfaceSetup::GroundHeight(At.X, At.Y) < DreamWorld::Setup::ShowcasePondLevel ? 1 : 0;
+			Dry += DreamWorld::SurfaceSetup::GroundHeight(Beyond.X, Beyond.Y) > DreamWorld::Setup::ShowcasePondLevel ? 1 : 0;
+		}
+		TestTrue(*FString::Printf(TEXT("a round rim (%d sides)"), Rim), Rim >= 96);
+		TestEqual(TEXT("the rim under water all round"), Wet, Rim);
+		TestEqual(TEXT("the bank above water just beyond it all round"), Dry, Rim);
+	}
 	TestEqual(TEXT("no sequence playing in the day level"), ActorsOf<ALevelSequenceActor>(World).Num(), 0);
 	return true;
 }
