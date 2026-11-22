@@ -101,7 +101,7 @@ void FDreamSkyGradeValues::Pack(FVector4f Out[4]) const
 {
 	Out[0] = FVector4f(ExposureScale, Saturation, HueShift, Contrast);
 	Out[1] = FVector4f(Tint.R, Tint.G, Tint.B, TintSpread);
-	Out[2] = FVector4f(ZenithTint.R, ZenithTint.G, ZenithTint.B, 0.0f);
+	Out[2] = FVector4f(ZenithTint.R, ZenithTint.G, ZenithTint.B, GradientBlend);
 	Out[3] = FVector4f(HorizonTint.R, HorizonTint.G, HorizonTint.B, 0.0f);
 }
 

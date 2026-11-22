@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSkySubsystem.h"
+#include "DreamSkyAtmosphereBridge.h"
 #include "DreamSky.h"
 #include "DreamSkyCloudRenderer.h"
 #include "DreamSkyEclipse.h"
@@ -195,6 +196,8 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	// (While the sky cloud renderer draws the clouds their shadow falls on the ground through the sun's light function:
 	// the overcast does not dim the sun light as well.)
 	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->DrawsClouds() && Sky->SunLight);
+	// The physical sky (DreamAtmosphere) over the style's curves, as far as its grade says.
+	DreamSky::AtmosphereBridge::Apply(Clock, *Sky, *Style, Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
 	Style->ApplyInterior(Clock.GetViewOcclusion(), Target);
 	// The level's own scales over the style's lighting (everything below, lights and parameters alike, sees them).

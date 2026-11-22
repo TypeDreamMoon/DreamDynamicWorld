@@ -14,6 +14,8 @@
 #define DREAMSKY_STYLIZED_USH
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamSkyGradeShared.h"
 
 float DSky_Hash12(float2 p)
 {
@@ -1158,6 +1160,58 @@ float4 DSky_RainShafts(float3 V, float3 Camera, float4 Cloud0, float4 CloudLayer
 	return float4(Color * Alpha, Alpha);
 }
 
+// The physical sky along V (DreamAtmosphere's sky table: per unit of a light's illuminance outside the air, for any light):
+// the sun's and the moon's, each read for its own direction and times its light (AtmosphereSun / Moon rgb).
+float3 DSky_PhysicalSky(float3 V, float3 Sun, float3 Moon, float4 AtmosphereSun, float4 AtmosphereMoon, Texture3D SkyTable,
+	SamplerState SkyTableSampler)
+{
+	float3 Size;
+	SkyTable.GetDimensions(Size.x, Size.y, Size.z);
+	float3 L = float3(0.0, 0.0, 0.0);
+	for (int i = 0; i < 2; ++i)
+	{
+		float3 Light = i == 0 ? Sun : Moon;
+		float3 Strength = i == 0 ? AtmosphereSun.rgb : AtmosphereMoon.rgb;
+		if (dot(Strength, float3(1.0, 1.0, 1.0)) <= 0.0)
+		{
+			continue;
+		}
+		float Lengths = length(V.xy) * length(Light.xy);
+		float CosAround = Lengths > 1.0e-6 ? dot(V.xy, Light.xy) / Lengths : 1.0;
+		float3 P = DSA_SkyUvw(V.z, CosAround, Light.z);
+		float3 Uvw = float3(DSA_TableTexcoord(P.x, Size.x), DSA_TableTexcoord(P.y, Size.y), DSA_TableTexcoord(P.z, Size.z));
+		L += SkyTable.SampleLevel(SkyTableSampler, Uvw, 0).rgb * Strength;
+	}
+	return L;
+}
+
+// The sky's own colour along V, before the bodies, the stars and the clouds -- the same for the dome and the sky cloud
+// renderer (the air between its clouds), so the two match to the pixel. Everything comes in as arguments (no shared
+// parameters, no material parameters read here):
+//   the physical sky: DreamAtmosphere's sky table (UDreamAtmosphereTables::GetSky) and its sampler, lit by the sun and the
+//     moon outside the air (AtmosphereSun / Moon rgb = DDW_AtmosphereSun / Moon; AtmosphereSun.w = 1 while the table is
+//     built), through the style's grade (SkyGrade0..3 = DDW_SkyGrade0..3, DSG_Grade);
+//   the style's gradient (Zenith, Horizon, Ground, SunHalo = DDW_SkyZenith, _SkyHorizon, _SkyGround, _SunHalo), as far as
+//     the grade's GradientBlend (SkyGrade2.w) says, and all of it without the table.
+// Out: Halo, the gradient's glow round the sun, already scaled by the gradient's share (add it, or leave it out); and
+// GradientShare, how much of the gradient shows (the dome scales its own painted extras by it: the moon's halo, the
+// afterglow, the colour given back through an overcast's holes -- the physical sky has its own).
+float3 DSky_SkyBackdrop(float3 V, float3 Sun, float3 Moon, float4 Zenith, float4 Horizon, float4 Ground, float4 SunHalo,
+	float4 SkyGrade0, float4 SkyGrade1, float4 SkyGrade2, float4 SkyGrade3, float4 AtmosphereSun, float4 AtmosphereMoon,
+	Texture3D SkyTable, SamplerState SkyTableSampler, out float3 Halo, out float GradientShare)
+{
+	float3 Gradient = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
+	GradientShare = AtmosphereSun.w > 0.5 ? saturate(SkyGrade2.w) : 1.0;
+	float3 Base = Gradient;
+	if (GradientShare < 1.0)
+	{
+		float3 Physical = DSky_PhysicalSky(V, Sun, Moon, AtmosphereSun, AtmosphereMoon, SkyTable, SkyTableSampler);
+		Base = lerp(DSG_Grade(Physical, V.z, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3), Gradient, GradientShare);
+	}
+	Halo *= GradientShare;
+	return Base;
+}
+
 // Extra = (cloud sky tint, cloud sun glow, share of the sun disk the sky light capture sees, flash gain).
 // Haze = (height fog colour, how much of the dome weather fog hides).
 // Aurora, AuroraLow, AuroraHigh: see DSky_Aurora. NightGlow, LightPollution: see DSky_NightGlow. Eclipse: see
@@ -1172,17 +1226,22 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
-	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture)
+	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
+	float4 SkyGrade0, float4 SkyGrade1, float4 SkyGrade2, float4 SkyGrade3, float4 AtmosphereSun, float4 AtmosphereMoon,
+	Texture3D SkyTable, SamplerState SkyTableSampler)
 {
 	V = normalize(V);
 	float3 Sun = normalize(SunDir.xyz);
 	float3 Moon = normalize(MoonDir.xyz);
 	float3 LightDir = normalize(MainLight.xyz);
 
+	// The sky's own colour (DSky_SkyBackdrop: the physical sky through the grade, or the style's gradient as far as it says).
 	float3 Halo;
-	float3 Base = DSky_Backdrop(V, Sun, Zenith, Horizon, Ground, SunHalo, Halo);
+	float GradientShare;
+	float3 Base = DSky_SkyBackdrop(V, Sun, Moon, Zenith, Horizon, Ground, SunHalo, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3,
+		AtmosphereSun, AtmosphereMoon, SkyTable, SkyTableSampler, Halo, GradientShare);
 	float3 Sky = Base + Halo;
-	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0));
+	Sky += MoonHalo.rgb * pow(saturate(dot(V, Moon)), max(MoonHalo.a, 1.0)) * GradientShare;
 	// The afterglow: once the sun is down the sky over where it set keeps a warm band along the horizon for a while (the
 	// style's halo is gone by 6 degrees under), rose going to violet as the sun sinks, gone by some 12 degrees under.
 	float Dusk = smoothstep(-0.21, -0.03, Sun.z) * (1.0 - smoothstep(-0.03, 0.03, Sun.z));
@@ -1191,11 +1250,11 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float Side = saturate(dot(normalize(V.xy), normalize(Sun.xy)) * 0.5 + 0.5);
 		float Band = exp(-max(V.z, 0.0) * 7.0) * smoothstep(-0.03, 0.0, V.z);
 		float3 Afterglow = lerp(float3(0.16, 0.06, 0.13), float3(0.55, 0.24, 0.12), smoothstep(-0.15, -0.03, Sun.z));
-		Sky += Afterglow * Dusk * Side * Side * Side * Band;
+		Sky += Afterglow * Dusk * Side * Side * Side * Band * GradientShare;
 	}
 	// Through the holes of an overcast the sky shows its own colour: the style greys the whole sky as the cover closes
 	// (by then it is mostly seen through the cloud), and a hole would show that grey; there it is given its blue back.
-	float Closing = smoothstep(0.7, 0.95, Cloud0.x);
+	float Closing = smoothstep(0.7, 0.95, Cloud0.x) * GradientShare;
 	float SkyGrey = dot(Sky, float3(0.2126, 0.7152, 0.0722));
 	Sky = max(SkyGrey + (Sky - SkyGrey) * (1.0 + 1.5 * Closing), 0.0);
 

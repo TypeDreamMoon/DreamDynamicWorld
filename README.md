@@ -846,8 +846,25 @@ the air (the dome, the fog, the clouds' sky, the ambient light), by one function
 saturation, hue, contrast, a tint over the whole sky, and a zenith and a horizon tint that blend down the sky
 (*Tint Spread*); the twilight's *Afterglow*; the weather's part (*Grade ▸ Weather*: what an overcast takes, the dust's
 colour, how grey fog makes it). *Gradient Blend* (0 in every built-in style) goes back to the analytic gradient of the
-*Dome* group. A new grade is the identity. (The sky reads them once it takes the atmosphere on: until then the dome is the
-gradient.) `DreamSky.Grade` checks the grade (the identity, each control, the tints down the sky, the weather).
+*Dome* group. A new grade is the identity. `DreamSky.Grade` checks the grade (the identity, each control, the tints down
+the sky, the weather).
+
+**The sky on the air.** With the atmosphere's tables built (a renderer; the CPU keeps a copy of the sky table, read back
+once per build), the sky is drawn and lit from them (`DreamSky::AtmosphereBridge`, after the style's weather):
+the dome shows the physical sky lit by the sun and the moon (`DSky_PhysicalSky`: the sky table, `DDW_AtmosphereSun` /
+`DDW_AtmosphereMoon`) through the grade (`DDW_SkyGrade0..3`); the style's sun halo, moon halo and painted afterglow
+belong to the gradient and fade with it (the air has its own glow and twilight). The sun light is the sun outside the air
+times its transmittance (the weather's dimming kept), its colour the air's softened by the grade's *Light Saturation*
+(0.7) and tinted by the grade; the ambient light, the fog colour and the dome's zenith and horizon (which the sky light's
+capture watches and the clouds' sky reads) come from the sky sampled on the CPU through the grade; the height fog keeps
+only the weather's density (the clear air is the aerial perspective's). *Match Style Brightness* (on) holds the sky as
+bright as the style's own curves at every hour: the air gives the colours and their spread, the style keeps its tuned
+exposure, light and ambient (a real twilight falls off by thousands, which a game's exposure does not follow), so the
+style's exposure and sky light curves stand as they were. The moon's light keeps the style's curves. Without the tables
+(no renderer, a moment before the first build) everything is the style's curves. `r.DreamSky.PhysicalSky 0` and
+`r.DreamSky.GradientBlendOverride <0..1>` compare. `DreamSky.Atmosphere.PhysicalSky` (with a renderer) checks the sun
+through the air, the matched brightness, the haze left to the aerial perspective, and that a gradient blend of 1 gives
+the style's lighting exactly.
 
 **Aerial perspective.** The air between the eye and the scene: every frame a froxel volume in front of the camera (32 ×
 32 cells, 32 depth slices to 64 km, denser near the eye) holds the light the air scatters toward the eye from the sun and

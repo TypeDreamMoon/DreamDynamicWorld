@@ -44,7 +44,8 @@ struct DREAMSKY_API FDreamSkyGradeValues
 	UPROPERTY(BlueprintReadOnly, Category = "Grade")
 	float GradientBlend = 0.0f;
 
-	/** The four float4s DSG_Grade reads: (exposure, saturation, hue, contrast), (tint, spread), zenith tint, horizon tint. */
+	/** The four float4s DSG_Grade reads: (exposure, saturation, hue, contrast), (tint, spread), (zenith tint, gradient
+	 *  blend), horizon tint. */
 	void Pack(FVector4f Out[4]) const;
 
 	/** This grade applied to a colour seen at a view elevation (its direction's z), on the CPU (the shared function). */
@@ -66,6 +67,18 @@ struct DREAMSKY_API FDreamSkyGrade
 	/** 0: the physical sky, graded. 1: the old analytic gradient of the Dome group (to compare, or for a style drawn by hand). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade", meta = (ClampMin = "0", ClampMax = "1"))
 	float GradientBlend = 0.0f;
+
+	/**
+	 * As bright as the style's own sky (the Dome group's zenith and horizon curves) at every hour, the colours and how they
+	 * spread over the sky the air's: the style's exposure, light and ambient stay as tuned, from noon to the night. Off: the
+	 * air's own brightness (a real twilight falls off by thousands, which the style's exposure does not follow).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade")
+	bool bMatchStyleBrightness = true;
+
+	/** How much of the air's colour the sunlight keeps (1 the air's deep reds at sunset; lower, a restrained warm light). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade", meta = (ClampMin = "0", ClampMax = "2"))
+	float LightSaturation = 0.7f;
 
 	/** Exposure offset over the day, EV (+1 twice as bright). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grade", meta = (XAxisName = "Sun elevation", YAxisName = "EV"))

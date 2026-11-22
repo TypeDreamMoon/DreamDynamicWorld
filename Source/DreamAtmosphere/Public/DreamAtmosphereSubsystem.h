@@ -46,6 +46,13 @@ public:
 	/** How many times the tables were built: they are rebuilt only when the air changes. */
 	int32 GetBuildCount() const { return BuildCount; }
 
+	/** The sun outside the air (illuminance times colour, the project settings'), and the moon with its phase. */
+	FLinearColor GetSunLight() const;
+	FLinearColor GetMoonLight() const;
+
+	/** Whether the physical sky can be drawn and read: the tables built, their copy on the CPU. */
+	bool IsSkyReady() const;
+
 private:
 	UPROPERTY()
 	TObjectPtr<UDreamAtmosphereTables> Tables;

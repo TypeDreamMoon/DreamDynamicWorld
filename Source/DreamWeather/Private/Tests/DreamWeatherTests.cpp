@@ -228,6 +228,35 @@ bool FDreamWeatherScheduleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherForcedPresetAliveTest, "DreamWeather.Modifiers.KeepTheirPresets", DreamWeather::Tests::Flags)
+bool FDreamWeatherForcedPresetAliveTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	using namespace DreamWeather::Tags;
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetPaused(true);
+	W.Clock->Tick(0.0f);
+	// A preset only the forcing holds (as DreamWeather.Set loads one): the garbage collector must leave it.
+	TWeakObjectPtr<UDreamWeatherPreset> Forced = Rain();
+	W.Weather->ForceWeather(Forced.Get(), 0.0f);
+	W.Clock->Tick(0.1f);
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+	TestTrue(TEXT("a forced weather's preset outlives a garbage collection"), Forced.IsValid());
+	W.Clock->Tick(0.1f);
+	TestNearlyEqual(TEXT("and still rains"), W.Weather->GetGlobalValues().Get(C::Precipitation), 0.8f, 1e-3f);
+	W.Weather->ClearForcedWeather(0.0f);
+	W.Clock->Tick(5.0f);
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+	TestFalse(TEXT("once no modifier holds it, it may go"), Forced.IsValid());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherModifierTest, "DreamWeather.Modifiers", DreamWeather::Tests::Flags)
 bool FDreamWeatherModifierTest::RunTest(const FString& Parameters)
 {
