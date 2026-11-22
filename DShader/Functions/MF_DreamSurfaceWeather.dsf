@@ -1,0 +1,78 @@
+// DreamSurface - the weather on a surface, realistic: one node at the end of a material's attributes.
+//
+// MF_DreamSurfaceWeather(Attributes) -> Attributes
+//
+//   MF_DreamSurfaceWeather(Attrs, Attrs);     // the last thing before Base.MaterialAttributes
+//
+// What the weather has left there (as MF_DreamSurfaceSample: wet, standing water, snow, dust, lowered under cover)
+// changes the attributes the way the real thing does (after Lagarde, "Water drop 3b", 2013):
+//   wet     a porous surface (rough and not metal) darkens, every surface turns glossier; metal does not darken
+//   water   stands in the hollows of what faces up (the shared hollow pattern, DSF_Hollow): dark, mirror-smooth, flat
+//   snow    lies on what faces up, thicker the more it faces up, with a broken edge; white, matte, flat
+//   dust    settles on what faces up, under the snow: the dust's colour, rough, not metal
+// MF_DreamSurfaceWeatherTerrain adds the snow's depth; MF_DreamSurfaceWeatherToon shifts colour bands instead.
+// The HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
+
+Function float4 DreamSurface_Shown(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params,
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler);
+	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up);
+	return float4(L.Color, L.Roughness);
+}
+
+Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up);
+	return float4(L.Normal, L.Metallic);
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: the weather on a surface (wet, puddles, snow, dust), realistic. Attributes in, attributes out: put it last.";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
+		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
+		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+	}
+
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+
+	Outputs = {
+		MaterialAttributes Result;
+	}
+
+	Graph = {
+		float3 WP = UE.WorldPosition();
+		float Up = saturate(UE.VertexNormalWS().z);
+		float4 State = DreamSurface_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap);
+		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up);
+		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up);
+		Result = Attributes;
+		Result.BaseColor = CR.xyz;
+		Result.Roughness = CR.w;
+		Result.Normal = NM.xyz;
+		Result.Metallic = NM.w;
+	}
+}

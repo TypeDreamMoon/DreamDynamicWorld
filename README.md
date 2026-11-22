@@ -341,7 +341,7 @@ the level.
 
 Module `DreamSurface`: what the weather leaves on the ground. Each surface carries four amounts, 0..1
 (`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing in the hollows:
-the low half fills the small dips, the high half makes puddles), **Snow** (of the deepest cover, *Max Snow Depth*,
+rising, it fills the deepest dips first, then spreads into puddles over some two fifths of a flat surface), **Snow** (of the deepest cover, *Max Snow Depth*,
 30 cm by default) and **Dust**.
 
 **How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
@@ -375,16 +375,38 @@ that matter (the player, a footstep), not for thousands of points a frame.
 (`Shaders/Private/DreamSurfaceMap.usf`): a **near map** (`RT_DreamSurfaceNear`, 256², *Near Map Extent* 128 m,
 moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
 **cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
-step, the zones applied where the texel is (as the weather map applies them), then the shared formula — so a map texel
-and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`). The whole memory is integrated when a step
-goes by, the map moves or the zones change; in between each update only adds the part of the current step gone by.
-The maps hold the state **in the open**; the cover map holds, per texel, the height up to which something keeps the
-sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a surface below it. Two things
-differ from a query: under partial cover (the windward edge of the eaves) a query integrates the reduced weather while
-a material scales the open state; and the map applies zones to cloud cover, darkness and precipitation only (as the
-weather map does), with the view's temperature, wind and dust. The maps are placed by `DDW_SurfaceNear / Far` in the
+step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
+precipitation, snow ratio, temperature, dust and wind), then the shared formula — so a map texel and `SampleSurface`
+at its centre agree (`DreamSurface.Gpu.MatchesCpu`), and a snow zone's border shows on the ground from afar. The whole
+memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
+part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
+up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a
+surface below it. What differs from a query: under partial cover (the windward edge of the eaves) a query integrates
+the reduced weather while a material scales the open state; the map takes the hour's temperature at the view (a zone's
+offset added), not at each texel's height; and like the weather map it takes Override zones only, without their
+height limits. The maps are placed by `DDW_SurfaceNear / Far` in the
 shared collection, beyond both the view's state stands (`DDW_SurfaceView`). GPU cost: some 0.03 ms a frame (both maps
 and the cover), 0.2 ms for an integration.
+
+**Materials.** One node at the end of a material's attributes (Material Attributes in and out):
+
+| Function | For | What the weather does |
+| :-- | :-- | :-- |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface (rough, not metal) darkens, every surface turns glossier, metal does not darken; puddles in the hollows of what faces up (dark, mirror-smooth, flat); snow on what faces up with a broken edge; dust under the snow |
+| `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
+| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow and dust |
+| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
+
+They read the maps and the cover (`/DreamDynamicWorld/Surface/...`) and the shared collection only. The hollow pattern
+puddles gather in and snow thins at (`DSF_Hollow`) and the covers are in the shared header, so a CPU query can tell
+whether a point stands in a puddle. Their HLSL is one file, `Shaders/Private/DreamSurfaceMaterial.ush`, included by
+each function's custom nodes (no function calls another). Demo materials: `M_DreamSurfaceDemo`, `M_DreamSurfaceToonDemo`
+(a minimal cel look whose highlight band follows the roughness), `M_DreamSurfaceTerrainDemo`.
+
+**Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
+a shelter box (dry beneath it), realistic props (stone, metal, wood) and toon props and a toon figure, rolling ground,
+and a snow zone far ahead whose border shows on the ground. The schedule is clear; force the weather
+(`DreamWeather.Set WP_Rain`) with a short day (`DreamWorld.DayLength 0.5`) to watch it change.
 
 Console: `DreamSurface.Dump`, `DreamSurface.Remap` (integrate afresh), `DreamSurface.SaveMaps [name]` (PNGs under
 `Saved/DreamSurface`), `DreamSurface.IntegrateEveryFrame 1` (to measure an integration).

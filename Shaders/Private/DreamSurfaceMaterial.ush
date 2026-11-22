@@ -1,0 +1,117 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// DreamSurfaceMaterial.ush - the surface material functions' HLSL (MF_DreamSurfaceSample, MF_DreamSurfaceWeather,
+// MF_DreamSurfaceWeatherTerrain, MF_DreamSurfaceWeatherToon), included by their custom nodes so that no function has to
+// call another (a material function calling another is rebuilt behind DreamShader's back whenever the callee is).
+//
+// The state and its formula are DreamSurfaceShared.h; this file reads the surface maps around the camera and turns the
+// state into a surface's look.
+
+#ifndef DREAMSURFACE_MATERIAL_USH
+#define DREAMSURFACE_MATERIAL_USH
+
+#include "/Plugin/DreamDynamicWorld/Shared/DreamSurfaceShared.h"
+
+// How far inside a map a point is: 1 in it, fading to 0 over its outer sixteenth (and 0 while the map is not live).
+float DSM_Inside(float2 UV, float Live)
+{
+	float2 Edge = saturate(min(UV, 1.0f - UV) * 16.0f);
+	return Edge.x * Edge.y * Live;
+}
+
+float2 DSM_MapUV(float3 WorldPos, float4 Place)
+{
+	return (WorldPos.xy + Place.xy) * Place.z + 0.5f;
+}
+
+// The state in the open at a world position: the near map, then the far one, then the view's own beyond both.
+float4 DSM_State(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewState,
+	Texture2D NearMap, SamplerState NearSampler, Texture2D FarMap, SamplerState FarSampler)
+{
+	float2 NearUV = DSM_MapUV(WorldPos, NearPlace);
+	float2 FarUV = DSM_MapUV(WorldPos, FarPlace);
+	float NearIn = DSM_Inside(NearUV, NearPlace.w);
+	float FarIn = DSM_Inside(FarUV, FarPlace.w);
+	float4 State = ViewState;
+	if (FarIn > 0.0f)
+	{
+		State = lerp(State, FarMap.SampleLevel(FarSampler, FarUV, 0), FarIn);
+	}
+	if (NearIn > 0.0f)
+	{
+		State = lerp(State, NearMap.SampleLevel(NearSampler, NearUV, 0), NearIn);
+	}
+	return saturate(State);
+}
+
+// How open a surface is to the sky (1 open .. 0 covered): the cover map holds per texel the height up to which something
+// keeps the sky off (R) and how fully (G); a surface below it (less the roof's clearance) is covered, softly.
+// Params = DDW_SurfaceParams (deepest snow, roof clearance, cover softness, -).
+float DSM_Exposure(float3 WorldPos, float4 NearPlace, float4 Params, Texture2D CoverMap, SamplerState CoverSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, NearPlace);
+	float In = DSM_Inside(UV, NearPlace.w);
+	if (In <= 0.0f)
+	{
+		return 1.0f;
+	}
+	float2 Cover = CoverMap.SampleLevel(CoverSampler, UV, 0).rg;
+	float Below = Cover.x - Params.y - WorldPos.z;
+	float Covered = Cover.y * saturate(Below / max(Params.z, 1.0f) + 0.5f);
+	return 1.0f - Covered * In;
+}
+
+// The state a surface shows: the open state lowered under cover (no water or snow lands there, a fifth of the dust).
+float4 DSM_Covered(float4 State, float Exposure)
+{
+	return float4(State.x * Exposure, State.y * Exposure, State.z * Exposure, State.w * (0.2f + 0.8f * Exposure));
+}
+
+// What the weather makes of a realistic surface (after Lagarde, "Water drop 3b", 2013).
+struct FDreamSurfaceLook
+{
+	float3 Color;
+	float Roughness;
+	float Metallic;
+	float3 Normal;      // tangent space
+	float SnowCover;    // how much of it the snow covers (the terrain's snow depth follows it)
+};
+
+FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up)
+{
+	FDreamSurfaceLook L;
+	float Dielectric = 1.0f - Metallic;
+	float Hollow = DSF_Hollow(WorldPos.x, WorldPos.y, 260.0f);
+
+	// The film: a porous surface (rough, not metal) darkens, every surface turns glossier; metal does not darken.
+	float Porosity = saturate((Roughness - 0.2f) * 2.0f) * Dielectric;
+	Color = Color * lerp(1.0f, lerp(0.85f, 0.3f, Porosity), State.x * Dielectric);
+	Roughness = lerp(Roughness, min(Roughness, 0.15f), State.x);
+
+	// Standing water in the hollows of what faces up: dark, mirror-smooth, flat.
+	float Puddle = DSF_PuddleCover(State.y, Up, Hollow);
+	Color = lerp(Color, Color * 0.35f, Puddle * Dielectric);
+	Roughness = lerp(Roughness, 0.02f, Puddle);
+	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Puddle));
+
+	// Snow on what faces up, thicker the more it faces up, a broken edge; then dust under it.
+	float Snow = DSF_SnowCover(State.z, Up, Hollow);
+	Color = lerp(Color, float3(0.88f, 0.9f, 0.93f), Snow);
+	Roughness = lerp(Roughness, 0.6f, Snow);
+	Metallic = lerp(Metallic, 0.0f, Snow);
+	Normal = normalize(lerp(Normal, float3(0.0f, 0.0f, 1.0f), Snow * 0.8f));
+
+	float Dust = State.w * saturate(Up * 1.2f + 0.1f) * (1.0f - Snow);
+	Color = lerp(Color, float3(0.55f, 0.46f, 0.34f), Dust * 0.85f);
+	Roughness = lerp(Roughness, 0.95f, Dust);
+	Metallic = Metallic * (1.0f - Dust);
+
+	L.Color = Color;
+	L.Roughness = Roughness;
+	L.Metallic = Metallic;
+	L.Normal = Normal;
+	L.SnowCover = Snow;
+	return L;
+}
+
+#endif // DREAMSURFACE_MATERIAL_USH

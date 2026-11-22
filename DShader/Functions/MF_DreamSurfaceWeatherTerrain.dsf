@@ -1,0 +1,81 @@
+// DreamSurface - the weather on terrain: the realistic look (as MF_DreamSurfaceWeather), and the snow standing up off
+// the ground.
+//
+// MF_DreamSurfaceWeatherTerrain(Attributes) -> Attributes
+//
+// The snow's depth is DDW_SurfaceParams.x cm (Max Snow Depth) for a full cover, on what faces up:
+//   "Nanite Tessellation" off (default)  a World Position Offset straight up - needs the ground's vertices dense
+//                                        enough to show it
+//   "Nanite Tessellation" on             Displacement 0..1 of the cover instead; set the material's displacement
+//                                        magnitude to the deepest snow and its centre to 0
+// The HLSL is Shaders/Private/DreamSurfaceMaterial.ush (the same look as MF_DreamSurfaceWeather's).
+
+Function float4 DreamSurfaceTerrain_Shown(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params,
+	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler);
+	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float4 DreamSurfaceTerrain_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up);
+	return float4(L.Color, L.Roughness);
+}
+
+Function float4 DreamSurfaceTerrain_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up);
+	return float4(L.Normal, L.Metallic);
+}
+
+ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", Root="Plugin.DreamDynamicWorld")
+{
+	Settings = {
+		Description       = "DreamSurface: the weather on terrain - the realistic look plus the snow's depth (World Position Offset, or Displacement with 'Nanite Tessellation').";
+		ExposeToLibrary   = true;
+		LibraryCategories = "DreamSurface";
+	}
+
+	Properties = {
+		const Texture2D NearMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNear");
+		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
+		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
+	}
+
+	Inputs = {
+		MaterialAttributes Attributes;
+	}
+
+	Outputs = {
+		MaterialAttributes Result;
+	}
+
+	Graph = {
+		float3 WP = UE.WorldPosition();
+		float Up = saturate(UE.VertexNormalWS().z);
+		float4 State = DreamSurfaceTerrain_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap);
+		float4 CR = DreamSurfaceTerrain_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up);
+		float4 NM = DreamSurfaceTerrain_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up);
+
+		// The depth follows the snow smoothly over the ground (no broken edge: a snowfield's surface is continuous).
+		float Depth = saturate(State.z * saturate((Up - 0.3) / 0.5));
+		float Tessellated = UE.StaticSwitchParameter(Name = "Nanite Tessellation", True = 1.0, False = 0.0, Default = false, Group = "DreamSurface");
+		Result = Attributes;
+		Result.BaseColor = CR.xyz;
+		Result.Roughness = CR.w;
+		Result.Normal = NM.xyz;
+		Result.Metallic = NM.w;
+		Result.WorldPositionOffset = Attributes.WorldPositionOffset + float3(0.0, 0.0, Depth * Params.x * (1.0 - Tessellated));
+		Result.Displacement = lerp(Attributes.Displacement, Depth, Tessellated);
+	}
+}
