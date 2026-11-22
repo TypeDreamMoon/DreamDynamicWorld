@@ -10,7 +10,9 @@
 //   snow    a hard-edged cover with an irregular edge, pale blue-white, with hard-edged prints where it was trodden
 //   dust    the block shifts toward the dust's colour, with a hard edge
 // The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
-// DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
+// DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush. How far each block shifts, where the hard
+// edges fall and the covers' colours are material parameters (group "Toon Weather Look"): set them in an instance, or in
+// a parent instance that a set of materials shares.
 
 Function float4 DreamSurfaceToon_Shown(
 	in float3 WorldPos,
@@ -62,11 +64,11 @@ Function float4 DreamSurfaceToon_Trail(in float3 WorldPos, in float4 TrailPlace,
 	return DSM_Trail(WorldPos, TrailPlace, TrailMap, TrailMapSampler);
 }
 
-Function float3 DreamSurfaceToon_Shift(in float3 Color, in float Wet)
+Function float3 DreamSurfaceToon_Shift(in float3 Color, in float Wet, in float ValueDrop, in float SaturationBoost)
 {
 	// Value down a little, saturation up: the block stays a block.
 	float Luma = dot(Color, float3(0.299f, 0.587f, 0.114f));
-	return max(lerp(float3(Luma, Luma, Luma), Color, 1.0f + 0.35f * Wet) * (1.0f - 0.18f * Wet), 0.0f);
+	return max(lerp(float3(Luma, Luma, Luma), Color, 1.0f + SaturationBoost * Wet) * (1.0f - ValueDrop * Wet), 0.0f);
 }
 
 ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root="Plugin.DreamDynamicWorld")
@@ -91,6 +93,37 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyZenith") Zenith;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SkyHorizon") Horizon;
+
+		Group("Toon Weather Look|Wet") {
+			ScalarParameter ToonWetValueDrop       = 0.18 [Slider(0, 1); Description="How far a soaked block's value drops."];
+			ScalarParameter ToonWetSaturationBoost = 0.35 [Slider(0, 2); Description="How far a soaked block's saturation rises."];
+			ScalarParameter ToonWetRoughnessScale  = 0.35 [Slider(0, 1); Description="A soaked surface's roughness, as a share of its own (low: a wider highlight band)."];
+		}
+		Group("Toon Weather Look|Edges") {
+			ScalarParameter ToonEdgeWidth          = 0.05 [Slider(0, 0.5); Description="Half the width of the hard edges (wet dots, puddles, snow, dust): 0 a cut line, larger softer."];
+			ScalarParameter ToonRoughnessFloor     = 0.4  [Slider(0, 1); Description="The weather never takes the roughness below this (or the surface's own), so reflections stay blurred."];
+		}
+		Group("Toon Weather Look|Water") {
+			ScalarParameter ToonPuddleThreshold    = 0.5  [Slider(0, 1); Description="Where a puddle's edge falls on its cover: lower, puddles spread wider."];
+			ScalarParameter ToonPuddleValue        = 0.45 [Slider(0, 1); Description="How much of the block's colour shows under the water."];
+			ScalarParameter ToonPuddleSkyReflection = 0.55 [Slider(0, 1); Description="How much of the sky's colour the water reflects."];
+			ScalarParameter ToonPuddleRoughness    = 0.05 [Slider(0, 1)];
+			ScalarParameter ToonPuddleRimWidth     = 0.2  [Slider(0, 0.5); Description="How far outside the puddle's edge its bright rim reaches (on the cover)."];
+			VectorParameter ToonPuddleRimColor     = float4(0.12, 0.12, 0.12, 1.0) [Description="Added at the rim."];
+			ScalarParameter ToonRippleBrightness   = 0.18 [Slider(0, 1); Description="How bright the rain's rings on the puddles are."];
+		}
+		Group("Toon Weather Look|Snow") {
+			ScalarParameter ToonSnowThreshold      = 0.5  [Slider(0, 1); Description="Where the snow's edge falls on its cover: lower, the snow reaches further."];
+			VectorParameter ToonSnowColor          = float4(0.9, 0.93, 1.0, 1.0) [Description="The snow's colour."];
+			ScalarParameter ToonSnowRoughness      = 0.7  [Slider(0, 1)];
+			ScalarParameter ToonPrintThreshold     = 0.5  [Slider(0, 1); Description="How deep a print must be to show through the snow and the dust."];
+		}
+		Group("Toon Weather Look|Dust") {
+			ScalarParameter ToonDustThreshold      = 0.4  [Slider(0, 1); Description="Where the dust's edge falls on its cover."];
+			VectorParameter ToonDustColor          = float4(0.6, 0.5, 0.36, 1.0) [Description="The dust's colour."];
+			ScalarParameter ToonDustAmount         = 0.8  [Slider(0, 1); Description="How much of the dust's colour shows where it lies."];
+			ScalarParameter ToonDustRoughness      = 0.95 [Slider(0, 1)];
+		}
 	}
 
 	Inputs = {
@@ -114,34 +147,36 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float Rain = DreamSurfaceToon_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
 		float4 Trail = DreamSurfaceToon_Trail(WP, TrailPlace, TrailMap);
 		float2 Drops = DreamSurfaceToon_Drops(WP, UE.Time(), Rain, Trail.y);
-		float Wet = max(State.x, smoothstep(0.45, 0.55, Drops.y) * 0.8 * saturate(Up * 2.0));
+		float W = ToonEdgeWidth;
+		float Wet = max(State.x, smoothstep(0.5 - W, 0.5 + W, Drops.y) * 0.8 * saturate(Up * 2.0));
 
 		// Wet: the block shifts, the highlight band widens.
-		Color = DreamSurfaceToon_Shift(Color, Wet);
-		Rough = lerp(Rough, Rough * 0.35, Wet);
+		Color = DreamSurfaceToon_Shift(Color, Wet, ToonWetValueDrop, ToonWetSaturationBoost);
+		Rough = lerp(Rough, Rough * ToonWetRoughnessScale, Wet);
 
 		// Puddles: a hard edge, the sky's colour for a reflection, a bright ring at the rim.
-		float Puddle = smoothstep(0.45, 0.55, Covers.x);
-		float Rim = smoothstep(0.3, 0.42, Covers.x) - Puddle;
+		float Puddle = smoothstep(ToonPuddleThreshold - W, ToonPuddleThreshold + W, Covers.x);
+		float RimStart = ToonPuddleThreshold - ToonPuddleRimWidth;
+		float Rim = smoothstep(RimStart, RimStart + 0.12, Covers.x) - Puddle;
 		float3 Sky = lerp(Horizon.rgb, Zenith.rgb, 0.5);
-		Color = lerp(Color, lerp(Color * 0.45, Sky, 0.55), Puddle);
-		Color = Color + Rim * 0.12 + smoothstep(0.4, 0.6, Drops.x) * Puddle * 0.18;
-		Rough = lerp(Rough, 0.05, Puddle);
+		Color = lerp(Color, lerp(Color * ToonPuddleValue, Sky, ToonPuddleSkyReflection), Puddle);
+		Color = Color + Rim * ToonPuddleRimColor.rgb + smoothstep(0.4, 0.6, Drops.x) * Puddle * ToonRippleBrightness;
+		Rough = lerp(Rough, ToonPuddleRoughness, Puddle);
 
 		// Snow: a hard-edged cover.
-		float Print = smoothstep(0.4, 0.6, Trail.x);
-		float SnowCover = smoothstep(0.45, 0.55, Covers.y) * (1.0 - Print);
-		Color = lerp(Color, float3(0.9, 0.93, 1.0), SnowCover);
-		Rough = lerp(Rough, 0.7, SnowCover);
+		float Print = smoothstep(ToonPrintThreshold - 0.1, ToonPrintThreshold + 0.1, Trail.x);
+		float SnowCover = smoothstep(ToonSnowThreshold - W, ToonSnowThreshold + W, Covers.y) * (1.0 - Print);
+		Color = lerp(Color, ToonSnowColor.rgb, SnowCover);
+		Rough = lerp(Rough, ToonSnowRoughness, SnowCover);
 
 		// Dust under the snow, hard-edged too.
-		float DustCover = smoothstep(0.35, 0.45, Covers.z) * (1.0 - SnowCover) * (1.0 - Print);
-		Color = lerp(Color, float3(0.6, 0.5, 0.36), DustCover * 0.8);
-		Rough = lerp(Rough, 0.95, DustCover);
+		float DustCover = smoothstep(ToonDustThreshold - W, ToonDustThreshold + W, Covers.z) * (1.0 - SnowCover) * (1.0 - Print);
+		Color = lerp(Color, ToonDustColor.rgb, DustCover * ToonDustAmount);
+		Rough = lerp(Rough, ToonDustRoughness, DustCover);
 
-		// The weather never takes the roughness below 0.4 (or below the surface's own): a lit toon material keeps the engine's
-		// reflections (screen space, Lumen) blurred, never a mirror; the puddles' reflection is the cheap sky colour above.
-		Rough = max(Rough, min(Attributes.Roughness, 0.4));
+		// The weather never takes the roughness below the floor (0.4, or the surface's own): a lit toon material keeps the
+		// engine's reflections (screen space, Lumen) blurred, never a mirror; the puddles' reflection is the sky colour above.
+		Rough = max(Rough, min(Attributes.Roughness, ToonRoughnessFloor));
 
 		Result = Attributes;
 		Result.BaseColor = Color;
