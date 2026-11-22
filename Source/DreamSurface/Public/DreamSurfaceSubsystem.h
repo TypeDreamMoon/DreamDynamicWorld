@@ -126,6 +126,9 @@ public:
 	const FDreamSurfaceMapSteps& GetMapSteps() const { return MapSteps; }
 
 	/** The surface maps around the camera (render targets, placement); null before Initialize. */
+	/** Surface maps this world has drawn (none while another world owns the shared maps: play in editor). */
+	uint32 GetMapDrawCount() const;
+
 	const FDreamSurfaceMaps* GetMaps() const { return Maps.Get(); }
 	FDreamSurfaceMaps* GetMaps() { return Maps.Get(); }
 

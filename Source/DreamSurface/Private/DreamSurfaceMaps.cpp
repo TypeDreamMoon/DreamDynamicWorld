@@ -171,6 +171,16 @@ bool FDreamSurfaceMaps::Resolve()
 	return Near.Target && Far.Target && Cover && Mask && Trails;
 }
 
+void FDreamSurfaceMaps::ForgetDrawn()
+{
+	Near.bLive = false;
+	Far.bLive = false;
+	CoverCenter = FVector2D(1.0e30, 1.0e30);
+	LastCoverDraw = -1.0e30;
+	TrailCenter = FVector2D(1.0e30, 1.0e30);
+	LastTrailDraw = -1.0e30;
+}
+
 void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
 {
 	Near.bLive = false;
@@ -198,6 +208,16 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 
 	UWorld* World = Surface.GetWorld();
 	const bool bCanRender = S->bSurfaceMaps && FApp::CanEverRender() && World && World->Scene != nullptr && !IsRunningDedicatedServer();
+	bool bRedrawAll = false;
+	if (bCanRender && !Writer.Acquire(World, bRedrawAll))
+	{
+		// Another world has the shared maps (play in editor): leave them, and where this world's materials look, alone.
+		return;
+	}
+	if (bRedrawAll)
+	{
+		ForgetDrawn();
+	}
 	if (!bCanRender || !Resolve())
 	{
 		Clock.SetVectorParameter(MPC_SurfaceNear, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
