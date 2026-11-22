@@ -39,8 +39,11 @@ namespace DreamWorld::SurfaceSetup
 	 */
 	void ReadyCollision(UWorld& World);
 
-	/** A static mesh built afresh from a mesh description, with one material slot. */
-	UStaticMesh* SaveMesh(const TCHAR* Path, FMeshDescription&& Description, const TCHAR* Slot);
+	/**
+	 * A static mesh built afresh from a mesh description, with one material slot. DistanceField scales its mesh distance
+	 * field (0: none, for a mesh too large to need one).
+	 */
+	UStaticMesh* SaveMesh(const TCHAR* Path, FMeshDescription&& Description, const TCHAR* Slot, float DistanceField = 1.0f);
 }
 
 namespace DreamWorld::Setup

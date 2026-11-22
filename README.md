@@ -600,6 +600,12 @@ snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWind
 wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
 pass-through).
 
+**The far land.** Beyond the set the land runs on to the horizon (`SM_DreamShowcaseFarLand`, rings out to 35 km under
+the terrain material, so snow lies on it): it meets the set's ground without a step and rises into near hills 5–7.5 km
+out to the south-west and north-east (to some 600 m), mid mountains 12–16 km to the west (to 1.3 km) and a far range
+24–30 km to the south (to 2 km), with low ranges closing the horizon all round. It is there for what lies between the
+eye and the land — the aerial perspective, the fog — and has no collision.
+
 **The day.** Twelve real minutes a day, from 8:00 on 20 January (so the snow settles). The weather is a schedule
 (`UDreamWeatherSelector_Sequence`) that repeats every 24 hours:
 
@@ -624,9 +630,11 @@ sequence in Sequencer to scrub it.
 
 **Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
 shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
-day and a storm by night (the schedule has them the other way round), and takes a frame every three seconds of the dusk
-sequence: `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overview (rows the weathers, columns the views). The tour is plain `DreamWorld.Script`
+day and a storm by night (the schedule has them the other way round), looks at the far land from beside the hut (9 m
+up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
+on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
+`Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
+<screenshots> <out>` for the overviews (rows the weathers, columns the views; the far land's own sheet). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.

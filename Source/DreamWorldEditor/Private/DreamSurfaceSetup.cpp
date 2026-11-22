@@ -120,7 +120,7 @@ namespace DreamWorld::SurfaceSetup
 		return Package;
 	}
 
-	UStaticMesh* SaveMesh(const TCHAR* Path, FMeshDescription&& Description, const TCHAR* Slot)
+	UStaticMesh* SaveMesh(const TCHAR* Path, FMeshDescription&& Description, const TCHAR* Slot, float DistanceField)
 	{
 		UPackage* Package = FreshPackage(Path);
 		UStaticMesh* Mesh = NewObject<UStaticMesh>(Package, *FPackageName::GetShortName(Path), RF_Public | RF_Standalone);
@@ -128,6 +128,7 @@ namespace DreamWorld::SurfaceSetup
 		FStaticMeshSourceModel& Source = Mesh->AddSourceModel();
 		Source.BuildSettings.bRecomputeNormals = false;
 		Source.BuildSettings.bRecomputeTangents = true;
+		Source.BuildSettings.DistanceFieldResolutionScale = DistanceField;
 		FMeshDescription* Target = Mesh->CreateMeshDescription(0);
 		*Target = MoveTemp(Description);
 		Mesh->CommitMeshDescription(0);
