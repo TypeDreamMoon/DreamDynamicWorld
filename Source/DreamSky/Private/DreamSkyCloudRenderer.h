@@ -41,7 +41,7 @@ public:
 	static const TArray<FName>& GetParameterNames();
 	static constexpr int32 NumParameters = 30;
 	/** The realistic and painted looks' settings (FDreamSkyCloudLookParameters), packed for the shaders. */
-	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4 + 4; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's; the clouds' colour scales)
+	static constexpr int32 NumLookParameters = 18 + 128 + 7 + 4 + 5; // (the toon ramps: FDreamSkyToonBaked::RampSize / 2; its finer settings; the painted look's; the clouds' colour scales)
 	static void PackLookParameters(const FDreamSkyCloudLookParameters& Look, FVector4f Out[NumLookParameters]);
 
 private:
@@ -79,6 +79,12 @@ private:
 		DreamSky::LensFlare::FSettings Flare;
 		/** What the weather leaves on the lens (drawn whether or not the clouds are). */
 		DreamSky::Screen::FSettings Screen;
+		/** The sun maps: in how many slices a cascade is redrawn over the frames (DreamSky.CloudRender.SunMapSlices; 1:
+		 *  whole); whole every frame in the world's cinematic mode; the clock's time-jump serial (a jump redraws them
+		 *  whole at once). */
+		int32 SunMapSlices = 6;
+		bool bSunMapsWhole = false;
+		uint32 TimeJumpSerial = 0;
 	};
 
 	/** A view's clouds of the frame before (render thread only). */
@@ -95,8 +101,10 @@ private:
 
 	/**
 	 * The optical depth toward the sun round the view, in two cascades (some 48 km across at 500 m texels, 180 km at
-	 * 2.8 km), each 10 km tall over the layer's base: what the realistic clouds are shadowed by. Kept between frames,
-	 * one cascade redrawn a frame.
+	 * 2.8 km), each 10 km tall over the layer's base: what the realistic clouds are shadowed by. Kept between frames:
+	 * a frame redraws a slice of one cascade (rows of it, the cascades taking turns), so each is redrawn whole every
+	 * 2 x SunMapSlices frames; it is redrawn whole at once when it moves with the view (a texel), when the light has
+	 * turned since its slices began (UpdateSunMaps), on a jump of the clock, and every frame in the cinematic mode.
 	 */
 	struct FSunMap
 	{
@@ -104,6 +112,11 @@ private:
 		/** The ground's: the optical depth from the layer's base the whole way up (the ground shadow reads it). */
 		TRefCountPtr<IPooledRenderTarget> Ground;
 		FVector4f CenterExtent = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
+		/** The light it was drawn for: the oldest of its slices' (the light when the round before the last began). */
+		FVector3f Light = FVector3f::ZeroVector;
+		/** The light when this round of its slices began, and the slice drawn next. */
+		FVector3f RoundLight = FVector3f::ZeroVector;
+		int32 NextSlice = 0;
 	};
 
 	void RenderClouds(FRDGBuilder& GraphBuilder, FSceneView& InView, const FRenderTargetBindingSlots& RenderTargets);
@@ -132,6 +145,9 @@ private:
 	 * over the layer may step where its sample searched for none. Redrawn a frame, with the sun maps.
 	 */
 	TRefCountPtr<IPooledRenderTarget> StormProximity;
-	/** The frame the sun maps were last brought up to date in (by whichever graph drew first in it). */
+	/** The frame the sun maps were last brought up to date in (by whichever graph drew first in it), how many frames
+	 *  have brought them up to date (the cascade's turn), and the clock's time-jump serial they saw last. */
 	uint64 SunMapFrame = ~uint64(0);
+	uint64 SunMapTurn = 0;
+	uint32 SunMapJumpSerial = 0;
 };

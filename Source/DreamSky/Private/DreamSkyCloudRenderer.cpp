@@ -53,6 +53,13 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderGroundReference(
 	TEXT(" otherwise read from: the two should agree within their texels). 0 = off (the ground maps)."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderSunMapSlices(
+	TEXT("DreamSky.CloudRender.SunMapSlices"), 6,
+	TEXT("In how many slices the sky cloud renderer redraws a sun map cascade over the frames (the two cascades take turns,")
+	TEXT(" a slice a frame; 1 = a whole cascade a frame). A cascade is redrawn whole at once when the view moves a texel, the")
+	TEXT(" light turns, or the clock jumps, and every frame in the cinematic mode (DreamWorld.CinematicMode)."),
+	ECVF_RenderThreadSafe);
+
 static TAutoConsoleVariable<float> CVarDreamSkyCloudRenderHistory(
 	TEXT("DreamSky.CloudRender.History"), 0.9f,
 	TEXT("How much of the previous frames the sky cloud renderer keeps (0 = none: every frame stands alone, its jittered")
@@ -196,6 +203,7 @@ class FDreamSkyCloudSunMapCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
 		SHADER_PARAMETER(FVector4f, MapCenterExtent)
 		SHADER_PARAMETER(FIntVector, MapResolution)
+		SHADER_PARAMETER(FIntVector, MapOffset)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutTau)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, OutGroundTau)
 	END_SHADER_PARAMETER_STRUCT()
@@ -563,7 +571,7 @@ void FDreamSkyCloudViewExtension::FillAtmosphere(DreamSkyCloudRender::FCommonPar
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 4, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 5, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -607,6 +615,7 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[158] = FVector4f(L.CloudShadeScale.R, L.CloudShadeScale.G, L.CloudShadeScale.B, L.bCloudMatchStyleBrightness ? 1.0f : 0.0f);
 	Out[159] = FVector4f(L.PaintedCloudLitScale.R, L.PaintedCloudLitScale.G, L.PaintedCloudLitScale.B, 0.0f);
 	Out[160] = FVector4f(L.PaintedCloudShadeScale.R, L.PaintedCloudShadeScale.G, L.PaintedCloudShadeScale.B, 0.0f);
+	Out[161] = L.CloudToStyle;
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -702,6 +711,9 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
+		Settings.SunMapSlices = FMath::Clamp(CVarDreamSkyCloudRenderSunMapSlices.GetValueOnGameThread(), 1, 8);
+		Settings.bSunMapsWhole = Clock && Clock->IsCinematicMode();
+		Settings.TimeJumpSerial = Clock ? Clock->GetTimeJumpSerial() : 0;
 
 		// The light shafts, where the clouds break the sun and their shadow is drawn.
 		const UDreamSkyStyle* Style = Actor->GetEffectiveStyle();
@@ -992,8 +1004,8 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 	FRDGTextureRef WeatherMap, FRDGTextureRef CloudNoise, TFunctionRef<void(DreamSkyCloudRender::FCommonParameters&)> FillCommon)
 {
 	// Once per frame (the first view draws them; the others, and the other graphs of the frame -- scene captures --, read
-	// them), one cascade a frame: the near one on even frames, the far one on odd ones, either whenever it has never been
-	// drawn. Each graph registers them for itself.
+	// them): a slice of one cascade, the near and the far taking turns (FSunMap), or a cascade whole when it must be. Each
+	// graph registers them for itself.
 	const uint64 Frame = GFrameCounterRenderThread;
 	DreamSkyCloudRender::FGraphClouds& Graph = GraphBuilder.Blackboard.GetOrCreate<DreamSkyCloudRender::FGraphClouds>();
 	if (Graph.bSunMaps)
@@ -1003,27 +1015,80 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 	Graph.bSunMaps = true;
 	const bool bFirstThisFrame = SunMapFrame != Frame;
 	SunMapFrame = Frame;
+	const int32 Slices = FMath::Clamp(RenderSettings.SunMapSlices, 1, 8);
+	const FVector4f& MainLight = RenderSettings.Parameters[11];   // (DreamSkyCloudRender.usf's P_MainLight)
+	const FVector3f Light = FVector3f(MainLight.X, MainLight.Y, MainLight.Z).GetSafeNormal();
+	const bool bJumped = RenderSettings.TimeJumpSerial != SunMapJumpSerial;
+	const int32 Turn = int32(SunMapTurn & 1);
+	if (bFirstThisFrame)
+	{
+		SunMapJumpSerial = RenderSettings.TimeJumpSerial;
+		++SunMapTurn;
+	}
+	// (How far the light may have turned since the oldest slice of a cascade was drawn before it is redrawn whole: the
+	// shadows are 500 m texels, and a tower's shadow 10 km out moves some 45 m a quarter of a degree.)
+	const float MaxTurnCos = FMath::Cos(FMath::DegreesToRadians(0.25f));
 	for (int32 Cascade = 0; Cascade < 2; ++Cascade)
 	{
 		FSunMap& Map = SunMaps[Cascade];
-		const bool bDraw = !Map.Texture.IsValid() || !Map.Ground.IsValid() || (bFirstThisFrame && int32(Frame & 1) == Cascade);
-		if (!bDraw)
-		{
-			Graph.SunMaps[Cascade] = GraphBuilder.RegisterExternalTexture(Map.Texture);
-			Graph.GroundMaps[Cascade] = GraphBuilder.RegisterExternalTexture(Map.Ground);
-			continue;
-		}
 		const FIntVector Resolution = Cascade == 0 ? FIntVector(96, 96, 24) : FIntVector(64, 64, 16);
 		const float HalfExtent = Cascade == 0 ? 2400000.0f : 9000000.0f;
 		// (Centred on the view, snapped to its texels: the clouds' shadows do not swim as the view moves.)
 		const double Texel = 2.0 * HalfExtent / Resolution.X;
 		const FVector2D Centre(FMath::RoundToDouble(InView.ViewLocation.X / Texel) * Texel, FMath::RoundToDouble(InView.ViewLocation.Y / Texel) * Texel);
-		Map.CenterExtent = FVector4f(float(Centre.X), float(Centre.Y), HalfExtent, 1.0f);
+		const FVector4f CenterExtent(float(Centre.X), float(Centre.Y), HalfExtent, 1.0f);
 
-		FRDGTextureRef Tau = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(Resolution, PF_R16F, FClearValueBinding::None,
-			TexCreate_ShaderResource | TexCreate_UAV), Cascade == 0 ? TEXT("DreamSky.SunMapNear") : TEXT("DreamSky.SunMapFar"));
-		FRDGTextureRef Ground = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(Resolution.X, Resolution.Y), PF_R16F,
-			FClearValueBinding::None, TexCreate_ShaderResource | TexCreate_UAV), Cascade == 0 ? TEXT("DreamSky.GroundMapNear") : TEXT("DreamSky.GroundMapFar"));
+		// (Whole at once: none yet, the cinematic mode, a jump of the clock. Whole on its turn, a frame at most behind: moved
+		// a texel with the view -- the old one still covers the view, a texel off its middle --, the light turned -- a
+		// quick sun redraws the cascades whole by turns, as before the slices --, or no slices.)
+		const bool bHave = Map.Texture.IsValid() && Map.Ground.IsValid() && Map.Texture->GetDesc().GetSize() == Resolution;
+		const bool bStale = CenterExtent != Map.CenterExtent || FVector3f::DotProduct(Light, Map.Light) < MaxTurnCos || Slices == 1;
+		const bool bWhole = !bHave || (bFirstThisFrame && (RenderSettings.bSunMapsWhole || bJumped || (bStale && Turn == Cascade)));
+		const bool bSlice = !bWhole && bFirstThisFrame && Slices > 1 && Turn == Cascade;
+		if (!bWhole && !bSlice)
+		{
+			Graph.SunMaps[Cascade] = GraphBuilder.RegisterExternalTexture(Map.Texture);
+			Graph.GroundMaps[Cascade] = GraphBuilder.RegisterExternalTexture(Map.Ground);
+			continue;
+		}
+
+		FRDGTextureRef Tau = nullptr;
+		FRDGTextureRef Ground = nullptr;
+		if (bHave)
+		{
+			Tau = GraphBuilder.RegisterExternalTexture(Map.Texture);
+			Ground = GraphBuilder.RegisterExternalTexture(Map.Ground);
+		}
+		else
+		{
+			Tau = GraphBuilder.CreateTexture(FRDGTextureDesc::Create3D(Resolution, PF_R16F, FClearValueBinding::None,
+				TexCreate_ShaderResource | TexCreate_UAV), Cascade == 0 ? TEXT("DreamSky.SunMapNear") : TEXT("DreamSky.SunMapFar"));
+			Ground = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(FIntPoint(Resolution.X, Resolution.Y), PF_R16F,
+				FClearValueBinding::None, TexCreate_ShaderResource | TexCreate_UAV), Cascade == 0 ? TEXT("DreamSky.GroundMapNear") : TEXT("DreamSky.GroundMapFar"));
+		}
+		// (The rows of this slice; a whole cascade from its first. A whole redraw starts the rounds of slices over.)
+		const int32 Rows = bWhole ? Resolution.Y : FMath::DivideAndRoundUp(Resolution.Y, Slices);
+		const int32 FirstRow = bWhole ? 0 : Map.NextSlice * Rows;
+		if (bWhole)
+		{
+			Map.CenterExtent = CenterExtent;
+			Map.Light = Light;
+			Map.RoundLight = Light;
+			Map.NextSlice = 0;
+		}
+		else
+		{
+			if (Map.NextSlice == 0)
+			{
+				// (A round begins: the oldest slices now are the round before's.)
+				Map.Light = Map.RoundLight;
+				Map.RoundLight = Light;
+			}
+			Map.NextSlice = (Map.NextSlice + 1) % Slices;
+		}
+		// (One more layer of threads: the ground's march, SunMapCS.)
+		const FIntVector Count(Resolution.X, FMath::Min(Rows, Resolution.Y - FirstRow), Resolution.Z + 1);
+
 		FDreamSkyCloudSunMapCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSkyCloudSunMapCS::FParameters>();
 		FillCommon(Params->Common);
 		Params->WeatherMap = WeatherMap;
@@ -1032,13 +1097,18 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 		Params->MapCenterExtent = Map.CenterExtent;
 		Params->MapResolution = Resolution;
+		Params->MapOffset = FIntVector(0, FirstRow, 0);
 		Params->OutTau = GraphBuilder.CreateUAV(Tau);
 		Params->OutGroundTau = GraphBuilder.CreateUAV(Ground);
 		TShaderMapRef<FDreamSkyCloudSunMapCS> Shader(ShaderMap);
-		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SunMap %s %dx%dx%d", Cascade == 0 ? TEXT("near") : TEXT("far"), Resolution.X, Resolution.Y, Resolution.Z),
-			Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudSunMapCS::GroupSize));
-		GraphBuilder.QueueTextureExtraction(Tau, &Map.Texture);
-		GraphBuilder.QueueTextureExtraction(Ground, &Map.Ground);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SunMap %s %dx%dx%d%s", Cascade == 0 ? TEXT("near") : TEXT("far"), Count.X, Count.Y, Resolution.Z,
+			bWhole ? TEXT("") : TEXT(" (slice)")), Shader, Params, FComputeShaderUtils::GetGroupCount(Count, FDreamSkyCloudSunMapCS::GroupSize));
+		if (!bHave)
+		{
+			// (Kept for the frames after, once drawn.)
+			GraphBuilder.QueueTextureExtraction(Tau, &Map.Texture);
+			GraphBuilder.QueueTextureExtraction(Ground, &Map.Ground);
+		}
 		Graph.SunMaps[Cascade] = Tau;
 		Graph.GroundMaps[Cascade] = Ground;
 	}

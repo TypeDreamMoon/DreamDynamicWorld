@@ -101,10 +101,12 @@ and painted clouds' lit and shade colours come from the physical sky's light too
 outside the air through it to the clouds' base for the lit tone, the sky's ambient light (as the sky works out
 `DDW_AmbientSky` / `Equator`) for the shade -- by default kept as bright as the style's `CloudLitColor` /
 `CloudShadowColor` at every moment, their colour the light's (`bCloudMatchStyleBrightness`), so a low sun reddens the
-clouds by itself -- times the style's `CloudLitScale` / `CloudShadeScale` curves (`PaintedCloudLitScale` / `PaintedCloudShadeScale`
-for the painted look): 1 at noon, and as the sun goes down a change of hue only, steering the shade back to the
-style's blue-lavender (the complement of the warm light) and taking some of the sunset's saturation off the lit side
-(more for the painted look) while it still warms with the light; `bCloudColorsAbsolute` goes back to the style's
+clouds by itself -- their hue steered toward the style's own colours as far as `CloudLitToStyle` / `CloudShadeToStyle`
+(`PaintedCloudLitToStyle` / `PaintedCloudShadeToStyle` for the painted look) say over the sun's elevation, their
+brightness kept: none at noon; as the sun goes down the shade back to the style's blue-lavender (the complement of the
+warm light) and some of the sunset's saturation off the lit side (more for the painted look), still warming with the
+light; at night the style's moonlit grey-blue, whatever hue the night's light has -- then times the style's
+`CloudLitScale` / `CloudShadeScale` curves (white; `PaintedCloudLitScale` / `PaintedCloudShadeScale`); `bCloudColorsAbsolute` goes back to the style's
 curves as they are. The realistic and painted
 looks take their settings from the style (`RealisticClouds`, `PaintedClouds`, and `CloudShadowReach`, how far their
 shading toward the light reaches), the level's cloud overrides over them; on the actor, `CloudSunScattering` (2.5)
@@ -122,7 +124,11 @@ scenery seen from under the layer, nor the view flying into them (cloud volumes 
 stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
 the sky pixels, `2` the rays that found no cloud, `3` how each ray took the frames before (green its history, yellow
 none this frame, red its history off screen, blue this frame alone); `DreamSky.CloudRender.GroundShadowReference <steps>`
-works the ground shadow out by an even march per texel, a reference for the sun map's ground maps.
+works the ground shadow out by an even march per texel, a reference for the sun map's ground maps. The sun maps
+(the optical depth toward the sun round the view, a near and a far cascade) are redrawn a slice a frame, the
+cascades taking turns (`DreamSky.CloudRender.SunMapSlices`, 6: each redrawn whole every twelfth frame; 1 a whole
+cascade a frame), and whole when the view moves a texel or the light turns a quarter of a degree (on the cascade's
+turn), at once on a jump of the clock, and every frame in the cinematic mode.
 
 The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
 editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as

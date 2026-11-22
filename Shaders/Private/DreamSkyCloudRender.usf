@@ -78,7 +78,7 @@ float4 Parameters[30];
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[161];
+float4 LookParameters[162];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -187,6 +187,7 @@ Texture2D<float> StormProximity;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
+int3 MapOffset;             // SunMapCS: the first texel of the slice it draws
 RWTexture3D<float> OutTau;
 RWTexture2D<float> OutGroundTau;
 RWTexture2D<float4> OutColor;  // rgb = the clouds' light (premultiplied, pre-exposed), a = transmittance
@@ -447,10 +448,21 @@ float3 DSkyR_AirTransmittance(float Height, float LightZ)
 	return exp(-(Rayleigh + Mie + Ozone) * Air);
 }
 
+// A colour's hue taken a share (Toward) of the way to another's, its luminance kept.
+float3 DSkyR_TowardHue(float3 C, float3 Other, float Toward)
+{
+	const float3 Luma = float3(0.2126, 0.7152, 0.0722);
+	float L = dot(C, Luma);
+	float3 Hue = lerp(C / max(L, 1.0e-6), Other / max(dot(Other, Luma), 1.0e-6), saturate(Toward));
+	return Hue * (L / max(dot(Hue, Luma), 1.0e-6));
+}
+
 // The clouds' lit and shade colours (rgb; a as the style's: the rim, the opacity): from the physical sky's light -- the
 // sun's and the moon's outside the air through it to the clouds' base, the sky's ambient light (the shared parameters'
 // DDW_AmbientSky / Equator, as the sky works them out), as bright as the style's curves when it asks (their colour the
-// light's), times the style's scales (LookParameters[157..158]); the
+// light's), their hue taken toward the style's as far as it says at this sun (LookParameters[161]: at night all of the
+// way for the shade, most of it for the lit side, so a blue night floor never comes out saturated), times the style's
+// scales (LookParameters[157..160]); the
 // style's own curves (DDW_CloudLit / Shadow) when it asks for them (bCloudColorsAbsolute) or the atmosphere's tables are
 // not built.
 void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
@@ -473,13 +485,14 @@ void DSkyR_CloudColours(out float4 Lit, out float4 Shade)
 		Light *= dot(P_CloudLit.rgb, Luma) / max(dot(Light, Luma), 1.0e-6);
 		Ambient *= dot(P_CloudShadow.rgb, Luma) / max(dot(Ambient, Luma), 1.0e-6);
 	}
-	// (The toon look's scales, or the painted look's.)
+	// (The hue toward the style's own, as far as the style says at this sun; then the toon look's scales, or the painted
+	// look's.)
 #if DSKY_LOOK == 2
-	Lit.rgb = Light * LookParameters[159].rgb;
-	Shade.rgb = Ambient * LookParameters[160].rgb;
+	Lit.rgb = DSkyR_TowardHue(Light, P_CloudLit.rgb, LookParameters[161].z) * LookParameters[159].rgb;
+	Shade.rgb = DSkyR_TowardHue(Ambient, P_CloudShadow.rgb, LookParameters[161].w) * LookParameters[160].rgb;
 #else
-	Lit.rgb = Light * LookParameters[157].rgb;
-	Shade.rgb = Ambient * LookParameters[158].rgb;
+	Lit.rgb = DSkyR_TowardHue(Light, P_CloudLit.rgb, LookParameters[161].x) * LookParameters[157].rgb;
+	Shade.rgb = DSkyR_TowardHue(Ambient, P_CloudShadow.rgb, LookParameters[161].y) * LookParameters[158].rgb;
 #endif
 }
 
@@ -926,12 +939,16 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 // tallest towers, no further than a sample's shadow looks (CloudShadowTracingDistance), in 16 steps growing with the
 // distance.
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
-void SunMapCS(uint3 Id : SV_DispatchThreadID)
+void SunMapCS(uint3 DispatchId : SV_DispatchThreadID)
 {
-	if (any(int3(Id) >= MapResolution))
+	// (One more layer of threads than the map's: the ground's march, apart from the texels', so no thread does both --
+	// a slice of the map is as slow as its slowest thread.)
+	uint3 Id = DispatchId + uint3(MapOffset);
+	if (int(Id.x) >= MapResolution.x || int(Id.y) >= MapResolution.y || int(Id.z) > MapResolution.z)
 	{
 		return;
 	}
+	const bool bGround = int(Id.z) == MapResolution.z;
 	float3 L = normalize(P_MainLight.xyz);
 	L = normalize(float3(L.xy, max(L.z, 0.05)));
 	float3 Fr = (float3(Id) + 0.5) / float3(MapResolution);
@@ -941,25 +958,28 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 	// (Back from the field's height over the planet's curve to the world's.)
 	float3 World = float3(XY, F.Base + Z - dot(XY, XY) / (2.0 * DSky_PlanetRadius));
 	float3 Rel = World - CameraWorld;
-	float Reach = min((DCS_STORM_TOP - Z) / L.z, max(LP_ShadowTracing, 50000.0));
-	FDCloudAnchor Anchor = (FDCloudAnchor)0;
-	float Tau = 0.0;
-	float Prev = 0.0;
-	const int Steps = 16;
-	for (int k = 0; k < Steps; ++k)
+	if (!bGround)
 	{
-		float Next = Reach * DSky_Square(float(k + 1) / float(Steps));
-		FDSkyCloudSample C = DSky_CloudAt(Rel + L * (0.5 * (Prev + Next)), F, false, Anchor, P_MapParams, WeatherMap,
-			WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
-		Tau += DSkyR_Extinction(C) * (Next - Prev);
-		Prev = Next;
+		float Reach = min((DCS_STORM_TOP - Z) / L.z, max(LP_ShadowTracing, 50000.0));
+		FDCloudAnchor Anchor = (FDCloudAnchor)0;
+		float Tau = 0.0;
+		float Prev = 0.0;
+		const int Steps = 16;
+		for (int k = 0; k < Steps; ++k)
+		{
+			float Next = Reach * DSky_Square(float(k + 1) / float(Steps));
+			FDSkyCloudSample C = DSky_CloudAt(Rel + L * (0.5 * (Prev + Next)), F, false, Anchor, P_MapParams, WeatherMap,
+				WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			Tau += DSkyR_Extinction(C) * (Next - Prev);
+			Prev = Next;
+		}
+		OutTau[Id] = Tau;
+		return;
 	}
-	OutTau[Id] = Tau;
 
 	// The ground's: from the layer's base the whole way up to the storm top, every cloud on the way (not only the first
 	// few kilometres a cloud's own shading looks): with the sun low a tower's shadow lies tens of kilometres out over the
 	// ground, as the engine's cloud shadow map, drawn from the sun over the whole layer, had it.
-	if (Id.z == 0)
 	{
 		float3 Base = float3(XY, F.Base - dot(XY, XY) / (2.0 * DSky_PlanetRadius)) - CameraWorld;
 		float Whole = DCS_STORM_TOP / L.z;

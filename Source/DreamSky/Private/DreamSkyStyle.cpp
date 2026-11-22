@@ -107,15 +107,19 @@ UDreamSkyStyle::UDreamSkyStyle()
 		{ 5.0f, C(0.560f, 0.520f, 0.780f) }, { 10.0f, C(0.950f, 0.960f, 1.250f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) },
 		{ 60.0f, C(1.400f, 1.520f, 1.780f) } });
 
-	// The physical light on the clouds (the style's brightness matched, bCloudMatchStyleBrightness) steered back toward the
-	// style's own colours as the sun goes down, its noon untouched: the shade toward its blue-lavender (the complement of the
-	// warm light) from 20 degrees down, all of the way by 5; the lit side's sunset saturation part of the way toward the
-	// style's softer peach (the toon look 0.45 of it, the painted 0.65), still warming with the light. Each key a hue change
-	// only (the brightness kept), worked out from the physical light and ambient against the style's curves.
-	SetKeys(CloudLitScale, { { -12.0f, C(0.898f, 1.001f, 1.372f) }, { -6.0f, C(1.031f, 0.974f, 1.186f) }, { -3.0f, C(1.023f, 0.983f, 1.086f) }, { 0.0f, C(0.932f, 1.045f, 1.060f) }, { 2.0f, C(0.877f, 1.078f, 1.577f) }, { 5.0f, C(0.901f, 1.039f, 1.370f) }, { 10.0f, C(0.951f, 1.012f, 1.149f) }, { 15.0f, C(0.973f, 1.006f, 1.067f) }, { 20.0f, C(1.000f, 1.000f, 1.000f) }, { 60.0f, C(1.000f, 1.000f, 1.000f) } });
-	SetKeys(CloudShadeScale, { { -12.0f, C(0.609f, 1.056f, 2.392f) }, { -6.0f, C(0.760f, 0.997f, 2.314f) }, { -3.0f, C(0.629f, 1.102f, 2.891f) }, { 0.0f, C(0.550f, 1.221f, 3.845f) }, { 2.0f, C(0.607f, 1.128f, 3.299f) }, { 5.0f, C(0.738f, 1.020f, 2.654f) }, { 10.0f, C(0.876f, 0.999f, 1.545f) }, { 15.0f, C(1.010f, 0.990f, 1.074f) }, { 20.0f, C(1.000f, 1.000f, 1.000f) }, { 60.0f, C(1.000f, 1.000f, 1.000f) } });
-	SetKeys(PaintedCloudLitScale, { { -12.0f, C(0.853f, 1.002f, 1.538f) }, { -6.0f, C(1.045f, 0.962f, 1.269f) }, { -3.0f, C(1.033f, 0.976f, 1.124f) }, { 0.0f, C(0.902f, 1.065f, 1.087f) }, { 2.0f, C(0.820f, 1.115f, 1.845f) }, { 5.0f, C(0.851f, 1.058f, 1.555f) }, { 10.0f, C(0.929f, 1.017f, 1.214f) }, { 15.0f, C(0.962f, 1.008f, 1.094f) }, { 20.0f, C(1.000f, 1.000f, 1.000f) }, { 60.0f, C(1.000f, 1.000f, 1.000f) } });
-	SetKeys(PaintedCloudShadeScale, { { -12.0f, C(0.609f, 1.056f, 2.392f) }, { -6.0f, C(0.760f, 0.997f, 2.314f) }, { -3.0f, C(0.629f, 1.102f, 2.891f) }, { 0.0f, C(0.550f, 1.221f, 3.845f) }, { 2.0f, C(0.607f, 1.128f, 3.299f) }, { 5.0f, C(0.738f, 1.020f, 2.654f) }, { 10.0f, C(0.876f, 0.999f, 1.545f) }, { 15.0f, C(1.010f, 0.990f, 1.074f) }, { 20.0f, C(1.000f, 1.000f, 1.000f) }, { 60.0f, C(1.000f, 1.000f, 1.000f) } });
+	// The physical light on the clouds (the style's brightness matched, bCloudMatchStyleBrightness), its hue steered toward
+	// the style's own colours as the sun goes down -- whatever hue the light has then (a warm dusk's sky, the night's blue
+	// floor): the shade to the style's blue-lavender (the complement of the warm light) from 20 degrees down, all of the way
+	// by 5 and through the night; the lit side part of the way back to the style's softer peach at sunset (the toon look
+	// 0.45 of it, the painted 0.65), still warming with the light, and to its moonlit grey-blue at night. Noon as it is.
+	SetKeys(CloudLitToStyle, { { -12.0f, 0.6f }, { -4.0f, 0.5f }, { 0.0f, 0.45f }, { 5.0f, 0.4f }, { 12.0f, 0.25f }, { 20.0f, 0.0f }, { 60.0f, 0.0f } });
+	SetKeys(CloudShadeToStyle, { { -12.0f, 1.0f }, { 5.0f, 1.0f }, { 10.0f, 0.85f }, { 15.0f, 0.5f }, { 20.0f, 0.0f }, { 60.0f, 0.0f } });
+	SetKeys(PaintedCloudLitToStyle, { { -12.0f, 0.75f }, { -4.0f, 0.7f }, { 0.0f, 0.65f }, { 5.0f, 0.6f }, { 12.0f, 0.35f }, { 20.0f, 0.0f }, { 60.0f, 0.0f } });
+	SetKeys(PaintedCloudShadeToStyle, { { -12.0f, 1.0f }, { 5.0f, 1.0f }, { 10.0f, 0.85f }, { 15.0f, 0.5f }, { 20.0f, 0.0f }, { 60.0f, 0.0f } });
+	SetKeys(CloudLitScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
+	SetKeys(CloudShadeScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
+	SetKeys(PaintedCloudLitScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
+	SetKeys(PaintedCloudShadeScale, { { -12.0f, C(1.0f, 1.0f, 1.0f) }, { 60.0f, C(1.0f, 1.0f, 1.0f) } });
 	SetKeys(AmbientScale, { { -12.0f, 1.0f }, { 60.0f, 1.0f } });
 	SetKeys(SkyLightIntensity, { { -12.0f, 1.0f }, { 0.0f, 0.9f }, { 60.0f, 1.0f } });
 	SetKeys(FogDensity, { { -10.0f, 0.020f }, { 0.0f, 0.025f }, { 5.0f, 0.020f }, { 60.0f, 0.015f } });
