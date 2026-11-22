@@ -341,7 +341,9 @@ bool FDreamWeatherAudioSubsystemTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	W.Settle();
-	TestTrue(TEXT("it pours: the heavy rain plays"), W.Audio->GetVoiceMix(EDreamWeatherVoice::RainHeavy).Loudest() > 0.5f);
+	// (Gains include the slot's volume, which a project may have turned down.)
+	const float HeavySlot = W.Audio->GetSounds().Get(EDreamWeatherVoice::RainHeavy).Volume;
+	TestTrue(TEXT("it pours: the heavy rain plays"), W.Audio->GetVoiceMix(EDreamWeatherVoice::RainHeavy).Loudest() > 0.5f * HeavySlot);
 	TestTrue(FString::Printf(TEXT("the wind at the listener is read from the wind field (%.0f cm/s)"), W.Audio->GetLastInputs().WindSpeed),
 		W.Audio->GetLastInputs().WindSpeed > 500.0f);
 	TestTrue(TEXT("and heard"), W.Audio->GetVoiceMix(EDreamWeatherVoice::Wind).Loudest() > 0.3f);
@@ -437,7 +439,8 @@ bool FDreamWeatherAudioSurfacesTest::RunTest(const FString& Parameters)
 		float Shares[(int32)ESurface::Num];
 		UDreamWeatherFXSubsystem::Get(W.World)->GetPaths(UDreamWeatherFXSubsystem::RainLayer).GetSurfaceShares(FVector(0, 0, 170), 1500.0, Shares);
 		TestTrue(FString::Printf(TEXT("the rain lands on leaves (%.2f)"), Shares[(int32)ESurface::Leaves]), Shares[(int32)ESurface::Leaves] > 0.8f);
-		TestTrue(TEXT("rain on leaves plays"), W.Audio->GetVoiceMix(EDreamWeatherVoice::RainOnLeaves).Intensity > 0.9f
+		const float LeavesSlot = W.Audio->GetSounds().Get(EDreamWeatherVoice::RainOnLeaves).Volume;
+		TestTrue(TEXT("rain on leaves plays"), W.Audio->GetVoiceMix(EDreamWeatherVoice::RainOnLeaves).Intensity > 0.9f * LeavesSlot
 			&& W.Audio->GetVoiceMix(EDreamWeatherVoice::RainOnLeaves).Loudest() > 0.0f);
 		TestTrue(TEXT("a canopy is not a roof"), W.Audio->GetVoiceMix(EDreamWeatherVoice::RainOnRoof).Intensity < 0.2f);
 	}
