@@ -124,7 +124,11 @@ scenery seen from under the layer, nor the view flying into them (cloud volumes 
 stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
 the sky pixels, `2` the rays that found no cloud, `3` how each ray took the frames before (green its history, yellow
 none this frame, red its history off screen, blue this frame alone); `DreamSky.CloudRender.GroundShadowReference <steps>`
-works the ground shadow out by an even march per texel, a reference for the sun map's ground maps.
+works the ground shadow out by an even march per texel, a reference for the sun map's ground maps. The sun maps
+(the optical depth toward the sun round the view, a near and a far cascade) are redrawn a slice a frame, the
+cascades taking turns (`DreamSky.CloudRender.SunMapSlices`, 6: each redrawn whole every twelfth frame; 1 a whole
+cascade a frame), and whole when the view moves a texel or the light turns a quarter of a degree (on the cascade's
+turn), at once on a jump of the clock, and every frame in the cinematic mode.
 
 The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
 editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as

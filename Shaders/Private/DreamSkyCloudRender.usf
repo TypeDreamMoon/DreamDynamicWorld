@@ -187,6 +187,7 @@ Texture2D<float> StormProximity;
 
 float4 MapCenterExtent;   // SunMapCS: the cascade it draws
 int3 MapResolution;
+int3 MapOffset;             // SunMapCS: the first texel of the slice it draws
 RWTexture3D<float> OutTau;
 RWTexture2D<float> OutGroundTau;
 RWTexture2D<float4> OutColor;  // rgb = the clouds' light (premultiplied, pre-exposed), a = transmittance
@@ -938,12 +939,16 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 // tallest towers, no further than a sample's shadow looks (CloudShadowTracingDistance), in 16 steps growing with the
 // distance.
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
-void SunMapCS(uint3 Id : SV_DispatchThreadID)
+void SunMapCS(uint3 DispatchId : SV_DispatchThreadID)
 {
-	if (any(int3(Id) >= MapResolution))
+	// (One more layer of threads than the map's: the ground's march, apart from the texels', so no thread does both --
+	// a slice of the map is as slow as its slowest thread.)
+	uint3 Id = DispatchId + uint3(MapOffset);
+	if (int(Id.x) >= MapResolution.x || int(Id.y) >= MapResolution.y || int(Id.z) > MapResolution.z)
 	{
 		return;
 	}
+	const bool bGround = int(Id.z) == MapResolution.z;
 	float3 L = normalize(P_MainLight.xyz);
 	L = normalize(float3(L.xy, max(L.z, 0.05)));
 	float3 Fr = (float3(Id) + 0.5) / float3(MapResolution);
@@ -953,25 +958,28 @@ void SunMapCS(uint3 Id : SV_DispatchThreadID)
 	// (Back from the field's height over the planet's curve to the world's.)
 	float3 World = float3(XY, F.Base + Z - dot(XY, XY) / (2.0 * DSky_PlanetRadius));
 	float3 Rel = World - CameraWorld;
-	float Reach = min((DCS_STORM_TOP - Z) / L.z, max(LP_ShadowTracing, 50000.0));
-	FDCloudAnchor Anchor = (FDCloudAnchor)0;
-	float Tau = 0.0;
-	float Prev = 0.0;
-	const int Steps = 16;
-	for (int k = 0; k < Steps; ++k)
+	if (!bGround)
 	{
-		float Next = Reach * DSky_Square(float(k + 1) / float(Steps));
-		FDSkyCloudSample C = DSky_CloudAt(Rel + L * (0.5 * (Prev + Next)), F, false, Anchor, P_MapParams, WeatherMap,
-			WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
-		Tau += DSkyR_Extinction(C) * (Next - Prev);
-		Prev = Next;
+		float Reach = min((DCS_STORM_TOP - Z) / L.z, max(LP_ShadowTracing, 50000.0));
+		FDCloudAnchor Anchor = (FDCloudAnchor)0;
+		float Tau = 0.0;
+		float Prev = 0.0;
+		const int Steps = 16;
+		for (int k = 0; k < Steps; ++k)
+		{
+			float Next = Reach * DSky_Square(float(k + 1) / float(Steps));
+			FDSkyCloudSample C = DSky_CloudAt(Rel + L * (0.5 * (Prev + Next)), F, false, Anchor, P_MapParams, WeatherMap,
+				WeatherMapSampler, CloudNoise, CloudNoiseSampler, 0.0);
+			Tau += DSkyR_Extinction(C) * (Next - Prev);
+			Prev = Next;
+		}
+		OutTau[Id] = Tau;
+		return;
 	}
-	OutTau[Id] = Tau;
 
 	// The ground's: from the layer's base the whole way up to the storm top, every cloud on the way (not only the first
 	// few kilometres a cloud's own shading looks): with the sun low a tower's shadow lies tens of kilometres out over the
 	// ground, as the engine's cloud shadow map, drawn from the sun over the whole layer, had it.
-	if (Id.z == 0)
 	{
 		float3 Base = float3(XY, F.Base - dot(XY, XY) / (2.0 * DSky_PlanetRadius)) - CameraWorld;
 		float Whole = DCS_STORM_TOP / L.z;
