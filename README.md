@@ -569,7 +569,8 @@ rain, snow, wind, dust, cold, heat, soaked and freezing. With `bWriteMaterialPar
 The weather's effects have a third layer of fall paths, the **dust layer** (*Dream Weather Effects ▸ Dust and
 Debris*): nearly flat, downwind, a few metres up, ending at walls, roofs and shelters — traced only while dust blows or
 the wind is strong. `NS_DreamDust` streams motes along them, swirling about their paths, with a few large soft puffs
-for the near haze (its amount is the Dust channel). In a strong wind (`DebrisWindSpeed`) the wind's debris — leaves,
+for the near haze (its amount is the Dust channel; what is already flying fades with the dust within half a second,
+so no haze outlives the storm though its particles live 20 s). In a strong wind (`DebrisWindSpeed`) the wind's debris — leaves,
 and the odd twig — starts along the same paths (`NS_DreamWindLeaves`, its Debris emitter; `M_DreamWindDebris`) and the
 wind field carries it. How much debris and its colour follow the season (`DebrisSeasonAmount`, `DebrisSpring` …
 `DebrisWinter`: autumn leaves, a bare winter). Nothing blows in indoors.

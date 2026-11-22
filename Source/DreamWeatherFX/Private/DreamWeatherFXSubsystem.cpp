@@ -31,9 +31,14 @@ namespace DreamWeatherFX
 	static const FName DropRate(TEXT("User.DropRate"));
 	static const FName SplashRate(TEXT("User.SplashRate"));
 	static const FName Anywhere(TEXT("User.Anywhere"));
+	static const FName Presence(TEXT("User.Presence"));
 
 	/** Seconds an effect stays alive after its precipitation stopped (its last drops finish falling). */
 	static constexpr float IdleSecondsBeforeDeactivate = 8.0f;
+
+	/** How fast the dust already in the air follows the weather (Presence per second): its particles live 20 s, the
+	 *  haze they make must end with the storm. */
+	static constexpr float PresenceRate = 2.0f;
 }
 
 UDreamWeatherFXSettings::UDreamWeatherFXSettings()
@@ -315,6 +320,15 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	UNiagaraComponent* Effect = GetEffect(Index);
 	const bool bFalling = Strength > 0.001f && (Layer.DropsPerSecond > 0.0f || Layer.SplashesPerSecond > 0.0f);
 
+	// The dust still in the air: the dust's own share of the blowing (the debris on its paths is not dust), its square
+	// root (fewer motes spawn as well, so the haze thins about as the weather does).
+	const float PresenceTarget = bFalling ? FMath::Sqrt(FMath::Clamp(Strength * DropShare, 0.0f, 1.0f)) : 0.0f;
+	State.Presence = FMath::FInterpConstantTo(State.Presence, PresenceTarget, FMath::Max(DeltaTime, 0.0f), PresenceRate);
+	if (Effect && Index == DustLayer)
+	{
+		Effect->SetVariableFloat(Presence, State.Presence);
+	}
+
 	if (!bFalling)
 	{
 		State.DropRate = 0.0f;
@@ -433,6 +447,10 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	Effect->SetVariableFloat(DropRate, SpawnRate);
 	Effect->SetVariableFloat(SplashRate, State.SplashRate);
 	Effect->SetVariableFloat(Anywhere, SpawnAnywhere);
+	if (Index == DustLayer)
+	{
+		Effect->SetVariableFloat(Presence, State.Presence);
+	}
 }
 
 float UDreamWeatherFXSubsystem::SeasonDebris(const FDateTime& Date, bool bSouthernHemisphere, FLinearColor& OutColor)

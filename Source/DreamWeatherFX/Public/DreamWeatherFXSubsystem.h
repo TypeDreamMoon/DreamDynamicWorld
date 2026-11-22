@@ -51,6 +51,9 @@ public:
 	float GetDropRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].DropRate; }
 	float GetSplashRate(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].SplashRate; }
 
+	/** How much of the layer's dust is still in the air (0..1): what is already flying fades with it (the dust layer). */
+	float GetPresence(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].Presence; }
+
 	/** Drops the last fill put in the air at once (when the effect started or the view jumped). */
 	float GetFillCount(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].FillCount; }
 
@@ -102,6 +105,8 @@ private:
 		float FillCount = 0.0f;
 		float DropRate = 0.0f;
 		float SplashRate = 0.0f;
+		/** How much of the dust is still in the air (the dust layer's particles fade with it). */
+		float Presence = 0.0f;
 	};
 
 	void HandleWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float DeltaTime);

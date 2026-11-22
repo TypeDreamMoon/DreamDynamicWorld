@@ -3,7 +3,8 @@
 // Driven like the rain by UDreamWeatherFXSubsystem, on the dust layer's fall paths: they run nearly flat downwind,
 // a few metres above the ground, and end where they meet a wall, a roof or the ground, or pass under a shelter,
 // so the dust streams past outside and never blows indoors. Motes stream along the paths, swirling a little about
-// them; a few large soft puffs drift along the same paths and make the near haze.
+// them; a few large soft puffs drift along the same paths and make the near haze. Presence fades what is already
+// flying as the storm ends (the particles live 20 s, the haze must not).
 System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
@@ -19,6 +20,7 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
         float  DropRate     = 0.0                [ Group="Amount"; Description="Motes spawned per second." ];
         float  SplashRate   = 0.0                [ Group="Amount"; Description="Unused by dust." ];
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the motes spawned now that start part way along their path." ];
+        float  Presence     = 1.0                [ Group="Amount"; Description="How much of the dust is still in the air (0..1, follows the weather): fades the motes and puffs already flying, so none outlive the storm." ];
         float  Swirl        = 90.0               [ Group="Motion"; Description="How far motes wander about their path, cm/s." ];
         float  MoteSize     = 3.0                [ Group="Look"; Description="Mote size, cm." ];
         float  PuffShare    = 0.03               [ Group="Look"; Description="Puffs per mote." ];
@@ -67,7 +69,7 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
             };
             SolveForcesAndVelocity();
             Color Particles.Color = hlsl {
-                float4(User.Tint.rgb, User.Tint.a * saturate(Particles.NormalizedAge * 8.0) * saturate((1.0 - Particles.NormalizedAge) * 8.0))
+                float4(User.Tint.rgb, User.Tint.a * User.Presence * saturate(Particles.NormalizedAge * 8.0) * saturate((1.0 - Particles.NormalizedAge) * 8.0))
             };
         }
 
@@ -119,7 +121,7 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
             SolveForcesAndVelocity();
             SpriteRotationRate(RotationRate = 6.0);
             Color Particles.Color = hlsl {
-                float4(User.PuffTint.rgb, User.PuffTint.a * saturate(Particles.NormalizedAge * 4.0) * saturate((1.0 - Particles.NormalizedAge) * 4.0))
+                float4(User.PuffTint.rgb, User.PuffTint.a * User.Presence * saturate(Particles.NormalizedAge * 4.0) * saturate((1.0 - Particles.NormalizedAge) * 4.0))
             };
         }
 
