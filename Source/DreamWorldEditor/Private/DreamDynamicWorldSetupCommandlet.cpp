@@ -8,6 +8,7 @@
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
 #include "DreamSkyStyle.h"
+#include "DreamStarMap.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -17,6 +18,7 @@
 #include "DreamWindEditorLibrary.h"
 #include "DreamWorldParameters.h"
 
+#include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/TextureRenderTarget2D.h"
 
@@ -28,6 +30,8 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/Crc.h"
+#include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "UObject/MetaData.h"
@@ -44,6 +48,8 @@ namespace DreamWorld::Setup
 	static const TCHAR* CloudNoisePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamCloudNoise");
 	static const TCHAR* CloudNoiseVersionKey = TEXT("DreamCloudNoiseVersion");
 	static constexpr int32 CloudNoiseSize = 128;
+	static const TCHAR* StarMapPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamStarMap");
+	static const TCHAR* StarMapStampKey = TEXT("DreamStarMapStamp");
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
 	{
@@ -210,6 +216,77 @@ namespace DreamWorld::Setup
 			FAssetRegistryModule::AssetCreated(Texture);
 		}
 		UE_LOG(LogDreamWorld, Display, TEXT("Cloud noise %s: built %d^3 in %.1f s"), *ObjectPath, Size, FPlatformTime::Seconds() - Start);
+		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
+	}
+
+	/**
+	 * The real stars' map (see DreamStarMap.h), built from the Yale Bright Star Catalogue's file: -StarCatalogue=<path>,
+	 * <project>/Saved/StarData/bsc5.dat.gz when not given. With no file the map is left as it is; a file that does not
+	 * read as the catalogue is an error, and the map is left as it is too. Built again when the file or the map's
+	 * version changed, or with bForce.
+	 */
+	static bool EnsureStarMap(const FString& Params, bool bForce)
+	{
+		FString Catalogue = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("StarData"), TEXT("bsc5.dat.gz"));
+		FParse::Value(*Params, TEXT("StarCatalogue="), Catalogue);
+		const FString ObjectPath = FString(StarMapPackage) + TEXT(".") + FPackageName::GetShortName(StarMapPackage);
+		UTexture2D* Texture = FPackageName::DoesPackageExist(StarMapPackage) ? LoadObject<UTexture2D>(nullptr, *ObjectPath) : nullptr;
+		TArray<uint8> Compressed;
+		if (!FFileHelper::LoadFileToArray(Compressed, *Catalogue, FILEREAD_Silent))
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Star map %s: no star catalogue at %s; left as it is"), *ObjectPath, *Catalogue);
+			return true;
+		}
+		const FString Stamp = FString::Printf(TEXT("%d:%08x"), DreamStarMap::Version, FCrc::MemCrc32(Compressed.GetData(), Compressed.Num()));
+		if (Texture && !bForce && Texture->GetOutermost()->GetMetaData().GetValue(Texture, StarMapStampKey) == Stamp)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Star map %s: up to date"), *ObjectPath);
+			return true;
+		}
+		TArray<uint8> Raw;
+		FString Text, Error;
+		TArray<DreamStarMap::FStar> Stars;
+		bool bRead = DreamStarMap::Unzip(Compressed, Raw, Error);
+		if (bRead)
+		{
+			FFileHelper::BufferToString(Text, Raw.GetData(), Raw.Num());
+			bRead = DreamStarMap::Parse(Text, Stars, Error);
+		}
+		if (!bRead)
+		{
+			UE_LOG(LogDreamWorld, Error, TEXT("Star map %s: %s does not read as the Yale Bright Star Catalogue (%s); left as it is"), *ObjectPath, *Catalogue, *Error);
+			return false;
+		}
+
+		TArray<FColor> Texels;
+		const int32 Size = DreamStarMap::Size;
+		const int32 Lost = DreamStarMap::Build(Stars, Size, Texels);
+		const bool bCreated = Texture == nullptr;
+		if (!Texture)
+		{
+			UPackage* Package = CreatePackage(StarMapPackage);
+			Package->FullyLoad();
+			Texture = NewObject<UTexture2D>(Package, *FPackageName::GetShortName(StarMapPackage), RF_Public | RF_Standalone);
+		}
+		Texture->PreEditChange(nullptr);
+		Texture->Source.Init(Size, Size, 1, 1, TSF_BGRA8, reinterpret_cast<const uint8*>(Texels.GetData()));
+		// (Read cell by cell, exactly as built: uncompressed, no mips, no filtering, never streamed out.)
+		Texture->SRGB = false;
+		Texture->CompressionSettings = TC_VectorDisplacementmap;
+		Texture->MipGenSettings = TMGS_NoMipmaps;
+		Texture->LODGroup = TEXTUREGROUP_Pixels2D;
+		Texture->Filter = TF_Nearest;
+		Texture->NeverStream = true;
+		Texture->AddressX = TA_Clamp;
+		Texture->AddressY = TA_Clamp;
+		Texture->PostEditChange();
+		Texture->GetOutermost()->GetMetaData().SetValue(Texture, StarMapStampKey, *Stamp);
+		if (bCreated)
+		{
+			FAssetRegistryModule::AssetCreated(Texture);
+		}
+		UE_LOG(LogDreamWorld, Display, TEXT("Star map %s: %d stars from %s on %dx%d cells (%d left out where the cells round them were taken)"),
+			*ObjectPath, Stars.Num() - Lost, *Catalogue, Size, Size, Lost);
 		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
 	}
 
@@ -418,6 +495,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= EnsureSurfaceMaps();
 	bOk &= EnsureCloudPanorama();
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
+	bOk &= EnsureStarMap(Params, FParse::Param(*Params, TEXT("ForceStarMap")));
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
 

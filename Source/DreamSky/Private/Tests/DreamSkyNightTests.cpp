@@ -572,4 +572,48 @@ bool FDreamSkyRainbowTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCatalogueStarsTest, "DreamSky.Stars.Catalogue", DreamSky::NightTests::Flags)
+bool FDreamSkyCatalogueStarsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// (A winter night in Tokyo, Orion high in the south.)
+	const FDateTime Local(2026, 1, 15, 21, 0, 0);
+	const double Latitude = 35.68, Longitude = 139.69;
+	FNightWorld W(Local, Latitude, Longitude, 9.0f);
+	if (!TestTrue(TEXT("winter night world"), W.IsValid()))
+	{
+		return false;
+	}
+	TestTrue(TEXT("the real sky's stars by default"), W.Sky->GetEffectiveStyle()->StarField == EDreamSkyStarField::Catalogue);
+	const FLinearColor P = W.Parameter(MPC_StarPole);
+	const FLinearColor Q = W.Parameter(MPC_StarEquinox);
+	TestEqual(TEXT("the dome is told to draw them"), P.A, 1.0f);
+	const FVector Pole(P.R, P.G, P.B);
+	const FVector Equinox(Q.R, Q.G, Q.B);
+	TestNearlyEqual(TEXT("the celestial pole as high as the latitude"), FMath::RadiansToDegrees(FMath::Asin(Pole.Z)), Latitude, 0.05);
+	TestTrue(TEXT("toward north (+X)"), Pole.X > 0.5 && FMath::Abs(Pole.Y) < 1.0e-3);
+	TestNearlyEqual(TEXT("the equinox on the celestial equator"), FVector::DotProduct(Pole, Equinox), 0.0, 1.0e-3);
+
+	// (Sirius where the textbook puts it: its hour angle from Greenwich mean sidereal time. The catalogue's places are
+	// of 2000; the sky has precessed some 0.4 degrees since.)
+	const double Jd = (Local - FTimespan::FromHours(9.0)).GetJulianDay();
+	const double Lst = FMath::DegreesToRadians(FMath::Fmod(280.46061837 + 360.98564736629 * (Jd - 2451545.0) + Longitude, 360.0));
+	const double Ra = FMath::DegreesToRadians(15.0 * (6.0 + 45.0 / 60.0 + 8.9 / 3600.0));
+	const double Dec = FMath::DegreesToRadians(-(16.0 + 42.0 / 60.0 + 58.0 / 3600.0));
+	const double Phi = FMath::DegreesToRadians(Latitude);
+	const double Ha = Lst - Ra;
+	const double Altitude = FMath::RadiansToDegrees(FMath::Asin(FMath::Sin(Phi) * FMath::Sin(Dec) + FMath::Cos(Phi) * FMath::Cos(Dec) * FMath::Cos(Ha)));
+	const double Azimuth = FMath::RadiansToDegrees(FMath::Atan2(-FMath::Cos(Dec) * FMath::Sin(Ha), FMath::Sin(Dec) * FMath::Cos(Phi) - FMath::Cos(Dec) * FMath::Cos(Ha) * FMath::Sin(Phi)));
+	const FVector Y = FVector::CrossProduct(Equinox, Pole);
+	const FVector Sirius = FMath::Cos(Dec) * (FMath::Cos(Ra) * Equinox + FMath::Sin(Ra) * Y) + FMath::Sin(Dec) * Pole;
+	const double Shown = FMath::RadiansToDegrees(FMath::Asin(Sirius.Z));
+	const double ShownAzimuth = FMath::RadiansToDegrees(FMath::Atan2(Sirius.Y, Sirius.X));
+	TestTrue(FString::Printf(TEXT("Sirius is up (%.1f degrees)"), Altitude), Altitude > 10.0);
+	TestNearlyEqual(TEXT("Sirius as high as the textbook says"), Shown, Altitude, 0.6);
+	TestNearlyEqual(TEXT("and as far round from north"), FMath::Fmod(ShownAzimuth - Azimuth + 540.0, 360.0) - 180.0, 0.0, 0.8);
+	return true;
+}
+
 #endif
