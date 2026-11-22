@@ -24,6 +24,12 @@ static TAutoConsoleVariable<int32> CVarDreamAtmosphereForceBakedSky(
 	TEXT("Take the sky from the sky style's baked table as where the GPU cannot build the tables (mobile, no Shader Model 5): 1, or not (0)."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarDreamAtmosphereAerialWeather(
+	TEXT("r.DreamAtmosphere.AerialWeather"),
+	1,
+	TEXT("The aerial perspective follows the weather a sky hands it (1), or stays clear air whatever the weather (0, to compare)."),
+	ECVF_Default);
+
 UDreamAtmosphereSubsystem* UDreamAtmosphereSubsystem::Get(const UWorld* World)
 {
 	return World ? World->GetSubsystem<UDreamAtmosphereSubsystem>() : nullptr;
@@ -85,7 +91,7 @@ void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
 		// (The aerial perspective reads the transmittance and multiple scattering tables: none without the GPU's.)
 		DreamAtmosphere::Aerial::FFrame Frame = DreamAtmosphere::Aerial::MakeFrame(bBuild ? Tables.Get() : nullptr, Celestial.SunDirection,
 			Celestial.MoonDirection, Celestial.MoonIllumination);
-		if (!Weather.IsClear())
+		if (!Weather.IsClear() && CVarDreamAtmosphereAerialWeather.GetValueOnGameThread() != 0)
 		{
 			// (The deck's grey: the clear horizon under the frame's own sun and moon, before the clouds dim them.)
 			const FLinearColor ClearHorizon = IsSkyReady()

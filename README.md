@@ -927,7 +927,8 @@ deck the air is lit by the deck, not the sun — the sun's and the moon's share 
 Dimming* (and dust's *Dust Sun Dimming*), the rest given back as an even grey as bright as the clear sky's horizon
 (darker under a storm, *Storm Darkening*), and the grade's weather (*Overcast Saturation*, *Overcast Exposure*, *Fog
 Grey*, the dust's tint) over it as over the sky, so overcast hills turn grey and dim, not a fair day's blue. Fair
-weather leaves the air exactly as it was. `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk
+weather leaves the air exactly as it was; `r.DreamAtmosphere.AerialWeather 0` keeps it clear air whatever the weather,
+to compare. `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk
 along each cell's ray; `DreamSky.Atmosphere.AerialWeather` the weather the sky hands it.
 
 ## Wind
