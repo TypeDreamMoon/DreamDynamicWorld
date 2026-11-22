@@ -40,9 +40,6 @@ DECLARE_CYCLE_STAT(TEXT("DreamWind Sample (CPU)"), STAT_DreamWindSample, STATGRO
 
 namespace DreamWind
 {
-	/** Only one world may drive the shared volume render target at a time; game worlds win over the editor world. */
-	static TWeakObjectPtr<UDreamWindSubsystem> GVolumeDriver;
-
 	// Console overrides for A/B tests and profiling. -1 = follow the project settings.
 	static int32 GCVarEnable = -1;
 	static FAutoConsoleVariableRef CVarEnable(TEXT("DreamWind.Enable"), GCVarEnable,
@@ -340,11 +337,6 @@ void UDreamWindSubsystem::PostInitialize()
 
 void UDreamWindSubsystem::Deinitialize()
 {
-	if (DreamWind::GVolumeDriver.Get() == this)
-	{
-		DreamWind::GVolumeDriver.Reset();
-	}
-
 	if (ViewExtension.IsValid())
 	{
 		ViewExtension->Detach();
@@ -689,15 +681,7 @@ void UDreamWindSubsystem::ResolveAssets()
 		}
 	}
 
-	if (VolumeTexture)
-	{
-		EnsureVolumeTextureMatches(VolumeTexture, Settings->VolumeResolution, VolumeRenderer);
-	}
-	if (VolumeFarTexture)
-	{
-		EnsureVolumeTextureMatches(VolumeFarTexture, Settings->VolumeResolution, VolumeRendererFar);
-	}
-
+	// (The volumes are made writable where they are written, by the world that owns them: UpdateVolume.)
 	if (bRetryDue)
 	{
 		LastAssetResolveTime = Now;
@@ -829,23 +813,22 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 		return;
 	}
 
-	// Arbitrate the shared render targets between worlds.
-	UDreamWindSubsystem* Driver = DreamWind::GVolumeDriver.Get();
-	if (Driver != this)
+	// The volumes are shared by every world: only the world that owns them writes (and reads them as its wind field);
+	// back from another world, their history is that world's wind and starts afresh.
+	bool bRedrawAll = false;
+	if (!VolumeWriter.Acquire(World, bRedrawAll))
 	{
-		const bool bDriverAlive = Driver && IsValid(Driver) && Driver->GetWorld() && IsValid(Driver->GetWorld());
-		const bool bIAmGame = World->IsGameWorld();
-		const bool bDriverIsGame = bDriverAlive && Driver->GetWorld()->IsGameWorld();
-		if (!bDriverAlive || (bIAmGame && !bDriverIsGame))
-		{
-			DreamWind::GVolumeDriver = this;
-			bVolumeHistoryDirty = true;
-			bVolumeHistoryDirtyFar = true;
-		}
-		else
-		{
-			return;
-		}
+		return;
+	}
+	if (bRedrawAll)
+	{
+		bVolumeHistoryDirty = true;
+		bVolumeHistoryDirtyFar = true;
+	}
+	EnsureVolumeTextureMatches(VolumeTexture, Settings->VolumeResolution, VolumeRenderer);
+	if (Settings->bVolumeFarLevel && VolumeFarTexture && VolumeRendererFar.IsValid())
+	{
+		EnsureVolumeTextureMatches(VolumeFarTexture, Settings->VolumeResolution, VolumeRendererFar);
 	}
 
 	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
@@ -922,6 +905,13 @@ void UDreamWindSubsystem::UpdateTerrainTexture()
 		return;
 	}
 
+	// The terrain map is shared by every world: only the world that owns it uploads, and afresh when it comes back.
+	bool bRedrawAll = false;
+	if (!TerrainWriter.Acquire(GetWorld(), bRedrawAll))
+	{
+		return;
+	}
+	bTerrainTextureDirty |= bRedrawAll;
 	if (bTerrainTextureDirty)
 	{
 		bTerrainTextureDirty = false;
