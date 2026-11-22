@@ -9,6 +9,7 @@ class FRDGTexture;
 class FTextureResource;
 class FSceneView;
 class UDreamAtmosphereTables;
+struct FDreamAtmosphereWeather;
 struct FPostProcessMaterialInputs;
 struct FScreenPassTexture;
 
@@ -30,6 +31,10 @@ namespace DreamAtmosphere::Aerial
 		FVector3f SunLight = FVector3f::ZeroVector;
 		FVector3f MoonDirection = FVector3f(0.0f, 0.0f, -1.0f);
 		FVector3f MoonLight = FVector3f::ZeroVector;
+		/** A cloud deck's grey light, scattered in as the air thickens (the weather's; none in clear air). */
+		FVector3f VeilLight = FVector3f::ZeroVector;
+		/** The weather's grade over the scattered light: a tint with its exposure (rgb), the saturation (a). */
+		FVector4f WeatherGrade = FVector4f(1.0f, 1.0f, 1.0f, 1.0f);
 		float MaxDistanceKm = 64.0f;
 		float DistanceScale = 1.0f;
 		float SkyDistanceKm = 500.0f;
@@ -61,4 +66,10 @@ namespace DreamAtmosphere::Aerial
 
 	/** The frame for these tables and the project settings, lights from the clock's sun and moon. */
 	DREAMATMOSPHERE_API FFrame MakeFrame(const UDreamAtmosphereTables* Tables, const FVector& SunDirection, const FVector& MoonDirection, float MoonIllumination);
+
+	/**
+	 * The weather over a frame: the sun and the moon dimmed by DirectLight, the grade set, and VeilLight the clear sky's
+	 * horizon luminance (ClearHorizon, the frame's own lights in) times DiffuseLight, grey.
+	 */
+	DREAMATMOSPHERE_API void ApplyWeather(FFrame& Frame, const FDreamAtmosphereWeather& Weather, const FLinearColor& ClearHorizon);
 }

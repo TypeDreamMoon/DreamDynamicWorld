@@ -3,7 +3,8 @@
 // The air between the eye and the scene (aerial perspective), from the shared model (DreamAtmosphereShared.h):
 //   VolumeCS     a froxel volume in front of the camera: for each screen cell and each depth slice, the light the air
 //                scatters toward the eye from the sun and the moon up to the slice (rgb, pre-exposure applied later)
-//                and what it lets through (a, grey)
+//                and what it lets through (a, grey); under clouds the sun and moon dimmed, a grey deck's light
+//                scattered in instead, and the weather's grade over it (DreamAtmosphere::Aerial::ApplyWeather)
 //   CompositePS  laid over the opaque scene by its depth: colour * transmittance + inscattered light. The sky (the
 //                dome, far beyond the volume) is left alone: it carries the air already.
 //
@@ -28,6 +29,8 @@ float3 SunDirection;         // toward the sun
 float3 SunLight;             // its illuminance outside the air times its colour
 float3 MoonDirection;
 float3 MoonLight;
+float3 VeilLight;            // a cloud deck's grey light, scattered in as the air thickens (none in clear air)
+float4 WeatherGrade;         // the weather over the scattered light: a tint with its exposure (rgb), the saturation (a)
 float MaxDistance;           // km
 float DistanceScale;
 float SkyDistance;           // km: farther than this is the sky
@@ -102,6 +105,10 @@ void VolumeCS(uint3 Id : SV_DispatchThreadID)
 		{
 			L += DSA_WalkRay(A, Origin, Dir, MoonDirection, Distance, Steps, false).Luminance * MoonLight;
 		}
+		// Under a cloud deck: its light, scattered in as much as the air hides what lies behind; then the weather's grade.
+		L += (1.0f - Sun.Transmittance) * VeilLight;
+		float Luma = dot(L, float3(0.2126f, 0.7152f, 0.0722f));
+		L = max(lerp(float3(Luma, Luma, Luma), L, WeatherGrade.a) * WeatherGrade.rgb, 0.0f);
 		float T = dot(Sun.Transmittance, float3(1.0f, 1.0f, 1.0f) / 3.0f);
 		OutVolume[int3(Id.xy, Z)] = float4(L, T);
 	}

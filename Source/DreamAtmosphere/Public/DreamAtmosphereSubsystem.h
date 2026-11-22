@@ -43,6 +43,12 @@ public:
 
 	const FDreamAtmosphereParameters& GetParameters() const { return Parameters; }
 
+	/** The weather the aerial perspective takes from now on (a sky's, every frame; clear air until then). */
+	UFUNCTION(BlueprintCallable, Category = "Dream Atmosphere")
+	void SetWeather(const FDreamAtmosphereWeather& InWeather) { Weather = InWeather; }
+
+	const FDreamAtmosphereWeather& GetWeather() const { return Weather; }
+
 	/** The sky baked ahead for where the tables cannot be built (a sky style's); used only while it is for the air. */
 	void SetBakedSky(const FDreamAtmosphereBakedSky& InBaked);
 
@@ -94,6 +100,7 @@ private:
 
 	FDreamAtmosphereParameters Parameters;
 	FDreamAtmosphereBakedSky Baked;
+	FDreamAtmosphereWeather Weather;
 	bool bOverridden = false;
 	int32 BuildCount = 0;
 

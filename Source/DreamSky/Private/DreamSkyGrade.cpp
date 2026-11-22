@@ -80,21 +80,41 @@ FDreamSkyGradeValues FDreamSkyGrade::Evaluate(float SunElevation, const FDreamWo
 	const float Twilight = FMath::SmoothStep(-12.0f, -9.0f, E) * (1.0f - FMath::SmoothStep(-1.0f, 0.5f, E));
 	EV += FMath::Log2(FMath::Max(FMath::Lerp(1.0f, FMath::Max(Afterglow, 0.0f), Twilight), 1.0e-3f));
 
-	if (Environment.bActive)
-	{
-		// The same reading of the sky's cover the style's weather uses: closing from half cover, or rain under any.
-		const float Overcast = FMath::Max(FMath::SmoothStep(0.45f, 0.95f, FMath::Clamp(Environment.CloudCoverage, 0.0f, 1.0f)),
-			0.6f * FMath::Clamp(Environment.Precipitation, 0.0f, 1.0f));
-		V.Saturation *= FMath::Lerp(1.0f, FMath::Clamp(OvercastSaturation, 0.0f, 1.0f), Overcast);
-		EV += OvercastExposure * Overcast;
-		const float Fog = FMath::Clamp(Environment.Fog, 0.0f, 1.0f);
-		V.Saturation *= 1.0f - FMath::Clamp(FogGrey, 0.0f, 1.0f) * Fog;
-		const float Dust = FMath::Clamp(Environment.Dust, 0.0f, 1.0f) * FMath::Clamp(DustStrength, 0.0f, 1.0f);
-		V.Tint = V.Tint * FMath::Lerp(FLinearColor::White, FLinearColor(DustTint.R, DustTint.G, DustTint.B, 1.0f), Dust);
-		V.Tint.A = 1.0f;
-	}
+	float WeatherSaturation, WeatherEV;
+	FLinearColor WeatherTint;
+	EvaluateWeather(Environment, WeatherSaturation, WeatherEV, WeatherTint);
+	V.Saturation *= WeatherSaturation;
+	EV += WeatherEV;
+	V.Tint = V.Tint * WeatherTint;
+	V.Tint.A = 1.0f;
 	V.ExposureScale = FMath::Pow(2.0f, EV);
 	return V;
+}
+
+float FDreamSkyGrade::Overcast(const FDreamWorldEnvironment& Environment)
+{
+	// Closing from half cover, or rain under any (the style's weather reads the cover the same way).
+	return FMath::Max(FMath::SmoothStep(0.45f, 0.95f, FMath::Clamp(Environment.CloudCoverage, 0.0f, 1.0f)),
+		0.6f * FMath::Clamp(Environment.Precipitation, 0.0f, 1.0f));
+}
+
+void FDreamSkyGrade::EvaluateWeather(const FDreamWorldEnvironment& Environment, float& OutSaturation, float& OutEV, FLinearColor& OutTint) const
+{
+	OutSaturation = 1.0f;
+	OutEV = 0.0f;
+	OutTint = FLinearColor::White;
+	if (!Environment.bActive)
+	{
+		return;
+	}
+	const float Cover = Overcast(Environment);
+	OutSaturation = FMath::Lerp(1.0f, FMath::Clamp(OvercastSaturation, 0.0f, 1.0f), Cover);
+	OutEV = OvercastExposure * Cover;
+	const float Fog = FMath::Clamp(Environment.Fog, 0.0f, 1.0f);
+	OutSaturation *= 1.0f - FMath::Clamp(FogGrey, 0.0f, 1.0f) * Fog;
+	const float Dust = FMath::Clamp(Environment.Dust, 0.0f, 1.0f) * FMath::Clamp(DustStrength, 0.0f, 1.0f);
+	OutTint = FMath::Lerp(FLinearColor::White, FLinearColor(DustTint.R, DustTint.G, DustTint.B, 1.0f), Dust);
+	OutTint.A = 1.0f;
 }
 
 void FDreamSkyGradeValues::Pack(FVector4f Out[4]) const

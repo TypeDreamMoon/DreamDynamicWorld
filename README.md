@@ -922,7 +922,13 @@ Scale* (above 1 a game's few kilometres read as a landscape's tens), the sea lev
 the aerial perspective's, so a sky's base haze in the height fog would count it twice (the sky style hands its haze over
 when it takes the atmosphere on). The lights it uses until the sky style drives them: *Lights* (the sun's and the full
 moon's illuminance outside the air, in the scene's units; the clock's sun and moon give the directions, the moon's
-phase dims it). `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk along each cell's ray.
+phase dims it). **It follows the weather** (`FDreamAtmosphereWeather`, which a sky sets every frame): under a cloud
+deck the air is lit by the deck, not the sun — the sun's and the moon's share dimmed by the style's *Overcast Light
+Dimming* (and dust's *Dust Sun Dimming*), the rest given back as an even grey as bright as the clear sky's horizon
+(darker under a storm, *Storm Darkening*), and the grade's weather (*Overcast Saturation*, *Overcast Exposure*, *Fog
+Grey*, the dust's tint) over it as over the sky, so overcast hills turn grey and dim, not a fair day's blue. Fair
+weather leaves the air exactly as it was. `DreamAtmosphere.Gpu.AerialMatchesCpu` holds the volume to the CPU's walk
+along each cell's ray; `DreamSky.Atmosphere.AerialWeather` the weather the sky hands it.
 
 ## Wind
 

@@ -83,8 +83,17 @@ void UDreamAtmosphereSubsystem::Tick(float DeltaTime)
 	if (ViewExtension)
 	{
 		// (The aerial perspective reads the transmittance and multiple scattering tables: none without the GPU's.)
-		ViewExtension->SetFrame_GameThread(DreamAtmosphere::Aerial::MakeFrame(bBuild ? Tables.Get() : nullptr, Celestial.SunDirection, Celestial.MoonDirection,
-			Celestial.MoonIllumination));
+		DreamAtmosphere::Aerial::FFrame Frame = DreamAtmosphere::Aerial::MakeFrame(bBuild ? Tables.Get() : nullptr, Celestial.SunDirection,
+			Celestial.MoonDirection, Celestial.MoonIllumination);
+		if (!Weather.IsClear())
+		{
+			// (The deck's grey: the clear horizon under the frame's own sun and moon, before the clouds dim them.)
+			const FLinearColor ClearHorizon = IsSkyReady()
+				? SkyHorizon(Celestial.SunDirection) * GetSunLight() + SkyHorizon(Celestial.MoonDirection) * GetMoonLight()
+				: FLinearColor::Black;
+			DreamAtmosphere::Aerial::ApplyWeather(Frame, Weather, ClearHorizon);
+		}
+		ViewExtension->SetFrame_GameThread(Frame);
 	}
 	if (Clock)
 	{
