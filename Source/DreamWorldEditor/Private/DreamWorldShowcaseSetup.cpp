@@ -14,6 +14,7 @@
 #include "DreamSurfaceWalker.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
+#include "DreamTerrainFog.h"
 #include "DreamWeatherFog.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -44,7 +45,9 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
+#include "DreamWeatherCloudPaint.h"
 #include "DreamWeatherRadar.h"
+#include "DreamWorldWidgets.h"
 #include "GameFramework/PlayerStart.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -72,6 +75,33 @@ namespace DreamWorld::ShowcaseSetup
 		T* Asset = NewObject<T>(Package, *FPackageName::GetShortName(PackagePath), RF_Public | RF_Standalone);
 		FAssetRegistryModule::AssetCreated(Asset);
 		return Asset;
+	}
+
+	/**
+	 * The hand-painted cloud cover's demo: a bank of cloud painted along the north, 9-17 km out, over a 40 km square
+	 * round the set. It only ever adds cloud (and only where nothing else rains), so the weathers shown over the set
+	 * stay as they are.
+	 */
+	UDreamCloudPainting* EnsureCloudPaint()
+	{
+		UDreamCloudPainting* Paint = FreshAsset<UDreamCloudPainting>(Setup::ShowcaseCloudPaintPackage);
+		Paint->Initialize(256);
+		for (int32 Pass = 0; Pass < 3; ++Pass)
+		{
+			for (int32 i = 0; i <= 60; ++i)
+			{
+				const double T = i / 60.0;
+				const FVector2D UV(0.8 + 0.035 * FMath::Sin(T * 9.0 + Pass) + 0.012 * Pass, FMath::Lerp(0.16, 0.84, T));
+				Paint->PaintAt(UV, 0.065f - 0.012f * Pass, 1.0f, 0.45f);
+			}
+		}
+		// A few loose heaps ahead of the bank.
+		const FVector2D Heaps[] = { FVector2D(0.7, 0.3), FVector2D(0.68, 0.55), FVector2D(0.72, 0.74) };
+		for (const FVector2D& UV : Heaps)
+		{
+			Paint->PaintAt(UV, 0.03f, 1.0f, 0.8f);
+		}
+		return SurfaceSetup::SaveAsset(Paint) ? Paint : nullptr;
 	}
 
 	/** A sheet of high ice cloud: the halo and the sun dogs round a low sun. */
@@ -301,17 +331,19 @@ namespace DreamWorld::ShowcaseSetup
 	 * the ground's edge meets it without a step; from a few hundred metres out it rises into the far ranges. For the
 	 * air between the eye and the land (aerial perspective, fog) and the snow on the far peaks.
 	 */
+	/** The far land's height at a point (cm): the set's ground near it, the ranges beyond, a little under the set's ground where they overlap. */
+	double FarLandHeight(double X, double Y)
+	{
+		const double R = (FVector2D(X, Y) - FVector2D(Setup::ShowcaseFarCenter)).Size();
+		return FMath::Lerp(SurfaceSetup::GroundHeight(X, Y) - 20.0, FarHeight(X, Y) - 3.0, FMath::SmoothStep(15000.0, 250000.0, R));
+	}
+
 	UStaticMesh* EnsureFarLand()
 	{
 		constexpr int32 Rings = 150, Sides = 360;
-		const double Inner = 3900.0, Outer = 3500000.0, Below = 20.0;
+		const double Inner = 3900.0, Outer = 3500000.0;
 		const FVector2D Middle(Setup::ShowcaseFarCenter);
-		auto HeightAt = [&](double X, double Y, double R)
-		{
-			// The set's ground near it, the far land beyond; a little under the set's ground where they overlap.
-			const double Blend = FMath::SmoothStep(15000.0, 250000.0, R);
-			return FMath::Lerp(SurfaceSetup::GroundHeight(X, Y) - Below, FarHeight(X, Y) - 3.0, Blend);
-		};
+		auto HeightAt = [&](double X, double Y, double R) { return FarLandHeight(X, Y); };
 		auto Build = [&](bool bFlip)
 		{
 			FMeshDescription Description;
@@ -700,6 +732,23 @@ namespace DreamWorld::ShowcaseSetup
 		Field->SetActorLabel(TEXT("SnowField"));
 	}
 
+	/**
+	 * A patch where it always hails, on the open ground south-east of the start: the stones falling and bouncing, the
+	 * ground white with them (on the winter's frozen ground they do not melt), the edge where the patch ends.
+	 */
+	void AddHailField(UWorld& World, const FVector& Center)
+	{
+		ADreamWeatherZone* Field = World.SpawnActor<ADreamWeatherZone>(Center, FRotator::ZeroRotator);
+		Field->Zone->Shape = EDreamWeatherZoneShape::Circle;
+		Field->Zone->Extent = FVector2D(650.0, 650.0);
+		Field->Zone->BlendDistance = 350.0f;
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudCoverage, 1.0f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Precipitation, 0.85f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Hail, 0.8f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Sleet, 0.0f);
+		Field->SetActorLabel(TEXT("HailField"));
+	}
+
 	/** A storm that drifts in from the west in the morning: over the area around eleven, gone by early afternoon. */
 	void AddStorm(UWorld& World)
 	{
@@ -738,7 +787,8 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk,
+		UDreamCloudPainting* Clouds)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -853,6 +903,51 @@ namespace DreamWorld::ShowcaseSetup
 		{
 			Wisps->SetActorLabel(TEXT("WindFog"));
 		}
+		// Terrain fog that comes by itself after a clear, calm night: a morning mist over the set, pooling in the dip and
+		// the low ground, and valley fog in the hills to the south-west (seen from the set, lit by the sunrise). Between
+		// them they keep within the engine's 32 local fog volumes a view (the fog bank's draw only in a foggy weather).
+		if (ADreamTerrainFog* Mist = World->SpawnActor<ADreamTerrainFog>(FVector(Setup::ShowcaseFarCenter, 0.0), FRotator::ZeroRotator))
+		{
+			Mist->Extent = FVector(3800.0, 3800.0, 600.0);
+			Mist->Cells = 48;
+			Mist->GroundFilter = 3;   // the shelter, the board and the props off the ground the mist lies on
+			Mist->Humidity = 0.92f;
+			Mist->PoolDepth = 400.0f;
+			Mist->MistThickness = 200.0f;
+			Mist->Density = 2.0f;
+			Mist->MistDensity = 1.5f;
+			Mist->Patches = 12;
+			Mist->MistPatches = 2;
+			Mist->PatchCells = 3.0f;
+			Mist->SetActorLabel(TEXT("MorningMist"));
+		}
+		{
+			const double Azimuth = FMath::DegreesToRadians(230.0), Out = 625000.0;
+			const FVector2D Valley = Setup::ShowcaseFarCenter + FVector2D(FMath::Cos(Azimuth), FMath::Sin(Azimuth)) * Out;
+			if (ADreamTerrainFog* Valleys = World->SpawnActor<ADreamTerrainFog>(FVector(Valley, 30000.0), FRotator::ZeroRotator))
+			{
+				Valleys->Extent = FVector(180000.0, 180000.0, 60000.0);
+				Valleys->Cells = 40;
+				Valleys->Humidity = 0.9f;
+				Valleys->PoolDepth = 8000.0f;
+				Valleys->MistThickness = 0.0f;
+				Valleys->MistPatches = 0;
+				Valleys->Patches = 16;
+				Valleys->PatchCells = 3.0f;
+				// The far land has no collision: its heights handed in, kept with the level.
+				TArray<float> Land;
+				for (int32 Y = 0; Y < Valleys->Cells; ++Y)
+				{
+					for (int32 X = 0; X < Valleys->Cells; ++X)
+					{
+						const double Step = 2.0 * Valleys->Extent.X / Valleys->Cells;
+						Land.Add(float(FarLandHeight(Valley.X - Valleys->Extent.X + (X + 0.5) * Step, Valley.Y - Valleys->Extent.Y + (Y + 0.5) * Step)));
+					}
+				}
+				Valleys->SetTerrainHeights(Land);
+				Valleys->SetActorLabel(TEXT("ValleyFog"));
+			}
+		}
 		// A walker going round the square and its puddles, its feet stepping in turn: prints in the snow and the dust,
 		// the puddles pushed away and ringing, whatever the weather.
 		if (ADreamSurfaceWalker* Walker = World->SpawnActor<ADreamSurfaceWalker>(FVector(1870.0, 430.0, 0.0), FRotator::ZeroRotator))
@@ -870,6 +965,7 @@ namespace DreamWorld::ShowcaseSetup
 		AddCar(*World, Kit, FVector(200.0, -1000.0, SurfaceSetup::GroundHeight(200.0, -1000.0)), 90.0f, FVector::ZeroVector, false, TEXT("ParkedCar"));
 		AddCar(*World, Kit, FVector(-200.0, -1000.0, SurfaceSetup::GroundHeight(-200.0, -1000.0)), 90.0f, FVector(1670.0, 0.0, 0.0), true, TEXT("DrivingCar"));
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
+		AddHailField(*World, FVector(-900.0, 2300.0, 0.0));
 		AddStorm(*World);
 
 		// The wind, with level heights baked over the set: roofs keep the rain off, puddles follow the dips. The bake
@@ -908,6 +1004,22 @@ namespace DreamWorld::ShowcaseSetup
 			Radar->SetActorScale3D(FVector(2.4, 2.4, 1.0));
 			Radar->SetActorLabel(TEXT("WeatherRadar"));
 		}
+		// The UMG examples (the clock, the weather, the radar on a card) on a screen beside it, facing the start.
+		{
+			const FVector2D At(1500.0, -230.0);
+			ADreamWorldWidgetsDisplay* Widgets = World->SpawnActor<ADreamWorldWidgetsDisplay>(FVector(At, SurfaceSetup::GroundHeight(At.X, At.Y) + 200.0),
+				FRotator(0.0, 180.0, 0.0));
+			Widgets->SetActorScale3D(FVector(0.45));
+			Widgets->SetActorLabel(TEXT("WorldWidgets"));
+		}
+		// The hand-painted cloud: a bank along the north.
+		if (Clouds)
+		{
+			ADreamCloudPaint* Paint = World->SpawnActor<ADreamCloudPaint>(FVector::ZeroVector, FRotator::ZeroRotator);
+			Paint->CloudPaint->Paint = Clouds;
+			Paint->CloudPaint->Size = 4000000.0;
+			Paint->SetActorLabel(TEXT("CloudPaint"));
+		}
 		ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(200.0, -300.0, 320.0), FRotator(-10.0, 18.0, 0.0));
 		if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))
 		{
@@ -936,8 +1048,9 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 	UDreamSkyModifier* Shine = ShowcaseSetup::EnsureNoctilucent();
 	UDreamSkyModifier* Storm = ShowcaseSetup::EnsureMeteors();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Halo && Shine && Storm && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk);
+	UDreamCloudPainting* Clouds = ShowcaseSetup::EnsureCloudPaint();
+	bool bOk = Aurora && Halo && Shine && Storm && Dusk && Clouds;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr, Clouds);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk, Clouds);
 	return bOk;
 }

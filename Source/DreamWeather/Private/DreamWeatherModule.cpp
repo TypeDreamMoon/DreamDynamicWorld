@@ -1,7 +1,11 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWeatherModule.h"
+#include "DreamWeatherPreset.h"
+#include "DreamWeatherSubsystem.h"
+#include "DreamWorldConfig.h"
 #include "DreamWorldParameters.h"
+#include "Engine/World.h"
 
 DEFINE_LOG_CATEGORY(LogDreamWeather);
 
@@ -44,11 +48,31 @@ void FDreamWeatherModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Weather1, FLinearColor(0.0f, 0.0f, 0.3f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_WeatherMap, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Flash, FLinearColor(0.0f, 0.0f, 1.0f, 0.0f));
+
+	// A config keeps the weather showing; applying it forces that weather (ClearForcedWeather hands it back to the
+	// schedule).
+	UDreamWorldConfig::FWorldStateProvider Weather;
+	Weather.Capture = [](UWorld& World)
+	{
+		const UDreamWeatherSubsystem* Subsystem = World.GetSubsystem<UDreamWeatherSubsystem>();
+		const UDreamWeatherPreset* Preset = Subsystem ? Subsystem->GetWeatherShown() : nullptr;
+		return Preset ? Preset->GetPathName() : FString();
+	};
+	Weather.Apply = [](UWorld& World, const FString& Value)
+	{
+		UDreamWeatherSubsystem* Subsystem = World.GetSubsystem<UDreamWeatherSubsystem>();
+		if (UDreamWeatherPreset* Preset = Subsystem ? LoadObject<UDreamWeatherPreset>(nullptr, *Value) : nullptr)
+		{
+			Subsystem->ForceWeather(Preset, 3.0f);
+		}
+	};
+	UDreamWorldConfig::RegisterWorldState(TEXT("Weather"), MoveTemp(Weather));
 }
 
 void FDreamWeatherModule::ShutdownModule()
 {
 	FDreamWorldParameters::UnregisterOwner(TEXT("DreamWeather"));
+	UDreamWorldConfig::UnregisterWorldState(TEXT("Weather"));
 }
 
 IMPLEMENT_MODULE(FDreamWeatherModule, DreamWeather)

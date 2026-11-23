@@ -23,18 +23,21 @@ public:
 		FTextureRenderTargetResource* Target = nullptr;
 		/** The ice, frost, rime and frozen water beside it (the state's second half). */
 		FTextureRenderTargetResource* IceTarget = nullptr;
+		/** The hail lying beside it (the state's third part). */
+		FTextureRenderTargetResource* HailTarget = nullptr;
 		FVector2f Center = FVector2f::ZeroVector;
 		float Extent = 12800.0f;
 		/** Integrate the whole steps first (a step went by, the map moved, the zones changed). */
 		bool bIntegrate = true;
-		/** Three float4 per whole step (FDreamSurfaceMapSteps::Steps). */
+		/** Four float4 per whole step (FDreamSurfaceMapSteps::Steps). */
 		TArray<FVector4f> Steps;
 		float StepHours = 0.25f;
 		FVector4f PartialWeather = FVector4f::Zero();
 		FVector4f PartialChannels = FVector4f::Zero();
 		FVector4f PartialAir = FVector4f::Zero();
+		FVector4f PartialKinds = FVector4f::Zero();
 		float PartialHours = 0.0f;
-		FVector4f Rates[5];
+		FVector4f Rates[6];
 		FVector2f PrecipitationGate = FVector2f::ZeroVector;
 		/** NumZones records of five float4 (DreamSurfaceMap.usf), lowest priority first, then the polygons' points. */
 		TArray<FVector4f> Zones;
@@ -109,6 +112,7 @@ private:
 	/** Render thread: the step-start textures of each map (the state's two halves). */
 	TMap<int32, TRefCountPtr<IPooledRenderTarget>> StepStarts;
 	TMap<int32, TRefCountPtr<IPooledRenderTarget>> IceStepStarts;
+	TMap<int32, TRefCountPtr<IPooledRenderTarget>> HailStepStarts;
 
 	std::atomic<uint32> DrawCount { 0 };
 	std::atomic<uint32> IntegrateCount { 0 };

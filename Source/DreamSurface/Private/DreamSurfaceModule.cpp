@@ -18,6 +18,7 @@ void FDreamSurfaceModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceFar, Off);
 	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceView, Off);
 	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceViewIce, Off);
+	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceViewHail, Off);
 	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceParams, FLinearColor(30.0f, 30.0f, 50.0f, 0.0f));
 	FDreamWorldParameters::RegisterVector(DreamSurface::Module::Owner, MPC_SurfaceTrails, Off);
 }

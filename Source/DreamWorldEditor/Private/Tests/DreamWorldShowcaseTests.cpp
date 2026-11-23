@@ -13,7 +13,9 @@
 #include "DreamSkyStyle.h"
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamWeather.h"
+#include "DreamWeatherCloudPaint.h"
 #include "DreamWeatherRadar.h"
+#include "DreamWorldWidgets.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -137,6 +139,15 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 	}
 
 	TestEqual(TEXT("a weather radar screen"), ActorsOf<ADreamWeatherRadarDisplay>(World).Num(), 1);
+	TestEqual(TEXT("a screen of the clock and weather widgets"), ActorsOf<ADreamWorldWidgetsDisplay>(World).Num(), 1);
+	{
+		const TArray<ADreamCloudPaint*> Paints = ActorsOf<ADreamCloudPaint>(World);
+		const UDreamCloudPainting* Painting = Paints.Num() == 1 ? Paints[0]->CloudPaint->Paint.Get() : nullptr;
+		TestTrue(TEXT("a cloud painting"), Painting && Painting->IsValidPainting());
+		// A bank of cloud in the north (12 km out), nothing painted over the set.
+		TestTrue(TEXT("cloud painted in the north"), Painting && Painting->Sample(Paints[0]->CloudPaint->WorldToUV(FVector(1200000.0, 0.0, 0.0))).Y > 0.5f);
+		TestTrue(TEXT("nothing painted over the set"), Painting && Painting->Sample(Paints[0]->CloudPaint->WorldToUV(FVector::ZeroVector)).Y < 0.01f);
+	}
 
 	// The day's weather in order, a cycle of a day.
 	const TArray<ADreamWeather*> Weathers = ActorsOf<ADreamWeather>(World);
@@ -212,6 +223,12 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 			&& Zone->Zone->Channels.FindRef(DreamWeather::Tags::Channel_SnowRatio) > 0.5f;
 	}
 	TestTrue(TEXT("an irregular snow field"), bSnowField);
+	bool bHailField = false;
+	for (ADreamWeatherZone* Zone : ActorsOf<ADreamWeatherZone>(World))
+	{
+		bHailField |= Zone->Zone->Channels.FindRef(DreamWeather::Tags::Channel_Hail) > 0.5f;
+	}
+	TestTrue(TEXT("a patch where it hails"), bHailField);
 	TestTrue(TEXT("a storm that drifts through"), Storm && Storm->Zone->Motion.bEnabled && Storm->Zone->Motion.StartSeconds >= 0.0);
 
 	bool bCampfire = false;

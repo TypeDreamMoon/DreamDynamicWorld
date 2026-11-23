@@ -35,8 +35,9 @@ namespace DreamSurface::Private
 		const FVector4f V = State.ToVector();
 		const FVector4f C = State.ToIceVector();
 		auto Unit = [](float X) { return FMath::Clamp(X, 0.0f, 1.0f); };
+		// (The hail with the snow, a white cover a brush keeping the snow off keeps off too: DSM_HailShown.)
 		return FDreamSurfaceState::FromVectors(FVector4f(Unit(V.X * Mask.X), Unit(V.Y * Mask.Y), Unit(V.Z * Mask.Z), Unit(V.W * Mask.W)),
-			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)));
+			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)), FVector4f(Unit(State.Hail * Mask.Z), 0.0f, 0.0f, 0.0f));
 	}
 }
 
@@ -117,16 +118,20 @@ FDreamSurfaceState UDreamSurfaceSubsystem::Step(const FDreamSurfaceState& State,
 	using DreamWind::Hlsl::float4;
 	const float4 S = ToHlsl4(State.ToVector());
 	const float4 S2 = ToHlsl4(State.ToIceVector());
+	const float4 S3 = ToHlsl4(State.ToHailVector());
 	const float4 D0 = ToHlsl4(Drive.D0());
 	const float4 D1 = ToHlsl4(Drive.D1());
+	const float4 D2 = ToHlsl4(Drive.D2());
 	const float4 R0 = ToHlsl4(Rates.R0());
 	const float4 R3 = ToHlsl4(Rates.R3());
 	const float4 R4 = ToHlsl4(Rates.R4());
+	const float4 R5 = ToHlsl4(Rates.R5());
 	const float H = FMath::Max(Hours, 0.0f);
-	// Both sides from the state at the start of the step, as the surface map does.
-	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, D0, D1, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, H);
+	// Every side from the state at the start of the step, as the surface map does.
+	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, S3, D0, D1, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, R5, H);
 	const float4 Cold = DreamWind::Hlsl::DSF_StepIce(S, S2, D0, D1, R0, R3, R4, H);
-	return FDreamSurfaceState::FromVectors(FVector4f(Out.x, Out.y, Out.z, Out.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w));
+	const float4 Hail = DreamWind::Hlsl::DSF_StepHail(S3, D0, D1, D2, R4, R5, H);
+	return FDreamSurfaceState::FromVectors(FVector4f(Out.x, Out.y, Out.z, Out.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w), FVector4f(Hail.x, Hail.y, Hail.z, Hail.w));
 }
 
 FDreamWeatherValues UDreamSurfaceSubsystem::GlobalAtStep(int64 StepIndex) const
@@ -155,8 +160,11 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	using namespace DreamSurface::Private;
 	const FVector4f Here(W.CloudCoverage, W.CloudDarkness, W.Precipitation, W.Values.Get(FDreamWeatherChannels::SnowRatio));
 	const FVector4f Air(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
-	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::FreezingRain));
+	const float Freezing = W.Values.Get(FDreamWeatherChannels::FreezingRain);
+	const DreamWind::Hlsl::float2 Kinds(W.Values.Get(FDreamWeatherChannels::Hail), W.Values.Get(FDreamWeatherChannels::Sleet));
+	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
 	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::Fog));
+	const DreamWind::Hlsl::float4 D2 = DreamWind::Hlsl::DSF_OpenD2(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
 	// ...then the cover: under a roof nothing lands, the air is stiller, the sun and the sky are off and less dust gets in.
 	const float Exposure = bOpenSky ? 1.0f : W.Exposure;
 	Drive.Rain = D0.x * Exposure;
@@ -167,6 +175,7 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	Drive.Dust = D1.y * (0.2f + 0.8f * Exposure);
 	Drive.OpenSky = D1.z * Exposure;
 	Drive.Fog = D1.w;
+	Drive.Hail = D2.x * Exposure;
 	return Drive;
 }
 
@@ -263,9 +272,10 @@ FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVe
 	const float FrostCover = FMath::Clamp(FMath::Max(S.Frost, S.Rime) * (1.0f - SnowCover), 0.0f, 1.0f);
 	const float FrozenPuddle = Contact.Puddle * S.FrozenWater;
 	const float IceCover = FMath::Clamp(S.Ice * (1.0f - SnowCover), 0.0f, 1.0f);
+	const float HailCover = FMath::Clamp(S.Hail * Up * (1.0f - SnowCover), 0.0f, 1.0f);
 	const FDreamSurfaceGrip& Grip = UDreamSurfaceSettings::Get()->Grip;
 	Contact.Grip = DSF_Grip(DreamSurface::Private::ToHlsl4(Grip.G0()), DreamSurface::Private::ToHlsl4(Grip.G1()),
-		float4(IceCover, FrozenPuddle, FrostCover, SnowCover), float4(Contact.Puddle * (1.0f - S.FrozenWater), S.Wetness, 0.0f, 0.0f));
+		float4(IceCover, FrozenPuddle, FrostCover, SnowCover), float4(Contact.Puddle * (1.0f - S.FrozenWater), S.Wetness, HailCover, 0.0f));
 	// The dominant: snow over ice over frost over water over dust over a wet film.
 	if (SnowCover > 0.5f)
 	{
@@ -274,6 +284,10 @@ FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVe
 	else if (IceCover > 0.4f || FrozenPuddle > 0.5f)
 	{
 		Contact.Kind = EDreamSurfaceContactKind::Ice;
+	}
+	else if (HailCover > 0.4f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Hail;
 	}
 	else if (FrostCover > 0.4f)
 	{
@@ -397,11 +411,12 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 	}
 }
 
-void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir) const
+void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir, FVector4f& OutKinds) const
 {
 	using C = FDreamWeatherChannels;
 	const double T = double(StepIndex) * StepSeconds();
 	const FDreamWeatherValues Global = GlobalAtStep(StepIndex);
+	OutKinds = FVector4f(Global.Get(C::Hail), Global.Get(C::Sleet), 0.0f, 0.0f);
 	// The global values: the map applies the zones to them per texel.
 	OutWeather = FVector4f(Global.Get(C::CloudCoverage), Global.Get(C::CloudDarkness), Global.Get(C::Precipitation), Global.Get(C::SnowRatio));
 	OutChannels = FVector4f(Global.Get(C::Temperature), Global.Get(C::Dust), Global.Get(C::Wind), Global.Get(C::Fog));
@@ -424,16 +439,17 @@ void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeathe
 void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)
 {
 	MapSteps.Step = StepIndex;
-	MapSteps.Steps.Reset(MemorySteps() * 3);
+	MapSteps.Steps.Reset(MemorySteps() * FDreamSurfaceMapSteps::FloatsPerStep);
 	for (int64 k = StepIndex - MemorySteps(); k < StepIndex; ++k)
 	{
-		FVector4f Weather, Channels, Air;
-		MapStepRecord(k, Weather, Channels, Air);
+		FVector4f Weather, Channels, Air, Kinds;
+		MapStepRecord(k, Weather, Channels, Air, Kinds);
 		MapSteps.Steps.Add(Weather);
 		MapSteps.Steps.Add(Channels);
 		MapSteps.Steps.Add(Air);
+		MapSteps.Steps.Add(Kinds);
 	}
-	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialChannels, MapSteps.PartialAir);
+	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialChannels, MapSteps.PartialAir, MapSteps.PartialKinds);
 }
 
 void UDreamSurfaceSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)

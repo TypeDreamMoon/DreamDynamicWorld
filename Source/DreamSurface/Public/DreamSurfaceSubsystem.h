@@ -18,15 +18,18 @@ struct FDreamSurfaceMapSteps
 	/** The step they lead up to (the one in progress). */
 	int64 Step = TNumericLimits<int64>::Min();
 	/**
-	 * Three float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the
-	 * global channels (temperature offset, dust, wind, fog), the air (the view's temperature under a clear sky with no
-	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it, the freezing rain).
+	 * Four float4 per whole step (FloatsPerStep), oldest first: the global weather (coverage, darkness, precipitation,
+	 * snow ratio), the global channels (temperature offset, dust, wind, fog), the air (the view's temperature under a
+	 * clear sky with no offset, the sun's Z, how much of the daily swing a closed cover takes off it, the freezing rain),
+	 * the kinds (hail, sleet, -, -).
 	 */
 	TArray<FVector4f> Steps;
+	static constexpr int32 FloatsPerStep = 4;
 	/** The step in progress, and how much of it has gone by. */
 	FVector4f PartialWeather = FVector4f::Zero();
 	FVector4f PartialChannels = FVector4f::Zero();
 	FVector4f PartialAir = FVector4f::Zero();
+	FVector4f PartialKinds = FVector4f::Zero();
 	float PartialHours = 0.0f;
 };
 
@@ -152,7 +155,7 @@ public:
 
 private:
 	void OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float RealDeltaSeconds);
-	void MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir) const;
+	void MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir, FVector4f& OutKinds) const;
 	void BuildMapSteps(int64 StepIndex);
 	void Record(int64 StepIndex, const FDreamWeatherValues& Global);
 	FDreamSurfaceState IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky = false) const;

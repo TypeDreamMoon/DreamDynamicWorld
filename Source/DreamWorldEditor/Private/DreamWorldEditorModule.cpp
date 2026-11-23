@@ -1,12 +1,19 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldEditorModule.h"
+#include "DreamWorldEditorUI.h"
 #include "DreamSky.h"
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSubsystem.h"
 
 #include "Editor.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Docking/TabManager.h"
+#include "Styling/AppStyle.h"
+#include "Framework/Notifications/NotificationManager.h"
 #include "ToolMenus.h"
+#include "Widgets/Docking/SDockTab.h"
+#include "Widgets/Notifications/SNotificationList.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -16,8 +23,7 @@
 
 namespace DreamWorld::EditorUI
 {
-	/** The world the slider drives: the one being played in, else the level being edited. */
-	static UWorld* PreviewWorld()
+	UWorld* PreviewWorld()
 	{
 		if (!GEditor)
 		{
@@ -28,6 +34,21 @@ namespace DreamWorld::EditorUI
 			return GEditor->PlayWorld;
 		}
 		return GEditor->GetEditorWorldContext().World();
+	}
+
+	UWorld* EditedWorld()
+	{
+		return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	}
+
+	void Notify(const FText& Message, bool bSuccess)
+	{
+		FNotificationInfo Info(Message);
+		Info.ExpireDuration = 4.0f;
+		if (TSharedPtr<SNotificationItem> Item = FSlateNotificationManager::Get().AddNotification(Info))
+		{
+			Item->SetCompletionState(bSuccess ? SNotificationItem::CS_Success : SNotificationItem::CS_Fail);
+		}
 	}
 
 	/** The level's sky, when editing (scrubbing then also sets the level's start hour, undoably). */
@@ -48,7 +69,7 @@ namespace DreamWorld::EditorUI
 		return Clock ? TOptional<float>(Clock->GetTimeOfDay()) : TOptional<float>();
 	}
 
-	static void SetHours(float Hours)
+	void SetHours(float Hours)
 	{
 		UWorld* World = PreviewWorld();
 		if (ADreamSky* Sky = EditedSky(World))
@@ -62,7 +83,7 @@ namespace DreamWorld::EditorUI
 		GEditor->RedrawLevelEditingViewports();
 	}
 
-	static TSharedRef<SWidget> MakeTimeWidget()
+	TSharedRef<SWidget> MakeTimeWidget()
 	{
 		return SNew(SHorizontalBox)
 			.ToolTipText(LOCTEXT("TimeTip", "Dream Dynamic World: time of day. Drag to scrub the sky; in the editor this also sets the level's start hour (undoable)."))
@@ -119,10 +140,18 @@ namespace DreamWorld::EditorUI
 void FDreamWorldEditorModule::StartupModule()
 {
 	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FDreamWorldEditorModule::RegisterMenus));
+	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(DreamWorld::EditorUI::CloudPaintTabName, FOnSpawnTab::CreateStatic(&DreamWorld::EditorUI::SpawnCloudPaintTab))
+		.SetDisplayName(LOCTEXT("CloudPaintTab", "Dream Cloud Paint"))
+		.SetTooltipText(LOCTEXT("CloudPaintTabTip", "Paint the cloud cover by hand (Dream World > Paint Cloud Cover)."))
+		.SetMenuType(ETabSpawnerMenuType::Hidden);
 }
 
 void FDreamWorldEditorModule::ShutdownModule()
 {
+	if (FSlateApplication::IsInitialized())
+	{
+		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(DreamWorld::EditorUI::CloudPaintTabName);
+	}
 	if (UObjectInitialized())
 	{
 		UToolMenus::UnRegisterStartupCallback(this);
@@ -136,6 +165,9 @@ void FDreamWorldEditorModule::RegisterMenus()
 	UToolMenu* Toolbar = UToolMenus::Get()->ExtendMenu("LevelEditor.LevelEditorToolBar.User");
 	FToolMenuSection& Section = Toolbar->FindOrAddSection("DreamWorld");
 	Section.AddEntry(FToolMenuEntry::InitWidget("DreamWorldTime", DreamWorld::EditorUI::MakeTimeWidget(), LOCTEXT("TimeLabel", "Time of Day"), true));
+	Section.AddEntry(FToolMenuEntry::InitComboButton("DreamWorldMenu", FUIAction(), FNewToolMenuDelegate::CreateStatic(&DreamWorld::EditorUI::FillMenu),
+		LOCTEXT("MenuLabel", "Dream World"), LOCTEXT("MenuTip", "Dream Dynamic World: time, weather, the sky's look, quality, debug views, cloud painting, configs."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.EnvironmentLightingViewer")));
 }
 
 #undef LOCTEXT_NAMESPACE

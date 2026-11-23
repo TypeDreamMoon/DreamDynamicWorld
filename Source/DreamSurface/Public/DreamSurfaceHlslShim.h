@@ -6,6 +6,8 @@
 //   #include "DreamSurfaceHlslShim.h"   ->   DreamWind::Hlsl::DSF_Step(...)
 
 #include "DreamWindHlslShim.h"
+// The weather's shared header first: the surface's splits what falls with it (DWX_SplitPrecipitation).
+#include "DreamWeatherHlslShim.h"
 #include <cmath>
 
 namespace DreamWind

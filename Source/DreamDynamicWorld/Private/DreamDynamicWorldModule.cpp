@@ -1,7 +1,10 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamDynamicWorldModule.h"
+#include "DreamWorldConfig.h"
 #include "DreamWorldParameters.h"
+#include "DreamWorldSubsystem.h"
+#include "Engine/World.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "ShaderCore.h"
@@ -34,11 +37,28 @@ void FDreamDynamicWorldModule::StartupModule()
 	FDreamWorldParameters::RegisterVector(Owner, DreamWorld::Names::MPC_SunDir, FLinearColor(0.0f, 0.0f, 1.0f, 1.0f));
 	FDreamWorldParameters::RegisterVector(Owner, DreamWorld::Names::MPC_MoonDir, FLinearColor(0.0f, 0.0f, -1.0f, 0.5f));
 	FDreamWorldParameters::RegisterVector(Owner, DreamWorld::Names::MPC_Interior, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+
+	// A config keeps the time of day (to the half minute).
+	UDreamWorldConfig::FWorldStateProvider Time;
+	Time.Capture = [](UWorld& World)
+	{
+		const UDreamWorldSubsystem* Clock = World.GetSubsystem<UDreamWorldSubsystem>();
+		return Clock ? FString::Printf(TEXT("%.3f"), Clock->GetTimeOfDay()) : FString();
+	};
+	Time.Apply = [](UWorld& World, const FString& Value)
+	{
+		if (UDreamWorldSubsystem* Clock = World.GetSubsystem<UDreamWorldSubsystem>())
+		{
+			Clock->SetTimeOfDay(FCString::Atof(*Value));
+		}
+	};
+	UDreamWorldConfig::RegisterWorldState(TEXT("TimeOfDay"), MoveTemp(Time));
 }
 
 void FDreamDynamicWorldModule::ShutdownModule()
 {
 	FDreamWorldParameters::UnregisterOwner(TEXT("DreamDynamicWorld"));
+	UDreamWorldConfig::UnregisterWorldState(TEXT("TimeOfDay"));
 }
 
 IMPLEMENT_MODULE(FDreamDynamicWorldModule, DreamDynamicWorld)

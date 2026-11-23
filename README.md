@@ -530,8 +530,11 @@ are saved in the world snapshot; the schedule needs nothing saved.
   volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
   taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
   or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
-  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
-  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+  bank, down to *Clear Weather Share* of it with none. Drawn marched (see *Marched ground fog* below) it is a mist over
+  the box's floor thinning upward over *Height Falloff*, broken into patches some two and a half *Patch Radius* across
+  by a noise drifting on the wind, thinning out toward the box's sides; at the low quality level the patches draw as
+  local fog volumes (with or without the scene's volumetric fog). `DreamWeather.FogBank [density] [clear share]` lists
+  the banks and sets them.
 - **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
   actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
   the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
@@ -541,6 +544,75 @@ Both drift with the wind summed at the view, frame by frame (`DDW_FogDrift`: xy 
 the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of wind never jumps the fog. The showcase has
 a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
 (`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
+
+**Terrain fog.** Morning, valley and advection fog that come by themselves (`ADreamTerrainFog`, module
+`DreamWeatherFX`). The actor reads the ground in its box (*Extent*, *Cells* along a side; traces, or heights handed in
+with `SetTerrainHeights` and kept with the level, for land without collision) and finds its hollows: a closed basin up
+to where it would spill over, a valley up to the mean height of the land round it (*Hollow Radius*, a quarter of the
+box by default). It reads the air over the lowest ground: the weather's temperature, cloud, what falls and wetness
+(*Humidity*, plus *Wet Ground Humidity* times the wetness and a quarter of the weather's fog), the wind there (the
+wind subsystem's `SampleWindVelocity`), the sun's elevation. Two amounts, 0..1 each (`GetFogState`):
+
+- **radiation fog** (morning and valley fog): under a clear, calm sky the ground radiates its warmth away and the air at
+  it cools by *Sky Cooling* degrees; once that closes the gap to the dew point (some two degrees a tenth of humidity
+  short of saturation) it fogs. It builds over the night (*Build Hours*), is deepest about sunrise, and the sun burns
+  it off (a full fog within *Clear Hours* of the sun at 15 degrees in a clear sky; cloud slows it); a wind over
+  *Calm Wind* (half of it already thins it), cloud or rain stop it forming, and below *Driest Cold* the air is too
+  dry. It fills each hollow toward its brim, no deeper than *Pool Depth*, with a thin mist (*Mist Thickness*) over the
+  rest;
+- **advection fog** (with *Advection* on, beside cold water or snow): moist air warmer than *Cold Surface Temperature*
+  carried in on a wind within *Advection Wind* (a gale lifts it as low cloud) lays a fog over all the low ground,
+  *Advection Depth* over the lowest, at any hour; the sun only thins it.
+
+Traced ground has what stands on it narrower than *Ground Filter* cells either side taken off (trees, posts, props, a
+shelter at 3: a morphological opening of the heights), so the fog lies on the ground under them, not on their tops.
+The fog draws marched (below), *Noise Size* (five cells by default) and *Patchiness* shaping its billows. At the low
+quality level it draws with local fog volumes instead: *Patches* of them laid on the cells under the pooled fog (each
+*Patch Cells* across, keeping its cell while that stays under the fog and fading over to a new one), *Mist Patches*
+spread over the box. A local fog volume is a sphere (the engine makes its scale uniform), so each layer is its height
+fog, thinning from the ground to a seventh at the fog's top, with as much radial fog to soften its sides; the engine
+draws at most 32 of them a view (`r.LocalFogVolume.TileMaxInstanceCount`, up to 256). A jump of the clock settles the
+fog (the last twelve hours run through, the
+weather as it is now). Gameplay can ask `GetFogDepthAt`, `IsInFog`, `GetHollowAt`, `GetGroundHeightAt`; *Force* holds
+a given state (cinematics). `DreamWeather.TerrainFog [radiation [advection] | auto | dump]` lists them and holds or
+releases them (`dump` writes each one's cells, ground and hollow, to `Saved/DreamTerrainFog_<name>.csv`). The showcase has a morning mist over the set (pooling in the dip by the pond) and valley fog in the hills to
+the south-west; the forced tour shoots both just after sunrise after a clear, still night (`TerrainFog`).
+`DreamWeather.FX.TerrainFog.Model` checks when each fog forms, builds and clears; `.Actor` the hollows, the depth, the
+marched fog's layer and box and the local fog volumes in a bowl at dawn, and their going by mid-morning.
+
+**Marched ground fog.** The terrain fog and the fog bank draw their fog as a participating medium marched over their
+box (`UDreamGroundFogComponent`, `M_DreamGroundFog`, on the clouds' march and light: `DreamCloudMarch.ush`,
+`DreamCloudLight.ush`, the fog's own field in `Shaders/Private/DreamGroundFog.ush`). The owner hands the component a
+small map over the box (one texel a cell: the ground's height, how deep the hollow may fill, where there is ground)
+and each frame the fog's state; the material fills the layer that deep -- the pooled fog dense to near its top and
+thinning over its upper half, the mist over all the ground --, breaks it up with the clouds' 3D noise drifting with the
+wind (`DDW_FogDrift`) and churning slowly (which also lifts and lowers its top, so it lies in billows and patches), and
+thins it out to nothing toward the map's rim. Light: the main light through the fog above each sample -- for a layer
+the depth to its top over the light's sine, averaged over each step in closed form, so the thin skin a low sun lights
+on a thick fog's top is not stepped past --, with the clouds' phase and multiple scattering octaves; the sky above
+(and the ground's bounce below) and the sunlight diffused down through the fog above, some 1 / (1 + 0.3 tau) of it.
+The light is cut by the terrain and the clouds: the terrain fog works out, per cell, how high the ray toward the light
+stands under the ground on its way out of its map (one cell a step over its heights, again when the light has moved a
+quarter of a degree; kept in the layer map's alpha), so a valley's fog in the hills' shadow stays grey while the fog in
+the open glows; and where the sky draws its clouds, the cloud renderer's shadow on the ground (ADreamSky's cloud shadow
+map, read where the light's ray meets the cloud layer) is multiplied in. At sunrise the top of a fog sea glows in the
+low sun and its depths go grey; inside it the sun is a dim disc.
+
+The engine's unit cube is drawn over the box, its back faces only with the depth test off (as the cloud volumes are),
+so the fog shows from outside and from in it, and the scene cuts the march where its depth says; it draws under the
+other translucency (rain, snow). No limit on how many: each is one translucent draw over the part of the screen its box
+covers, the box kept round the fog there is. A ray takes `DreamWeather.Fog.Samples` fine steps (never longer than an
+optical depth of 1.5 in the densest fog; clear air above the fog is skipped; the noise read at a level of detail to the
+step); `DreamWeather.Fog.Volumetric 0` draws the local fog volumes instead. The fog quality level (`sg.ShadowQuality`, or
+`r.DreamWorld.Quality`) sets both: low the local fog volumes, then 16, 24, 32 (epic) and 64 samples. An actor's
+*Density* (and *Mist Density*) times 0.04 is the extinction per metre (1: some 75 m of sight inside it).
+`DreamWeather.Fog.Debug 1` paints the map under what each ray meets (ground in 2 m bands, hollow, ground there), `2` the
+fog's opacity alone.
+
+What it costs (1400 x 788 internal, the showcase's morning mist with the camera in it, so every pixel marches): 0.41,
+0.53, 0.68 and 0.94 ms at 16, 24, 32 and 48 samples; the valley fog seen from the set 0.11 ms; the local fog volumes
+0.06 ms. `M_DreamGroundFog`'s shaders are keyed on its own code, not on the include: a change to `DreamGroundFog.ush`
+bumps *IncludeRevision* in `M_DreamGroundFog.dss` with it, or the old shaders stay in the derived data cache.
 
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
@@ -649,11 +721,12 @@ carries each (`Rain`, `Snow`, `Hail`, `Sleet`, and what lands on the point, `...
 | Freezing rain | FreezingRain (of the rain) | as rain | as rain | 1 (as rain) | as rain |
 | Snow | SnowRatio (of the rest) | `NS_DreamSnow`: swaying flakes | 130 cm/s | 1 | snow |
 | Sleet | Sleet | `NS_DreamSleet`: short wet streaks, slush splashes | 450 cm/s | 0.5 | half as rain, half as snow |
-| Hail | Hail | `NS_DreamHail`: pellets, bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
+| Hail | Hail | `NS_DreamHail`: bright icy pellets, a little stretched along the fall, scattered off the paths; bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
 
 Each layer's `WindResponse` goes to its effect (`User.WindResponse`): how much of the wind field's per-particle
-deviation its particles take. Hail and sleet count as precipitation on the surfaces for now (their own layer, hail
-lying for a while, is the surfaces' to add).
+deviation its particles take. On the surfaces the sleet lands half as rain, half as snow, and the hail lies as its
+own layer (*Surfaces*, *Hail*); the split of what falls is one function both use, `DWX_SplitPrecipitation` in
+`Shaders/Shared/DreamWeatherShared.h`.
 
 ### Quality levels
 
@@ -727,6 +800,34 @@ reach, rings, every step's colour and threshold, the veil, the background, the m
 (markers), `SampleRadar` says what it shows at a point and its step, `FindNearestPrecipitation` finds the nearest rain
 within a reach (an approaching shower). The material, `M_DreamWeatherRadar`, can go on any surface: `ApplyTo` sets a
 dynamic instance of it.
+
+### Clock and weather widgets
+
+Two UMG widgets in the *Dream Weather* palette, drawn by Slate (no textures), as examples of reading the world in a
+HUD: **`UDreamClockWidget`** shows the world clock's time -- an analog dial (with a sun or a moon for day and night), a
+digital time (24 or 12 hour, `FormatTime`), or both -- and the calendar's date under it (`FormatDate`: the weekday,
+day, month and year of the calendar in use, a custom one's names too); **`UDreamWeatherWidget`** shows the weather at
+the view: an icon (`IconFor`: a storm before hail, sleet, snow and rain, then fog, dust and the cloud cover; a sun or a
+moon by the hour), the name of the weather showing (`GetWeatherShown`: a forced one, else the schedule's) and the
+temperature in Celsius or Fahrenheit.
+Their colours (`FDreamWorldWidgetColors`) are muted by default. **`UDreamWorldWidgetsExample`** lays the two out with
+the radar on a dark card (Create Widget with it, or copy its layout into a widget blueprint), and
+**`ADreamWorldWidgetsDisplay`** shows that card on a screen in the world, as the showcase does beside the radar.
+
+### Painted cloud cover
+
+Where the clouds are can be painted by hand. A **`UDreamCloudPainting`** asset holds a square grid (256 x 256 by
+default) of two values: the cover painted (clear to overcast) and how far it pulls the weather's own cover to it. An
+**`ADreamCloudPaint`** in the level (its `UDreamCloudPaintComponent`) lays it over a square of the world, `Size` across
+(40 km by default) round the actor, axis-aligned; `Strength` scales it, `bEnabled` turns it off. The weather map draws
+it (`DreamWeatherMap.usf`) and the weather's samples read it (`SampleWeather`, `GetChannelAt`), the same bilinear
+lookup both ways, after the zones: where it is painted it has the last word on the cloud cover, and the precipitation
+follows the cover as everywhere -- clear sky painted over a storm zone stops its rain. One painting is used at a
+time, the latest one placed (`UDreamWeatherSubsystem::GetActiveCloudPaint`); `DreamWeather.CloudPaint 0` ignores it,
+to compare. Paint it in the editor (Dream World >
+Paint Cloud Cover, below) or from code: `PaintAt` (a soft round brush toward a cover, or erasing), `Fill`, `Resize`.
+The showcase paints a bank of cloud along its north horizon (`CP_ShowcaseClouds`), adding cloud only, so the weathers
+shown over the set stay as they are.
 
 ### Storms
 
@@ -815,6 +916,42 @@ across with a bay cut into its south side) over land that reads the surface maps
 → storm → cloudy every three hours.
 `-ForceAudio` builds the graphs again, `-Force` the level.
 
+## Editor tools
+
+**The toolbar.** Beside the time of day slider on the level editor's toolbar, the **Dream World** menu:
+
+| Entry | What it does |
+| :-- | :-- |
+| Time of Day | jumps to dawn, morning, noon, afternoon, dusk or night (the slider scrubs) |
+| Weather | forces a weather preset (two seconds' transition), or *Back to the Schedule* |
+| Cloud Look | `DreamSky.CloudRender.Look` for every sky: each sky's own, toon, realistic, painted |
+| Quality | `r.DreamWorld.Quality`: following the engine's scalability, or low to cinematic |
+| Debug Views | the plugin's debug views, toggled: every `...Debug` / `...DebugDraw` console variable of it (found by name, so new ones show up) |
+| Paint Cloud Cover... | opens the cloud painting tab |
+| Wind | re-captures the obstacles around the view (`MarkObstaclesDirty`, after moving buildings); bakes the level's terrain wind map |
+| Configs | saves and switches whole sets of settings (below) |
+| Demo Maps | opens the showcase and test maps |
+| Project Settings | each of the plugin's settings pages |
+
+**Painting the cloud cover.** The *Dream Cloud Paint* tab shows the level's painting from above, north up, with a
+line every 5 km and the viewport as a dot and its heading. *Add to Level* places an `ADreamCloudPaint` over the view
+with a new painting in `/Game/DreamWorld/CloudPaint` (*New Painting* gives one to a painting actor that has none).
+Drag to paint clouds, Shift-drag to erase (the weather's own cover back), Ctrl-drag for clear sky; the modes, the
+brush's radius (km; the wheel sizes it too) and strength are above the canvas, and *Clear the Painting*, *Overcast
+Everywhere* and *Clear Sky Everywhere* fill it. Each stroke is one undo; the sky and the radar follow as you paint.
+The Content Browser makes paintings too (*Dream Cloud Painting*).
+
+**Configs.** A **`UDreamWorldConfig`** asset is a whole set of the plugin's settings put back in one go: every
+project settings object of the plugin (any `UDeveloperSettings` in one of its modules, found by reflection -- settings
+added later are included without changes here), the plugin's console variables set above their scalability level and
+off their defaults, and what the world shows (the time of day, the weather; modules add their own with
+`UDreamWorldConfig::RegisterWorldState`). `Capture` fills it from what is in effect, `Apply` puts it back (only what
+differs, each setting announced as if edited in Project Settings; the plugin's other console variables set from the
+console go back to what they were under it; the weather is forced), `DescribeDifferences` lists what differs. In the
+menu: *Save Current as New Config...*, *Update ... from Current* and *Log Differences from ...* (the config applied
+last), *Write Current Settings to the Project* (the project's config files), and every config to apply for this
+session. Games can switch configs at run time too (`Apply` is Blueprint callable).
+
 ## Showcase
 
 Everything the plugin does in one place, to look it over as a whole: **`/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcase`**,
@@ -829,9 +966,11 @@ and a **porch** before its door that only a roof capture box tells the weather a
 the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
 sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
 snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
-**snow field** (a polygon zone) lies far ahead; a **storm** drifts in from the west in the morning of the first day. A
+**snow field** (a polygon zone) lies far ahead; it always hails on a **hail patch** south-east of the start (a circle zone); a **storm** drifts in from the west in the morning of the first day. A
 wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
-pass-through).
+pass-through). Ahead of the start stand two screens: the weather radar, and beside it the clock and weather widgets'
+example card (`ADreamWorldWidgetsDisplay`). A bank of cloud is painted along the north horizon (`CP_ShowcaseClouds`
+on an `ADreamCloudPaint`, see *Painted cloud cover*).
 
 **The far land.** Beyond the set the land runs on to the horizon (`SM_DreamShowcaseFarLand`, rings out to 35 km under
 the terrain material, so snow lies on it): it meets the set's ground without a step and rises into near hills 5–7.5 km
@@ -893,7 +1032,8 @@ Module `DreamSurface`: what the weather leaves on the ground. Each surface carri
 rising, it fills the deepest dips first; full, a real dip holds it all over and flat ground in its deepest small hollows
 only, some tenth of it), **Snow** (of the deepest cover, *Max Snow Depth*,
 30 cm by default) and **Dust**; and what the cold makes of them, four more: **Ice** (a glaze of clear ice), **Frost**
-(hoarfrost), **Rime** and **Frozen Water** (how much of the standing water is frozen over).
+(hoarfrost), **Rime** and **Frozen Water** (how much of the standing water is frozen over); and **Hail**, the
+hailstones lying on it.
 
 **How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
 an hour or two of sun and wind (slower in the shade, the cold or still air), the puddles outlast it. Snow settles
@@ -916,6 +1056,13 @@ couple of degrees above freezing the ground freezes, and once the sun is on it i
   while something falls) and goes within the half hour once the sun is on it;
 - **rime** — a freezing fog (the weather's fog channel) builds it on everything, some three times as fast in a full
   wind (*Rime Hours*).
+
+**Hail.** Hailstones heap up as fast as they land: a full hailstorm whitens the ground within minutes (*Hail Settle
+Hours*, 0.08), even on warm summer ground. They melt with the ground above freezing — a full cover in half an hour at
+10 °C (*Hail Melt Hours*), within minutes on warm ground in the sun, over hours near freezing, not at all on frozen
+ground — and the melt wets the surface (*Hail Melt To Water*). Hail lies on what faces up; under a roof none lands, and
+a mask brush keeping the snow off keeps it off too. It rolls underfoot (the grip's *Hail*, 0.55) and a contact says
+`Hail` where it covers. Sleet lands half as rain, half as snow. The preset `WP_Hail` and the showcase's hail patch show it.
 
 The weather has no rain below some −1 °C of air (what falls turns to snow near freezing), so the glaze comes from a
 wet surface freezing after the rain or from rain on ground still frozen. The presets `WP_Frost` (a clear, still, cold
@@ -948,14 +1095,16 @@ that matter (the player, a footstep), not for thousands of points a frame.
 (`Shaders/Private/DreamSurfaceMap.usf`): a **near map** (`RT_DreamSurfaceNear`, 256², *Near Map Extent* 128 m,
 moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
 **cover map** (`RT_DreamSurfaceCover`); beside each state map an ice map of the same size holds the cold's four
-(`RT_DreamSurfaceNearIce`, `RT_DreamSurfaceFarIce`). Each texel integrates the same steps a query does — the global weather of each
+(`RT_DreamSurfaceNearIce`, `RT_DreamSurfaceFarIce`), and a hail map the hail lying (`RT_DreamSurfaceNearHail`,
+`RT_DreamSurfaceFarHail`: x the hail, the rest free). Each texel integrates the same steps a query does — the global weather of each
 step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
-precipitation, snow ratio, temperature, dust, wind and fog), each where it stood and as strong as it was at that step (a
+precipitation, snow ratio, temperature, dust, wind, fog, freezing rain, hail and sleet), each where it stood and as strong as it was at that step (a
 moving storm leaves its snow along its way, not 48 hours of it wherever it is now), then the shared formula — so a
 map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`, `DreamSurface.Gpu.MovingZone` for a
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
 cut out, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
-jump), and a snow zone's border shows on the ground from afar. The whole
+jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump),
+and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
 up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a
@@ -964,18 +1113,18 @@ the reduced weather while a material scales the open state; the map takes the ho
 (with each texel's own cloud cover, which takes some of the daily swing off, and its zones' offset), not at each
 texel's height; and like the weather map it takes Override zones only, without their height limits. The maps are
 placed by `DDW_SurfaceNear / Far` in the shared collection, beyond both the view's state stands (`DDW_SurfaceView`,
-`DDW_SurfaceViewIce`). GPU cost: some 0.03 ms a frame (both maps
+`DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`). GPU cost: some 0.03 ms a frame (both maps
 and the cover), 0.2 ms for an integration.
 
 **Materials.** One node at the end of a material's attributes (Material Attributes in and out):
 
 | Function | For | What the weather does |
 | :-- | :-- | :-- |
-| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into a white crust on every face; both break up in fine clumps as they thin |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into fine white feathers on what faces up and on rounded edges and corners (where a mesh's smoothed normal bends away from its flat facets), little on a broad upright face; frost breaks up in fine clumps as it thins; hail under the snow: scattered icy white stones some one to two centimetres across on what faces up, each a small dome catching the light, few on standing water; heaped up, a white cover (far off the stones blend into the share they cover, no sparkling) |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
-| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust; a glaze shifts the block toward a pale ice tint and widens the highlight band, a frozen puddle is a hard-edged pale block with crack lines, frost and rime a hard-edged white-blue cover with sparse glint dots |
+| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust; a glaze shifts the block toward a pale ice tint and widens the highlight band, a frozen puddle is a hard-edged pale block with crack lines, frost and rime a hard-edged white-blue cover with sparse glint dots; hail hard-edged white stones with a shaded crescent each, heaped up a hard-edged white cover |
 | `MF_DreamGlassRain` | window glass, vehicle glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only, and snow; on a vehicle's glass the air pushes the drops along and the wipers sweep them away (below) |
-| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position, and the ice, frost, rime and frozen water |
+| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position, and the ice, frost, rime and frozen water, and the hail |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
 **Tuning the look.** What the weather does to a surface is set in the editor, per material instance: every shift,
@@ -984,8 +1133,8 @@ values a set of materials shares in a parent instance and let the materials inhe
 
 | Group | Parameters (defaults) |
 | :-- | :-- |
-| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35, `WaveStrength` 0.6; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
-| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18, `ToonWaveThreshold` 0.15, `ToonWaveBrightness` 0.2; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35, `WaveStrength` 0.6; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through); hail: `HailColor`, `HailRoughness` 0.35, `HailCoverGain` 1 (above 1 a few stones whiten sooner), `HailBumps` 0.6 (how far the stones tilt the normal) |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18, `ToonWaveThreshold` 0.15, `ToonWaveBrightness` 0.2; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9; hail: `ToonHailThreshold` 0.5, `ToonHailColor`, `ToonHailRoughness` 0.6, `ToonHailCoverGain` 1, `ToonHailShade` 0.12 (the stones' shaded crescent) |
 
 Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
 formula, so a CPU query and every material agree on it; the parameters change how it looks there.

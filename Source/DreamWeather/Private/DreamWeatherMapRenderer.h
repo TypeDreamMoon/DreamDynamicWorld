@@ -6,6 +6,7 @@
 #include <atomic>
 
 class FTextureRenderTargetResource;
+class FTextureResource;
 class FRDGBuilder;
 
 /**
@@ -28,6 +29,11 @@ public:
 		/** NumZones records of DWX_ZONE_FLOAT4S, lowest priority first, then the polygons' points. */
 		TArray<FVector4f> Zones;
 		int32 NumZones = 0;
+		/** The cloud painting's texture (R cover, G amount), drawn over the zones; null for none. */
+		FTextureResource* PaintResource = nullptr;
+		/** Its footprint: min x, min y, 1 / size x, 1 / size y (cm). */
+		FVector4f PaintRect = FVector4f::Zero();
+		float PaintStrength = 0.0f;
 	};
 
 	/** Game thread: draw the map this frame. */

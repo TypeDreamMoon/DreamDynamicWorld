@@ -8,6 +8,7 @@
 
 class UPostProcessComponent;
 class UMaterialInstanceDynamic;
+class UDreamGroundFogComponent;
 
 namespace DreamWeatherFX::Names
 {
@@ -57,6 +58,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fog Bank", meta = (ClampMin = "0"))
 	float WindDrag = 0.4f;
 
+	/** The marched fog (DreamWeather.Fog.Volumetric 1): its mist over the box's floor, broken into patches by a noise of
+	 *  some two and a half patch radii drifting on the wind. The local fog volumes draw instead at 0. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fog Bank")
+	TObjectPtr<UDreamGroundFogComponent> FogVolume;
+
 	/** How thick it is now (Density times what the weather's fog makes of it). */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	float GetDensityNow() const { return DensityNow; }
@@ -88,6 +94,8 @@ private:
 
 	void Respawn(FPatch& Patch, bool bAnyAge);
 	void Apply();
+	void ApplyVolumetric();
+	FVector LayerAt = FVector(TNumericLimits<double>::Max());
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<class ULocalFogVolumeComponent>> Volumes;

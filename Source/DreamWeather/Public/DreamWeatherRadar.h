@@ -196,6 +196,11 @@ public:
 #if WITH_EDITOR
 	virtual const FText GetPaletteCategory() override;
 #endif
+
+protected:
+	/** Drawn ignoring the texture's alpha: the radar is drawn into it by an opaque material, which leaves no alpha a UI
+	 *  could use (an ordinary image showed nothing). */
+	virtual TSharedRef<SWidget> RebuildWidget() override;
 };
 
 /** A screen in the world showing the weather radar (M_DreamWeatherRadar on a plane, round the view), as in the showcase. */

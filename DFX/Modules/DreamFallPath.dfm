@@ -16,6 +16,11 @@
 //   Splashes: AtEnd = true. Puts the particle at the end of a landed path and writes the surface normal to
 //             Particles.DreamSurfaceNormal; a path that ended in the air kills it.
 //
+//   Scatter:  drops only. Moves a drop sideways off its path by up to this many cm (start and end alike, so it falls
+//             parallel to it). Thousands of short particles on a thousand paths line up into beads on a string --
+//             a long streak hides that, a hail pellet does not; the price is a pellet now and then falling that far
+//             in under the edge of a shelter, so keep it to well under a metre.
+//
 // Paths:   xyz = where the path ends, w = seconds a drop falls along it.
 // Starts:  where the path starts.
 // Normals: the surface the path landed on, zero when it ended in the air.
@@ -34,6 +39,7 @@ Module(Name="Weather/Modules/DreamFallPath", Root="Plugin.DreamDynamicWorld")
         bool   AtEnd        = false [ Description="Place at the end of a landed path (a splash) instead of along it (a drop)." ];
         float  Anywhere     = 0.0   [ Description="0..1: share of drops that start at a random point along their path rather than at its top (1 for a frame that fills the air at once)." ];
         float  MinLifetime  = 0.05  [ Description="Seconds; a path shorter than this still shows its drop for a moment." ];
+        float  Scatter      = 0.0   [ Description="Drops only: cm a drop is moved sideways off its path at most, so short particles do not line up along the paths (well under a metre: it can carry one under a shelter's edge)." ];
     }
 
     Body = {
@@ -64,7 +70,8 @@ Module(Name="Weather/Modules/DreamFallPath", Root="Plugin.DreamDynamicWorld")
         {
             float Along = rand(1.0) < Anywhere ? rand(1.0) : 0.0;
             float3 PathVelocity = (Path.xyz - Start) / max(FallTime, 0.001);
-            Particles.Position = lerp(Start, Path.xyz, Along);
+            float3 Aside = float3(rand(2.0) - 1.0, rand(2.0) - 1.0, 0.0) * Scatter;
+            Particles.Position = lerp(Start, Path.xyz, Along) + Aside;
             Particles.Velocity = PathVelocity;
             Particles.DreamPathVelocity = PathVelocity;
             Particles.Lifetime = Count > 0 ? max(FallTime * (1.0 - Along), MinLifetime) : 0.0;

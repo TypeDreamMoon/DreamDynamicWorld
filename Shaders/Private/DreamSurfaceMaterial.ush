@@ -181,7 +181,8 @@ float4 DSM_IceShown(float4 Ice, float4 Mask, float Exposure)
 //   glaze          on every face (freezing rain coats all of it), most on what faces up, where the film was
 //   frozen puddle  where the puddle is (Puddle: its cover, DSF_PuddleCover)
 //   frost          on what sees the sky, most on what faces up; fine clumps of crystals break it up as it thins
-//   rime           on every face, most on upright ones, breaking up the same way
+//   rime           on what stands out into the fog: edges and rounded corners (where the shading normal bends away
+//                  from the flat facet) and what faces up, little on broad flat upright faces; in fine feathers
 // Gain = how readily frost and rime cover (above 1 sooner). Normal = the face's world normal: the patterns lie in the
 // face's own plane (projected along its main axis), so an upright face's frost does not streak.
 float2 DSM_FacePlane(float3 WorldPos, float3 Normal)
@@ -199,8 +200,68 @@ float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, 
 	float Glaze = saturate(Ice.x * 1.5f) * (0.5f + 0.5f * Up);
 	float Frozen = saturate(Puddle) * saturate(Ice.w * 1.2f);
 	float Frost = saturate((Ice.y * Gain * (0.3f + 0.7f * Up) * 1.4f - (1.0f - Fine) * 0.35f - (1.0f - Patch) * 0.15f) * 2.0f);
-	float Rime = saturate((Ice.z * Gain * (0.6f + 0.4f * (1.0f - Up)) * 1.4f - (1.0f - Fine) * 0.3f) * 2.0f);
+	// Rime grows where the fog streams past an edge: toward a mesh's rounded edges and corners, where the smoothed normal
+	// bends away from the flat facet the pixel lies on (a facet's middle has them alike), and on what faces up; a broad
+	// flat upright face gets a fifth (a sparse sprinkle). Its feathers are a centimetre or two across, not patches.
+	float3 Facet = cross(ddx(WorldPos), ddy(WorldPos));
+	float Bend = 1.0f - abs(dot(Facet * rsqrt(max(dot(Facet, Facet), 1.0e-12f)), Normal));
+	float Exposed = max(0.2f + 0.8f * Up * Up, smoothstep(0.015f, 0.12f, Bend));
+	float Feather = DSF_Hollow(P.x + 1.3f, P.y - 2.9f, 2.5f) * 0.6f + DSF_Hollow(P.x - 7.1f, P.y + 4.3f, 1.2f) * 0.4f;
+	float Rime = saturate((Ice.z * Gain * Exposed * 2.0f - (1.0f - Feather) * 0.55f) * 2.5f);
 	return float4(Glaze, Frozen, Frost, Rime);
+}
+
+// The hail lying over a point (0..1): the hail maps beside the state maps, the view's beyond both (DDW_SurfaceViewHail),
+// read as the state is.
+float DSM_HailState(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewHail,
+	Texture2D NearHail, SamplerState NearSampler, Texture2D FarHail, SamplerState FarSampler)
+{
+	return DSM_StateRead(WorldPos, NearPlace, FarPlace, ViewHail, NearHail, NearSampler, FarHail, FarSampler, true).x;
+}
+
+// ...under the mask brushes (with the snow: UDreamSurfaceSubsystem::SampleSurface does the same) and none under cover.
+float DSM_HailShown(float Hail, float4 Mask, float Exposure)
+{
+	return saturate(Hail) * Mask.z * Exposure;
+}
+
+// Hailstones on a surface: two layers of round stones, some two and one centimetres across, as many as the hail lying
+// there brings (Gain: above 1 sooner), on what faces up; as it heaps up the gaps between them fill into a white cover.
+// Far off, where a stone is smaller than a pixel, the stones blend into the share of the surface they cover (no
+// sparkling). Returns (the stones, 0..1; their slope x, y in the face's plane; the heaped cover between them, 0..1). How
+// much of the surface is hail is the larger of the stones and nine tenths of the heap.
+float4 DSM_HailCovers(float Hail, float3 Normal, float3 WorldPos, float Gain)
+{
+	float Up = saturate(Normal.z);
+	float Amount = saturate(Hail * Gain) * smoothstep(0.35f, 0.8f, Up);
+	if (Amount <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float2 P = DSM_FacePlane(WorldPos, Normal);
+	float Stones = 0.0f;
+	float2 Slope = float2(0.0f, 0.0f);
+	float Blur = 0.0f;
+	for (int Layer = 0; Layer < 2; ++Layer)
+	{
+		float Cell = Layer == 0 ? 1.8f : 1.1f;
+		float Seed = float(Layer) * 17.0f;
+		float2 Q = P / Cell + Seed;
+		Blur = max(Blur, saturate(length(fwidth(Q)) * 1.5f - 0.5f));
+		float2 C = floor(Q);
+		float Here = step(DSF_Hash(C.x + 5.1f, C.y + Seed), Amount * (Layer == 0 ? 0.9f : 0.7f));
+		float R = 0.22f + 0.16f * DSF_Hash(C.x + Seed, C.y + 2.7f);
+		float2 Centre = C + R + (1.0f - 2.0f * R) * float2(DSF_Hash(C.x + 1.3f, C.y + Seed), DSF_Hash(C.x + Seed, C.y + 9.4f));
+		float2 D = (Q - Centre) / R;
+		float Dome = Here * (1.0f - smoothstep(0.55f, 1.0f, dot(D, D)));
+		Stones = max(Stones, Dome);
+		Slope += -D * Dome;
+	}
+	// Far off: the share of the surface the stones cover instead of the stones.
+	Stones = lerp(Stones, Amount * 0.45f, Blur);
+	Slope = Slope * (1.0f - Blur);
+	float Heap = smoothstep(0.55f, 1.0f, Amount);
+	return float4(saturate(Stones), Slope.x, Slope.y, Heap);
 }
 
 // Cracks in a frozen puddle, 0..1 (thin bright lines): the contour lines of a pattern some 40 cm across.
@@ -541,6 +602,23 @@ FDreamSurfaceLook DSM_RealisticCold(FDreamSurfaceLook L, float4 Ice, float3 Worl
 	L.Metallic = L.Metallic * (1.0f - White);
 	float2 Glint = DSM_Glints(WorldPos) * (LookCold.z * White);
 	L.Normal = normalize(L.Normal + float3(Glint.x, Glint.y, 0.0f));
+	return L;
+}
+
+// Hail on a realistic surface (DSM_HailShown's amount), over the cold, under the snow; few stones stay on standing
+// water. Icy white stones, a little glossy where they are wet, each a small dome catching the light; heaped up, the
+// stones still read over a duller, matte white between them.
+//   LookHail  = (the stones' colour [0.84, 0.87, 0.9], their roughness [0.35])
+//   LookHail2 = (how readily the hail covers [1], how far the stones tilt the normal [0.6], -, -)
+FDreamSurfaceLook DSM_RealisticHail(FDreamSurfaceLook L, float Hail, float3 WorldPos, float3 NormalWS, float4 LookHail, float4 LookHail2)
+{
+	float4 H = DSM_HailCovers(Hail * (1.0f - 0.7f * L.Puddle), NormalWS, WorldPos, LookHail2.x);
+	float Between = H.w * (1.0f - H.x);
+	float Cover = max(H.x, H.w * 0.9f) * (1.0f - L.SnowCover);
+	L.Color = lerp(L.Color, LookHail.rgb * (1.0f - 0.18f * Between), Cover);
+	L.Roughness = lerp(L.Roughness, lerp(LookHail.w, 0.7f, Between), Cover);
+	L.Metallic = L.Metallic * (1.0f - Cover);
+	L.Normal = normalize(L.Normal + float3(H.y, H.z, 0.0f) * (LookHail2.y * (1.0f - L.SnowCover)));
 	return L;
 }
 

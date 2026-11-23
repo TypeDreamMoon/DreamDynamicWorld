@@ -14,6 +14,7 @@
 //   dust    settles on what faces up, under the snow: the dust's colour, rough, not metal
 //   cold    on frozen ground the film turns to a glaze of clear ice (darker, glossy), the puddles freeze over (milky,
 //           cracked, flat), and hoarfrost and rime grow as white sparkling crystals; all under the snow
+//   hail    scattered icy white stones on what faces up, each a small dome; heaped up, a white cover; under the snow
 // MF_DreamSurfaceWeatherTerrain adds the snow's depth; MF_DreamSurfaceWeatherToon shifts colour bands instead.
 // The HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
 
@@ -40,6 +41,16 @@ Function float4 DreamSurface_Ice(
 	return DSM_IceShown(Ice, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
+Function float DreamSurface_Hail(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewHail, in float4 Params,
+	in Texture2D NearHailMap, in Texture2D FarHailMap, in Texture2D CoverMap, in Texture2D MaskMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Hail = DSM_HailState(WorldPos, NearPlace, FarPlace, ViewHail, NearHailMap, NearHailMapSampler, FarHailMap, FarHailMapSampler);
+	return DSM_HailShown(Hail, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
 Function float DreamSurface_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
@@ -64,26 +75,28 @@ Function float DreamSurface_Low(in float3 WorldPos, in float4 NearPlace, in Text
 	return DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
 }
 
-Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
+Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS, in float Hail, in float4 LookHail, in float4 LookHail2)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Wave, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
+	L = DSM_RealisticHail(L, Hail, WorldPos, NormalWS, LookHail, LookHail2);
 	return float4(L.Color, L.Roughness);
 }
 
-Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
+Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS, in float Hail, in float4 LookHail, in float4 LookHail2)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Wave, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
+	L = DSM_RealisticHail(L, Hail, WorldPos, NormalWS, LookHail, LookHail2);
 	return float4(L.Normal, L.Metallic);
 }
 
 ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Plugin.DreamDynamicWorld")
 {
 	Settings = {
-		Description       = "DreamSurface: the weather on a surface (wet, puddles, snow, dust, ice and frost), realistic. Attributes in, attributes out: put it last.";
+		Description       = "DreamSurface: the weather on a surface (wet, puddles, snow, dust, ice and frost, hail), realistic. Attributes in, attributes out: put it last.";
 		ExposeToLibrary   = true;
 		LibraryCategories = "DreamSurface";
 	}
@@ -95,11 +108,14 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
 		const Texture2D NearIceMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearIce");
 		const Texture2D FarIceMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarIce");
+		const Texture2D NearHailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearHail");
+		const Texture2D FarHailMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarHail");
 		const Texture2D TrailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceTrails");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewIce") ViewIce;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewHail") ViewHail;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceTrails") TrailPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
@@ -141,6 +157,12 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 			ScalarParameter FrostAmount      = 0.5  [Slider(0, 1); Description="How far a full frost whitens a surface: a frost lets it show through."];
 			ScalarParameter RimeAmount       = 0.9  [Slider(0, 1); Description="How far a full rime whitens a surface (a crust)."];
 		}
+		Group("Weather Look|Hail") {
+			VectorParameter HailColor        = float4(0.84, 0.87, 0.9, 1.0) [Description="The hailstones' colour (icy white)."];
+			ScalarParameter HailRoughness    = 0.35 [Slider(0, 1); Description="The stones' roughness (a little glossy: they are wet)."];
+			ScalarParameter HailCoverGain    = 1.0  [Slider(0, 3); Description="How readily the hail covers: above 1 a few stones whiten the ground sooner."];
+			ScalarParameter HailBumps        = 0.6  [Slider(0, 2); Description="How far the stones tilt the normal (each a small dome catching the light)."];
+		}
 	}
 
 	Inputs = {
@@ -173,8 +195,11 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		float4 LookCold = float4(FrostCoverGain, IceValue, FrostGlints, RimeBrightness);
 		float4 LookCold2 = float4(FrostAmount, RimeAmount, 0.0, 0.0);
 		float3 NormalWS = UE.VertexNormalWS();
-		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
-		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
+		float Hail = DreamSurface_Hail(WP, NearPlace, FarPlace, ViewHail, Params, NearHailMap, FarHailMap, CoverMap, MaskMap);
+		float4 LookHail = float4(HailColor.rgb, HailRoughness);
+		float4 LookHail2 = float4(HailCoverGain, HailBumps, 0.0, 0.0);
+		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
+		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
 		Result = Attributes;
 		Result.BaseColor = CR.xyz;
 		Result.Roughness = CR.w;

@@ -22,8 +22,10 @@ System(Name="Weather/Effects/NS_DreamHail", Root="Plugin.DreamDynamicWorld")
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the pellets spawned now that start part way down their path (1 for the frame that fills the air at once)." ];
         float  WindResponse = 0.05               [ Group="Motion"; Description="How much of the wind's deviation the pellets take (the wind field gives it; hail hardly any)." ];
         float  BounceSpeed  = 320.0              [ Group="Motion"; Description="How fast a pellet leaves the surface, cm/s (the fastest)." ];
-        float  PelletSize   = 4.5                [ Group="Look"; Description="Pellet size, cm (larger than most hail, so far ones still read)." ];
-        Color  Tint         = (1.0, 1.0, 1.0, 1.0) [ Group="Look" ];
+        float  PelletSize   = 5.5                [ Group="Look"; Description="Pellet size, cm (larger than most hail, so far ones still read)." ];
+        float  Scatter      = 70.0               [ Group="Look"; Description="cm a pellet strays sideways off its fall path, so pellets do not line up in beads along the paths." ];
+        float  PelletStretch = 2.2               [ Group="Look"; Description="A falling pellet's length over its width: a little motion blur (rain's streaks are thirty times their width)." ];
+        Color  Tint         = (1.6, 1.6, 1.65, 1.0) [ Group="Look"; Description="Over 1 lifts it above the light around it: hail is icy white even under a dark sky." ];
     }
 
     Emitter Pellets
@@ -47,11 +49,11 @@ System(Name="Weather/Effects/NS_DreamHail", Root="Plugin.DreamDynamicWorld")
                 LifetimeMode      = DirectSet,
                 Lifetime          = 3.0,
                 ColorMode         = DirectSet,
-                Color             = User.Tint,
-                SpriteSizeMode    = Uniform,
-                UniformSpriteSize = User.PelletSize
+                Color          = User.Tint,
+                SpriteSizeMode = NonUniform,
+                SpriteSize     = hlsl { float2(User.PelletSize, User.PelletSize * User.PelletStretch) }
             );
-            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere);
+            DreamFallPath(Paths = User.Paths, Starts = User.Starts, Normals = User.Normals, AtEnd = false, Anywhere = User.Anywhere, Scatter = User.Scatter);
         }
 
         ParticleUpdate = {
@@ -61,10 +63,11 @@ System(Name="Weather/Effects/NS_DreamHail", Root="Plugin.DreamDynamicWorld")
             SolveForcesAndVelocity();
         }
 
+        // Stretched along the fall a little (a short blur, not a streak), so the pellets read as moving at a distance.
         SpriteRenderer Pellet
         {
             Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamSnowFlake";
-            Alignment  = Unaligned;
+            Alignment  = VelocityAligned;
             FacingMode = FaceCamera;
             SortMode   = None;
 

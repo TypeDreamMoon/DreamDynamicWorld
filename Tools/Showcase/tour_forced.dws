@@ -214,4 +214,23 @@ aim -12 30
 wait 3
 settle 8
 shot SHOW_WindFog_Toon
+DreamWeather.Set WP_Frost 0
+time 3
+DreamWorld.Pause 0
+wait 40
+DreamWorld.Pause 1
+time 6.3
+settle 20
+wait 30
+DreamWeather.TerrainFog
+move 2500 0 20000
+aim -4 230
+wait 3
+settle 8
+shot SHOW_TerrainFog_Wide
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_TerrainFog_Toon
 DreamWeather.Clear
