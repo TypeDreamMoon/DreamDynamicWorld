@@ -330,6 +330,9 @@ class FDreamSurfaceTrailsCS : public FGlobalShader
 		SHADER_PARAMETER(float, TrailExtent)
 		SHADER_PARAMETER(float, PrintKeep)
 		SHADER_PARAMETER(float, RippleKeep)
+		SHADER_PARAMETER(float, WaveStep)
+		SHADER_PARAMETER(float, WaveKeep)
+		SHADER_PARAMETER(float, WaveSettle)
 		SHADER_PARAMETER(uint32, NumStamps)
 		SHADER_PARAMETER(FIntPoint, TrailResolution)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, PreviousTrails)
@@ -395,6 +398,9 @@ void FDreamSurfaceMapRenderer::Trails_RenderThread(FRDGBuilder& GraphBuilder, co
 	Params->TrailExtent = Args.Extent;
 	Params->PrintKeep = Args.PrintKeep;
 	Params->RippleKeep = Args.RippleKeep;
+	Params->WaveStep = Args.WaveStep;
+	Params->WaveKeep = Args.WaveKeep;
+	Params->WaveSettle = Args.WaveSettle;
 	Params->NumStamps = uint32(Args.Stamps.Num() / 2);
 	Params->TrailResolution = Resolution;
 	Params->PreviousTrails = History;

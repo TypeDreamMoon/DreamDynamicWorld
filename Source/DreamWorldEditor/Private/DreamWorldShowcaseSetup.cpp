@@ -11,8 +11,10 @@
 #include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceSetup.h"
 #include "DreamSurfaceVehicleGlass.h"
+#include "DreamSurfaceWalker.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
+#include "DreamWeatherFog.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
@@ -839,6 +841,27 @@ namespace DreamWorld::ShowcaseSetup
 		AddGrove(*World, Kit, FVector2D(500.0, 2100.0));
 		AddCampfire(*World, Kit, FVector(2050.0, -450.0, -3.0));
 		AddCrates(*World, Kit, FVector2D(1600.0, -800.0));
+		// A bank of ground fog in the dip round the pond, as thick as the weather's fog; and wisps blown low over the set
+		// in a foggy wind.
+		if (ADreamFogBank* Bank = World->SpawnActor<ADreamFogBank>(FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FRotator::ZeroRotator))
+		{
+			Bank->Extent = FVector(1600.0, 1300.0, 260.0);
+			Bank->SetActorLabel(TEXT("FogBank"));
+		}
+		if (ADreamWindFog* Wisps = World->SpawnActor<ADreamWindFog>(FVector(1300.0, 400.0, -20.0), FRotator::ZeroRotator))
+		{
+			Wisps->SetActorLabel(TEXT("WindFog"));
+		}
+		// A walker going round the square and its puddles, its feet stepping in turn: prints in the snow and the dust,
+		// the puddles pushed away and ringing, whatever the weather.
+		if (ADreamSurfaceWalker* Walker = World->SpawnActor<ADreamSurfaceWalker>(FVector(1870.0, 430.0, 0.0), FRotator::ZeroRotator))
+		{
+			Walker->Body->SetStaticMesh(Kit.Figure);
+			Walker->Body->SetMaterial(0, Kit.ToonRed);
+			Walker->Center = FVector2D(1350.0, 430.0);
+			Walker->Radii = FVector2D(520.0, 360.0);
+			Walker->SetActorLabel(TEXT("Walker"));
+		}
 		// Two cars south of the set, side by side facing north: one parked (the snow lies on its windscreen, the drops sit), one shown as if it drove at
 		// 60 km/h with its wipers running.
 		AddCar(*World, Kit, FVector(200.0, -1000.0, SurfaceSetup::GroundHeight(200.0, -1000.0)), 90.0f, FVector::ZeroVector, false, TEXT("ParkedCar"));

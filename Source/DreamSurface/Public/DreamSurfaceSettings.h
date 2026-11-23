@@ -123,6 +123,18 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (ClampMin = "0.05", Units = "s"))
 	float RippleSeconds = 1.2f;
 
+	/** How fast a wave runs over a puddle, cm a second (shallow water: a few tens). */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails|Water", meta = (ClampMin = "1", UIMax = "200", Units = "cm/s"))
+	float WaveSpeed = 40.0f;
+
+	/** Real seconds a wave in a puddle takes to die away. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails|Water", meta = (ClampMin = "0.05", Units = "s"))
+	float WaveSeconds = 1.2f;
+
+	/** Real seconds the water pushed away by a step takes to flow back level. */
+	UPROPERTY(Config, EditAnywhere, Category = "Trails|Water", meta = (ClampMin = "0.05", Units = "s"))
+	float FlowBackSeconds = 1.5f;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Trails", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath TrailMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceTrails.RT_DreamSurfaceTrails"));
 

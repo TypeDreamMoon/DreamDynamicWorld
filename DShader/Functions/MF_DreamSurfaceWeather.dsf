@@ -46,6 +46,12 @@ Function float DreamSurface_RainHere(in float3 WorldPos, in float4 NearPlace, in
 	return DSM_RainHere(Weather0, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
+Function float4 DreamSurface_Wave(in float3 WorldPos, in float4 TrailPlace, in Texture2D TrailMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_Wave(WorldPos, TrailPlace, TrailMap, TrailMapSampler);
+}
+
 Function float4 DreamSurface_Trail(in float3 WorldPos, in float4 TrailPlace, in Texture2D TrailMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
@@ -58,18 +64,18 @@ Function float DreamSurface_Low(in float3 WorldPos, in float4 NearPlace, in Text
 	return DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
 }
 
-Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
+Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Wave, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
 	return float4(L.Color, L.Roughness);
 }
 
-Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
+Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float4 Wave, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
-	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
+	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Wave, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
 	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
 	return float4(L.Normal, L.Metallic);
 }
@@ -108,6 +114,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 			ScalarParameter PuddleValue     = 0.35 [Slider(0, 1); Description="How much of its colour a surface under standing water keeps."];
 			ScalarParameter PuddleRoughness = 0.02 [Slider(0, 1); Description="Standing water's roughness: 0 a mirror."];
 			ScalarParameter RippleStrength  = 0.35 [Slider(0, 1); Description="How far the rain's ripples tilt the water's surface."];
+			ScalarParameter WaveStrength    = 0.6  [Slider(0, 4); Description="How far the waves a step sends across a puddle tilt the water's surface."];
 		}
 		Group("Weather Look|Snow") {
 			VectorParameter SnowColor       = float4(0.88, 0.9, 0.93, 1.0) [Description="The snow's colour."];
@@ -152,9 +159,10 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		float Rain = DreamSurface_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
 		float Seconds = UE.Time();
 		float4 Trail = DreamSurface_Trail(WP, TrailPlace, TrailMap);
+		float4 Wave = DreamSurface_Wave(WP, TrailPlace, TrailMap);
 		float Low = DreamSurface_Low(WP, NearPlace, CoverMap);
 		float4 LookWet = float4(WetValueHard, WetValuePorous, WetRoughHard, WetRoughPorous);
-		float4 LookWater = float4(PuddleValue, PuddleRoughness, RippleStrength, 0.0);
+		float4 LookWater = float4(PuddleValue, PuddleRoughness, RippleStrength, WaveStrength);
 		float4 LookSnow = float4(SnowColor.rgb, SnowRoughness);
 		float4 LookDust = float4(DustColor.rgb, DustAmount);
 		float4 LookMore = float4(SnowCoverGain, DustRoughness, PrintDarken, 0.0);
@@ -165,8 +173,8 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		float4 LookCold = float4(FrostCoverGain, IceValue, FrostGlints, RimeBrightness);
 		float4 LookCold2 = float4(FrostAmount, RimeAmount, 0.0, 0.0);
 		float3 NormalWS = UE.VertexNormalWS();
-		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
-		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
+		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
+		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
 		Result = Attributes;
 		Result.BaseColor = CR.xyz;
 		Result.Roughness = CR.w;

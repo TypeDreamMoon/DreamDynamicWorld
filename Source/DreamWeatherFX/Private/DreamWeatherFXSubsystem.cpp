@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWeatherFXSubsystem.h"
+#include "DreamWeatherFog.h"
 #include "DreamWeatherFXSettings.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWeatherTypes.h"
@@ -265,6 +266,18 @@ void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, U
 	UpdateBolts(Weather, DeltaTime);
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
 	UWorld* World = GetWorld();
+	{
+		// The fog's drift: the wind at the view summed (wrapped every 100 km, far beyond any noise's reach in a session).
+		FVector Air = FVector::ZeroVector;
+		if (const UDreamWindSubsystem* WindSubsystem = World ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr)
+		{
+			Air = WindSubsystem->SampleWindVelocity(Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector);
+		}
+		const double Wrap = 1.0e7;
+		FogDrift.X = FMath::Fmod(FogDrift.X + Air.X * DeltaTime, Wrap);
+		FogDrift.Y = FMath::Fmod(FogDrift.Y + Air.Y * DeltaTime, Wrap);
+		Clock.SetVectorParameter(DreamWeatherFX::Names::MPC_FogDrift, FLinearColor(float(FogDrift.X), float(FogDrift.Y), float(Air.X), float(Air.Y)));
+	}
 	if (World && World->IsGameWorld() && S->bWindCameraShake)
 	{
 		// Every local player's camera buffets in a strong wind.

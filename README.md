@@ -524,6 +524,24 @@ height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay cond
 `OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
 are saved in the world snapshot; the schedule needs nothing saved.
 
+**Ground fog and wind fog.** Two actors for fog of a place rather than of the whole sky (module `DreamWeatherFX`):
+
+- **Fog bank** (`ADreamFogBank`): patches of fog filling a box (*Extent*, the actor at its floor), each a local fog
+  volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
+  taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
+  or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
+  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
+  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+- **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
+  actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
+  the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
+  the wind blows (`DDW_Weather1` at the view), times *Amount*.
+
+Both drift with the wind summed at the view, frame by frame (`DDW_FogDrift`: xy how far the air has been carried, zw
+the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of wind never jumps the fog. The showcase has
+a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
+(`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
+
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
@@ -832,7 +850,7 @@ its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
@@ -947,8 +965,8 @@ values a set of materials shares in a parent instance and let the materials inhe
 
 | Group | Parameters (defaults) |
 | :-- | :-- |
-| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
-| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35, `WaveStrength` 0.6; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18, `ToonWaveThreshold` 0.15, `ToonWaveBrightness` 0.2; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
 
 Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
 formula, so a CPU query and every material agree on it; the parameters change how it looks there.
@@ -1048,6 +1066,24 @@ fresh snow falls (*Print Fill Hours* of snow), the wind blows them over (*Print 
 case (*Print Fade Hours*, in game hours); the stirred water settles in *Ripple Seconds*, real time. The map follows
 the camera in eighths of its size and keeps what it carried over; prints that leave it are gone. The trail map is
 for the look: `SampleSurface` does not see the prints.
+
+**Water underfoot.** The trail map's other two channels are the puddles' water surface, a small wave field (its height
+and how fast it moves) stepped on the GPU with each update (`TrailsCS`: a nine-point wave equation, the same every way
+round so a ring stays round on the grid). A step into a puddle pushes the water away under the foot, down to the
+ground; the water then rushes back, a ring runs out across the puddle and dies away, and the surface settles level —
+*Wave Speed* (40 cm/s), *Wave Seconds* (1.2: how long a wave lives) and *Flow Back Seconds* (1.5), real seconds, in
+*Project Settings ▸ Dream Surface ▸ Trails ▸ Water*. While the water moves the trail map updates every frame. The
+materials (`DSM_Wave`) open the puddle where the water is pushed away, down to the wet ground beneath, and tilt its
+surface along the waves (`WaveStrength`; the toon function draws a hard bright line on a steep wave, `ToonWaveThreshold`,
+`ToonWaveBrightness`). An eave's drops push the water too, so a drip line rings the puddle below it. Like the prints, it
+is for the look. `DreamSurface.Gpu.PuddleWaves` checks the hole, the ring and the level water after.
+
+**A walker.** `ADreamSurfaceWalker` walks an ellipse round *Center* (*Radii*) at *Speed* (1.2 m/s), on the ground
+(traced) and facing the way it goes, its two feet (surface interaction components) stepping in turn every half
+*Stride*: prints in the snow and the dust, puddles pushed away and ringing, with no character or animation. Its body is
+any mesh standing on its pivot; anything else that moves with a body can be attached to it.
+`DreamSurface.Walker.Frame [behind] [height] [pitch] [side]` puts the view behind it (a shot tour's following view).
+`DreamSurface.Walker` checks its pace, its loop and its alternating prints.
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
 a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, a wind

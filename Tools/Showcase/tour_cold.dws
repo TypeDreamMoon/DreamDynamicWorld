@@ -26,6 +26,11 @@ aim -18 25
 wait 3
 settle 8
 shot SHOW_Frost_Ground
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Frost_Walker
 move 400 -600 250
 aim -20 -45
 wait 3
@@ -52,6 +57,11 @@ aim -18 25
 wait 3
 settle 8
 shot SHOW_Thaw_Ground
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Thaw_Walker
 DreamWeather.Set WP_FreezingFog 0
 DreamWorld.Pause 0
 wait 112
@@ -69,3 +79,8 @@ aim -18 25
 wait 3
 settle 8
 shot SHOW_Rime_Ground
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Rime_Walker

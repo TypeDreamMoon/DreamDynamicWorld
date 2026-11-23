@@ -75,6 +75,10 @@ public:
 		/** How much of a print and of the stirred water stays over this update. */
 		float PrintKeep = 1.0f;
 		float RippleKeep = 1.0f;
+		/** The water's surface over this update (DreamSurfaceMap.usf's TrailsCS). */
+		float WaveStep = 0.0f;
+		float WaveKeep = 1.0f;
+		float WaveSettle = 1.0f;
 		/** Start from nothing (the first update, a jump). */
 		bool bReset = false;
 		/** Two float4 per print (UDreamSurfaceSubsystem::GetPendingStamps). */

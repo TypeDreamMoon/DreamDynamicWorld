@@ -384,6 +384,29 @@ float4 DSM_Trail(float3 WorldPos, float4 Place, Texture2D TrailMap, SamplerState
 	return float4(T.x * In, T.y * In, DX * In, DY * In);
 }
 
+// The water's surface in the puddles over a point (the trail map's wave field): its height (x: -1 pushed away to the
+// bottom .. above 0 a wave's crest) and its slope (y, z: per cm, for a water depth of some 2 cm); all 0 beyond the map.
+float4 DSM_Wave(float3 WorldPos, float4 Place, Texture2D TrailMap, SamplerState TrailSampler)
+{
+	float2 UV = DSM_MapUV(WorldPos, Place);
+	float In = DSM_Inside(UV, Place.w);
+	if (In <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	float Width;
+	float Height;
+	TrailMap.GetDimensions(Width, Height);
+	float2 Texel = float2(1.0f / max(Width, 1.0f), 1.0f / max(Height, 1.0f));
+	// The height read smoothly (a cubic B-spline over the texels): its edges in the puddles stay round, not the texels' steps.
+	float H = DSM_SampleSmooth(TrailMap, TrailSampler, UV).b;
+	float DX = TrailMap.SampleLevel(TrailSampler, UV + float2(Texel.x, 0.0f), 0).b - TrailMap.SampleLevel(TrailSampler, UV - float2(Texel.x, 0.0f), 0).b;
+	float DY = TrailMap.SampleLevel(TrailSampler, UV + float2(0.0f, Texel.y), 0).b - TrailMap.SampleLevel(TrailSampler, UV - float2(0.0f, Texel.y), 0).b;
+	// Across two texels of the map (Texel x the map's extent, 1 / Place.z cm each), the water some 2 cm deep.
+	float Run = 2.0f * Texel.x / max(Place.z, 1.0e-6f);
+	return float4(H * In, DX * 2.0f / Run * In, DY * 2.0f / Run * In, 0.0f);
+}
+
 // What the weather makes of a realistic surface (after Lagarde, "Water drop 3b", 2013).
 struct FDreamSurfaceLook
 {
@@ -396,17 +419,19 @@ struct FDreamSurfaceLook
 };
 
 // Rain = the rain landing there now (DSM_RainHere), Time in seconds: the puddles' ripples and the drops' wet spots.
-// Trail = DSM_Trail: prints in the snow and the dust, water stirred by a step. Soft = 0 a hard surface (stone, paving,
+// Trail = DSM_Trail: prints in the snow and the dust, water stirred by a step; Wave = DSM_Wave: the water pushed away by
+// a step and the waves running out from it. Soft = 0 a hard surface (stone, paving,
 // wood, metal) .. 1 soft ground (soil, grass). Low = DSM_Low; PuddleScale = the small hollows' size (DDW_SurfaceParams.w).
 // The look's coefficients (the material functions' parameters, defaults in brackets):
 //   LookWet   = (value of a wet hard surface [0.85], of a wet porous one [0.4], wet roughness of a hard surface [0.2],
 //                of a porous one [0.35])
-//   LookWater = (a puddle's value [0.35], its roughness [0.02], how far rain ripples tilt it [0.35], -)
+//   LookWater = (a puddle's value [0.35], its roughness [0.02], how far rain ripples tilt it [0.35], how far the waves a
+//                step sends out tilt it [0.6])
 //   LookSnow  = (colour [0.88, 0.9, 0.93], roughness [0.6])
 //   LookDust  = (colour [0.55, 0.46, 0.34], how much of it shows [0.85])
 //   LookMore  = (how readily the snow covers [1], dust roughness [0.95], how much a print in the snow darkens [0.12], -)
 FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, float3 Normal, float4 State, float3 WorldPos, float Up,
-	float Rain, float Time, float4 Trail, float Soft, float Low, float PuddleScale,
+	float Rain, float Time, float4 Trail, float4 Wave, float Soft, float Low, float PuddleScale,
 	float4 LookWet, float4 LookWater, float4 LookSnow, float4 LookDust, float4 LookMore)
 {
 	FDreamSurfaceLook L;
@@ -431,6 +456,8 @@ FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, f
 	// dark and mirror-smooth on a hard surface, rippled while the rain falls on it; faint on soft ground.
 	float Depth = DSF_PuddleDepth(DSF_Hollow(WorldPos.x + 57.0f, WorldPos.y - 23.0f, max(PuddleScale, 20.0f)), Low);
 	float Puddle = DSF_PuddleCover(State.y, Up, Depth, Soft);
+	// Where a step pushed the water away the puddle opens down to the wet ground, and fills again as it flows back.
+	Puddle = Puddle * (1.0f - smoothstep(0.65f, 0.95f, -Wave.x));
 	float3 Water = float3(0.0f, 0.0f, 1.0f);
 	if (Puddle > 0.0f && Rain > 0.0f)
 	{
@@ -442,6 +469,11 @@ FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, f
 		// Water stirred by a step: quick small rings where it was.
 		float3 Stir = DSM_Ripples(WorldPos.xy, Time * 2.5f, 1.0f, 14.0f);
 		Water = normalize(Water + float3(-Stir.x, -Stir.y, 0.0f) * (1.2f * Trail.y));
+	}
+	if (Puddle > 0.0f)
+	{
+		// The waves running out from a step and back.
+		Water = normalize(Water + float3(-Wave.y, -Wave.z, 0.0f) * LookWater.w);
 	}
 	Color = lerp(Color, Color * LookWater.x, Puddle * Dielectric);
 	Roughness = lerp(Roughness, LookWater.y, Puddle);

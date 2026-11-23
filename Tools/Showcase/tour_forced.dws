@@ -54,6 +54,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_SnowDay_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_SnowDay_Walker
 DreamWeather.Clear
 time 7
 DreamWeather.Set WP_Dust 0
@@ -108,6 +113,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_DustDay_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_DustDay_Walker
 DreamWeather.Clear
 time 18
 DreamWeather.Set WP_Storm 0
@@ -162,4 +172,46 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_StormNight_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_StormNight_Walker
+DreamWeather.Clear
+DreamWeather.Clear
+time 7
+DreamWeather.Set WP_Fog 0
+DreamWorld.Pause 0
+wait 40
+DreamWorld.Pause 1
+time 9
+settle 20
+wait 150
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_FogDay_Wide
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_FogDay_Pond
+DreamWeather.Set WP_FreezingFog 0
+DreamWorld.Pause 0
+wait 40
+DreamWorld.Pause 1
+time 10
+settle 20
+wait 150
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_WindFog_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_WindFog_Toon
 DreamWeather.Clear
