@@ -420,19 +420,33 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	}
 	auto Covered = [&Weather](const FVector& P) { return 1.0f - Weather.GetExposureAt(P); };
 
+	// Each path slanted by the wind where it comes down (the CPU's: the terrain map's wind shadow stands the rain up
+	// behind a wall); the wind fluid's eddies and blasts come on top per particle (DreamWindDeviation in the effects).
+	UWorld* World = GetWorld();
+	const UDreamWindSubsystem* WindField = World ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
+	auto FallVelocityAt = [&](const FVector& P)
+	{
+		FVector Air = WindField ? WindField->SampleWindVelocity(P) : Wind;
+		FVector Slant = FVector(Air.X, Air.Y, 0.0) * double(Layer.WindDrift);
+		if (Slant.SizeSquared2D() > FMath::Square(MaxSideways))
+		{
+			Slant = Slant.GetSafeNormal2D() * MaxSideways;
+		}
+		return FVector(Slant.X, Slant.Y, -double(Layer.FallSpeed));
+	};
+
 	// A view that jumped far (a teleport, a cut) gets a whole new buffer at once; otherwise the buffer turns over
 	// every PathRefreshSeconds and follows a walking view.
-	UWorld* World = GetWorld();
 	if (State.Paths.GetEnds().Num() != Params.Capacity || FVector::DistSquared2D(ViewLocation, State.PathOrigin) > FMath::Square(double(Params.Radius)))
 	{
-		State.Paths.Fill(World, ViewLocation, Forward, State.FallVelocity, Params, Covered);
+		State.Paths.Fill(World, ViewLocation, Forward, FallVelocityAt, Params, Covered);
 		State.PathOrigin = ViewLocation;
 		State.SinceUpload = S->UploadInterval;
 		State.bFillPending = true;
 	}
 	else
 	{
-		State.Paths.Update(World, ViewLocation, Forward, State.FallVelocity, DeltaTime, Params, Covered);
+		State.Paths.Update(World, ViewLocation, Forward, FallVelocityAt, DeltaTime, Params, Covered);
 		State.PathOrigin = FMath::Lerp(State.PathOrigin, ViewLocation, double(FMath::Clamp(DeltaTime / FMath::Max(Params.RefreshSeconds, 0.05f), 0.0f, 1.0f)));
 	}
 

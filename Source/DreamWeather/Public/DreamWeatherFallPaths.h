@@ -74,6 +74,15 @@ public:
 	void Fill(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity,
 		const FParams& Params, TFunctionRef<float(const FVector&)> Shelter);
 
+	/**
+	 * The same with each path's own velocity: FallVelocityAt gives the drops' velocity 3 m over the view's level above
+	 * where the path lands (the wind where it comes down: straighter behind a wall, slanted in the open).
+	 */
+	void Update(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt, float DeltaTime,
+		const FParams& Params, TFunctionRef<float(const FVector&)> Shelter);
+	void Fill(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt,
+		const FParams& Params, TFunctionRef<float(const FVector&)> Shelter);
+
 	void Reset();
 
 	/** Per path: where it ends (xyz) and how many seconds a drop falls along it (w). */
@@ -103,7 +112,7 @@ public:
 	int64 GetTracesCast() const { return TracesCast; }
 
 private:
-	void TraceOne(UWorld* World, int32 Index, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity,
+	void TraceOne(UWorld* World, int32 Index, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt,
 		const FParams& Params, TFunctionRef<float(const FVector&)> Shelter);
 
 	TArray<FVector4> Ends;

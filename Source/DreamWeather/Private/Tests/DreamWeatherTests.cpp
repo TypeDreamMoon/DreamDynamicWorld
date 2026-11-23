@@ -1115,6 +1115,34 @@ bool FDreamWeatherFallPathsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("through nothing until its end (the roof, the ground)"), Clear, Count);
 	TestEqual(TEXT("a path from before the gust does not start where the gust would put it"), NotFromTheGust, Kept);
 	TestEqual(TEXT("one traced in the gust does"), FromTheGust, Count - Kept);
+
+	// Each path its own wind: blowing east over the east half (x > 0), still over the west half (a wall's lee): the
+	// drops landing east come down slanted from the west, those landing west straight down.
+	auto WindByHalf = [](const FVector& P) { return P.X > 0.0 ? FVector(500.0, 0.0, -900.0) : FVector(0.0, 0.0, -900.0); };
+	Paths.Fill(World, View, FVector::ForwardVector, WindByHalf, Params, Open);
+	int32 Slanted = 0, Straight = 0, East = 0, West = 0, CaughtByRoof = 0;
+	for (int32 i = 0; i < Paths.GetEnds().Num(); ++i)
+	{
+		const FVector4& E = Paths.GetEnds()[i];
+		const FVector Run = FVector(E.X, E.Y, E.Z) - Paths.GetStarts()[i];
+		const double Slope = Run.X / FMath::Max(-Run.Z, 1.0);
+		const bool bSlanted = FMath::IsNearlyEqual(Slope, 500.0 / 900.0, 0.01);
+		if (E.X > 100.0)
+		{
+			++East;
+			Slanted += bSlanted ? 1 : 0;
+		}
+		else if (E.X < -100.0)
+		{
+			// (a slanted one bound for the east edge may come down on the roof first)
+			++West;
+			Straight += FMath::Abs(Slope) < 0.01 ? 1 : 0;
+			CaughtByRoof += bSlanted && FMath::IsNearlyEqual(E.Z, 410.0, 1.0) ? 1 : 0;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("each path slants by the wind where it comes down: east %d of %d slanted, west %d of %d straight (%d slanted ones caught by the roof)"),
+		Slanted, East, Straight, West, CaughtByRoof),
+		East > 0 && Straight > 0 && Slanted == East && Straight + CaughtByRoof == West);
 	return true;
 }
 
