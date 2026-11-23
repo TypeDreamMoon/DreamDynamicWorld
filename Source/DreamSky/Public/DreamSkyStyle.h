@@ -698,6 +698,37 @@ struct DREAMSKY_API FDreamSkyMeteors
 	float SatelliteBrightness = 0.25f;
 };
 
+/**
+ * The flat clouds: a cheap sheet of cloud the dome draws at the cloud base where the sky cloud renderer does not draw
+ * (below Shader Model 5, turned off, or chosen for a low quality: DreamSky.Clouds.Flat), from the weather map's cover
+ * and darkness, in the style's cloud colours, with its shadow on the ground.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyFlatClouds
+{
+	GENERATED_BODY()
+
+	/** Draw them where the renderer does not (off: no clouds there, as before). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds")
+	bool bEnabled = true;
+
+	/** How much of the sky behind them they hide, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float Opacity = 0.92f;
+
+	/** 0: shaded smoothly; 2 .. 4: in that many flat tones, as the toon look's clouds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "4"))
+	int32 Tones = 0;
+
+	/** The clouds' size (1 = some 4 km across the middle octave). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0.1", UIMax = "4"))
+	float Scale = 1.0f;
+
+	/** How much of the sun their shadow takes on the ground (0: none). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShadowStrength = 0.65f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -944,6 +975,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ShowOnlyInnerProperties))
 	FDreamSkyMeteors Meteors;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyFlatClouds FlatClouds;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

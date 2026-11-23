@@ -14,6 +14,7 @@
 #define DREAMSKY_STYLIZED_USH
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamSkyFlatClouds.ush"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSkyGradeShared.h"
 
@@ -1382,6 +1383,45 @@ float3 DSky_EarthShadow(float3 V, float3 Sun, float3 Sky, float4 Shadow, float4 
 	return Sky * lerp(float3(1, 1, 1), Belt.rgb, Band * (1.0 - Under) * Spread);
 }
 
+// The flat clouds (DreamSkyFlatClouds.ush) seen from below: a sheet at the cloud base, thin edges lit through and the
+// thick middles in the style's shade, the side toward the light brighter (the cloud a little denser away from it), dark
+// where the weather is (a storm), in the style's tones when it asks (FlatClouds.y); veiled by the air far off like any
+// cloud. Returns the colour (premultiplied) and the cover.
+float4 DSky_FlatClouds(float3 V, float3 Camera, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud3, float4 CloudLayer,
+	float4 MapParams, float4 FlatClouds, float4 CloudLit, float4 CloudShadow, float3 SkyBehind, float3 Halo, Texture2D Map,
+	SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
+{
+	if (FlatClouds.x <= 0.0 || V.z <= 0.003 || Camera.z >= CloudLayer.x)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float T = DSky_AltitudeT(Camera, V, CloudLayer.x);
+	float2 W = Camera.xy + V.xy * T;
+	float Lod = DSky_NoiseLod(T, 95000.0);
+	float2 Here = DFC_Cover(W, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Lod);
+	if (Here.x <= 0.001)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float2 Toward = dot(LightDir.xy, LightDir.xy) > 1.0e-6 ? normalize(LightDir.xy) : float2(1.0, 0.0);
+	float Ahead = DFC_Cover(W + Toward * 60000.0, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Lod + 1.0).x;
+	float Thick = saturate(1.25 * Here.x - 0.2 + 0.6 * (Ahead - Here.x));
+	if (FlatClouds.y >= 2.0)
+	{
+		// (In flat tones, their edges a little soft.)
+		float Steps = FlatClouds.y - 1.0;
+		float Scaled = Thick * Steps;
+		Thick = (floor(Scaled) + smoothstep(0.42, 0.58, frac(Scaled))) / Steps;
+	}
+	float3 Shade = CloudShadow.rgb * lerp(1.0, 0.45, Here.y);
+	float3 Color = lerp(CloudLit.rgb, Shade, Thick);
+	// (Their thin edges glow round the light, as the sky about it does.)
+	Color += Halo * (1.5 * (1.0 - Here.x));
+	float Alpha = Here.x * FlatClouds.x * smoothstep(0.003, 0.03, V.z);
+	Color = lerp(Color, SkyBehind, DCS_AirVeil(T, V.z, Camera.z, Cloud0.x, Cloud3));
+	return float4(Color * Alpha, Alpha);
+}
+
 // Rain hanging under distant clouds: grey curtains from the cloud base down into the horizon, wherever the weather
 // map has rain under a closed cover some way off along V (looked for from 8 to 45 km; the nearest raining one hangs
 // its curtain). Broad curtains in azimuth, finely streaked, thinning as they fall and veiled by the air like
@@ -1496,7 +1536,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1546,7 +1586,14 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
 	float4 Shafts = DSky_RainShafts(V, Camera, Cloud0, CloudLayer, Cloud3, MapParams, WeatherMap, WeatherMapSampler, Noise,
 		NoiseSampler, Base + Halo, CloudShadow.rgb);
-	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a);
+	// The flat clouds, where the renderer does not draw (CloudLayer.w = 0).
+	float4 Flat = float4(0, 0, 0, 0);
+	if (CloudLayer.w < 0.5 && FlatClouds.x > 0.0)
+	{
+		Flat = DSky_FlatClouds(V, Camera, LightDir, Cloud0, Cloud1, Cloud3, CloudLayer, MapParams, FlatClouds, CloudLit, CloudShadow,
+			Base + Halo, Halo, WeatherMap, WeatherMapSampler, Noise, NoiseSampler);
+	}
+	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a) * (1.0 - Flat.a);
 
 	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb, LunarEclipse, MoonLook);
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
@@ -1592,6 +1639,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 
 	Sky = Sky * (1.0 - High.a) + High.rgb;
 	Sky = Sky * (1.0 - Shafts.a) + Shafts.rgb;
+	Sky = Sky * (1.0 - Flat.a) + Flat.rgb;
 	Sky = Sky * (1.0 - VC.a) + VC.rgb;
 
 	// Weather fog and dust hide the sky in the height fog's colour, from the horizon up: the fogged ground then
@@ -1616,7 +1664,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
 		float Level = saturate(0.3 + SkyLevel * 3.0);
 		float Body = lerp(0.6, 1.4, saturate(CloudCore));
-		float Cloudy = VC.a;
+		float Cloudy = max(VC.a, Flat.a);
 		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);

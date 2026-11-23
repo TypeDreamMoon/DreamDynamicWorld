@@ -202,7 +202,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	// (While the sky cloud renderer draws the clouds their shadow falls on the ground through the sun's light function:
 	// the overcast does not dim the sun light as well.)
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->DrawsClouds() && Sky->SunLight);
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, (Sky->DrawsClouds() || Sky->DrawsFlatClouds()) && Sky->SunLight);
 	// The physical sky (DreamAtmosphere) over the style's curves, as far as its grade says.
 	DreamSky::AtmosphereBridge::Apply(Clock, *Sky, *Style, Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
@@ -246,7 +246,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
 	bStylizedClouds = Sky->GetEffectiveCloudLook() != EDreamSkyCloudLook::Realistic;
-	WriteParameters(Clock, *Style, Sky->DrawsClouds());
+	WriteParameters(Clock, *Style, Sky->DrawsClouds(), Sky->DrawsFlatClouds());
 	LogLighting(Clock);
 	Applied = Modified;
 }
@@ -670,7 +670,7 @@ void UDreamSkySubsystem::ApplySnapshot(const FDreamWorldSnapshot& Snapshot)
 	}
 }
 
-void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds)
+void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds, bool bFlatClouds)
 {
 	using namespace DreamSky::Names;
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
@@ -762,6 +762,12 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The flat clouds, while the dome draws them instead of the renderer.
+	{
+		const FDreamSkyFlatClouds& F = Style.FlatClouds;
+		Clock.SetVectorParameter(MPC_FlatClouds, FLinearColor(bFlatClouds ? FMath::Clamp(F.Opacity, 0.0f, 1.0f) : 0.0f, float(FMath::Clamp(F.Tones, 0, 4)),
+			FMath::Max(F.Scale, 0.1f), FMath::Clamp(F.ShadowStrength, 0.0f, 1.0f)));
+	}
 	// Meteors and satellites: the sporadic ones, the shower of the date streaking from its radiant (as high as it stands:
 	// none with it under the horizon), as dark as the night is.
 	{

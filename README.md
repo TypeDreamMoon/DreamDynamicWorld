@@ -144,6 +144,16 @@ editor's mobile preview, the sky is drawn without its cumulus — the sky itself
 ever — and the log and the editor say so once. `DreamSky.CloudRender.Enable 0` leaves them out the same way: set it in
 a device profile to have no clouds on a platform.
 
+**Flat clouds.** Where the renderer does not draw, the dome draws flat clouds instead (`DreamSky.Clouds.Flat`, -1): a
+cheap sheet at the cloud base from the weather map's cover and darkness -- a few clouds, then many, then an overcast,
+dark under a storm, a storm zone showing from afar -- shaped by three octaves of the cloud noise drifting with the
+wind, lit through at the thin edges and shaded in the middles in the style's cloud colours, the side toward the sun
+brighter, veiled by the air far off; and the sun takes a light function (`M_DreamFlatCloudShadow`) that casts the same
+sheet on the ground. Nothing is marched: a few texture reads a sky pixel. `DreamSky.Clouds.Flat 1` draws them instead
+of the renderer (for a low quality setting or a device profile), `0` never (no clouds where the renderer does not
+draw, as before). The style's `FlatClouds` sets their `Opacity`, `Tones` (0 smooth; 2 to 4 flat tones, as the toon
+look's), `Scale` and `ShadowStrength`, or turns them off; `ADreamSky::DrawsFlatClouds` says whether they are drawn.
+
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
 fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-frequency formation of Worley cells,

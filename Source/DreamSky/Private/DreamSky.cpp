@@ -39,6 +39,13 @@ static TAutoConsoleVariable<bool> CVarDreamSkyCloudRenderEnable(
 	TEXT(" Shader Model 5, the mobile renderer) they are left out whatever it says."),
 	ECVF_Scalability);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudsFlat(
+	TEXT("DreamSky.Clouds.Flat"), -1,
+	TEXT("The flat clouds (a cheap sheet the dome draws, with its shadow): -1 wherever the sky cloud renderer does not draw")
+	TEXT(" (below Shader Model 5, DreamSky.CloudRender.Enable 0); 1 instead of the renderer (for a low quality); 0 never (no")
+	TEXT(" clouds where the renderer does not draw). The style's FlatClouds.bEnabled turns them off for a sky."),
+	ECVF_Scalability);
+
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT("DreamSky.CloudRender.Look"), -1,
 	TEXT("How the sky cloud renderer draws the clouds: -1 = each Dream Sky's CloudLook, 0 = toon (the surface, lit in the")
@@ -58,6 +65,8 @@ namespace DreamSky::Actor
 		Unsupported,
 		/** DreamSky.CloudRender.Enable 0. */
 		TurnedOff,
+		/** DreamSky.Clouds.Flat 1: the flat clouds instead. */
+		Flat,
 	};
 
 	/** How a sky was saved (its custom version). */
@@ -83,6 +92,7 @@ namespace DreamSky::Actor
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
+	static const TCHAR* FlatCloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamFlatCloudShadow.M_DreamFlatCloudShadow");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
 	static constexpr int32 CloudShadowResolution = 512;
 	static constexpr float CloudShadowHalfExtent = 6000000.0f;
@@ -342,11 +352,21 @@ uint8 ADreamSky::WhyNoClouds() const
 	{
 		return uint8(ECloudsOff::Unsupported);
 	}
+	if (CVarDreamSkyCloudsFlat.GetValueOnGameThread() == 1)
+	{
+		return uint8(ECloudsOff::Flat);
+	}
 	if (!CVarDreamSkyCloudRenderEnable.GetValueOnGameThread())
 	{
 		return uint8(ECloudsOff::TurnedOff);
 	}
 	return uint8(ECloudsOff::None);
+}
+
+bool ADreamSky::DrawsFlatClouds() const
+{
+	const UDreamSkyStyle* S = GetEffectiveStyle();
+	return !DrawsClouds() && CVarDreamSkyCloudsFlat.GetValueOnGameThread() != 0 && (!S || S->FlatClouds.bEnabled);
 }
 
 void ADreamSky::TellCloudsOff(uint8 Why)
@@ -362,14 +382,17 @@ void ADreamSky::TellCloudsOff(uint8 Why)
 	{
 	case ECloudsOff::Unsupported:
 	{
-		UE_LOG(LogDreamSky, Warning, TEXT("%s: the sky cloud renderer cannot run here (it needs Shader Model 5 or above; the mobile renderer has none of its passes): the sky is drawn without its clouds."), *GetPathName());
+		UE_LOG(LogDreamSky, Warning, TEXT("%s: the sky cloud renderer cannot run here (it needs Shader Model 5 or above; the mobile renderer has none of its passes): %s."), *GetPathName(),
+			DrawsFlatClouds() ? TEXT("the dome draws the flat clouds instead") : TEXT("the sky is drawn without its clouds"));
 #if WITH_EDITOR
 		// (Once an editor session: every play in editor world would say it again.)
 		static bool bToldEditor = false;
 		if (GIsEditor && !bToldEditor && FSlateApplication::IsInitialized())
 		{
 			bToldEditor = true;
-			FNotificationInfo Info(NSLOCTEXT("DreamSky", "CloudsUnsupported", "Dream Sky: the clouds are not drawn here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview have no clouds)."));
+			FNotificationInfo Info(DrawsFlatClouds()
+				? NSLOCTEXT("DreamSky", "CloudsFlat", "Dream Sky: the flat clouds stand in here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview draw the dome's flat clouds).")
+				: NSLOCTEXT("DreamSky", "CloudsUnsupported", "Dream Sky: the clouds are not drawn here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview have no clouds)."));
 			Info.ExpireDuration = 8.0f;
 			FSlateNotificationManager::Get().AddNotification(Info);
 		}
@@ -377,7 +400,11 @@ void ADreamSky::TellCloudsOff(uint8 Why)
 		break;
 	}
 	case ECloudsOff::TurnedOff:
-		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.CloudRender.Enable is 0: the sky is drawn without its clouds."), *GetPathName());
+		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.CloudRender.Enable is 0: %s."), *GetPathName(),
+			DrawsFlatClouds() ? TEXT("the dome draws the flat clouds instead") : TEXT("the sky is drawn without its clouds"));
+		break;
+	case ECloudsOff::Flat:
+		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.Clouds.Flat is 1: the dome draws the flat clouds instead of the sky cloud renderer."), *GetPathName());
 		break;
 	case ECloudsOff::None:
 		if (Before != uint8(ECloudsOff::NoRenderer))
@@ -513,7 +540,26 @@ void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 	const bool bWanted = SunLight && DrawsClouds();
 	if (!bWanted)
 	{
-		if (SunLight && CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
+		CloudShadowTarget = nullptr;
+		CloudShadowPlacement.W = 0.0f;
+		// The flat clouds' shadow, while the dome draws them (it reads the shared parameters; none when the style asks none).
+		const UDreamSkyStyle* FlatStyle = GetEffectiveStyle();
+		if (SunLight && DrawsFlatClouds() && FlatStyle && FlatStyle->FlatClouds.ShadowStrength > 0.0f)
+		{
+			if (!FlatCloudShadowFunction)
+			{
+				FlatCloudShadowFunction = LoadObject<UMaterialInterface>(nullptr, FlatCloudShadowMaterialPath);
+			}
+			if (FlatCloudShadowFunction && SunLight->LightFunctionMaterial != FlatCloudShadowFunction)
+			{
+				SunLight->SetLightFunctionMaterial(FlatCloudShadowFunction);
+				SunLight->SetLightFunctionFadeDistance(1.0e9f);
+				SunLight->SetLightFunctionDisabledBrightness(1.0f);
+			}
+			return;
+		}
+		if (SunLight && ((CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
+			|| (FlatCloudShadowFunction && SunLight->LightFunctionMaterial == FlatCloudShadowFunction)))
 		{
 			// (The engine's defaults back.)
 			SunLight->SetLightFunctionMaterial(nullptr);

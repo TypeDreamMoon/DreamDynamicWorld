@@ -172,6 +172,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool DrawsClouds() const;
 
+	/** True while the dome draws the flat clouds: the renderer does not draw (DrawsClouds), DreamSky.Clouds.Flat is not 0,
+	 *  and the style's FlatClouds is on. */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	bool DrawsFlatClouds() const;
+
 	/** The clock this level starts with. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	FDreamWorldClockConfig MakeClockConfig() const;
@@ -256,6 +261,9 @@ private:
 	TObjectPtr<UTextureRenderTarget2D> CloudShadowTarget;
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudShadowFunction;
+	/** The flat clouds' shadow (M_DreamFlatCloudShadow; it reads the shared parameters). */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> FlatCloudShadowFunction;
 	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 
 	/** The conditional post processes' components and weights (UpdateConditions), and the conditional modifiers' weights. */
