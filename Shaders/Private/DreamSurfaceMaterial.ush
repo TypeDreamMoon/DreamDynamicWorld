@@ -229,6 +229,74 @@ float DSM_GlintDots(float3 WorldPos, float3 Normal)
 	return Lit * (1.0f - smoothstep(0.12f, 0.18f, length(Q - Centre)));
 }
 
+// A vehicle's pane (MF_DreamGlassRain with Vehicle Glass): everything in the glass's own frame, so the drops stay put on
+// it as it moves. P, N, Up = the point, the pane's normal and the world's up in that frame; Velocity = the glass's
+// velocity there (xyz, cm/s); Wipers = (seconds per swing out and back, 0 parked; the time they started; the heater
+// 0..1; -); Pivot, Pivot2 = a wiper's pivot (xyz, the frame's cm) and its length (w, 0 none), both sweeping Angles
+// (from x, to y, degrees in the pane: 0 across it, 90 up it). Wet, Rain = DreamGlassRain_Shown's; Time in seconds.
+struct FDreamVehicleGlass
+{
+	float3 Bend;     // the water's bend of the normal, in the glass's frame
+	float Water;     // how much of the pane is water
+	float Swept;     // 1 where a wiper has swept since it started (the snow is gone there)
+	float Film;      // the thin film right behind a blade
+};
+
+FDreamVehicleGlass DSM_VehicleGlass(float3 P, float3 N, float3 Up, float4 Velocity, float4 Wipers, float4 Pivot, float4 Pivot2,
+	float4 Angles, float Wet, float Rain, float Time)
+{
+	FDreamVehicleGlass G = (FDreamVehicleGlass)0;
+	N = normalize(N);
+	Up = normalize(Up);
+	float Tilt = dot(N, Up);
+	float3 Across = abs(Tilt) < 0.98f ? normalize(cross(Up, N)) : normalize(cross(float3(0.0f, 1.0f, 0.0f), N));
+	float3 UpPane = cross(N, Across);
+	float2 Glass = float2(dot(P, Across), dot(P, UpPane));
+
+	// The air over the pane and how squarely it meets the way the glass goes.
+	float3 V = Velocity.xyz;
+	float Speed = length(V);
+	float4 Flow = DSF_GlassFlow(float2(-dot(V, Across), -dot(V, UpPane)), sqrt(saturate(1.0f - Tilt * Tilt)));
+	float Facing = Speed > 1.0f ? saturate(dot(N, V / Speed)) : 0.0f;
+	float RainHere = saturate(Rain * DSF_GlassRainGain(Facing, Speed));
+
+	// The wipers: within a blade's reach (its outer three quarters), how long since it went by.
+	float Wiped = 0.0f;
+	float4 Pivots[2] = { Pivot, Pivot2 };
+	for (int i = 0; i < 2; ++i)
+	{
+		float Length = Pivots[i].w;
+		if (Length <= 0.0f || Wipers.x <= 0.0f)
+		{
+			continue;
+		}
+		float2 D = Glass - float2(dot(Pivots[i].xyz, Across), dot(Pivots[i].xyz, UpPane));
+		float R = length(D);
+		float Reach = smoothstep(Length * 0.22f, Length * 0.27f, R) * (1.0f - smoothstep(Length * 0.97f, Length, R));
+		if (Reach <= 0.0f)
+		{
+			continue;
+		}
+		float Since = DSF_WiperSince(atan2(D.y, D.x), radians(Angles.x), radians(Angles.y), Time, Wipers.y, Wipers.x);
+		float2 Clear = DSF_WiperClear(Since, RainHere);
+		Wiped = max(Wiped, Clear.x * Reach);
+		G.Film = max(G.Film, Clear.y * Reach);
+		G.Swept = max(G.Swept, (Since < 1.0e5f ? 1.0f : 0.0f) * Reach);
+	}
+
+	float4 Drops = DSF_GlassRainFlow(Glass, Time, RainHere, Wet * (1.0f - Wiped), Flow, Wiped);
+	G.Bend = -(Across * Drops.x + UpPane * Drops.y) * 0.5f;
+	G.Water = saturate(Drops.z + G.Film * 0.35f);
+	return G;
+}
+
+// Snow lying on a pane, 0..1: the state's snow there on what faces up (Up = the pane's world normal Z), none on an upright
+// pane; gone where a wiper has swept (Swept) and as the glass's heater melts it (Heater 0..1).
+float DSM_GlassSnow(float Snow, float Up, float Swept, float Heater)
+{
+	return saturate((Snow * 1.4f - (1.0f - saturate(Up)) * 1.2f) * 2.5f) * (1.0f - saturate(Swept)) * (1.0f - saturate(Heater));
+}
+
 // The rain landing on a surface now, 0..1: the precipitation at the view that is rain (DDW_Weather0: coverage, darkness,
 // precipitation, snow ratio), none under cover.
 float DSM_RainHere(float4 Weather0, float Exposure)
