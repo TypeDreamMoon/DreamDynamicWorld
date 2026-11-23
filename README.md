@@ -1396,6 +1396,15 @@ deterministic, a dedicated server has none).
   (`RotorThrust` cm/s along −Z, `RotorReach` down) spreads over the ground in a ring. The velocity is how the component
   moved since last frame. Each record reaches only the 8×8×8-cell tiles under its footprint; one smaller than a cell is
   spread over one and weakened as much.
+* **Who reads it.** Materials and Niagara as before (the wind DI's `SampleWind` adds the volumes; falling leaves and
+  debris follow the eddies). Precipitation: each fall path is slanted by the CPU's wind where it comes down (straighter
+  behind a wall), and every rain drop, flake, mote, hail pellet and sleet piece adds the fluid's deviation on top
+  (`DreamWindDeviation` module, the DI's `SampleWindDeviation`) times its layer's `WindResponse` (rain and freezing rain
+  1, sleet 0.5, hail 0.05), within a few metres of its path (`MaxOffset`); one the wind blew below the top surface under
+  it (in under a roof) dies there, so the snow stays outdoors. Sound (the listener) and the wind's camera shake read
+  `SampleWindVisual`: the CPU sample plus the fluid at the point, read back from the GPU two or three frames late (up to
+  16 points a frame, `bFluidProbes`); `UDreamWindForceComponent::bUseVisualWind` (off by default) pushes decorative
+  bodies with it. Gameplay keeps the CPU sample.
 * The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
 * Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
   near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
