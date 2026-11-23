@@ -1,0 +1,61 @@
+// DreamWater demo: clear, shallow water (a basin, a pool): a lightly tinted, translucent surface that rain ripples
+// (MF_DreamWaterRipples), so the bottom and the light the surface throws on it (the water body's caustics) show through.
+
+VirtualFunction(Name="MF_DreamWaterRipples")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamWaterRipples");
+		Description = "DreamSurface: rain ripples on a water surface.";
+	}
+	Inputs = {
+		vec3  Normal;
+		vec3  WorldPosition;
+		float Scale;
+		float Intensity;
+	}
+	Outputs = {
+		vec3 Result;
+	}
+}
+
+Shader(Name="Water/M_DreamWaterClearDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  WaterTint     = vec3(0.55, 0.75, 0.75) [Group="Water"];
+		float Clarity       = 0.82                   [Group="Water"; Desc="How much of the bottom shows through, 0..1."];
+		float RingScale     = 20.0                   [Group="Water"; Desc="cm across a ring's cell."];
+		float RingIntensity = 1.0                    [Group="Water"];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Translucent";
+		ShadingModel = "DefaultLit";
+		TranslucencyLightingMode = "TLM_SurfacePerPixelLighting";
+		bUsedWithStaticLighting = false;
+	}
+
+	Outputs = {
+		vec3  Color;
+		vec3  Norm;
+		float Rough;
+		float Spec;
+		float Alpha;
+		Base.BaseColor = Color;
+		Base.Normal = Norm;
+		Base.Roughness = Rough;
+		Base.Specular = Spec;
+		Base.Opacity = Alpha;
+	}
+
+	Graph = {
+		float3 Rippled;
+		MF_DreamWaterRipples(float3(0.0, 0.0, 1.0), UE.WorldPosition(), RingScale, RingIntensity, Rippled);
+		Color = WaterTint;
+		Norm = Rippled;
+		Rough = 0.03;
+		Spec = 0.5;
+		Alpha = 1.0 - Clarity;
+	}
+}
