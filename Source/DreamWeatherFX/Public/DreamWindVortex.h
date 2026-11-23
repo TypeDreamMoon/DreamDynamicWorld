@@ -58,6 +58,8 @@ struct DREAMWEATHERFX_API FDreamVortexPlan
 	FVector2D FootAt(double WorldSeconds) const { return Origin + Velocity * (WorldSeconds - StartSeconds); }
 	/** How strong it is, 0..1: it spins up over its first sixth, holds, and dies out over its last quarter. */
 	float StrengthAt(double WorldSeconds) const;
+	/** How far it has roped out as it dies, 0..1: 0 until its last quarter, then up as its strength goes down. */
+	float DecayAt(double WorldSeconds) const;
 
 	bool operator==(const FDreamVortexPlan& O) const
 	{
@@ -114,6 +116,11 @@ public:
 	/** How strong it is now, 0..1 (a plan sets it; placed by hand, set it). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0", ClampMax = "1"))
 	float Intensity = 1.0f;
+
+	/** A tornado's funnel roping out as it dies, 0 not .. 1 gone (FDreamWorldVortex::Decay; a plan sets it over its last
+	 *  quarter; placed by hand, set it). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0", ClampMax = "1"))
+	float Decay = 0.0f;
 
 	/** Turning clockwise seen from above (most dust devils either way, most northern tornadoes counter-clockwise). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")

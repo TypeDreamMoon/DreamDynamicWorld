@@ -30,6 +30,16 @@ float FDreamVortexPlan::StrengthAt(double WorldSeconds) const
 	return FMath::SmoothStep(0.0f, 1.0f / 6.0f, U) * (1.0f - FMath::SmoothStep(0.75f, 1.0f, U));
 }
 
+float FDreamVortexPlan::DecayAt(double WorldSeconds) const
+{
+	if (LifetimeSeconds <= 0.0f)
+	{
+		return 0.0f;
+	}
+	const float U = float((WorldSeconds - StartSeconds) / double(LifetimeSeconds));
+	return U < 0.0f ? 0.0f : FMath::SmoothStep(0.75f, 1.0f, U);
+}
+
 // ---- The whirlwind -------------------------------------------------------------------------------------------------
 
 ADreamWindVortex::ADreamWindVortex()
@@ -122,6 +132,7 @@ void ADreamWindVortex::Tick(float DeltaSeconds)
 		const double Now = Clock->GetWorldSeconds();
 		const FVector2D Foot = Plan.FootAt(Now);
 		Intensity = Plan.StrengthAt(Now);
+		Decay = Plan.DecayAt(Now);
 		SetActorLocation(FVector(Foot, GroundAt(Foot)));
 	}
 	Refresh();
@@ -163,7 +174,9 @@ void ADreamWindVortex::Refresh()
 			V.Radius = R;
 			V.Strength = S;
 			V.Spin = bClockwise ? -1.0f : 1.0f;
-			V.TangentialSpeed = TangentialSpeed * S;
+			// (Its wall's speed as it looks, not as it blows: the sky reckons how far it has turned from it times the time
+			// since it formed, and the speed falling as it died turned the funnel backwards.)
+			V.TangentialSpeed = TangentialSpeed;
 			// It leans with the wind aloft: its top drifts downwind for about the time the air takes to rise up it.
 			if (const UDreamWindSubsystem* Air = UDreamWindSubsystem::Get(this))
 			{
@@ -173,6 +186,7 @@ void ADreamWindVortex::Refresh()
 			}
 			V.BornSeconds = BornSeconds;
 			V.bFunnel = true;
+			V.Decay = FMath::Clamp(Decay, 0.0f, 1.0f);
 			VortexId = Clock->SetVortex(VortexId, V);
 		}
 	}
