@@ -51,6 +51,16 @@ Function float DreamSurface_Hail(
 	return DSM_HailShown(Hail, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
+Function float4 DreamSurface_SiltBase(in float3 Color, in float Rough, in float3 WorldPos, in float Up,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewHail, in float4 LookSilt, in float SiltRough,
+	in Texture2D NearHailMap, in Texture2D FarHailMap)
+{
+	// The silt a flood left (S3.z), under the weather's layers.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Silt = DSM_SiltState(WorldPos, NearPlace, FarPlace, ViewHail, NearHailMap, NearHailMapSampler, FarHailMap, FarHailMapSampler);
+	return DSM_SiltBase(Color, Rough, Silt, Up, WorldPos, LookSilt, SiltRough);
+}
+
 Function float DreamSurface_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
@@ -158,6 +168,11 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 			ScalarParameter FrostAmount      = 0.5  [Slider(0, 1); Description="How far a full frost whitens a surface: a frost lets it show through."];
 			ScalarParameter RimeAmount       = 0.9  [Slider(0, 1); Description="How far a full rime whitens a surface (a crust)."];
 		}
+		Group("Weather Look|Silt") {
+			VectorParameter SiltColor        = float4(0.14, 0.12, 0.09, 1.0) [Description="The mud a flood leaves (a dark, greyish brown: darker than the dust)."];
+			ScalarParameter SiltAmount       = 0.8  [Slider(0, 1); Description="How far the thickest silt takes the surface to the mud's colour."];
+			ScalarParameter SiltRoughness    = 0.75 [Slider(0, 1); Description="The dried mud film's roughness."];
+		}
 		Group("Weather Look|Hail") {
 			VectorParameter HailColor        = float4(0.84, 0.87, 0.9, 1.0) [Description="The hailstones' colour (icy white)."];
 			ScalarParameter HailRoughness    = 0.35 [Slider(0, 1); Description="The stones' roughness (a little glossy: they are wet)."];
@@ -200,8 +215,9 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		float Hail = DreamSurface_Hail(WP, NearPlace, FarPlace, ViewHail, Params, NearHailMap, FarHailMap, CoverMap, MaskMap);
 		float4 LookHail = float4(HailColor.rgb, HailRoughness);
 		float4 LookHail2 = float4(HailCoverGain, HailBumps, 0.0, 0.0);
-		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
-		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
+		float4 Mud = DreamSurface_SiltBase(Attributes.BaseColor, Attributes.Roughness, WP, Up, NearPlace, FarPlace, ViewHail, float4(SiltColor.rgb, SiltAmount), SiltRoughness, NearHailMap, FarHailMap);
+		float4 CR = DreamSurface_ColorRough(Mud.xyz, Mud.w, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
+		float4 NM = DreamSurface_NormalMetal(Mud.xyz, Mud.w, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Wave, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS, Hail, LookHail, LookHail2);
 		Result = Attributes;
 		Result.BaseColor = CR.xyz;
 		Result.Roughness = CR.w;
