@@ -50,6 +50,8 @@ Module(Name="Weather/Modules/DreamFallPath", Root="Plugin.DreamDynamicWorld")
 
         Vector Particles.DreamSurfaceNormal = float3(0.0, 0.0, 1.0);
         Vector Particles.DreamPathVelocity = float3(0.0, 0.0, 0.0);
+        // how far the wind fluid has pushed it off its path (DreamWindDeviation): none yet
+        Vector Particles.DreamWindOffset = float3(0.0, 0.0, 0.0);
         float  FallTime = max(Path.w, 0.0);
         if (AtEnd)
         {
