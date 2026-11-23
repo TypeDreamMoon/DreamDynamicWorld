@@ -10,6 +10,7 @@
 
 #include "DreamWeatherChannels.h"
 #include "DreamWeatherSettings.h"
+#include "DreamWaterSubsystem.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
@@ -35,9 +36,10 @@ namespace DreamSurface::Private
 		const FVector4f V = State.ToVector();
 		const FVector4f C = State.ToIceVector();
 		auto Unit = [](float X) { return FMath::Clamp(X, 0.0f, 1.0f); };
-		// (The hail with the snow, a white cover a brush keeping the snow off keeps off too: DSM_HailShown.)
+		// (The hail with the snow, a white cover a brush keeping the snow off keeps off too: DSM_HailShown. A flood and the
+		// silt it leaves are no weather a brush keeps off.)
 		return FDreamSurfaceState::FromVectors(FVector4f(Unit(V.X * Mask.X), Unit(V.Y * Mask.Y), Unit(V.Z * Mask.Z), Unit(V.W * Mask.W)),
-			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)), FVector4f(Unit(State.Hail * Mask.Z), 0.0f, 0.0f, 0.0f));
+			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)), FVector4f(Unit(State.Hail * Mask.Z), State.Flooded, State.Silt, 0.0f));
 	}
 }
 
@@ -130,8 +132,12 @@ FDreamSurfaceState UDreamSurfaceSubsystem::Step(const FDreamSurfaceState& State,
 	// Every side from the state at the start of the step, as the surface map does.
 	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, S3, D0, D1, D2, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, R5, H);
 	const float4 Cold = DreamWind::Hlsl::DSF_StepIce(S, S2, D0, D1, R0, R3, R4, H);
-	const float4 Hail = DreamWind::Hlsl::DSF_StepHail(S3, D0, D1, D2, R4, R5, H);
-	return FDreamSurfaceState::FromVectors(FVector4f(Out.x, Out.y, Out.z, Out.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w), FVector4f(Hail.x, Hail.y, Hail.z, Hail.w));
+	float4 Hail = DreamWind::Hlsl::DSF_StepHail(S3, D0, D1, D2, R4, R5, H);
+	// Then a water body's flood over it (DreamWater), as the surface map has it.
+	const float Flooded = DreamWind::Hlsl::DSF_Flooded(Drive.Flood);
+	const float4 Wet = DreamWind::Hlsl::DSF_FloodWater(Out, Flooded);
+	Hail = DreamWind::Hlsl::DSF_StepFlood(Hail, Flooded, Drive.Turbidity, D0, H);
+	return FDreamSurfaceState::FromVectors(FVector4f(Wet.x, Wet.y, Wet.z, Wet.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w), FVector4f(Hail.x, Hail.y, Hail.z, Hail.w));
 }
 
 FDreamWeatherValues UDreamSurfaceSubsystem::GlobalAtStep(int64 StepIndex) const
@@ -189,7 +195,52 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	Drive.Hail = D2.x * Exposure;
 	Drive.Lee = D2.y;
 	Drive.Exposed = D2.z;
+	// A water body's water over the point at that step (the deepest of those whose area it is in).
+	const TArray<FVector4f>& Water = WaterAtStep(StepIndex);
+	for (int32 i = 0; i + 1 < Water.Num(); i += 2)
+	{
+		const FVector4f& A = Water[i];
+		const FVector4f& B = Water[i + 1];
+		const float DX = float(Position.X) - A.X, DY = float(Position.Y) - A.Y;
+		const float LX = DX * A.Z + DY * A.W, LY = -DX * A.W + DY * A.Z;
+		const float Depth = B.Z - float(Position.Z);
+		if (FMath::Abs(LX) <= B.X && FMath::Abs(LY) <= B.Y && Depth > Drive.Flood)
+		{
+			Drive.Flood = Depth;
+			Drive.Turbidity = B.W;
+		}
+	}
 	return Drive;
+}
+
+TArray<FVector4f> UDreamSurfaceSubsystem::WaterNow() const
+{
+	TArray<FVector4f> Out;
+	if (const UDreamWaterSubsystem* Water = UDreamWaterSubsystem::Get(GetWorld()))
+	{
+		for (const UDreamWaterBodyComponent* Body : Water->GetBodies())
+		{
+			if (Out.Num() >= 2 * FDreamSurfaceMapSteps::MaxFloodBodies)
+			{
+				break;
+			}
+			const FVector At = Body->GetComponentLocation();
+			const double Yaw = FMath::DegreesToRadians(Body->GetComponentRotation().Yaw);
+			Out.Add(FVector4f(float(At.X), float(At.Y), float(FMath::Cos(Yaw)), float(FMath::Sin(Yaw))));
+			Out.Add(FVector4f(float(Body->Extent.X), float(Body->Extent.Y), Body->GetSurfaceHeight(), Body->GetTurbidity()));
+		}
+	}
+	return Out;
+}
+
+const TArray<FVector4f>& UDreamSurfaceSubsystem::WaterAtStep(int64 StepIndex) const
+{
+	if (const TArray<FVector4f>* Seen = WaterHistory.Find(StepIndex))
+	{
+		return *Seen;
+	}
+	WaterNowCache = WaterNow();
+	return WaterNowCache;
 }
 
 FDreamSurfaceState UDreamSurfaceSubsystem::IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky) const
@@ -384,6 +435,18 @@ void UDreamSurfaceSubsystem::Record(int64 StepIndex, const FDreamWeatherValues& 
 	{
 		History.Add(StepIndex, Global);
 	}
+	// The water bodies as the step began (their levels move with the weather; what they flood follows them).
+	for (auto It = WaterHistory.CreateIterator(); It; ++It)
+	{
+		if (It.Key() > StepIndex || It.Key() < StepIndex - MemorySteps() - 1)
+		{
+			It.RemoveCurrent();
+		}
+	}
+	if (!WaterHistory.Contains(StepIndex))
+	{
+		WaterHistory.Add(StepIndex, WaterNow());
+	}
 }
 
 void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamWeatherSubsystem& Weather, const FDreamWeatherSample& View, float RealDeltaSeconds)
@@ -463,6 +526,18 @@ void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)
 		MapSteps.Steps.Add(Kinds);
 	}
 	MapStepRecord(StepIndex, MapSteps.PartialWeather, MapSteps.PartialChannels, MapSteps.PartialAir, MapSteps.PartialKinds);
+	// The water bodies over each step, then the one in progress: as many records each as there are bodies now (a step
+	// that had fewer leaves the rest dry, more are dropped).
+	MapSteps.NumFloodBodies = WaterNow().Num() / 2;
+	MapSteps.Floods.Reset((MemorySteps() + 1) * MapSteps.NumFloodBodies * 2);
+	for (int64 k = StepIndex - MemorySteps(); k <= StepIndex; ++k)
+	{
+		const TArray<FVector4f>& Water = WaterAtStep(k);
+		for (int32 b = 0; b < MapSteps.NumFloodBodies * 2; ++b)
+		{
+			MapSteps.Floods.Add(Water.IsValidIndex(b) ? Water[b] : (b % 2 == 0 ? FVector4f(0.0f, 0.0f, 1.0f, 0.0f) : FVector4f(0.0f, 0.0f, -1.0e7f, 0.0f)));
+		}
+	}
 }
 
 void UDreamSurfaceSubsystem::AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector)

@@ -18,7 +18,10 @@
 //   w  Frozen how much of the standing water (y) is frozen over
 // and the hail lying on it (S3, DSF_StepHail):
 //   x  Hail   hailstones lying on it: white pellets that heap up fast in a hailstorm and melt within minutes to an hour
-//   yzw       (unused)
+// and what a flood leaves (DSF_StepFlood, a water body risen over the ground):
+//   y  Flood  how far under a water body's water it is: in fast as the water comes, out slower as it goes
+//   z  Silt   the mud a muddy flood leaves: settles into the ground over days once the water has gone, the rain washes it
+//   w         (unused)
 // What drives it over a step, three float4s:
 //   D0 = (rain landing 0..1, snow landing 0..1, air temperature in Celsius, wind 0..1); sleet counts half as rain, half
 //        as snow
@@ -227,7 +230,39 @@ DSF_FN float4 DSF_StepHail(float4 S3, float4 D0, float4 D1, float4 D2, float4 R4
 {
 	float Hail = saturate(S3.x);
 	float In = saturate(D2.x) * Hours / max(R5.x, 1.0e-3f);
-	return float4(saturate(Hail + In - min(Hail, DSF_HailMelt(D0, D1, R4, R5, Hours))), 0.0f, 0.0f, 0.0f);
+	return float4(saturate(Hail + In - min(Hail, DSF_HailMelt(D0, D1, R4, R5, Hours))), S3.y, S3.z, S3.w);
+}
+
+// Flooding: a water body (DreamWater) standing over the ground, Depth cm of it (0 where none). Under 5 cm and more of
+// it the ground is all under water.
+DSF_FN float DSF_Flooded(float Depth)
+{
+	return saturate(Depth / 5.0f);
+}
+
+// The water's side under a flood (after DSF_Step): the film and the hollows full, the snow and the dust gone with the
+// water (floated off, washed off). Once the water has gone the weather dries it as any wet ground: a wet mark that
+// outlasts the flood by hours, puddles in its dips longer.
+DSF_FN float4 DSF_FloodWater(float4 S, float Flooded)
+{
+	float F = saturate(Flooded);
+	return float4(max(S.x, F), max(S.y, F), S.z * (1.0f - F), S.w * (1.0f - F));
+}
+
+// The flood's side after Hours (after DSF_StepHail): the hail floats off; Flood follows how far under water it is (in
+// within some ten minutes, out over half an hour); Silt builds while a muddy flood stands on it (Turbidity, the water's,
+// 0..1: full in six hours of the muddiest) and, once the water has gone, settles into the ground (half every two days)
+// and washes off in the rain (a full rain takes it in four hours).
+DSF_FN float4 DSF_StepFlood(float4 S3, float Flooded, float Turbidity, float4 D0, float Hours)
+{
+	float F = saturate(Flooded);
+	float Hail = saturate(S3.x) * (1.0f - F);
+	float Flood = saturate(S3.y);
+	Flood = saturate(Flood + (F - Flood) * saturate(Hours * (F > Flood ? 6.0f : 2.0f)));
+	float Silt = saturate(S3.z);
+	float In = F * saturate(Turbidity) * Hours / 6.0f;
+	float Out = (1.0f - F) * (Silt * Hours * 0.0144f + saturate(D0.x) * Hours / 4.0f);
+	return float4(Hail, Flood, saturate(Silt + In - Out), S3.w);
 }
 
 // How slippery a surface is, as a multiplier on its grip (1 as dry .. near 0 on black ice): the worst of what lies on it,

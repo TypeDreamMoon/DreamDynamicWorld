@@ -47,13 +47,21 @@ struct DREAMSURFACE_API FDreamSurfaceState
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface|Hail")
 	float Hail = 0.0f;
 
+	/** How far under a water body's flood it is, 0 dry land .. 1 under 5 cm and more of it (in fast, out slower). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface|Flood")
+	float Flooded = 0.0f;
+
+	/** The mud a muddy flood left on it, 0..1: settles into the ground over days once the water has gone, rain washes it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface|Flood")
+	float Silt = 0.0f;
+
 	/** Wet, water, snow, dust (DreamSurfaceShared.h's S). */
 	FVector4f ToVector() const { return FVector4f(Wetness, Water, Snow, Dust); }
 	/** Ice, frost, rime, frozen water (DreamSurfaceShared.h's S2). */
 	FVector4f ToIceVector() const { return FVector4f(Ice, Frost, Rime, FrozenWater); }
 
-	/** Hail, -, -, - (DreamSurfaceShared.h's S3). */
-	FVector4f ToHailVector() const { return FVector4f(Hail, 0.0f, 0.0f, 0.0f); }
+	/** Hail, flooded, silt, - (DreamSurfaceShared.h's S3). */
+	FVector4f ToHailVector() const { return FVector4f(Hail, Flooded, Silt, 0.0f); }
 	static FDreamSurfaceState FromVector(const FVector4f& V)
 	{
 		FDreamSurfaceState S;
@@ -77,13 +85,15 @@ struct DREAMSURFACE_API FDreamSurfaceState
 	{
 		FDreamSurfaceState S = FromVectors(V, Cold);
 		S.Hail = HailVector.X;
+		S.Flooded = HailVector.Y;
+		S.Silt = HailVector.Z;
 		return S;
 	}
 
 	bool Equals(const FDreamSurfaceState& Other, float Tolerance = 1.0e-4f) const
 	{
 		return ToVector().Equals(Other.ToVector(), Tolerance) && ToIceVector().Equals(Other.ToIceVector(), Tolerance)
-			&& FMath::IsNearlyEqual(Hail, Other.Hail, Tolerance);
+			&& ToHailVector().Equals(Other.ToHailVector(), Tolerance);
 	}
 };
 
@@ -108,6 +118,9 @@ struct DREAMSURFACE_API FDreamSurfaceDrive
 	/** How much of the weather's wind the place is sheltered from, and how much harder it blows there than in the open, 0..1 (DSF_LocalD2). */
 	float Lee = 0.0f;
 	float Exposed = 0.0f;
+	/** How deep a water body's water stands over it, cm (0: none), and how muddy that water is, 0..1 (DreamWater). */
+	float Flood = 0.0f;
+	float Turbidity = 0.0f;
 
 	FVector4f D0() const { return FVector4f(Rain, Snow, Temperature, Wind); }
 	FVector4f D1() const { return FVector4f(Sunlight, Dust, OpenSky, Fog); }

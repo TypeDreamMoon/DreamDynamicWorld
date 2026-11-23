@@ -55,6 +55,9 @@ public:
 		int32 NumZones = 0;
 		/** When integrating: per zone, per whole step, its footprint's centre (xy) and strength (z) at the step's start. */
 		TArray<FVector4f> ZoneTracks;
+		/** The water bodies over each whole step, then the step in progress (FDreamSurfaceMapSteps::Floods). */
+		TArray<FVector4f> Floods;
+		int32 NumFloodBodies = 0;
 	};
 
 	struct FCoverArgs

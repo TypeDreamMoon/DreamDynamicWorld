@@ -110,6 +110,16 @@ Function float4 DreamSurfaceToon_Trail(in float3 WorldPos, in float4 TrailPlace,
 	return DSM_Trail(WorldPos, TrailPlace, TrailMap, TrailMapSampler);
 }
 
+Function float4 DreamSurfaceToon_SiltBase(in float3 Color, in float Rough, in float3 WorldPos, in float Up,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewHail, in float4 LookSilt, in float SiltRough,
+	in Texture2D NearHailMap, in Texture2D FarHailMap)
+{
+	// The silt a flood left (S3.z), under the weather's layers: the toon block taken toward the mud's colour.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Silt = DSM_SiltState(WorldPos, NearPlace, FarPlace, ViewHail, NearHailMap, NearHailMapSampler, FarHailMap, FarHailMapSampler);
+	return DSM_SiltBase(Color, Rough, Silt, Up, WorldPos, LookSilt, SiltRough);
+}
+
 Function float3 DreamSurfaceToon_Shift(in float3 Color, in float Wet, in float ValueDrop, in float SaturationBoost)
 {
 	// Value down a little, saturation up: the block stays a block.
@@ -195,6 +205,11 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 			ScalarParameter ToonFrostAmount        = 0.5  [Slider(0, 1); Description="How far frost shifts the block toward its colour: a frost lets the block show through."];
 			ScalarParameter ToonRimeAmount         = 0.9  [Slider(0, 1); Description="How far rime shifts the block toward its colour (a crust)."];
 		}
+		Group("Toon Weather Look|Silt") {
+			VectorParameter ToonSiltColor          = float4(0.2, 0.17, 0.13, 1.0) [Description="The mud a flood leaves."];
+			ScalarParameter ToonSiltAmount         = 0.8  [Slider(0, 1); Description="How far the thickest silt takes the block to the mud's colour."];
+			ScalarParameter ToonSiltRoughness      = 0.85 [Slider(0, 1)];
+		}
 		Group("Toon Weather Look|Hail") {
 			ScalarParameter ToonHailThreshold      = 0.5  [Slider(0, 1); Description="Where a hailstone's (and the heaped cover's) hard edge falls."];
 			VectorParameter ToonHailColor          = float4(0.9, 0.94, 1.0, 1.0) [Description="The hailstones' colour."];
@@ -218,8 +233,9 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float Up = saturate(UE.VertexNormalWS().z);
 		float4 State = DreamSurfaceToon_Shown(WP, NearPlace, FarPlace, ViewState, Params, NearMap, FarMap, CoverMap, MaskMap);
 		float4 Covers = DreamSurfaceToon_Covers(WP, State, Up, Softness, NearPlace, Params, CoverMap);
-		float3 Color = Attributes.BaseColor;
-		float Rough = Attributes.Roughness;
+		float4 Mud = DreamSurfaceToon_SiltBase(Attributes.BaseColor, Attributes.Roughness, WP, Up, NearPlace, FarPlace, ViewHail, float4(ToonSiltColor.rgb, ToonSiltAmount), ToonSiltRoughness, NearHailMap, FarHailMap);
+		float3 Color = Mud.xyz;
+		float Rough = Mud.w;
 
 		// The rain landing now: hard-edged wet dots where the surface is not soaked yet, rings on the puddles.
 		float Rain = DreamSurfaceToon_RainHere(WP, NearPlace, Params, Weather0, CoverMap);

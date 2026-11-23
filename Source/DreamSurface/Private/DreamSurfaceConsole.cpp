@@ -51,6 +51,22 @@ namespace DreamSurface::Console
 
 	static uint8 Byte(float V) { return uint8(FMath::Clamp(FMath::RoundToInt32(V * 255.0f), 0, 255)); }
 
+	static FAutoConsoleCommandWithWorldAndArgs AtCommand(
+		TEXT("DreamSurface.At"),
+		TEXT("DreamSurface.At x y z: the state of a surface at that point now (SampleSurface: under a roof, under a water body's flood)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamSurfaceSubsystem* Surface = Find(World);
+			if (!Surface || Args.Num() < 3)
+			{
+				return;
+			}
+			const FVector P(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), FCString::Atod(*Args[2]));
+			const FDreamSurfaceState S = Surface->SampleSurface(P);
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface at (%.0f, %.0f, %.0f): wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f hail %.3f flooded %.3f silt %.3f"),
+				P.X, P.Y, P.Z, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.Hail, S.Flooded, S.Silt);
+		}));
+
 	static FAutoConsoleCommandWithWorldAndArgs DumpCommand(
 		TEXT("DreamSurface.Dump"),
 		TEXT("DreamSurface.Dump: the state in the open at the view and where the surface maps stand."),
@@ -63,8 +79,8 @@ namespace DreamSurface::Console
 			}
 			const FDreamSurfaceState& S = Surface->GetViewState();
 			const FDreamSurfaceMaps* Maps = Surface->GetMaps();
-			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f frozen %.3f hail %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
-				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater, S.Hail,
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f frozen %.3f hail %.3f flooded %.3f silt %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
+				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater, S.Hail, S.Flooded, S.Silt,
 				Maps ? Maps->GetNearCenter().X : 0.0, Maps ? Maps->GetNearCenter().Y : 0.0, Maps ? Maps->GetNearExtent() : 0.0f,
 				Maps ? Maps->GetDrawCount() : 0u, Maps ? Maps->GetIntegrateCount() : 0u);
 			for (TObjectIterator<UDreamSurfaceDripLineComponent> It; It; ++It)
@@ -130,7 +146,7 @@ namespace DreamSurface::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs SaveMapsCommand(
 		TEXT("DreamSurface.SaveMaps"),
-		TEXT("DreamSurface.SaveMaps [name]: save the near map (wet red, water green, snow blue) and its dust and cover (dust red, cover green) and the cold (ice red, frost green, rime blue) as PNGs under Saved/DreamSurface."),
+		TEXT("DreamSurface.SaveMaps [name]: save the near map (wet red, water green, snow blue) and its dust and cover (dust red, cover green) the cold (ice red, frost green, rime blue), the hail and what a flood left (flooded red, silt green) as PNGs under Saved/DreamSurface."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamSurfaceSubsystem* Surface = Find(World);
@@ -150,5 +166,7 @@ namespace DreamSurface::Console
 			SaveMap(Maps->GetNearIceMap(), Dir / (Name + TEXT("_Ice.png")), [](const FLinearColor& C) { return FColor(Byte(C.R), Byte(C.G), Byte(C.B), 255); });
 			// The hail lying, grey.
 			SaveMap(Maps->GetNearHailMap(), Dir / (Name + TEXT("_Hail.png")), [](const FLinearColor& C) { return FColor(Byte(C.R), Byte(C.R), Byte(C.R), 255); });
+			// What a flood left: flooded red, silt green.
+			SaveMap(Maps->GetNearHailMap(), Dir / (Name + TEXT("_Flood.png")), [](const FLinearColor& C) { return FColor(Byte(C.G), Byte(C.B), 0, 255); });
 		}));
 }

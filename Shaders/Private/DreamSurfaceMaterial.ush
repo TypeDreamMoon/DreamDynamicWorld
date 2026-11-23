@@ -239,6 +239,24 @@ float DSM_HailState(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 V
 }
 
 // ...under the mask brushes (with the snow: UDreamSurfaceSubsystem::SampleSurface does the same) and none under cover.
+// The silt a flood left over a point (0..1): the hail maps' third channel (S3.z), the view's beyond them.
+float DSM_SiltState(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewHail,
+	Texture2D NearHail, SamplerState NearSampler, Texture2D FarHail, SamplerState FarSampler)
+{
+	return DSM_StateRead(WorldPos, NearPlace, FarPlace, ViewHail, NearHail, NearSampler, FarHail, FarSampler, true).z;
+}
+
+// The silt on a surface, under everything the weather lays on it (the wet darkens it, the snow covers it): a film of mud
+// over what faced up under the water -- flat ground most, a slope less, nothing on a wall --, full from half the silt on,
+// thinner in patches where it
+// dried first; the colour goes toward LookSilt.rgb by LookSilt.w, the roughness toward a matte film's.
+float4 DSM_SiltBase(float3 Color, float Rough, float Silt, float Up, float3 WorldPos, float4 LookSilt, float SiltRough)
+{
+	float Patchy = DSF_Hollow(WorldPos.x + 3.1f, WorldPos.y - 1.7f, 90.0f);
+	float C = saturate(2.0f * Silt) * smoothstep(0.15f, 0.6f, Up) * saturate(LookSilt.w) * lerp(0.7f, 1.0f, Patchy);
+	return float4(lerp(Color, LookSilt.rgb, C), lerp(Rough, SiltRough, C));
+}
+
 float DSM_HailShown(float Hail, float4 Mask, float Exposure)
 {
 	return saturate(Hail) * Mask.z * Exposure;
