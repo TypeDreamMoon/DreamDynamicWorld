@@ -55,9 +55,6 @@ float4 DreamGroundFog_Shade(float3 Camera, float3 World, float PixelDepth, float
 	float4 ShadowP, float4 CloudP, float4 CloudLayer, Texture2D LayerMap, VolumeTexture Noise, Texture2D CloudMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamGroundFog.ush"
-	// The include's revision: the material's shader map is keyed on this code, not on the include, so a change to
-	// DreamGroundFog.ush only reaches the shaders when this number changes with it.
-	const float IncludeRevision = 8.0;
 
 	// Only the back faces draw: the front ones would draw the fog a second time.
 	if (Face > 0.0)

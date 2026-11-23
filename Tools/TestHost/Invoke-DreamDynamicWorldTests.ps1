@@ -18,8 +18,8 @@ param(
     # The host's .uproject. Defaults to the project two folders above this plugin.
     [string]$Project,
 
-    # Automation filter (prefix). The plugin's tests live under DreamWind., DreamWorld., DreamSky. and DreamWeather.
-    [string[]]$Filter = @('DreamWind.', 'DreamWorld.', 'DreamSky.', 'DreamWeather.', 'DreamCloud.', 'DreamSurface.', 'DreamAtmosphere.'),
+    # Automation filter (prefix). The plugin's tests live under DreamWind., DreamWorld., DreamSky., DreamWeather. and the others below
+    [string[]]$Filter = @('DreamWind.', 'DreamWorld.', 'DreamSky.', 'DreamWeather.', 'DreamCloud.', 'DreamSurface.', 'DreamAtmosphere.', 'DreamWater.'),
 
     # The engine root. Defaults to the one recorded in the host's .dreamdynamicworld-testhost.json.
     [string]$EngineRoot,

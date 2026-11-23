@@ -631,8 +631,7 @@ fog's opacity alone.
 
 What it costs (1400 x 788 internal, the showcase's morning mist with the camera in it, so every pixel marches): 0.41,
 0.53, 0.68 and 0.94 ms at 16, 24, 32 and 48 samples; the valley fog seen from the set 0.11 ms; the local fog volumes
-0.06 ms. `M_DreamGroundFog`'s shaders are keyed on its own code, not on the include: a change to `DreamGroundFog.ush`
-bumps *IncludeRevision* in `M_DreamGroundFog.dss` with it, or the old shaders stay in the derived data cache.
+0.06 ms.
 
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
@@ -1305,6 +1304,78 @@ The rest of this document is **Wind**.
 > (package redirects are read before plugin configs are merged, so a plugin-side copy alone does not
 > apply). Module names, class names, `DreamWind.*` console variables and MPC parameter names are
 > unchanged.
+
+## Water
+
+Water the weather fills (module `DreamWater`): ponds, lakes, rivers whose level rises with the rain and falls back after,
+turning muddy and clearing again. It does not draw water: put a **Dream Water Body** (`UDreamWaterBodyComponent`) on
+any water -- a pond's mesh, a lake, a body of the engine's Water plugin -- at its usual surface:
+
+- the component's height is the **usual level**; *Extent* the water's area round it (in its yaw), *Depth* how far down
+  the bottom lies;
+- **the level** is a bucket (*Rules*): the weather's rain over it (`SampleWeather` there, *Rain At Full* mm an hour at
+  full rain) falls on the water and on *Catchment Ratio* times its surface round it, and runs in; a rise drains back out
+  over its outlet, half of it every *Drain Hours*; a fall fills back from the ground water, half every *Refill Hours*
+  (slowly: a dry spell draws it down); warm, clear days evaporate *Evaporation Per Day* (at 20 C and more, none below
+  -5 C, a third under full cloud); it stays within *Max Rise* above and *Max Drop* below the usual level. With the
+  defaults an hour of full rain raises a pond some 16 cm and a day of it fills it to its brim;
+- **turbidity**, 0 clear .. 1 as muddy as it gets: each cm the rain brings in muddies it by *Turbidity Per Cm*, the mud
+  settling half every *Clear Hours*;
+- **bands**: low (below *Low Below*), normal, high (above *High Above*), overflow (at *Max Rise*), with a couple of cm of
+  margin at each edge; `OnBandChanged` (Blueprint) and `OnBandChangedNative` (C++) say when it moves to another;
+- what it says: `GetLevelOffset` (cm against the usual level), `GetSurfaceHeight`, `GetBaseHeight`, `GetBottomHeight`,
+  `GetTurbidity`, `GetBand`, `GetState` / `SetState` (a level set by hand; *Hold* keeps it there), `Covers`,
+  `GetDepthBelowSurface`. *Move Owner* lifts the actor it is on with the level (a pond's mesh rides on it).
+
+The water subsystem (`UDreamWaterSubsystem`) moves every body on each frame by the world's time in the weather over it
+(in quarter-hour steps), settles them across a jump of the clock forward (the hours jumped, up to two days, in the weather
+as it is now), saves and restores them with the world's snapshot (`FDreamWorldSnapshot`, by actor and component), and
+says which body the view is over or in -- of those whose area it is in, the one whose surface is nearest
+(`FindWaterAt`, `GetViewWater`) -- in the shared collection, `DDW_Water`:
+
+| | |
+|---|---|
+| x | the surface's height of the view's water body (world cm; -1e6 with none) |
+| y | its turbidity, 0..1 |
+| z | how deep the view is under its surface (cm; 0 above it) |
+| w | its level against its usual one (cm) |
+
+z (and y) are what an underwater look will fade in by: that look -- the fog under the water, its muddy colour, the
+wobble, the line where the surface crosses the view -- is left to a later water module; the body, its depth and the
+view's place in it are here for it. `DreamWater.Bodies [offset cm [turbidity] | hold | release]` lists the bodies (their
+level, band, turbidity, the rain over them) and sets or holds them. `DreamWater.Model` checks the bucket (an hour's rain,
+the brim, the drain, the mud settling, a dry spell, the bands); `DreamWater.Body` a pond in steady rain (high, muddy,
+told, its mesh lifted, found, the view under it, the snapshot).
+
+**Caustics.** With *Caustics* on, a water body throws the sun's caustics on what lies under its water -- its bottom, its
+walls, what stands in it -- through a decal from just over its surface down past its bottom (`M_DreamWaterCaustics`):
+a moving net of light (two layers of wandering cells, *Caustic Size* across, bent by a slow swell, *Caustic Speed*),
+shifted along the light by the depth (it lies where the light that made it lands), added to what it lands on without
+changing its material (only the decal's emissive is written; the engine adds a decal's emissive times its opacity, so a decal that only adds light writes opacity 1, not 0). How bright: the main light's colour and illuminance
+(`DDW_MainLight`, so it follows the sun, the overcast and the night) times *Caustic Strength*, fading with depth over
+*Caustic Fade Depth*, with the turbidity, toward the surface (none on it) and as the sun goes low. It shows through a
+clear water surface (the demo's `M_DreamWaterClearDemo`, translucent) and under the water of a cut-away; a decal knows
+nothing of shadows, so the net also lies in the shade a basin's own wall casts. The decal moves only when the level has
+moved half a cm.
+
+The showcase has two: the pond (its mesh rides on its level and reaches out under the bank, so the risen water spreads
+over the hollow's sides and joins the next hollow; its brim 30 cm up) and a raised basin of clear water in the sun with
+the caustics on its floor, walls and a stone. The forced tour shoots the basin at noon, then the pond dry, after six
+hours of rain (at its brim, muddy) and after a dry day (`Caustics`, `PondDry`, `PondRain`, `PondAfter`).
+
+**Driving the engine's Water plugin.** DreamWater does not depend on the Water plugin; drive its bodies from the offset
+in your project (a Blueprint or a small component next to the Dream Water Body):
+
+- **a lake or the sea** (`AWaterBodyLake`, `AWaterBodyOcean`): move the water body actor up by `GetLevelOffset()` from its
+  placed height (or set the Dream Water Body's *Move Owner* on the water body actor itself); the shore it laps follows
+  the actor;
+- **a river** (`AWaterBodyRiver`): raise its spline points by the offset (`USplineComponent::SetLocationAtSplinePoint`,
+  keeping each point's placed height), most at the middle reach if the banks should hold the ends;
+- after changing a body, the Water Zone that renders it has to be told (`UWaterBodyComponent::UpdateAll` or
+  `AWaterZone::MarkForRebuild`): that redraws the zone's textures, so do it when the level has moved a few cm, not every
+  frame (the level moves over minutes of game time; `OnBandChanged` or a change of a few cm is a good moment);
+- the turbidity is the water material's to show: feed `GetTurbidity()` (or `DDW_Water.y` where the view is) into its
+  absorption or scattering colour.
 
 ## Atmosphere
 
