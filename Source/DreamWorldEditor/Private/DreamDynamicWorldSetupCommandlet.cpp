@@ -5,6 +5,7 @@
 #include "DreamCloudTestMap.h"
 #include "DreamAtmosphereBake.h"
 #include "DreamSurfaceSetup.h"
+#include "DreamWindTestMap.h"
 #include "DreamWorldShowcaseSetup.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
@@ -592,6 +593,10 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	if (FParse::Param(*Params, TEXT("SurfaceTestMap")))
 	{
 		bOk &= BuildSurfaceTestMap(Style);
+	}
+	if (FParse::Param(*Params, TEXT("WindFieldTestMap")))
+	{
+		bOk &= BuildWindTestMap(Style);
 	}
 	if (FParse::Param(*Params, TEXT("WorldShowcase")))
 	{
