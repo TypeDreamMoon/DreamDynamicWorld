@@ -29,6 +29,7 @@ public class DreamWorldEditor : ModuleRules
 		{
 			"UnrealEd",
 			"AssetTools",
+			"ImageWrapper",
 			"UMG",
 			"RenderCore",
 			"InputCore",

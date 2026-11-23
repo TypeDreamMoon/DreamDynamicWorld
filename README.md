@@ -71,8 +71,9 @@ atmosphere sun, index 0) and the moon, a sky light that captures the dome, a hei
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
 `Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
 moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
-dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full; its
-maria `MoonMaria` (0.45) darker than its highlands, large dark patches over the near side, `DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full; its face
+NASA's map of the moon, below, or, as far as the style's `MoonFace` is below 1, procedural maria `MoonMaria` (0.45)
+darker than its highlands, `DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
@@ -313,6 +314,18 @@ brightest star nearest each), which Setup builds from the catalogue's file: `-St
 Center for Astrophysics' Telescope Data Center or the CDS as V/50); with no file there Setup leaves the map as it is, and
 a file that does not read as the catalogue (far from its 9110 records, or places and magnitudes out of their ranges) is
 an error and leaves it as it is too. The catalogue's file itself is not part of the plugin; the map is.
+
+**The moon's face.** The moon's disk is drawn with NASA's colour map of the moon: `lroc_color_2k.jpg` from the CGI Moon
+Kit of NASA's Scientific Visualization Studio (https://svs.gsfc.nasa.gov/4720; credit: NASA's Scientific Visualization
+Studio), made from the Lunar Reconnaissance Orbiter's LROC WAC colour mosaic (Arizona State University). Each point of
+the disk takes its selenographic longitude and latitude -- the near side toward the earth, the moon's north toward the
+celestial pole (no libration), its east (Mare Crisium) on the right as seen from the north -- and the phase, the
+earthshine, an eclipse, the weather's dimming and reddening and the disk's growing near the horizon all go on over it.
+Setup bakes the map into `T_DreamMoonMap` (1024 x 512, averaged down, its bright highlands at about 1 and the maria
+some 0.6 of them, block compressed with mips) from the downloaded image: `-MoonMap=<path>`, by default
+`<project>/Saved/MoonSource/lroc_color_2k.jpg`; with no image there Setup leaves the map as it is (`-ForceMoonMap` bakes
+it again). The image itself is not part of the plugin; the map is. The style's `MoonFace` (1) is how much of the face the
+map draws; at 0 the procedural maria stand in.
 
 **Milky Way.** Behind the stars the dome draws the Milky Way on the same celestial sphere, so it turns with them and
 stands where it does for the latitude, the season and the hour (low in the south on a northern summer night with its

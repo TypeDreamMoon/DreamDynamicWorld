@@ -976,7 +976,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "45", Units = "Degrees"))
 	float MoonDiffuseSourceAngle = 20.0f;
 
-	/** How much darker the moon's maria are than its highlands, 0 none .. 1 black (the real ones some half as bright). */
+	/** How much of the moon's face is NASA's map of it (T_DreamMoonMap, which Setup bakes), 1 .. 0 the procedural maria
+	 *  (MoonMaria): the map's near side toward the earth, its north toward the celestial pole. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonFace = 1.0f;
+
+	/** How much darker the procedural maria are than the highlands (where MoonFace is below 1), 0 none .. 1 black (the
+	 *  real ones some half as bright). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
 	float MoonMaria = 0.45f;
 

@@ -22,6 +22,8 @@
 #include "DreamWorldParameters.h"
 
 #include "Engine/Texture2D.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
 #include "Engine/VolumeTexture.h"
 #include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -58,6 +60,12 @@ namespace DreamWorld::Setup
 	static const TCHAR* MilkyWayPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamMilkyWay");
 	static const TCHAR* WhiteCubePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamSkyWhiteCube");
 	static const TCHAR* MilkyWayVersionKey = TEXT("DreamMilkyWayVersion");
+	static const TCHAR* MoonMapPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamMoonMap");
+	static const TCHAR* MoonMapStampKey = TEXT("DreamMoonMapStamp");
+	/** Bump when the moon map's baking changes, so Setup bakes it again. */
+	static constexpr int32 MoonMapVersion = 1;
+	static constexpr int32 MoonMapWidth = 1024;
+	static constexpr int32 MoonMapHeight = 512;
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
 	{
@@ -388,6 +396,125 @@ namespace DreamWorld::Setup
 		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
 	}
 
+	/**
+	 * The moon's face the dome draws (DreamSkyStylized.ush, DSky_Moon): NASA's colour map of the moon (the Scientific
+	 * Visualization Studio's CGI Moon Kit, from the LRO's LROC WAC colour mosaic, ASU; public domain), its selenographic
+	 * longitude across (0 in the middle) and latitude down, baked from the downloaded image -- -MoonMap=<path>,
+	 * <project>/Saved/MoonSource/lroc_color_2k.jpg when not given; the image stays out of the plugin -- into a
+	 * 1024 x 512 map: averaged down, its bright highlands at about 1 (linear: the maria some 0.6 of them, near the real
+	 * albedos' ratio), block compressed, with mips, wrapping round in longitude. Baked again when the image or the baking
+	 * changed, or with bForce. With no image the map is left as it is (a stand-in of plain white where there is none yet,
+	 * so the dome's material builds; the style's MoonFace 0 then draws the procedural maria).
+	 */
+	static bool EnsureMoonMap(const FString& Params, bool bForce)
+	{
+		FString Source = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("MoonSource"), TEXT("lroc_color_2k.jpg"));
+		FParse::Value(*Params, TEXT("MoonMap="), Source);
+		const FString ObjectPath = FString(MoonMapPackage) + TEXT(".") + FPackageName::GetShortName(MoonMapPackage);
+		UTexture2D* Texture = FPackageName::DoesPackageExist(MoonMapPackage) ? LoadObject<UTexture2D>(nullptr, *ObjectPath) : nullptr;
+		TArray<uint8> File;
+		const bool bFile = FFileHelper::LoadFileToArray(File, *Source, FILEREAD_Silent);
+		if (!bFile && Texture)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Moon map %s: no image at %s; left as it is"), *ObjectPath, *Source);
+			return true;
+		}
+		const FString Stamp = bFile ? FString::Printf(TEXT("%d:%08x"), MoonMapVersion, FCrc::MemCrc32(File.GetData(), File.Num())) : FString(TEXT("none"));
+		if (Texture && !bForce && Texture->GetOutermost()->GetMetaData().GetValue(Texture, MoonMapStampKey) == Stamp)
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("Moon map %s: up to date"), *ObjectPath);
+			return true;
+		}
+
+		int32 Width = 2;
+		int32 Height = 1;
+		TArray<FColor> Texels;
+		Texels.Init(FColor::White, Width * Height);
+		if (bFile)
+		{
+			IImageWrapperModule& Wrappers = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+			const EImageFormat Format = Wrappers.DetectImageFormat(File.GetData(), File.Num());
+			TSharedPtr<IImageWrapper> Wrapper = Format != EImageFormat::Invalid ? Wrappers.CreateImageWrapper(Format) : nullptr;
+			TArray<uint8> Raw;
+			if (!Wrapper.IsValid() || !Wrapper->SetCompressed(File.GetData(), File.Num()) || !Wrapper->GetRaw(ERGBFormat::BGRA, 8, Raw))
+			{
+				UE_LOG(LogDreamWorld, Error, TEXT("Moon map %s: %s does not read as an image; left as it is"), *ObjectPath, *Source);
+				return false;
+			}
+			const int32 SourceWidth = Wrapper->GetWidth();
+			const int32 SourceHeight = Wrapper->GetHeight();
+			if (SourceWidth < MoonMapWidth || SourceHeight < MoonMapHeight || SourceWidth != 2 * SourceHeight)
+			{
+				UE_LOG(LogDreamWorld, Error, TEXT("Moon map %s: %s is %dx%d, not a map of the whole moon at least %dx%d; left as it is"), *ObjectPath,
+					*Source, SourceWidth, SourceHeight, MoonMapWidth, MoonMapHeight);
+				return false;
+			}
+			// Averaged down, each texel over the source texels it covers.
+			Width = MoonMapWidth;
+			Height = MoonMapHeight;
+			TArray<FLinearColor> Average;
+			Average.SetNumZeroed(Width * Height);
+			const FColor* Pixels = reinterpret_cast<const FColor*>(Raw.GetData());
+			for (int32 Y = 0; Y < SourceHeight; ++Y)
+			{
+				const int32 Row = FMath::Min(Y * Height / SourceHeight, Height - 1);
+				for (int32 X = 0; X < SourceWidth; ++X)
+				{
+					const FColor& P = Pixels[Y * SourceWidth + X];
+					Average[Row * Width + FMath::Min(X * Width / SourceWidth, Width - 1)] += FLinearColor(P.R, P.G, P.B, 1.0f);
+				}
+			}
+			// Its bright highlands at about 1: the brightness that 2% of the moon is brighter than.
+			TArray<float> Lumas;
+			Lumas.Reserve(Average.Num());
+			for (FLinearColor& A : Average)
+			{
+				A /= FMath::Max(A.A, 1.0f);
+				Lumas.Add(0.2126f * A.R + 0.7152f * A.G + 0.0722f * A.B);
+			}
+			Lumas.Sort();
+			const float Bright = FMath::Max(Lumas[FMath::Clamp(int32(Lumas.Num() * 0.98f), 0, Lumas.Num() - 1)], 1.0f);
+			Texels.SetNum(Width * Height);
+			for (int32 Index = 0; Index < Average.Num(); ++Index)
+			{
+				const FLinearColor& A = Average[Index];
+				auto Byte = [Bright](float V) { return uint8(FMath::Clamp(FMath::RoundToInt(V / Bright * 255.0f), 0, 255)); };
+				Texels[Index] = FColor(Byte(A.R), Byte(A.G), Byte(A.B), 255);
+			}
+		}
+		else
+		{
+			UE_LOG(LogDreamWorld, Warning, TEXT("Moon map %s: no image at %s; a plain white stand-in (set the style's MoonFace to 0 for the procedural maria)"),
+				*ObjectPath, *Source);
+		}
+
+		const bool bCreated = Texture == nullptr;
+		if (!Texture)
+		{
+			UPackage* Package = CreatePackage(MoonMapPackage);
+			Package->FullyLoad();
+			Texture = NewObject<UTexture2D>(Package, *FPackageName::GetShortName(MoonMapPackage), RF_Public | RF_Standalone);
+		}
+		Texture->PreEditChange(nullptr);
+		Texture->Source.Init(Width, Height, 1, 1, TSF_BGRA8, reinterpret_cast<const uint8*>(Texels.GetData()));
+		// (An albedo, read as it is: block compressed, with mips for a small disk, round in longitude.)
+		Texture->SRGB = false;
+		Texture->CompressionSettings = TC_Default;
+		Texture->MipGenSettings = TMGS_FromTextureGroup;
+		Texture->LODGroup = TEXTUREGROUP_World;
+		Texture->NeverStream = true;
+		Texture->AddressX = TA_Wrap;
+		Texture->AddressY = TA_Clamp;
+		Texture->PostEditChange();
+		Texture->GetOutermost()->GetMetaData().SetValue(Texture, MoonMapStampKey, *Stamp);
+		if (bCreated)
+		{
+			FAssetRegistryModule::AssetCreated(Texture);
+		}
+		UE_LOG(LogDreamWorld, Display, TEXT("Moon map %s: %dx%d from %s"), *ObjectPath, Width, Height, bFile ? *Source : TEXT("nothing (a stand-in)"));
+		return Save(Texture->GetOutermost(), Texture, FPackageName::GetAssetPackageExtension());
+	}
+
 	struct FPresetSpec
 	{
 		const TCHAR* Name;
@@ -608,6 +735,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	bOk &= EnsureStarMap(Params, FParse::Param(*Params, TEXT("ForceStarMap")));
 	bOk &= EnsureMilkyWay(FParse::Param(*Params, TEXT("ForceMilkyWay")), FParse::Param(*Params, TEXT("MilkyWayPreview")));
+	bOk &= EnsureMoonMap(Params, FParse::Param(*Params, TEXT("ForceMoonMap")));
 	bOk &= EnsureWhiteCube();
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
