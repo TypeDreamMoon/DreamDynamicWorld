@@ -89,7 +89,10 @@ bool UDreamWindSourceComponent::BuildSourceDesc(FDreamWindSourceDesc& OutDesc, f
 	OutDesc.Position = Location;
 	OutDesc.Radius = Radius;
 	OutDesc.Stretch = Stretch;
-	OutDesc.Direction = Forward;
+	// (a whirlwind stands along the component's up axis, on it)
+	OutDesc.Direction = Type == EDreamWindSourceType::Twister ? Xf.GetUnitAxis(EAxis::Z) : Forward;
+	OutDesc.Updraft = Updraft;
+	OutDesc.Inflow = Inflow;
 	OutDesc.Strength = EffectiveStrength;
 	OutDesc.InjectRate = InjectRate;
 	OutDesc.InnerRadiusFraction = InnerRadiusFraction;

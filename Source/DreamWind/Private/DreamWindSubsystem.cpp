@@ -708,6 +708,10 @@ DreamWind::Hlsl::FDreamWindSourceData UDreamWindSubsystem::PackSource(const FDre
 		S.BoxExtent   = float4(float(Ext.X), float(Ext.Y), float(Ext.Z), 0.0f);
 		S.BoxRotation = float4(float(Q.X), float(Q.Y), float(Q.Z), float(Q.W));
 	}
+	else if (Desc.Type == EDreamWindSourceType::Twister)
+	{
+		S.BoxExtent = float4(Desc.Updraft * StrengthScale, Desc.Inflow * StrengthScale, 0.0f, 0.0f);
+	}
 	return S;
 }
 
@@ -1644,6 +1648,15 @@ void UDreamWindSubsystem::DrawDebug()
 				const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
 				DrawDebugDirectionalArrow(World, Centre, Centre + Axis * FMath::Min(S.PositionRadius.w, 300.0f), 40.0f, Colour, false, -1.0f, 0, 3.0f);
 			}
+			continue;
+		}
+		if (Type == DW_SOURCE_TWISTER)
+		{
+			// the column it reaches, and its core
+			const FVector Axis(S.DirectionStrength.x, S.DirectionStrength.y, S.DirectionStrength.z);
+			const FVector Top = Centre + Axis * (S.PositionRadius.w * FMath::Max(S.Misc.w, 1.0f));
+			DrawDebugCylinder(World, Centre, Top, S.PositionRadius.w, 24, FColor::Magenta, false, -1.0f, 0, 1.0f);
+			DrawDebugCylinder(World, Centre, Top, S.PositionRadius.w * S.Misc.z, 16, FColor(255, 120, 255), false, -1.0f, 0, 2.0f);
 			continue;
 		}
 		const FColor Colour = Type == DW_SOURCE_RADIAL ? FColor::Orange : (Type == DW_SOURCE_VORTEX ? FColor::Magenta : FColor::Yellow);

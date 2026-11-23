@@ -245,6 +245,12 @@ DW_FN FDreamWindSample DW_SampleAnalyticCheap(FDreamWindParams P, float3 WorldPo
 #define DW_SOURCE_SHELTER     3   // oriented box: the wind inside becomes Direction * Strength;
                                   // Strength 0 = a sheltered interior (house, cave, behind a wall),
                                   // Strength > 0 = a wind zone (corridor draft, wind tunnel)
+#define DW_SOURCE_TWISTER     4   // a whirlwind standing on the ground at the centre, Direction its axis (a dust
+                                  // devil, a tornado): the air turns round it, Strength cm/s at its core's edge
+                                  // (Misc.z: the core's share of Radius; + counter-clockwise seen from above),
+                                  // rises in its core (BoxExtent.x cm/s) and is drawn in along the ground
+                                  // (BoxExtent.y cm/s); Misc.w: its height over Radius. Added to the wind (it is
+                                  // carried along with it), not blended toward.
 
 /** Number of float4 per source record in the flat GPU buffers (see DW_LoadSource in the consumers). */
 #define DW_SOURCE_FLOAT4S 5
@@ -291,6 +297,31 @@ DW_FN FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos
 	// directional / vortex source an egg whose axial radius is R * stretch ahead of the centre (along
 	// +Direction) and R behind it; the largest normalised axis distance (Chebyshev) inside the
 	// oriented box for shelters
+	if (type == DW_SOURCE_TWISTER)
+	{
+		// Rankine: turning as a solid body inside the core, falling off as 1/r outside it; the core rising, fastest on the
+		// axis and from a core's height up; the air drawn in along the ground toward the core's edge.
+		float height = R * stretch;
+		float along = dot(d, dir);
+		float3 radialVec = d - dir * along;
+		float r = length(radialVec);
+		float core = max(R * saturate(S.Misc.z), 1.0f);
+		float rc = r / core;
+		float across = r / R;
+		float up = along < 0.0f ? -along / (0.25f * R) : along / max(height, 1.0f);   // (below the ground it ends at once)
+		float edge = max(across, up);
+		FDreamWindSourceEval T;
+		T.Weight = 1.0f - smoothstep(0.7f, 1.0f, edge);
+		float3 tangent = r > 0.001f ? cross(dir, radialVec) * (1.0f / r) : float3(0.0f, 0.0f, 0.0f);
+		float3 inward = r > 0.001f ? radialVec * (-1.0f / r) : float3(0.0f, 0.0f, 0.0f);
+		float spin = rc < 1.0f ? rc : 1.0f / rc;
+		float rise = exp(-rc * rc) * saturate(along / core + 0.2f);
+		float low = exp(-max(along, 0.0f) / core);
+		float draw = rc < 1.0f ? rc : 1.0f / rc;
+		T.Velocity = tangent * (S.DirectionStrength.w * spin) + dir * (S.BoxExtent.x * rise) + inward * (S.BoxExtent.y * draw * low);
+		return T;
+	}
+
 	float footprint = dist / R;
 	if (type == DW_SOURCE_SHELTER)
 	{
@@ -338,6 +369,10 @@ DW_FN FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos
 DW_FN float3 DW_ApplySource(float3 Velocity, FDreamWindSourceData S, float3 WorldPos, float RateFactor)
 {
 	FDreamWindSourceEval E = DW_EvalSource(S, WorldPos);
+	if (int(S.Misc.x) == DW_SOURCE_TWISTER)
+	{
+		return Velocity + E.Velocity * saturate(E.Weight * RateFactor);   // carried along by the wind it stands in
+	}
 	return lerp(Velocity, E.Velocity, saturate(E.Weight * RateFactor));
 }
 

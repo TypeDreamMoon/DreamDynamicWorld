@@ -33,8 +33,15 @@ public:
 	 * Length of the footprint along +X as a multiple of Radius: 1 = sphere, 4 = a jet four radii long.
 	 * Directional and Vortex only. Radius x Stretch is how far a fan reaches; Strength is how hard.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1", UIMax = "10", EditCondition = "Type == EDreamWindSourceType::Directional || Type == EDreamWindSourceType::Vortex"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "1", UIMax = "10", EditCondition = "Type == EDreamWindSourceType::Directional || Type == EDreamWindSourceType::Vortex || Type == EDreamWindSourceType::Twister"))
 	float Stretch = 1.0f;
+
+	/** A Twister (its axis the component's Z, standing on the component): the rise in its core and the inflow along the ground, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "0", EditCondition = "Type == EDreamWindSourceType::Twister"))
+	float Updraft = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (ClampMin = "0", EditCondition = "Type == EDreamWindSourceType::Twister"))
+	float Inflow = 0.0f;
 
 	/** Half extents of a Shelter box in the component's local frame, cm; scaled by the component scale. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DreamWind", meta = (EditCondition = "Type == EDreamWindSourceType::Shelter"))
