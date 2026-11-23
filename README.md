@@ -430,6 +430,26 @@ small windows by itself: place lights in it, as a level would anyway. The sun an
 `DDW_Interior` carries how far the view is indoors to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
+**Rooms, doors and windows.** The rays guess; a level can say. A **Dream Interior** (`UDreamInteriorComponent`, or the
+`ADreamInterior` actor: a box round a room, to the inside of its walls) and its **Dream Portals** (`UDreamPortalComponent`
+/ `ADreamPortal`: a door or window, `Width` x `Height` in the component's YZ plane, +X out of the room, `Depth` through
+the wall; it belongs to the room whose box it stands in or against):
+
+* **The view** inside a room is indoors under a roof, every side closed but where its doors and windows are open --
+  each by how much of the view it fills (`Openness` times its apparent size), a skylight (+X up) opening the roof -- and
+  `FDreamViewOcclusion::Opening` points toward them. It takes over from the rays over the room's `FadeDistance` (80 cm)
+  inside its faces, so a doorway is a fade; outside every room the rays decide as before.
+* **The sound** of the outdoors (rain, wind, thunder) comes from the openings: panned toward `Opening`, louder and less
+  muffled the more of them is open.
+* **The weather** does not land anywhere inside a room (`bShelterWeather`; the exposure is 0) and does right outside its
+  walls: the rain seen through a window falls up to the wall.
+* **The wind** is calm inside (`bShelterWind`: a shelter box, to the CPU sample in full and to the fluid as a slow pull,
+  so the draught through the room lives). A door or window that is open and lets the air through (`bVentilate`; off: a
+  closed glass window, light and sound only) is carved out of the fluid's walls (as wide as it is open) so the air flows
+  through it, and to the CPU it is a short jet: the outdoor wind across it blows in or out. `SetOpenness` /
+  `SetVentilate` at run time tell the wind (`UDreamWorldSubsystem::OnPortalChanged`), which looks at the walls there
+  again (`MarkObstaclesDirty`).
+
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
 runs: a cave's gloom, a cursed red sky, a dream. Tick what it changes: the sun's and moon's intensity and tint,
 their disks' brightness, the sky light, the ambient tint, the exposure (stops), the fog's density and colour, the
@@ -961,8 +981,9 @@ on every run, so rerun it after updating the plugin to take in what it has gaine
 
 **The set.** Rolling ground and a paved square under the surface materials (the terrain is soft ground, the square
 hard), realistic props (stone, metal, wood) and a toon group (toon props and a toon figure) on the square. Beyond it a
-**hut** to step into — stone walls that block the view probe (inside counts as indoors: the rain goes dull), a doorway,
-a wide window looking out, a roof the rain knows, a dim warm lamp over the table so the room reads by day and night —
+**hut** to step into — stone walls, a Dream Interior inside them (indoors for the view, the sound, the weather and the
+wind: the rain goes dull), a doorway (an open portal the air blows through), a wide glass window looking out (a portal
+for the light and the sound, not the air), a roof the rain knows, a dim warm lamp over the table so the room reads by day and night —
 and a **porch** before its door that only a roof capture box tells the weather about. A **window** stands in the open with the rain on its glass; a **pond** fills the dip (its rim follows
 the bank just inside the waterline); a **grove** on the rolling ground has green crowns tagged as leaves (the rain
 sounds on them); a **campfire** warms the air around it (a temperature volume) and keeps the ground round it clear of
@@ -1745,7 +1766,9 @@ the volume's material reads, the grass).
 (see `Tools/TestHost/README.md`). `DreamWorld.*` covers the clock (run, events, jumps, transitions,
 snapshots), the sun and moon (artistic path; Tokyo's solstice noon, the equinox, Sydney; the 2026 lunar and
 solar eclipses for the moon's phase), the stars' sidereal time (the epoch, a January evening in both modes, four
-minutes a night, no jump at midnight), the scheduler, the parameter ids and the view probe (a closed room, a
+minutes a night, no jump at midnight), the scheduler, the parameter ids, `DreamWorld.Interior.*` (a room's view shut
+and with its door and window open, every change told, the weather kept out inside and not right outside, the wind calm
+inside and blowing in through the open door, not through the glass window) and the view probe (a closed room, a
 porch, the open; rays spread over the round, easing, teleports). `DreamSky.*` checks that a style's
 day is continuous (the main light never jumps, sun and moon never light at once, exposure eases), drives a
 sky actor in a game world (snap on jumps, easing while the clock runs, the night hand-over) and the indoor and
