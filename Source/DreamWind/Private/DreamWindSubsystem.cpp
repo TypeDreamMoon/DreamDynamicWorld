@@ -33,6 +33,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldInterior.h"
 #include "Misc/App.h"
 #include "SceneInterface.h"
 #include "SceneViewExtension.h"
@@ -329,6 +330,11 @@ bool UDreamWindSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 void UDreamWindSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	// A door or window opened or closed: the walls there are looked at again (the runtime terrain map, its CPU grid).
+	if (UDreamWorldSubsystem* Clock = Collection.InitializeDependency<UDreamWorldSubsystem>())
+	{
+		PortalChangedHandle = Clock->OnPortalChanged.AddWeakLambda(this, [this](const FBox& Bounds) { MarkObstaclesDirty(Bounds); });
+	}
 
 	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
 	CurrentWind = Settings->DefaultWind;
@@ -365,6 +371,10 @@ void UDreamWindSubsystem::PostInitialize()
 
 void UDreamWindSubsystem::Deinitialize()
 {
+	if (UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr)
+	{
+		Clock->OnPortalChanged.Remove(PortalChangedHandle);
+	}
 	if (ViewExtension.IsValid())
 	{
 		ViewExtension->SetFluid(nullptr);
@@ -609,6 +619,53 @@ void UDreamWindSubsystem::GatherSources()
 					continue;
 				}
 			}
+			FrameData.Sources.Add(PackSource(Desc, 1.0f));
+		}
+	}
+
+	// The rooms (UDreamInteriorComponent): calm inside -- a shelter box, to the CPU sample in full and to the fluid as a
+	// slow pull (its walls make the room; the draught through its openings must live). Their open doors and windows that
+	// let the air through: the outdoor wind across each blows in or out of it, a short jet (the fluid also carves them
+	// out of its walls, UpdateFluid).
+	if (const UDreamWorldSubsystem* Clock = UDreamWorldSubsystem::Get(this))
+	{
+		const FVector Outdoor = DreamWind::SafeDirection(CurrentWind.Direction) * double(CurrentWind.Speed);
+		for (const UDreamInteriorComponent* Room : Clock->GetInteriors())
+		{
+			if (!Room->bShelterWind)
+			{
+				continue;
+			}
+			FDreamWindSourceDesc Desc;
+			Desc.Type = EDreamWindSourceType::Shelter;
+			Desc.Position = Room->GetCenter();
+			Desc.BoxExtent = Room->Extent.GetAbs();
+			Desc.BoxRotation = Room->GetRotation().Rotator();
+			Desc.Radius = Desc.GetBoundingRadius();
+			Desc.Strength = 0.0f;
+			Desc.InjectRate = 1.0f;
+			Desc.InnerRadiusFraction = 0.8f;
+			FrameData.Sources.Add(PackSource(Desc, 1.0f));
+		}
+		for (const UDreamPortalComponent* Portal : Clock->GetPortals())
+		{
+			const float Ventilation = Portal->GetVentilation();
+			const FVector Out = Portal->GetOutward();
+			const float Across = float(FVector::DotProduct(Outdoor, Out));
+			const float Strength = FMath::Abs(Across) * Ventilation * 0.6f;
+			if (Strength < 1.0f)
+			{
+				continue;
+			}
+			FDreamWindSourceDesc Desc;
+			Desc.Type = EDreamWindSourceType::Directional;
+			Desc.Position = Portal->GetComponentLocation();
+			Desc.Direction = Across >= 0.0f ? Out : -Out;
+			Desc.Radius = 0.5f * FMath::Max(Portal->Width * Ventilation, Portal->Height);
+			Desc.Stretch = 2.5f;
+			Desc.Strength = Strength;
+			Desc.InjectRate = 10.0f;
+			Desc.InnerRadiusFraction = 0.3f;
 			FrameData.Sources.Add(PackSource(Desc, 1.0f));
 		}
 	}
@@ -1216,6 +1273,31 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 	Args.bDistanceField = bWantDistanceField;
 	Args.bShowDivergence = DreamWind::GCVarFluidShowDivergence != 0;
 	Args.bReset = bFluidHistoryDirty || bRedrawAll;
+	// The open doors and windows that let the air through, nearest first: carved out of the walls (as wide as they are open).
+	if (const UDreamWorldSubsystem* Clock = UDreamWorldSubsystem::Get(this))
+	{
+		TArray<const UDreamPortalComponent*> Open;
+		for (const UDreamPortalComponent* Portal : Clock->GetPortals())
+		{
+			if (Portal->GetVentilation() > 0.05f)
+			{
+				Open.Add(Portal);
+			}
+		}
+		const FVector Here = VolumeCenter;
+		Open.Sort([&Here](const UDreamPortalComponent& A, const UDreamPortalComponent& B)
+		{
+			return FVector::DistSquared(A.GetComponentLocation(), Here) < FVector::DistSquared(B.GetComponentLocation(), Here);
+		});
+		for (int32 i = 0; i < FMath::Min(Open.Num(), FDreamWindFluid::MaxPortals); ++i)
+		{
+			const UDreamPortalComponent* P = Open[i];
+			const FQuat Q = P->GetComponentQuat();
+			Args.Portals.Add(FVector4f(FVector3f(P->GetComponentLocation()), 0.0f));
+			Args.Portals.Add(FVector4f(P->Depth * 0.5f, P->Width * 0.5f * P->GetVentilation(), P->Height * 0.5f, 0.0f));
+			Args.Portals.Add(FVector4f(float(Q.X), float(Q.Y), float(Q.Z), float(Q.W)));
+		}
+	}
 	if (Args.bReset && Probes.IsValid())
 	{
 		Probes->Clear();

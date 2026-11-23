@@ -70,6 +70,8 @@ class FDreamWindFluidAdvectCS : public FDreamWindFluidShader
 		SHADER_PARAMETER(FIntVector, Shift)
 		SHADER_PARAMETER(float, KeepWalls)
 		SHADER_PARAMETER(float, WallThickness)
+		SHADER_PARAMETER(uint32, NumPortals)
+		SHADER_PARAMETER_ARRAY(FVector4f, Portals, [FDreamWindFluid::MaxPortals * 3])
 		SHADER_PARAMETER(FVector4f, FarV0)
 		SHADER_PARAMETER(FVector4f, FarV1)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, FarVolume)
@@ -495,6 +497,11 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 		P->Shift = Shift;
 		P->KeepWalls = Args.bDistanceField ? 1.0f : 0.0f;
 		P->WallThickness = Level.WallThickness;
+		P->NumPortals = uint32(FMath::Min(Args.Portals.Num() / 3, FDreamWindFluid::MaxPortals));
+		for (int32 i = 0; i < int32(P->NumPortals) * 3; ++i)
+		{
+			P->Portals[i] = Args.Portals[i];
+		}
 		P->FarV0 = FarArgs ? FarArgs->V0 : FVector4f::Zero();
 		P->FarV1 = FarArgs ? FVector4f(FarArgs->V1.X, FarArgs->V1.Y, FarArgs->V1.Z, 1.0f) : FVector4f::Zero();
 		P->FarVolume = FarTexture;

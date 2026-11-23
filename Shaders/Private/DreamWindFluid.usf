@@ -128,6 +128,8 @@ float PrevValid;
 int3 Shift;                    // (Origin - PrevOrigin) / CellSize
 float KeepWalls;               // 0: the distance field's walls are dropped (it is not used), every cell falls back to the heights
 float WallThickness;           // a surface within this fraction of a cell of a cell's centre makes it a wall
+uint NumPortals;               // openings carved out of the walls (doors, windows letting the air through)
+float4 Portals[16 * 3];        // per opening: centre, half extent (through the wall, across, up), rotation
 float4 FarV0;                  // the far level's window (near level only; FarV1.w = 0 otherwise)
 float4 FarV1;
 Texture3D<float4> FarVolume;   // the far level's deviation, this frame
@@ -197,6 +199,17 @@ void AdvectCS(uint3 Id : SV_DispatchThreadID)
 	{
 		const float Ground = DW_BackgroundGround(X, CellSize);
 		W = saturate((Ground + WallThickness * CellSize - X.z) / CellSize + 0.5f);
+	}
+
+	// An open door or window is air, whatever the distance field makes of its frame (half a cell more each way, so even
+	// a narrow one keeps a column of cells open).
+	for (uint i = 0; i < NumPortals; ++i)
+	{
+		const float3 Local = abs(DW_RotateInverse(Portals[i * 3 + 2], X - Portals[i * 3].xyz));
+		if (all(Local <= Portals[i * 3 + 1].xyz + 0.5f * CellSize))
+		{
+			W = 0.0f;
+		}
 	}
 
 	OutB[C] = float4(Bc, 0.0f);
