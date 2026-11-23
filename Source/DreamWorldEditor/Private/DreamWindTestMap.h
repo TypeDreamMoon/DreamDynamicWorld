@@ -4,7 +4,9 @@
 
 #include "CoreMinimal.h"
 
+class AActor;
 class UDreamSkyStyle;
+class UDreamWindMoverComponent;
 
 namespace DreamWorld::Setup
 {
@@ -33,6 +35,9 @@ namespace DreamWorld::Setup
 		inline const FVector ClearingCenter = FVector(-2500.0, -2500.0, 100.0);
 		/** The grass: a square this half size around the origin. */
 		inline constexpr float GrassExtent = 4000.0f;
+		/** A walker's loop over the grass, upwind of the house: its wake parts the grass. */
+		inline const FVector2D WalkerCenter = FVector2D(-300.0, -1200.0);
+		inline const FVector2D WalkerRadii = FVector2D(600.0, 350.0);
 		/** The shot camera: upwind and to the side of the house, over the grass. */
 		inline const FVector CameraLocation = FVector(-800.0, -2200.0, 250.0);
 		inline const FRotator CameraRotation = FRotator(-8.0, 45.0, 0.0);
@@ -47,4 +52,10 @@ namespace DreamWorld::Setup
 	 * grass, the impulse pushing the grass).
 	 */
 	bool BuildWindTestMap(UDreamSkyStyle* Style);
+
+	/**
+	 * Give an actor a body in the wind fluid (a character's capsule, its foot at the actor's origin): a wake where it
+	 * walks, a lee where it stands. Saved with the actor.
+	 */
+	UDreamWindMoverComponent* AddWindMover(AActor& Actor, float Radius = 35.0f, float HalfHeight = 55.0f, float Push = 0.6f);
 }
