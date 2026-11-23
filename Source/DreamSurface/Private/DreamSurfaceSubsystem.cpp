@@ -353,10 +353,13 @@ void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeathe
 		OutAir = FVector4f(15.0f, -1.0f, 0.0f, 0.0f);
 		return;
 	}
-	// The temperature of the hour at the view, less the offset there: a texel adds its own offset.
-	const FDreamWeatherSample W = Weather->SampleWeatherAt(ViewAnchor, Global, T);
+	// The temperature of the hour at the view with no offset and a clear sky, and how much less of the daily swing a
+	// closed cover leaves: a texel takes its own cover's share of that and adds its own offset (a cloudy zone's night is
+	// milder there, as a query has it).
 	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), T);
-	OutAir = FVector4f(W.Temperature - W.Values.Get(C::Temperature), float(Sky.SunDirection.Z), 0.0f, 0.0f);
+	const float ClearSky = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 0.0f, T);
+	const float Overcast = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 1.0f, T);
+	OutAir = FVector4f(ClearSky, float(Sky.SunDirection.Z), ClearSky - Overcast, 0.0f);
 }
 
 void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)

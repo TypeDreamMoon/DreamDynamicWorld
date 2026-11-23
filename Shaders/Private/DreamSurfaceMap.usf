@@ -23,7 +23,8 @@
 #define DSM_ZONE_FLOAT4S 4
 #define DSM_UNSET -9999.0f
 // A step is three float4s: the global weather (coverage, darkness, precipitation, snow ratio), the global channels
-// (temperature offset, dust, wind, -), the air (the view's temperature less its offset, the sun's Z, -, -).
+// (temperature offset, dust, wind, -), the air (the view's temperature under a clear sky with no offset, the sun's Z, how
+// much colder or warmer a closed cover leaves the hour there, -): a texel takes its own cover's share of that.
 #define DSM_STEP_FLOAT4S 3
 
 float4 Rates0;
@@ -97,7 +98,7 @@ FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, fl
 	}
 	V = DWX_GatePrecipitation(V, PrecipitationGate);
 	float4 Weather = float4(V.x, V.y, V.z, SnowRatio);
-	float4 Here = float4(Air.x + TempOffset, Wind, Dust, Air.y);
+	float4 Here = float4(Air.x - Air.z * saturate(V.x) + TempOffset, Wind, Dust, Air.y);
 	FDreamSurfaceTexelDrive D;
 	D.D0 = DSF_OpenD0(Weather, Here);
 	D.D1 = DSF_OpenD1(Weather, Here);
