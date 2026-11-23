@@ -23,6 +23,9 @@ public class DreamWeather : ModuleRules
 			"GameplayTags",
 			"DreamDynamicWorld",
 			"DreamWind",
+			"UMG",
+			"Slate",
+			"SlateCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

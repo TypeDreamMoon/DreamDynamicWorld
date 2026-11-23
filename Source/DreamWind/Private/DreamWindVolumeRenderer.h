@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "RenderGraphResources.h"
+#include "DreamWindBackground.h"
 #include "DreamWindSubsystem.h"
 
 class FTextureRenderTargetResource;
@@ -25,7 +26,7 @@ public:
 	{
 		FDreamWindFrameData Frame;
 		FTextureRenderTargetResource* TargetResource = nullptr;
-		FTextureRenderTargetResource* TerrainResource = nullptr;
+		FDreamWindBackgroundResources Background;
 		FIntVector Resolution = FIntVector(64, 64, 32);
 		FVector3f PrevCenter = FVector3f::ZeroVector;
 		FVector3f NewCenter = FVector3f::ZeroVector;

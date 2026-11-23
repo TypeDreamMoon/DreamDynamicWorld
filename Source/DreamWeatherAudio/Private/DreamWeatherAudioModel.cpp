@@ -97,6 +97,9 @@ namespace DreamWeatherAudio
 		Intensity[(int32)EDreamWeatherVoice::RainOnLeaves] = Rain * Smooth(0.0f, 0.5f, Leaves);
 		Intensity[(int32)EDreamWeatherVoice::Snow] = Smooth(0.0f, 0.5f, FMath::Clamp(In.Snow, 0.0f, 1.0f));
 		Intensity[(int32)EDreamWeatherVoice::Dust] = FMath::Clamp(In.Dust, 0.0f, 1.0f) * (0.35f + 0.65f * Wind);
+		// Hail: plain soon, much louder on a roof over the listener.
+		const float Hail = FMath::Clamp(In.Hail, 0.0f, 1.0f);
+		Intensity[(int32)EDreamWeatherVoice::Hail] = Smooth(0.0f, 0.4f, Hail) * (0.6f + 0.4f * FMath::Max(Overhead, Roof));
 
 		for (int32 v = 0; v < (int32)EDreamWeatherVoice::Num; ++v)
 		{

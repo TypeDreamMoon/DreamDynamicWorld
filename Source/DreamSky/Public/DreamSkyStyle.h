@@ -493,6 +493,274 @@ struct DREAMSKY_API FDreamSkyRainbow
 	float FullDistance = 250.0f;
 };
 
+/**
+ * The ice halos and the corona: under a sheet of high ice cloud (cirrostratus) a 22 degree ring round the sun or the moon
+ * and the sun dogs either side of it at its height; in thin cloud round the moon the corona's coloured rings. Drawn on
+ * the dome, in the light the high cloud is lit by (the style's CloudLitColor), as the real ones look whatever the look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyHalos
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos")
+	bool bEnabled = true;
+
+	/** How much high cloud (CloudHighCover) the halos begin to show at, and show in full at: a sheet of ice cloud makes them. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float HighCoverFrom = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float HighCoverFull = 0.8f;
+
+	/** The 22 degree ring's brightness, of the lit high cloud's. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 0.35f;
+
+	/** The ring's radius (degrees: its red inner edge) and how wide it fades outward (degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "10", UIMax = "30"))
+	float Radius = 22.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0.2", UIMax = "6"))
+	float Width = 1.6f;
+
+	/** The sun dogs' brightness, of the lit high cloud's (they fade out as the sun climbs past some 50 degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "3"))
+	float SunDogs = 0.9f;
+
+	/** How milky the sheet makes the sky round the halos, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float Milkiness = 0.12f;
+
+	/** The moon's corona in thin cloud: its brightness (of the lit cloud's), how much high cloud it begins and shows
+	 *  fully at, and its first red ring's radius (degrees; smaller droplets, larger rings; at least two and a half times
+	 *  the drawn moon's radius, MoonDiskSize, or the moon would hide it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "4"))
+	float Corona = 1.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoronaCoverFrom = 0.4f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoronaCoverFull = 0.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0.5", UIMax = "8"))
+	float CoronaRadius = 2.5f;
+};
+
+/**
+ * The earth's shadow and the Belt of Venus: after sunset the low sky away from the sun lies in the earth's own shadow,
+ * blue-grey up to some twice the sun's depression, with a pink band over it. The physical sky has them of itself; these
+ * settings draw them over the style's own gradient, as far as the grade's GradientBlend shows it (none at 0).
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyEarthShadow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow")
+	bool bEnabled = true;
+
+	/** How strongly they are drawn over the gradient, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ClampMin = "0", ClampMax = "1"))
+	float Strength = 1.0f;
+
+	/** The shadow's colour, times the gradient. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (HideAlphaChannel))
+	FLinearColor ShadowTint = FLinearColor(0.5f, 0.56f, 0.82f);
+
+	/** The belt's colour over it, times the gradient. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (HideAlphaChannel))
+	FLinearColor BeltTint = FLinearColor(1.45f, 0.95f, 1.12f);
+
+	/** How high the shadow stands, in the sun's depressions (the physical sky's: about 2). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ClampMin = "0.5", UIMax = "4"))
+	float Height = 2.0f;
+};
+
+/**
+ * Noctilucent clouds: thin silver-blue ice some 82 km up, at high latitudes in the weeks round midsummer, lit by the sun
+ * long after it has set on the air below; seen in the deep twilight low over where the sun went, in bands and fine
+ * billows. Drawn on the dome, in the dome's own measure, the same under every look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyNoctilucent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds")
+	bool bEnabled = true;
+
+	/** How bright they draw at their strongest, in the dome's own measure (a dark night's zenith is some 0.006). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "0.3"))
+	float Brightness = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (HideAlphaChannel))
+	FLinearColor Color = FLinearColor(0.62f, 0.8f, 1.0f, 1.0f);
+
+	/** Their height, km, and the spacing of their bands and of the billows across them, km. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "60", UIMax = "100"))
+	float Altitude = 82.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "5", UIMax = "200"))
+	float BandSpacing = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "1", UIMax = "40"))
+	float BillowSpacing = 9.0f;
+
+	/** How fast they drift, km a second (some 50 m/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "0.5"))
+	float Drift = 0.05f;
+
+	/** Realistic mode: the latitudes (north or south) they begin and are full at, and fade out by toward the pole. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float StartLatitude = 45.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float FullLatitude = 52.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float EndLatitude = 72.0f;
+
+	/** Realistic mode: how many days from midsummer (June 21 north, December 21 south) they are full, and gone. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "120"))
+	float SeasonFullDays = 35.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "1", UIMax = "180"))
+	float SeasonEndDays = 65.0f;
+
+	/** Artistic mode: how present they are (none unless told). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float ArtisticPresence = 0.0f;
+};
+
+/** A yearly meteor shower: when it peaks, where its radiant stands among the stars, how strong it is. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMeteorShower
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	FName Name;
+
+	/** Its peak, month and day (the same every year, near enough). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "1", ClampMax = "12"))
+	int32 PeakMonth = 8;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "1", ClampMax = "31"))
+	int32 PeakDay = 12;
+
+	/** How many days either side it falls to some 60% of its peak. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0.1", UIMax = "10"))
+	float WidthDays = 2.0f;
+
+	/** The radiant: right ascension and declination, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", ClampMax = "360"))
+	float RightAscension = 48.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "-90", ClampMax = "90"))
+	float Declination = 58.0f;
+
+	/** Its zenithal hourly rate at the peak: meteors an hour under a dark sky with the radiant overhead. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "200"))
+	float ZenithalHourlyRate = 100.0f;
+};
+
+/**
+ * Meteors and satellites in the night sky: sporadic meteors any night, the yearly showers by the date (streaking away
+ * from their radiant), and satellites the sun still lights after dusk crossing in a few minutes and fading into the
+ * earth's shadow. Drawn on the dome, real-time seconds, the same under every look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMeteors
+{
+	GENERATED_BODY()
+
+	FDreamSkyMeteors();
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	bool bEnabled = true;
+
+	/** Sporadic meteors an hour over the whole sky on a dark night. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "60"))
+	float SporadicPerHour = 8.0f;
+
+	/** Times every rate (the real ones are sparse for a game: a meteor every few minutes at a strong shower's peak). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "20"))
+	float RateScale = 3.0f;
+
+	/** How bright a meteor's head draws, in the dome's own measure, and its colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "5"))
+	float Brightness = 1.2f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (HideAlphaChannel))
+	FLinearColor Color = FLinearColor(0.85f, 0.95f, 1.0f, 1.0f);
+
+	/** How long their trails are (1 = some 5 to 25 degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0.2", UIMax = "3"))
+	float TrailLength = 1.0f;
+
+	/** The yearly showers (the seven strongest by default). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	TArray<FDreamSkyMeteorShower> Showers;
+
+	/** Satellites crossing an hour while the sun still lights them, and how bright (the dome's measure). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "120"))
+	float SatellitesPerHour = 12.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "2"))
+	float SatelliteBrightness = 0.25f;
+};
+
+/**
+ * The flat clouds: a cheap sheet of cloud the dome draws at the cloud base where the sky cloud renderer does not draw
+ * (below Shader Model 5, turned off, or chosen for a low quality: DreamSky.Clouds.Flat), from the weather map's cover
+ * and darkness, in the style's cloud colours, with its shadow on the ground.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyFlatClouds
+{
+	GENERATED_BODY()
+
+	/** Draw them where the renderer does not (off: no clouds there, as before). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds")
+	bool bEnabled = true;
+
+	/** How much of the sky behind them they hide, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float Opacity = 0.92f;
+
+	/** 0: shaded smoothly; 2 .. 4: in that many flat tones, as the toon look's clouds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "4"))
+	int32 Tones = 0;
+
+	/** The clouds' size (1 = some 4 km across the middle octave). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0.1", UIMax = "4"))
+	float Scale = 1.0f;
+
+	/** How much of the sun their shadow takes on the ground (0: none). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShadowStrength = 0.65f;
+};
+
+/**
+ * The clouds clearing round the sun and the moon: a low sun's evening clouds thin out round it, its disk and the glow
+ * about it showing through, and the moon's likewise. Each ray's cloud is eaten back from its edges and thinned as near
+ * the light as the falloff says (the thicker cores last), so the clouds shrink and fade toward it rather than a hole
+ * opening; the same for every cloud look, the high cloud and the flat clouds.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyCloudClearing
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing")
+	bool bEnabled = true;
+
+	/** How far round the light the clouds thin, degrees (to some 37% of the strength at this angle). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "1", UIMax = "60"))
+	float Radius = 14.0f;
+
+	/** How it falls off with the angle: 2 a soft bell, higher a flatter middle with a quicker edge, 1 a long tail. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "0.5", UIMax = "8"))
+	float Exponent = 2.0f;
+
+	/** How much the clouds thin right by the sun (0 none .. 1 most of them), over the sun's elevation: by default plain
+	 *  with a low sun, almost none by noon. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Sun elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve SunStrength;
+
+	/** The same by the moon, over the moon's elevation. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Moon elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve MoonStrength;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -509,6 +777,24 @@ public:
 
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
+
+	/** The strongest meteor shower on a date and how strong it is then (none in the gaps between them). */
+	FDreamSkyShowerActivity EvaluateMeteorShower(const FDateTime& Date) const;
+
+	/** How present noctilucent clouds are where and when the world is: by latitude and the days from midsummer in the
+	 *  realistic mode, as the style says in the artistic one. */
+	float EvaluateNoctilucentPresence(const FDreamCelestialSettings& Settings, const FDateTime& Date) const;
+
+	/** How far the twilight lets them show for the sun this high (degrees): from 4 under, full from 7 to 13, gone by 17
+	 *  (the air below dark enough, they still in the sun). */
+	static float NoctilucentTwilight(float SunElevation);
+
+	/** How far the halos and the corona show for this much high cloud (CloudHighCover), 0 .. 1 each. */
+	FVector2f EvaluateHaloPresence(float HighCover) const;
+
+	/** How far (degrees of azimuth) a sun dog stands from a light this high (degrees) for ice of this refractive index
+	 *  (1.31 the yellow), the plate crystals' least deviation; negative when there is none (the light over some 60). */
+	static float SunDogAzimuth(float LightElevation, float RefractiveIndex = 1.31f);
 
 	/** How much of the night's own glow and a city's light shows at a sun elevation (degrees), 0..1: from sunset on. */
 	static float GlowNight(float SunElevation);
@@ -611,6 +897,14 @@ public:
 	float SunHaloExponent = 6.0f;
 
 	/**
+	 * How large the sun's disk is drawn, times SunDiskSize, over its elevation: larger near the horizon (the moon
+	 * illusion, drawn). Only the disk as seen -- its glow, an eclipse's corona and the lens flare with it; the light's
+	 * source angle, and so the shadows' softness, stays as it is.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sun", meta = (XAxisName = "Sun elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve SunDiskScale;
+
+	/**
 	 * Share of the sun disk the sky light sees when it captures the dome. A full disk in the captured light
 	 * makes a hot spot every rough surface reflects; the sun's light comes from the directional light anyway.
 	 */
@@ -638,6 +932,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "1", UIMax = "128"))
 	float MoonHaloExponent = 24.0f;
 
+	/** How large the moon's disk is drawn, times MoonDiskSize, over its elevation: larger near the horizon. Only the disk
+	 *  as seen -- its glow, its corona and a lunar eclipse's shadow on it with it; the light's source angle stays. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Moon elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve MoonDiskScale;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Sun elevation", YAxisName = "Colour"))
 	FRuntimeCurveLinearColor MoonLightColor;
 
@@ -663,6 +962,11 @@ public:
 	/** The earthshine on the moon's dark side at its strongest (near the new moon), of the lit side's brightness. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
 	float MoonEarthshine = 0.06f;
+
+	/** How much of the moonlight's hue (MoonLightColor) the toon clouds' moonlit side takes, 0 .. 1: by moonlight the eye
+	 *  sees little colour (low, a grey-blue; 1, the moonlight's blue as it is). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonlightCloudSaturation = 0.4f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
@@ -709,6 +1013,24 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ShowOnlyInnerProperties))
 	FDreamSkyRainbow Rainbow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ShowOnlyInnerProperties))
+	FDreamSkyHalos Halos;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ShowOnlyInnerProperties))
+	FDreamSkyEarthShadow EarthShadow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyNoctilucent Noctilucent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ShowOnlyInnerProperties))
+	FDreamSkyMeteors Meteors;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyFlatClouds FlatClouds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ShowOnlyInnerProperties))
+	FDreamSkyCloudClearing CloudClearing;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

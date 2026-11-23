@@ -7,6 +7,7 @@
 #include "DreamWindTypes.h"
 #include "DreamWindHlslShim.h"
 #include "DreamWorldSharedTargets.h"
+#include "Math/Float16Color.h"
 #include "DreamWindSubsystem.generated.h"
 
 class UDreamWindSourceComponent;
@@ -62,6 +63,43 @@ struct DREAMWIND_API FDreamWindTerrainCpuData
 };
 
 /**
+ * The runtime terrain wind map as the CPU has it (gameplay, physics, sound, Niagara CPU sims, the weather's roofs): a
+ * grid of cells around the camera whose heights come from box sweeps against the level's collision (no read-back of the
+ * GPU's map), with the same derivation the GPU runs: the wind shadow height swept along the wind, the speed multiplier
+ * and steering from the blurred heights. An immutable snapshot, shared between threads.
+ */
+struct DREAMWIND_API FDreamWindTerrainGridData
+{
+	/** The window's first cell and its size in cells; cell size in cm. Arrays are row-major over the window. */
+	FIntPoint WindowMin = FIntPoint::ZeroValue;
+	int32 Size = 0;
+	float CellSize = 400.0f;
+	/** Per cell: (speed multiplier, steer x, steer y, wind shadow height cm). */
+	TArray<FVector4f> Derived;
+	/** Per cell: the top surface's height (cm), Unknown until swept (or nothing below). */
+	TArray<float> Heights;
+	DreamWind::Hlsl::FDreamWindL1Params Params;
+
+	/** Swept, nothing below; and not swept yet (the grid does not cover the cell: the baked map, if any, stands in). */
+	static constexpr float Unknown = -1.0e7f;
+	static constexpr float NotSwept = -2.0e7f;
+
+	bool IsValid() const { return Size > 0 && Derived.Num() == Size * Size && Heights.Num() == Size * Size; }
+
+	/** 1 well inside the window, fading over its outer eighth, 0 outside. */
+	float Weight(double WorldX, double WorldY) const;
+
+	/** Bilinear fetch of the derived values, clamped into the window. */
+	FVector4f SampleDerived(double WorldX, double WorldY) const;
+
+	/** The top surface's height (cm) of the cell over a point, Unknown outside or unswept. */
+	float HeightAt(double WorldX, double WorldY) const;
+
+	/** What the terrain does to an analytic sample here (weighted by the window's coverage; unchanged outside). */
+	DreamWind::Hlsl::FDreamWindSample Apply(DreamWind::Hlsl::FDreamWindSample S, const DreamWind::Hlsl::float3& Pos) const;
+};
+
+/**
  * Everything a GPU consumer needs for one frame, in the packed layout the shared header unpacks.
  * Built once per tick on the game thread; copied (not referenced) by whoever needs it.
  */
@@ -88,6 +126,17 @@ struct DREAMWIND_API FDreamWindFrameData
 	/** Terrain map render target (null when off) and the CPU copy of the active map. */
 	TWeakObjectPtr<UTextureRenderTarget2D> TerrainTexture;
 	TSharedPtr<const FDreamWindTerrainCpuData, ESPMode::ThreadSafe> TerrainCpu;
+	/** The runtime terrain wind map: DW_UnpackL1Level(L1Near / L1Far) (w = 0 when off), DW_UnpackL1Params(L1Params). */
+	FVector4f L1Near = FVector4f::Zero();
+	FVector4f L1Far = FVector4f::Zero();
+	FVector4f L1Params = FVector4f::Zero();
+	/** Its derived maps (speed multiplier, steering x, y, wind shadow height) and top-surface heights. */
+	TWeakObjectPtr<UTextureRenderTarget2D> L1NearDerived;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1FarDerived;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1NearHeight;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1FarHeight;
+	/** The runtime terrain wind map as the CPU has it (null when it does not run). */
+	TSharedPtr<const FDreamWindTerrainGridData, ESPMode::ThreadSafe> TerrainGrid;
 	/** Game-thread frame this data was built on. */
 	uint64 FrameNumber = 0;
 
@@ -256,6 +305,25 @@ public:
 	/** Called by the view extension with the origin of the most recently set-up view. */
 	void ReportViewOrigin(const FVector& ViewOrigin, bool bIsGameView);
 
+	/**
+	 * Write a horizontal slice of the engine's global distance field, Size cm wide around Center, into Target (a float
+	 * RGBA render target that supports UAV) in the next perspective view of this world: R = distance to the nearest surface
+	 * (m), G = how many clipmaps the view had (0: no global distance field that frame), B = 1 inside them. Returns the
+	 * probe count that GetDistanceProbeCount reaches once it is written (0: no renderer, nothing queued).
+	 */
+	uint32 RequestDistanceFieldProbe(UTextureRenderTarget2D* Target, FVector Center, float Size);
+
+	/** Distance field probes written so far. */
+	uint32 GetDistanceProbeCount() const;
+
+	/** The runtime terrain wind map captures this box again (a building moved, a wall fell); no-op when it is off. */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind|Terrain")
+	void MarkObstaclesDirty(FBox Bounds);
+
+	/** The runtime terrain wind map's captures and derivations so far (tests, stats); 0 when it does not run here. */
+	uint32 GetTerrainCaptureCount() const;
+	uint32 GetTerrainDeriveCount() const;
+
 	/** Force the volume window centre instead of following the camera (cinematics, tests). */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Volume")
 	void OverrideVolumeCenter(FVector Center, bool bEnable);
@@ -275,6 +343,20 @@ public:
 	/** True when this world drives the shared volume render target this frame. */
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
 	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
+
+	/** True when the volumes are solved as a fluid this frame (else the residual volume, or nothing). */
+	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
+	bool IsFluidActive() const { return bFluidActive; }
+
+	/** The fluid's steps and its wall lookups in the global distance field so far (tests, stats). */
+	uint32 GetFluidStepCount() const;
+	uint32 GetFluidWallPassCount() const;
+
+	/**
+	 * Read a volume back (tests, stats; flushes rendering, slow): its texels, x fastest, and the window it covered (the
+	 * consumers' V0 / V1, or V2 / V3 for the far level). False when the level does not run here.
+	 */
+	bool ReadVolume(bool bFar, TArray<FFloat16Color>& OutTexels, FIntVector& OutSize, FVector4f& OutV0, FVector4f& OutV1) const;
 
 	/** Packs a source description into the record the shared model (CPU and GPU) evaluates. */
 	static DreamWind::Hlsl::FDreamWindSourceData PackSource(const FDreamWindSourceDesc& Desc, float StrengthScale);
@@ -296,6 +378,12 @@ private:
 	void UpdateEngineWindSource();
 	void UpdateMaterialParameterCollection();
 	void UpdateVolume(float DeltaTime);
+	/** The fluid's step (UpdateVolume, once this world owns the volumes); false when it cannot run. */
+	bool UpdateFluid(float WindDelta, bool bRedrawAll);
+	/** A fluid level's window: on the ground under the camera, rising with a camera high above it; whole cells. */
+	FVector ChooseFluidCenter(const FVector& Camera, const FIntVector& Res, float CellSize, double& InOutFloorZ) const;
+	/** The top surface under a point as the terrain maps know it (cm); false where none does. */
+	bool FindGroundHeight(const FVector& Position, double& OutZ) const;
 	void UpdateTerrainTexture();
 	/** Applies the terrain map (if any) to an analytic sample on the CPU. */
 	DreamWind::Hlsl::FDreamWindSample ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const;
@@ -349,6 +437,14 @@ private:
 	FVector VolumeCenterFar = FVector::ZeroVector;
 	FVector PrevVolumeCenterFar = FVector::ZeroVector;
 	bool bVolumeHistoryDirtyFar = true;
+	/** The wind fluid (null until it first runs) and its windows' floors (they move only by two cells or more). */
+	TSharedPtr<class FDreamWindFluid, ESPMode::ThreadSafe> Fluid;
+	double FluidFloorZ = 0.0;
+	double FluidFloorZFar = 0.0;
+	bool bFluidFloorValid = false;
+	bool bFluidActive = false;
+	bool bFluidHistoryDirty = true;
+	bool bFluidDistanceFieldRequested = false;
 
 	// terrain
 	UPROPERTY(Transient)
@@ -365,6 +461,11 @@ private:
 	/** The volumes and the terrain map are shared by every world: this world writes them only while it owns them. */
 	DreamWorld::SharedTargets::FWriter VolumeWriter;
 	DreamWorld::SharedTargets::FWriter TerrainWriter;
+	DreamWorld::SharedTargets::FWriter RuntimeTerrainWriter;
+	/** The runtime terrain wind map (null until it first runs), and its CPU grid. */
+	TSharedPtr<class FDreamWindTerrainField> TerrainField;
+	TSharedPtr<class FDreamWindTerrainGrid, ESPMode::ThreadSafe> TerrainGrid;
+	void UpdateRuntimeTerrain();
 	FVector LatestViewOrigin = FVector::ZeroVector;
 	bool bHasViewOrigin = false;
 	bool bHasGameViewOrigin = false;

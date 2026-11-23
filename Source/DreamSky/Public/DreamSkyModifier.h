@@ -118,6 +118,18 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float Aurora = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Noctilucent = false;
+	/** How present noctilucent clouds turn, 0..1, wherever and whenever the world is (they still show only in the deep twilight). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Noctilucent", ClampMin = "0", ClampMax = "1"))
+	float Noctilucent = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Meteors = false;
+	/** Scales the meteors' and satellites' rates (a meteor storm, an empty sky). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Meteors", ClampMin = "0", UIMax = "50"))
+	float Meteors = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_LightPollution = false;
 	/** How strong a city's light turns at the horizon, in the dome's measure (see the style's NightGlow). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightPollution", ClampMin = "0", UIMax = "0.3"))
@@ -190,6 +202,26 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	/** How dark the clouds turn, 0..1 (storm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudDarkness", ClampMin = "0", ClampMax = "1"))
 	float CloudDarkness = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
+	bool bOverride_DiskScale = false;
+	/** How large the sun's (x) and the moon's (y) disks turn toward being drawn, times their sizes (the style's curves'
+	 *  scale replaced). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_DiskScale"))
+	FVector2f DiskScale = FVector2f(1.0f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_CloudClearing = false;
+	/** The clouds' clearing round the sun and the moon the sky turns toward: x the strength by the sun, y by the moon (0..1),
+	 *  z how far round (degrees), w the falloff's exponent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudClearing"))
+	FVector4f CloudClearing = FVector4f(0.6f, 0.4f, 14.0f, 2.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_HighCloudCover = false;
+	/** The thin high cloud's cover the sky turns toward, 0..1 (a sheet of it, over the style's ice halo threshold, shows the halos). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_HighCloudCover", ClampMin = "0", ClampMax = "1"))
+	float HighCloudCover = 0.9f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_CloudLitTint = false;

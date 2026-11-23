@@ -182,6 +182,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetMilkyWayVisibility() const { return MilkyWayVisibility; }
 
+	/** The meteor shower active on the world's date (the style's showers; none in the gaps), its rate and radiant. */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	FDreamSkyShowerActivity GetMeteorShower() const { return MeteorShower; }
+
+	/** Meteors an hour over the whole sky as drawn now (sporadic and the shower's, as the night and the style show
+	 *  them: 0 by day). */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	float GetMeteorRate() const { return MeteorRate; }
+
 	/** True once a sky has been applied in this world. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool HasLighting() const { return bHasApplied; }
@@ -253,8 +262,9 @@ private:
 	FDreamSkyActiveModifier& FindOrAddModifier(UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source = EDreamSkyModifierSource::Script);
 	/** The weather's sky modifiers (FDreamWorldEnvironment::SkyModifiers) into the stack. */
 	void TakeWeatherModifiers(const FDreamWorldEnvironment& Environment);
-	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds). */
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds);
+	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds); bFlatClouds: the dome draws
+	 *  the flat clouds instead (ADreamSky::DrawsFlatClouds). */
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds, bool bFlatClouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 
@@ -271,6 +281,8 @@ private:
 	float RainInAir = 0.0f;
 	float Rainbow = 0.0f;
 	float MilkyWayVisibility = 0.0f;
+	FDreamSkyShowerActivity MeteorShower;
+	float MeteorRate = 0.0f;
 	bool bHasApplied = false;
 	/** The sky's clouds are toon or painted (the aurora then draws in their banded tones). */
 	bool bStylizedClouds = false;

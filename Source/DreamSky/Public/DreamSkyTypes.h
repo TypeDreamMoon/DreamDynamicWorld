@@ -510,6 +510,8 @@ struct FDreamSkyCloudLookParameters
 	FLinearColor PaintedCloudShadeScale = FLinearColor::White;
 	/** How far each takes the style's hue: toon lit, toon shade, painted lit, painted shade. */
 	FVector4f CloudToStyle = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+	/** How much of the moonlight's hue the toon clouds' moonlit side takes (UDreamSkyStyle::MoonlightCloudSaturation). */
+	float MoonlightCloudSaturation = 0.4f;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -642,10 +644,26 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudCoverage = 0.0f;
 	/** How dark the clouds are (storm), 0..1. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarkness = 0.0f;
+	/** The thin high cloud's cover (the style's CloudHighCover, a modifier's): a sheet of it makes the ice halos. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float HighCover = 0.0f;
+	/** How much the clouds thin right by the sun and the moon (the style's CloudClearing at their elevations, a
+	 *  modifier's), and how far round them (degrees) and how it falls off. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SunClearing = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MoonClearing = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float ClearingRadius = 14.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float ClearingExponent = 2.0f;
+	/** How large the sun's and the moon's disks are drawn, times their sizes (the style's SunDiskScale / MoonDiskScale at
+	 *  their elevations, a modifier's). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SunDiskScale = 1.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MoonDiskScale = 1.0f;
 	/** Weather fog or dust over the dome: rgb = the height fog's colour, a = how much of the sky it hides (0..1). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor Haze = FLinearColor(0.5f, 0.5f, 0.5f, 0.0f);
 	/** How present the aurora is, 0..1 (where the world lies, or a modifier's); the night's darkness goes on when it is drawn. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Aurora = 0.0f;
+	/** How present noctilucent clouds are, 0..1 (where and when the world is, or a modifier's); the twilight goes on when they are drawn. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Noctilucent = 0.0f;
+	/** Scales the meteors' and satellites' rates (1 the style's; a modifier's scale on it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Meteors = 1.0f;
 	/** How strong the city's light is at the horizon (the style's LightPollution, or a modifier's), in the dome's measure. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
 	/** Scales the night sky's own glow (the style's Airglow). */
@@ -674,4 +692,24 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudCoverageAdded = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarknessKept = 1.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarknessAdded = 0.0f;
+};
+
+/** What the meteor showers give on a date: the strongest shower then, its rate and its radiant. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyShowerActivity
+{
+	GENERATED_BODY()
+
+	/** The shower (none when no shower is active). */
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	FName Name;
+
+	/** Its zenithal hourly rate on that date (the peak's, as far as the date is from it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float ZenithalHourlyRate = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float RightAscension = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float Declination = 90.0f;
 };

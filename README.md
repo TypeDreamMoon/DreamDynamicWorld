@@ -144,6 +144,24 @@ editor's mobile preview, the sky is drawn without its cumulus — the sky itself
 ever — and the log and the editor say so once. `DreamSky.CloudRender.Enable 0` leaves them out the same way: set it in
 a device profile to have no clouds on a platform.
 
+**Sky light.** The sky light takes its light from the dome captured in real time (`SkyLightSource`, by default),
+or captured again only when the sky has changed enough (`CaptureWhenChanged`, as `bRealTimeSkyCapture` off), or --
+for low end and mobile, with no capture at all -- from a cubemap: `Cubemap` a fixed one (`SkyLightCubemap`, the
+engine's daylight cubemap if none) at the style's sky light intensity, or `TintedCubemap` one tinted by the sky's
+ambient light and as bright as it (a plain white cube Setup makes, `T_DreamSkyWhiteCube`, if none: a neutral cubemap
+takes the tint best), the ground below it the sky's ambient ground; `SkyLightCubemapScale` scales either.
+`DreamSky.SkyLightSource 0..3` overrides it (a device profile or a quality setting).
+
+**Flat clouds.** Where the renderer does not draw, the dome draws flat clouds instead (`DreamSky.Clouds.Flat`, -1): a
+cheap sheet at the cloud base from the weather map's cover and darkness -- a few clouds, then many, then an overcast,
+dark under a storm, a storm zone showing from afar -- shaped by three octaves of the cloud noise drifting with the
+wind, lit through at the thin edges and shaded in the middles in the style's cloud colours, the side toward the sun
+brighter, veiled by the air far off; and the sun takes a light function (`M_DreamFlatCloudShadow`) that casts the same
+sheet on the ground. Nothing is marched: a few texture reads a sky pixel. `DreamSky.Clouds.Flat 1` draws them instead
+of the renderer (for a low quality setting or a device profile), `0` never (no clouds where the renderer does not
+draw, as before). The style's `FlatClouds` sets their `Opacity`, `Tones` (0 smooth; 2 to 4 flat tones, as the toon
+look's), `Scale` and `ShadowStrength`, or turns them off; `ADreamSky::DrawsFlatClouds` says whether they are drawn.
+
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
 fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-frequency formation of Worley cells,
@@ -312,6 +330,67 @@ mostly as a shower clears in the low sun of the morning or the evening, and as a
 is the air's own light, so the style's `Rainbow` is on by default; `Intensity` sets how bright, `Width` how far its
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
+
+**The sun and the moon larger near the horizon.** The disks are drawn larger as they near the horizon -- the moon
+illusion, drawn: the style's `SunDiskScale` and `MoonDiskScale` are curves over each one's elevation, times
+`SunDiskSize` / `MoonDiskSize` (by default half again on the horizon, as they are from some 20 degrees up), the same at
+any latitude and season. Only the disk as seen grows: its glow with it (its exponent over the scale squared), an
+eclipse's corona and a lunar eclipse's shadow on the moon, the moon's corona and the lens flare; the lights' source
+angle, and so the shadows' softness, stays. A sky modifier's *Disk Scale* turns both toward its own.
+
+**Clouds clearing round the sun and the moon.** With the sun low the clouds round it thin out, its disk and the glow
+about it showing through, and the moon's likewise: each ray's cloud is eaten back from its edges and its volume
+thinned as near the light as `CloudClearing.Radius` (14 degrees) and `Exponent` (2, a soft bell) say, so the clouds
+shrink and fade toward the light rather than a hole opening -- for the toon, realistic and painted clouds, the high
+cloud and the flat clouds alike (the light's own shading and the shadows are left as they are). How strongly is a
+curve over the light's elevation, `SunStrength` and `MoonStrength` (by default plain with the light low, almost none
+overhead); a sky modifier's *Cloud Clearing* turns all four toward its own. `DreamSky.CloudClearing <scale>` scales it
+whatever the style says (0 to compare; -1 = the style's).
+
+**Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
+sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
+sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light
+climbs (22 degrees on the horizon, 29 at 30 degrees up) and gone past some 55 degrees; the sheet milks the sky a little
+round them (`Milkiness`). In thinner cloud the moon has a corona, its bluish-white glow ringed in brown-red and blue,
+the droplets' diffraction (`CoronaRadius`, the first red ring, 2.5 degrees, or two and a half times the drawn moon's
+radius if that is larger). They are in the light the high cloud is lit
+by, brightest in its veils, the same under every look. The style's `Halos` sets when they show by the high cloud's cover
+(`HighCoverFrom` 0.45 to `HighCoverFull` 0.8 for the halos, `CoronaCoverFrom` 0.4 to `CoronaCoverFull` 0.7 for the
+corona: the style's own thin cirrus, 0.35, shows neither) and how bright (`Intensity`, `SunDogs`, `Corona`); a sky
+modifier's *High Cloud Cover* brings a sheet over (the showcase's clear morning has one from 8 to 9). A closing
+overcast hides them.
+
+**The earth's shadow.** After sunset the low sky away from the sun lies in the earth's own shadow: a blue-grey band
+along that horizon, rising to some twice the sun's depression as it sinks, and over it the pink Belt of Venus, air still
+in the reddened sun; gone by some 9 degrees under. The physical sky has them of itself (the sky table's walk leaves the
+air in the planet's shadow unlit), so they show whenever the grade's `GradientBlend` is 0. Over the style's own
+gradient the style's `EarthShadow` draws them as far as the gradient shows: `ShadowTint` and `BeltTint` multiply the
+gradient, `Height` is the shadow's top in sun depressions (2, as the physical sky's), `Strength` how strongly.
+
+**Noctilucent clouds.** In the deep twilight of high-latitude summer nights thin silver-blue clouds some 82 km up shine
+low over where the sun went, lit long after it has set on the air below: the dome draws them on a shell that high,
+where the sun's ray to them still clears the lower air, in bands (`BandSpacing`, 50 km) broken and wavering, with
+billows across them (`BillowSpacing`, 9 km), drifting (`Drift`, 0.05 km/s), brightest toward the sun and denser toward
+the horizon. In the realistic mode they come from `StartLatitude` (45) to full at `FullLatitude` (52), fading out by
+`EndLatitude` (72), north or south, within `SeasonFullDays` (35) of the hemisphere's midsummer and gone by
+`SeasonEndDays` (65); in the artistic mode as `ArtisticPresence` says. They show with the sun from 4 to 17 degrees
+under, in full from 7 to 13 (`UDreamSkyStyle::NoctilucentTwilight`), as bright as the style's `Noctilucent.Brightness`
+in the dome's measure, the same under every look; a sky modifier's *Noctilucent* brings them anywhere (the showcase's
+evening has them from 17:30 to 20).
+
+**Meteors and satellites.** On a dark night the dome draws meteors: short streaks along great circles, brightest at
+the head with the trail fading behind, flaring and dying out within a second -- sporadic ones from anywhere
+(`SporadicPerHour`, 8), and the yearly showers by the world's date streaking away from their radiant among the stars
+(the Quadrantids, Lyrids, Eta Aquariids, Perseids, Orionids, Leonids and Geminids, each at its peak date and radiant,
+falling off over `WidthDays`; the rate their zenithal hourly rate times how high the radiant stands, none with it under
+the horizon). `RateScale` (3) multiplies every rate -- real ones are sparse for a game -- and a sky modifier's *Meteors*
+scales them again (the showcase's clear night has a storm, ten times over). Satellites the sun still lights after
+dusk cross on great circles some 550 km up in about five minutes (`SatellitesPerHour`, 12), fading into the earth's
+shadow partway across, as a real pass does. `Brightness`, `Color`, `TrailLength` and `SatelliteBrightness` set how they
+look; they are drawn in real seconds, behind the clouds and the moon, not in the sky light.
+`UDreamSkySubsystem::GetMeteorShower` says which shower is active on the date and how strong, `GetMeteorRate` how many
+meteors an hour are drawn now; the style's `Meteors.Showers` is the list. `DreamSky.Meteors <scale>` scales the rates
+whatever the style says (100 fills the sky to look at; -1 = the style's).
 
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
@@ -517,8 +596,9 @@ raining before its clouds break up, and starts only once they have closed in.
 **Shelter.** Every query carries an *Exposure* (0 under a roof .. 1 in the open) and `RainHere / SnowHere`,
 the rain and snow that actually land on the point. Shelters are boxes (`ADreamWeatherShelter`, or
 `UDreamWeatherShelterComponent` inside a house, under a bridge, in a cave mouth) or anything implementing
-`IDreamWeatherShelterProvider`; with a baked wind terrain map (`ADreamWindGlobal`) the level's own roofs count too, and
-rain blown by the wind reaches in under the windward eaves. `IsSheltered(Position)` for gameplay.
+`IDreamWeatherShelterProvider`; the level's own roofs count too, from the wind's runtime terrain map (or a baked one,
+`ADreamWindGlobal`, where the runtime map has not looked yet), and rain blown by the wind reaches in under the
+windward eaves. `IsSheltered(Position)` for gameplay.
 
 **Lightning.** Strikes come out of the Lightning channel — around the view, preferring wherever the lightning is
 strongest, so a far storm flashes on the horizon — at `StrikesPerMinute` real-time strikes at full strength
@@ -586,6 +666,80 @@ the gains, low-passes it); a MetaSound source of your own is played as it is and
 The numbers are worked out without an audio device too (a server, `-nosound`): `GetVoiceMix`, `GetOutdoorOcclusion`,
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
+
+### Precipitation types
+
+What falls is the Precipitation channel split into kinds: the Hail channel's share first (at any temperature -- a
+summer storm hails), the Sleet channel's share of what is left, the rest rain and snow by the snow ratio (snow near
+freezing whatever the weather says, all but the FreezingRain channel's supercooled share of the rain). The sample
+carries each (`Rain`, `Snow`, `Hail`, `Sleet`, and what lands on the point, `...Here`) and the state tags
+(`Dream.Weather.State.Hail`, `.Sleet`); the presets `WP_Hail`, `WP_Sleet` and `WP_FreezingRain` make each.
+
+| Type | Channel | Particles (`UDreamWeatherFXSettings`) | Fall speed | `WindResponse` | Sound |
+|---|---|---|---|---|---|
+| Rain | Precipitation, the rest | `NS_DreamRain`: streaks, splashes | 900 cm/s | 1 | rain light, heavy, on roofs, on leaves |
+| Freezing rain | FreezingRain (of the rain) | as rain | as rain | 1 (as rain) | as rain |
+| Snow | SnowRatio (of the rest) | `NS_DreamSnow`: swaying flakes | 130 cm/s | 1 | snow |
+| Sleet | Sleet | `NS_DreamSleet`: short wet streaks, slush splashes | 450 cm/s | 0.5 | half as rain, half as snow |
+| Hail | Hail | `NS_DreamHail`: pellets, bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
+
+Each layer's `WindResponse` goes to its effect (`User.WindResponse`): how much of the wind field's per-particle
+deviation its particles take. Hail and sleet count as precipitation on the surfaces for now (their own layer, hail
+lying for a while, is the surfaces' to add).
+
+### Quality levels
+
+Dream Dynamic World follows the engine's scalability: each group of its features takes the level of the engine group it
+belongs with -- the sky (`sg.EffectsQuality`), the surface maps (`sg.TextureQuality`), the weather's particles
+(`sg.EffectsQuality`), its volumetric fog (`sg.ShadowQuality`) and the wind (`sg.EffectsQuality`) -- or Dream Dynamic
+World's own, `r.DreamWorld.Quality` (0 low .. 4 cinematic, -1 the engine's; `UDreamWorldQuality::SetQualityOverride`
+from a settings menu). When a level changes the world clock sets the console variables its group maps to, at the
+scalability's priority, so anything set by hand (the console, an ini, a device profile) still wins; switching while the
+game runs swaps them in place -- the clouds keep drawing, their history starting afresh, nothing goes blank.
+
+| Level | Clouds | Light shafts | Sky extras (`DreamSky.SkyDetail`) | Particles | Volumetric fog |
+|---|---|---|---|---|---|
+| Low | the flat clouds (`DreamSky.Clouds.Flat 1`) | off | none (no aurora, halos, meteors, noctilucent clouds) | 35% | off |
+| Medium | a third resolution, 96 samples, sun maps in 8 slices | off, 12 samples | aurora and halos; no meteors, satellites or noctilucent clouds | 60% | off |
+| High | half resolution, 128 samples, 6 slices | on, 16 samples | all | 85% | the sky's |
+| Epic | half resolution, 160 samples, 6 slices (as tuned) | on, 24 samples | all | 100% | the sky's |
+| Cinematic | full resolution, 256 samples, the sun maps whole | on, 48 samples | all | 100% | the sky's |
+
+The wind takes its level from `r.DreamWind.Quality` (-1 = as above). The surface maps take theirs from
+`r.DreamSurface.Quality` (-1 = as above) as the world starts -- their state maps at half their size at low and medium,
+three quarters at high, as authored above -- and keep that size while the game runs: a level changed then takes effect
+at the next load (resizing would drop the wetness and snow they have gathered, a visible jump); `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
+each group's levels set.
+
+### Calendar and events
+
+The realistic sky can stand at a built-in city (`FDreamCelestialSettings::City`: Tokyo, Beijing, London, New York,
+Sydney and some thirty more, `UDreamWorldCalendar::GetCityPresets`) -- its latitude, longitude, standard time and
+daylight saving written into the clock's settings as the config is applied -- or at the place typed in. Daylight
+saving (`DaylightSaving`: Europe, North America, south-eastern Australia, New Zealand) puts the clock an hour forward
+while its rule says, the clock telling local time as a wall clock does (`UDreamWorldCalendar::IsDaylightSaving`). A
+custom calendar (`UDreamCalendarAsset`: its months' names and days, its week, its era, the year it counts from; the
+clock config's `Calendar`) tells the dates -- `UDreamWorldSubsystem::GetCalendarDate` gives the year, month, day,
+weekday, their names and the time -- while the sun and the seasons still go by the Gregorian year underneath. Besides
+the hour, the date, sunrise and sunset, the clock fires `OnMinuteChanged` each game minute (once a frame at most) and
+`OnTimeEvent` for each time registered with `RegisterTimeEvent` (a name and an hour, every day) as it passes it. A
+weather's name for a player is its preset's `DisplayName`, localizable (the built-in presets' under the namespace
+`DreamWeatherPresets`); `UDreamWeatherSubsystem::GetCurrentWeatherDisplayName` gives the current one's.
+
+### Weather radar
+
+`UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north
+up: the precipitation in the radar's colour steps (by default muted: a grey green, a grey yellow, a terracotta and a
+dull rose, from light to extreme, each from its threshold; snow's own grey blue as the view's precipitation falls as
+snow), the cloud cover a faint veil under it,
+range rings and a cross at the middle -- into a texture any UI can show (`GetRadarTexture`, redrawn every
+`RefreshSeconds`), with `UDreamWeatherRadarImage`, a UMG image (the *Dream Weather* palette) that shows it, and
+`ADreamWeatherRadarDisplay`, a screen in the world showing it (the showcase has one ahead of the start). Its look --
+reach, rings, every step's colour and threshold, the veil, the background, the marks -- is `FDreamWeatherRadarLook`
+(`SetLook`). For a game's UI and gameplay: `WorldToRadar` / `RadarToWorld` place a point on the picture and back
+(markers), `SampleRadar` says what it shows at a point and its step, `FindNearestPrecipitation` finds the nearest rain
+within a reach (an approaching shower). The material, `M_DreamWeatherRadar`, can go on any surface: `ApplyTo` sets a
+dynamic instance of it.
 
 ### Storms
 
@@ -861,8 +1015,9 @@ paving, wood, metal), 1 soft ground (soil, grass). Wet, soft ground mostly darke
 the water), and its puddles are faint; the demo terrain is soft. **Where the water stands**: in small hollows of
 *Project Settings ▸ Dream Surface ▸ Water ▸ Puddle Scale* (1.5 m by default) on flat ground, and in the ground's own
 dips — where it lies below its surroundings within *Low Radius* (3 m), judged from the wind's baked level heights
-(`DSF_GroundLow`; the cover map's third channel), so a level with a wind terrain map gets puddles in its real
-valleys and hollows; without one, the small hollows only. Walls, boxes and posts beside a point do not count as its
+(`DSF_GroundLow`; the cover map's third channel), so a level with a baked wind terrain map gets puddles in its real
+valleys and hollows; without one, the small hollows only. Roofs over the cover map come from the wind's runtime
+terrain map where it runs (the baked heights elsewhere). Walls, boxes and posts beside a point do not count as its
 surroundings. **Where snow thins out** — a zone's border, a light fall, a thaw — it breaks up over metres to tens of
 metres along a large pattern (`DSF_SnowEdge`), what faces up keeping it longest; the functions read the snow at four
 points 5 m around a pixel along an offset that wanders by up to 10 m (`DSM_SnowSoft`), so a zone's border fades over
@@ -1094,7 +1249,7 @@ the analytic model above, plus a small camera-following volume for local air.
 | :-- | :-- | :-- | :-- |
 | **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
 | **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys, and level geometry casts a **wind shadow** (walls, rocks, hill crests; calm inside solids) | 1 bilinear fetch + 25 for the shadow march, ~1 MB per 256² map (2 MB with its max-height chain) | everyone |
-| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
+| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); a fluid round walls (flow round buildings, corner eddies, backflow in the lee), sources' impulses and wakes; or, with the fluid off, the residual wind advected and decayed | 0.2 ms for both grids (fluid), ~8 MB | materials (on by default), Niagara GPU |
 | **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres (directional and vortex can be **stretched** into a jet along their axis) and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
@@ -1185,6 +1340,40 @@ sample and the Niagara DI apply them directly, materials get them through the dy
 `InjectRate` of 60 settles in a few frames). Shelters are kept ahead of everything else when the source
 cap is reached. `ADreamWindSourceActor` draws the box.
 
+**The runtime terrain map.** Without baking anything, the wind looks at the level round the camera while it runs
+and works out the same three things a baked map gives — where walls cast a wind shadow, how the ground speeds the
+wind over ridges and slows it in hollows, and which way slopes steer it — for streamed, moving and procedural worlds
+alike. *Project Settings ▸ Dream Wind ▸ Terrain | Runtime*, on by default (`bRuntimeTerrain`):
+
+* Two levels follow the camera: **near** 256 m at 1 m texels (`RuntimeNearExtent`, `RuntimeNearResolution`) for the
+  shadows of walls and houses, **far** 2 km at 8 m (`RuntimeFarExtent`, `RuntimeFarResolution`) for hills: its
+  speed-up and steering, and shadows out to `RuntimeFarShadowRange` (500 m). Each is a ring buffer over the world, so
+  as the camera moves only the strip that came into view is looked at (one eighth of the level at a time).
+* The heights come from a top-down depth capture `RuntimeCaptureAltitude` (1 km) above the camera, without foliage,
+  grass, particles, translucency, skeletal meshes, decals and pass-through actors. At most one capture runs a frame:
+  what came into view first, and otherwise, every `RuntimeRefreshInterval` frames (4), the next of each level's
+  `RuntimeRefreshStrips` (16) refresh strips, the levels in turn, so a moved building or a streamed-in cell shows up
+  within about two seconds by itself. Gameplay that moves big blockers calls **`MarkObstaclesDirty(Bounds)`** on the
+  wind subsystem to have the box looked at again at once.
+* Compute passes turn the heights into the derived map whenever they change or the wind turns by 5°: the speed-up and
+  steering from the blurred heights (the bake's `RuntimeShape` settings), and the wind shadow height swept along the
+  current wind (`OcclusionRange` near, `RuntimeFarShadowRange` far, falling `OcclusionSlope` per cm). A sample under
+  the shadow height loses wind by `OcclusionStrength`, fading in over `RuntimeShadowFadeBand` (1 m) below it. One
+  texture read per level replaces the baked map's 12-tap march.
+* **CPU side.** Gameplay, cloth, the weather's roof check and the CPU wind sample read a grid of their own: 64×64 cells
+  of 4 m round the camera, its heights from asynchronous box sweeps through the level's collision (256 a frame, then a
+  row a frame again), derived the same way. It needs no renderer, so dedicated servers have it too. Cells not swept
+  yet leave the sample to the baked map.
+* Who reads it: materials (`MF_DreamWindSample`), Niagara (the wind DI), the dynamic volume, the weather's exposure and
+  the surface cover map. Only one world at a time owns the shared render targets (`DreamWorldSharedTargets`): in PIE
+  with several worlds the others fall back to the baked map; every world has its own CPU grid.
+* **The baked map stays** as the fallback: for where the runtime map is off (`bRuntimeTerrain`, `DreamWind.RuntimeTerrain
+  0`, no SM5 compute, mobile) and for the puddles' ground dips. Both on, the runtime map wins wherever it has looked.
+* Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, 40 000 grass blades, `Measure-ShowcaseGpu.ps1
+  -Scene WindField`): the wind shadow costs **0.04–0.30 ms** of the frame with the runtime map, against 0.71–0.74 ms for
+  the baked march; its capture scatter and derive passes take 0.06 ms in the frames they run. Each scene capture is a
+  render with a fixed cost of about 0.3 ms, which is why they are spread out.
+
 **Walls block the wind.** With a baked terrain map, every sample also marches upwind through the
 baked heights (12 taps over `OcclusionRange`, dense near the sample, each reading the max-height level
 whose texel is at least as wide as the step, at the tap and at the mid-step — so a one-texel wall is
@@ -1195,6 +1384,44 @@ solid the wind is calm. `OcclusionStrength` (0.9: a little air still moves in th
 turning the wind moves every shadow — the CPU sample, materials, Niagara and the volume all march the
 same way. It is 2.5D: overhangs, bridges and roofed rooms need a `Shelter` box for the space
 underneath. Things that must not shade — see the pass-through component above.
+
+**The wind fluid.** The dynamic volumes are solved as a fluid round the camera (*Project Settings ▸ Dream Wind ▸
+Volume | Fluid*, `bFluid`, on by default): the air flows round buildings and speeds up past their sides, eddies spin
+off their corners and fill an L's pocket, and behind them it turns back toward the wall. It is the visual wind —
+materials and Niagara read it (`MF_DreamWindSample`, the wind DI) as before; the CPU sample does not (gameplay stays
+deterministic, a dedicated server has none).
+
+* Two grids, the volumes' (`VolumeResolution` 64×64×32): **near** at 1 m cells (64 m across, 32 m tall), **far** at 4 m
+  (256 m, 128 m). They sit on the ground under the camera (`FluidCellsBelowGround` cells into it; they rise with a camera
+  high above it) and follow it by whole cells; a jump of more than a quarter of a grid starts it afresh.
+* Each frame, per grid: carry the air along itself (semi-Lagrangian; on the near grid MacCormack, `bFluidMacCormack`,
+  sharp enough for the shear off a corner to roll up), vorticity confinement on the near grid (`FluidVorticity`, 0.4),
+  the sources, the pull back toward the background, then the pressure: red-black Gauss-Seidel from last frame's pressure
+  (`FluidPressureIterations` 8 near, `FluidFarPressureIterations` 4 far, over-relaxed by `FluidPressureRelaxation` 1.5),
+  free slip along the walls, a speed limit (`FluidMaxSpeed`) and a NaN guard.
+* What the grids hold is the fluid's deviation from the background wind (analytic + terrain maps). The background is
+  evaluated afresh at every cell and every point, so its gusts pass through unblurred; the fluid pulls toward it without
+  the terrain maps' wind shadow (its walls make the lee) over `FluidNudgeTime` (10 s) inside, tightening to
+  `FluidSpongeTime` over the `FluidSpongeCells` (4) along the sides and the top, so the open borders do not reflect.
+  Across that sponge the near grid takes the far grid's wind (what lies outside it comes in); inside, it solves its own
+  walls. The volumes' deviation is measured against the shadowed background consumers evaluate, so they add it as before.
+* **Walls.** From the engine's global distance field (`bFluidDistanceField`): 3D, so air passes under bridges and
+  through arches. The wind asks the renderer to keep the field up to date while the fluid runs (the project needs
+  *Generate Mesh Distance Fields*; see *Global distance field* below), and its views look the walls up after the scene
+  (new cells at once, the others an eighth a frame, so a moved building shows within eight frames). A cell is a wall when
+  a surface lies within `FluidWallThickness` (0.45) of a cell of its centre — a wall thinner than a cell stays watertight,
+  a face on a cell boundary stays where it is; the far grid uses the same thickness in cm. Where the field has nothing
+  (outside its clipmaps, `DreamWind.Fluid.DistanceField 0`, no distance fields), the walls come from the terrain maps'
+  heights (2.5D: the runtime map's texel under the cell, or the baked map's max heights over it). Actors whose meshes do
+  not affect distance field lighting are not walls in 3D (the grass field's are off). A sheet has no inside for the
+  distance field, so a ground made of a plane mesh is invisible to the fluid (the air runs under it to the grid's
+  floor): give the ground thickness (a landscape, a slab).
+* Wall cells hand consumers what the air beside them does (grass on the ground, leaves on a wall sit in them).
+* The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
+* Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
+  near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
+  (paid only by projects that would not keep it anyway: not with software Lumen or distance field AO). Fluid instead of
+  the residual volume: +0.2 ms of the frame. What the pressure leaves of the divergence: 0.2 % of the speed on average.
 
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, and the debug view:
@@ -1212,6 +1439,25 @@ tests), `DreamWind.TimeScale`, and the debug view:
 * `DreamWind.DebugDraw.Spacing` (default 250 cm) is widened automatically if the range would need more
   than 4096 cells; `DreamWind.DebugDraw.Field3D 0` gives flat sheet(s) instead — `Layers` planes from
   world Z `Height` upward.
+* **Slices** (seen in the 3D view and in screenshots, which the arrows are not): `DreamWind.Slice <mode> [height]
+  [size] [yaw]` lays a plane under the camera (`ADreamWindSliceActor`, also placeable): `0` the whole wind (hue =
+  direction, brightness = speed; the runtime terrain map where it runs), `1` the baked terrain map alone (grey = how
+  much wind its shadow leaves, red inside a solid, warm where it speeds the wind up, cool where it slows it), `2` the
+  dynamic volume alone (its residual — the fluid's deviation — the near window's edge, the fluid's walls grey), `3` the
+  engine's global distance field (red on a surface, white near one, blue farther off, magenta where the view had none),
+  `4` the runtime terrain map alone (as `1`), `5` what the fluid's pressure left of the divergence (black none, red 5 %,
+  yellow 10 % of the speed; walls grey; it turns `DreamWind.Fluid.ShowDivergence` on). A yaw stands the plane up, 15 m
+  ahead of the camera, across that yaw. `DreamWind.Slice off`.
+* `DreamWind.Occlusion 0|1|-1` switches the terrain maps' wind shadow off for every consumer (to time it, or to compare);
+  `DreamWind.RuntimeTerrain 0|1|-1` the runtime terrain map (off: back to the baked map).
+* `DreamWind.Fluid 0|1|-1` the fluid (0: the residual volume), `DreamWind.Fluid.DistanceField 0|1|-1` its walls from the
+  global distance field (0: the terrain maps' heights), `DreamWind.Fluid.Stats` reads the volumes back and logs the
+  largest and mean deviation, the walls and any NaN.
+* **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
+  tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
+  reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
+  0` and `r.GlobalDistanceField.DetailedNecessitySufficient 1` while asked, put back after); the project still needs
+  *Generate Mesh Distance Fields*. `DreamWind.Gpu.DistanceFieldProbe` checks it on the wind field test level.
 
 ## Test map
 
@@ -1241,6 +1487,15 @@ lane and the hut, so PIE drops you in the middle of it.
 
 The three demo actors (`DreamWindDemoActors.h`, `DreamWindImpulseEmitter.h`) are plain C++ and stay
 usable in your own levels; none of the runtime depends on them.
+
+**Wind field test level.** `/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindFieldTest` is generated (`Setup -WindFieldTestMap`)
+for measuring and comparing the wind field itself: flat ground with 40 000 blades of wind grass, a 10 x 8 x 6 m house, a
+24 m wall across the wind off to its side (in the fluid a wall's wake runs tens of metres: nothing stands right behind
+it but the hill, 40 m on), an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
+4 s, a 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is in
+`DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on it
+(the volume update, the wind shadow, the runtime terrain map, the fluid's grids and walls, the distance field's update,
+the volume's material reads, the grass).
 
 ## Architecture notes
 
@@ -1334,7 +1589,14 @@ effects driven by real weather.
 (determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
 `DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
-subsystem tick with an impulse in whichever editor/game world is up.
+subsystem tick with an impulse in whichever editor/game world is up, `DreamWind.Terrain.GridShadow` the runtime
+terrain map's CPU grid (a wall's lee and its wedge, the wind turning, unswept cells). With a renderer, on the wind
+field test level: `DreamWind.Gpu.RuntimeTerrain` (the GPU's map has the house's lee where the wedge says and none
+upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone),
+`DreamWind.Gpu.Fluid` (in a steady wind, averaged over six reads: the air turns back in the house's lee, blows faster
+past its sides than in the open, spins opposite ways behind its two downwind corners, turns back in the L's pocket and
+not in the open, stays still in the house's walls, with the walls from the distance field — twice, 300 frames apart —
+and from the heights; and the residual divergence) and `DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night

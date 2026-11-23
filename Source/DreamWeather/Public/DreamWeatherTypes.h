@@ -185,6 +185,11 @@ struct DREAMWEATHER_API FDreamWeatherSample
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Rain = 0.0f;
 	/** Snow falling, in the open. */
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Snow = 0.0f;
+	/** Hail falling, in the open (the Hail channel's share of the precipitation). */
+	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Hail = 0.0f;
+	/** Sleet falling, in the open (the Sleet channel's share of what is left). Rain and Snow are what is left of the
+	 *  precipitation after the hail and the sleet. */
+	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Sleet = 0.0f;
 
 	/** How open the point is to the sky, 0 under a roof .. 1 in the open (shelters, baked level heights). */
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Exposure = 1.0f;
@@ -194,6 +199,9 @@ struct DREAMWEATHER_API FDreamWeatherSample
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float RainHere = 0.0f;
 	/** Snow actually landing on the point. */
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float SnowHere = 0.0f;
+	/** Hail and sleet actually landing on the point. */
+	UPROPERTY(BlueprintReadOnly, Category = "Weather") float HailHere = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Weather") float SleetHere = 0.0f;
 
 	/** Dream.Weather.State.* tags for this point. */
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") FGameplayTagContainer Tags;

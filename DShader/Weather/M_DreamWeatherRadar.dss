@@ -1,0 +1,72 @@
+// M_DreamWeatherRadar.dss -- the weather map drawn as a weather radar: precipitation in the radar's colour steps, the cloud
+// cover a faint veil under it, range rings and a cross at the middle, north up. UDreamWeatherRadar draws it into its
+// texture (for UI) and sets it on any surface that shows it (ADreamWeatherRadarDisplay); its parameters say where it
+// looks and how it looks (FDreamWeatherRadarLook).
+#pragma material(ShadingModel = Unlit, TwoSided = true)
+
+/// The weather map (cover, darkness, precipitation round the view), as the sky reads it.
+/// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
+static const Texture2D WeatherMap;
+
+/// @desc The radar's middle (world cm x, y), its radius (cm), -
+uniform float4 RadarView = float4(0.0, 0.0, 2500000.0, 0.0);
+/// @desc North's direction in the world (x, y), the range rings' spacing (cm), the marks' opacity
+uniform float4 RadarFrame = float4(1.0, 0.0, 1000000.0, 0.5);
+/// @desc The precipitation's steps: rgb, a = the precipitation (0..1) the step begins at
+uniform float4 RadarLight = float4(0.2, 0.29, 0.23, 0.03);
+uniform float4 RadarModerate = float4(0.36, 0.34, 0.22, 0.3);
+uniform float4 RadarHeavy = float4(0.45, 0.27, 0.19, 0.6);
+uniform float4 RadarExtreme = float4(0.42, 0.2, 0.3, 0.85);
+/// @desc The cloud cover's veil: rgb, a = its opacity at a full cover
+uniform float4 RadarCloud = float4(0.42, 0.45, 0.5, 0.3);
+/// @desc The background inside the range, rgb; a = outside it (of the background's brightness)
+uniform float4 RadarBackground = float4(0.04, 0.06, 0.08, 0.5);
+/// @desc Snow: rgb its steps' colour, a = the share of the precipitation that falls as snow (0..1)
+uniform float4 RadarSnow = float4(0.55, 0.64, 0.74, 0.0);
+/// @desc The marks' colour (rings, the middle's cross, the range's edge), rgb
+uniform float4 RadarMarks = float4(0.62, 0.68, 0.66, 0.0);
+
+/// @custom
+float3 DreamWeatherRadar_Color(float2 UV, float4 MapParams, float4 View, float4 Frame, float4 Light, float4 Moderate, float4 Heavy,
+	float4 Extreme, float4 Cloud, float4 Background, float4 Snow, float4 Marks, Texture2D Map)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush"
+	// (-1 .. 1 across, the y down: north up, east right.)
+	float2 P = (UV - 0.5) * 2.0;
+	float Radius = length(P);
+	float2 North = normalize(Frame.xy + float2(1.0e-6, 0.0));
+	float2 East = float2(-North.y, North.x);
+	float2 World = View.xy + (P.x * East - P.y * North) * View.z;
+	float3 Weather = DCS_MapAt(World, float3(0.0, 0.0, 0.0), MapParams, Map, MapSampler);
+	float Cover = saturate(Weather.x);
+	float Rain = saturate(Weather.z);
+
+	float3 Color = Background.rgb;
+	Color = lerp(Color, Cloud.rgb, Cloud.a * smoothstep(0.15, 1.0, Cover));
+	// The precipitation's steps, each soft at its start; snow in its own colour.
+	float Soft = 0.03;
+	float3 Step = Light.rgb;
+	Step = lerp(Step, Moderate.rgb, smoothstep(Moderate.a - Soft, Moderate.a + Soft, Rain));
+	Step = lerp(Step, Heavy.rgb, smoothstep(Heavy.a - Soft, Heavy.a + Soft, Rain));
+	Step = lerp(Step, Extreme.rgb, smoothstep(Extreme.a - Soft, Extreme.a + Soft, Rain));
+	Step = lerp(Step, Snow.rgb * lerp(0.7, 1.15, Rain), saturate(Snow.a));
+	Color = lerp(Color, Step, smoothstep(Light.a - 0.5 * Soft, Light.a + Soft, Rain));
+
+	// The marks: range rings, the cross at the middle, the edge of the range; outside it, dimmed.
+	float Pixel = max(fwidth(Radius), 1.0e-4);
+	float Rings = Frame.z / max(View.z, 1.0);
+	float Ring = 1.0 - smoothstep(0.0, 1.5 * Pixel, abs(frac(Radius / Rings + 0.5) - 0.5) * Rings);
+	float Cross = (1.0 - smoothstep(0.0, 1.5 * Pixel, min(abs(P.x), abs(P.y)))) * (1.0 - smoothstep(0.03, 0.05, Radius));
+	float Edge = 1.0 - smoothstep(0.0, 2.0 * Pixel, abs(Radius - 1.0));
+	// (North: a short tick inward from the top of the edge.)
+	float NorthTick = (1.0 - smoothstep(0.0, 2.0 * Pixel, abs(P.x))) * step(-1.0, P.y) * step(P.y, -0.88);
+	Color = lerp(Color, Marks.rgb, Frame.w * saturate(max(Ring * step(Radius, 1.0), max(Cross, max(Edge, 2.0 * NorthTick)))));
+	return Radius > 1.0 ? Color * Background.a : Color;
+}
+
+export void M_DreamWeatherRadar(inout material m)
+{
+	float4 MapParams = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_WeatherMap");
+	m.EmissiveColor = DreamWeatherRadar_Color(UE.TexCoord(Index = 0), MapParams, RadarView, RadarFrame, RadarLight, RadarModerate, RadarHeavy,
+		RadarExtreme, RadarCloud, RadarBackground, RadarSnow, RadarMarks, WeatherMap);
+}

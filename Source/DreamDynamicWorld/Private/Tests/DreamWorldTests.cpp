@@ -23,6 +23,8 @@ void UDreamWorldTestListener::Bind(UDreamWorldSubsystem* Clock)
 	Clock->OnSunrise.AddDynamic(this, &UDreamWorldTestListener::HandleSunrise);
 	Clock->OnSunset.AddDynamic(this, &UDreamWorldTestListener::HandleSunset);
 	Clock->OnTimeJumped.AddDynamic(this, &UDreamWorldTestListener::HandleJump);
+	Clock->OnMinuteChanged.AddDynamic(this, &UDreamWorldTestListener::HandleMinute);
+	Clock->OnTimeEvent.AddDynamic(this, &UDreamWorldTestListener::HandleTime);
 }
 
 #if WITH_DEV_AUTOMATION_TESTS

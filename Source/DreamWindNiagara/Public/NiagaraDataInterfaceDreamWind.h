@@ -45,6 +45,12 @@ class DREAMWINDNIAGARA_API UNiagaraDataInterfaceDreamWind : public UNiagaraDataI
 		SHADER_PARAMETER_SAMPLER(SamplerState, VolumeFarSampler)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, TerrainTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
+		SHADER_PARAMETER(FVector4f, L1Near)
+		SHADER_PARAMETER(FVector4f, L1Far)
+		SHADER_PARAMETER(FVector4f, L1Params)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1NearMap)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1FarMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, L1Sampler)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:

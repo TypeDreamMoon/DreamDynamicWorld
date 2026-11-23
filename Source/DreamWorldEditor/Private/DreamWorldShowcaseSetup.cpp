@@ -44,6 +44,7 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
+#include "DreamWeatherRadar.h"
 #include "GameFramework/PlayerStart.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -71,6 +72,39 @@ namespace DreamWorld::ShowcaseSetup
 		T* Asset = NewObject<T>(Package, *FPackageName::GetShortName(PackagePath), RF_Public | RF_Standalone);
 		FAssetRegistryModule::AssetCreated(Asset);
 		return Asset;
+	}
+
+	/** A sheet of high ice cloud: the halo and the sun dogs round a low sun. */
+	UDreamSkyModifier* EnsureHalo()
+	{
+		UDreamSkyModifier* Halo = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseHaloPackage);
+		Halo->Settings.bOverride_HighCloudCover = true;
+		Halo->Settings.HighCloudCover = 0.9f;
+		Halo->FadeInSeconds = 6.0f;
+		Halo->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Halo) ? Halo : nullptr;
+	}
+
+	/** Noctilucent clouds whatever the place and the season (they still show only in the deep twilight). */
+	UDreamSkyModifier* EnsureNoctilucent()
+	{
+		UDreamSkyModifier* Shine = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseNoctilucentPackage);
+		Shine->Settings.bOverride_Noctilucent = true;
+		Shine->Settings.Noctilucent = 1.0f;
+		Shine->FadeInSeconds = 6.0f;
+		Shine->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Shine) ? Shine : nullptr;
+	}
+
+	/** A meteor storm for the night (the date's own shower, or the sporadic ones, ten times over). */
+	UDreamSkyModifier* EnsureMeteors()
+	{
+		UDreamSkyModifier* Storm = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseMeteorsPackage);
+		Storm->Settings.bOverride_Meteors = true;
+		Storm->Settings.Meteors = 10.0f;
+		Storm->FadeInSeconds = 6.0f;
+		Storm->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Storm) ? Storm : nullptr;
 	}
 
 	/** The night's aurora: a sky modifier that lights it fully (the sky shows it only once it is dark). */
@@ -706,7 +740,7 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -738,6 +772,39 @@ namespace DreamWorld::ShowcaseSetup
 			Night.Condition.StartHour = 20.0f;
 			Night.Condition.EndHour = 5.0f;
 			Night.Condition.FadeHours = 1.0f;
+			Night.BlendSeconds = 4.0f;
+		}
+		if (Halo)
+		{
+			// (The clear morning, 8 to 9: the sun low in the south-east.)
+			FDreamSkyConditionalModifier& Sheet = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Sheet.Modifier = Halo;
+			Sheet.Condition.bHours = true;
+			Sheet.Condition.StartHour = 8.0f;
+			Sheet.Condition.EndHour = 9.0f;
+			Sheet.Condition.FadeHours = 0.25f;
+			Sheet.BlendSeconds = 4.0f;
+		}
+		if (Shine)
+		{
+			// (The evening's deep twilight, 17:30 to 20.)
+			FDreamSkyConditionalModifier& Evening = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Evening.Modifier = Shine;
+			Evening.Condition.bHours = true;
+			Evening.Condition.StartHour = 17.5f;
+			Evening.Condition.EndHour = 20.0f;
+			Evening.Condition.FadeHours = 0.25f;
+			Evening.BlendSeconds = 4.0f;
+		}
+		if (Storm)
+		{
+			// (The clear night, 22 to 4.)
+			FDreamSkyConditionalModifier& Night = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Night.Modifier = Storm;
+			Night.Condition.bHours = true;
+			Night.Condition.StartHour = 22.0f;
+			Night.Condition.EndHour = 4.0f;
+			Night.Condition.FadeHours = 0.25f;
 			Night.BlendSeconds = 4.0f;
 		}
 		Sky->SetActorLabel(TEXT("DreamSky"));
@@ -875,6 +942,16 @@ namespace DreamWorld::ShowcaseSetup
 		}
 
 		World->SpawnActor<APlayerStart>(FVector(600.0, 300.0, 100.0), FRotator(0.0, 10.0, 0.0));
+		// The weather radar on a screen ahead of the start, facing it: the plane's face toward -X, its texture's across to
+		// the viewer's right (+Y), its down down.
+		{
+			const FVector2D At(1500.0, 120.0);
+			const FRotator Facing = FRotationMatrix::MakeFromXZ(FVector(0.0, 1.0, 0.0), FVector(-1.0, 0.0, 0.0)).Rotator();
+			ADreamWeatherRadarDisplay* Radar = World->SpawnActor<ADreamWeatherRadarDisplay>(FVector(At, SurfaceSetup::GroundHeight(At.X, At.Y) + 260.0),
+				Facing);
+			Radar->SetActorScale3D(FVector(2.4, 2.4, 1.0));
+			Radar->SetActorLabel(TEXT("WeatherRadar"));
+		}
 		ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(200.0, -300.0, 320.0), FRotator(-10.0, 18.0, 0.0));
 		if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))
 		{
@@ -899,9 +976,12 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 		return false;
 	}
 	UDreamSkyModifier* Aurora = ShowcaseSetup::EnsureAurora();
+	UDreamSkyModifier* Halo = ShowcaseSetup::EnsureHalo();
+	UDreamSkyModifier* Shine = ShowcaseSetup::EnsureNoctilucent();
+	UDreamSkyModifier* Storm = ShowcaseSetup::EnsureMeteors();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Dusk);
+	bool bOk = Aurora && Halo && Shine && Storm && Dusk;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk);
 	return bOk;
 }

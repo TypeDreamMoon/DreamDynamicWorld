@@ -14,6 +14,7 @@
 #define DREAMSKY_STYLIZED_USH
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamSkyFlatClouds.ush"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSkyGradeShared.h"
 
@@ -407,6 +408,7 @@ struct FDSkyCloudField
 	float4 Cloud1;
 	float4 Cloud2;
 	float4 CloudLayer;
+	float Thin;        // how much the clouds along this ray are thinned (the clearing round the sun and the moon), 0..1
 };
 
 // What the field holds at a point besides its density.
@@ -530,6 +532,15 @@ FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, bool bNear, FDCloudAn
 	{
 		C = DCS_Shape(P, World, Z, F.Cloud0, F.Cloud1, F.Cloud2, F.CloudLayer, MapParams, Detail, Map, MapSampler, Noise,
 			NoiseSampler);
+	}
+	// The clearing round the sun and the moon: the shape eaten back from its edges (the thicker cores last) and the
+	// volume thinned -- only ever less cloud, so the march's bounds hold.
+	if (F.Thin > 0.0)
+	{
+		float Eaten = 0.22 * F.Thin;
+		C.Solid = max(C.Solid - Eaten, 0.0);
+		C.Signed -= Eaten;
+		C.Density *= saturate(1.0 - 0.85 * F.Thin) * saturate(1.0 - Eaten * 2.0);
 	}
 	FDSkyCloudSample S;
 	// (0.5 on the surface, 0 to 1 within a sixteenth of the shape either side of it.)
@@ -885,6 +896,9 @@ void DSky_WalkSurface(inout FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, flo
 #define DSKY_TOON_ADV5 float4(0.1, 0.5, 0.3, 1.0)
 #define DSKY_TOON_ADV6 float4(1.6, 1.4, 0.8, 0.0)
 #endif
+#ifndef DSKY_TOON_MOONHUE
+#define DSKY_TOON_MOONHUE 0.4
+#endif
 
 // Paints the surface a walk found: the toon tones, the undersides, the silver lining, the veil of the air between, how
 // see-through it is; returns the colour (premultiplied) and the cover, Core = how deep the cloud is (for the lightning).
@@ -974,7 +988,11 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x) * Ambient * Under;
 	// (By moonlight the lit side is the shade lifted in the moon's hue, as the style's night colours have it: its lit
 	// colour is the sun's, still a sunset pink while the moon has already taken over in the dusk.)
-	float3 LitColor = lerp(CloudLit.rgb * lerp(1.0, SunHue, Warmth), CloudShadow.rgb * 1.8 * SunHue, LightColor.a);
+	// (Only part of the moonlight's hue: by moonlight the eye sees little colour, and the moonlight's full blue made the
+	// toon clouds a glowing blue in the deep twilight.)
+	float3 MoonHue = lerp(dot(SunHue, float3(0.2126, 0.7152, 0.0722)).xxx, SunHue, DSKY_TOON_MOONHUE);
+	MoonHue /= max(max(MoonHue.r, max(MoonHue.g, MoonHue.b)), 1.0e-4);
+	float3 LitColor = lerp(CloudLit.rgb * lerp(1.0, SunHue, Warmth), CloudShadow.rgb * 1.8 * MoonHue, LightColor.a);
 	float3 Lit = LitColor * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
 	float3 Half = lerp(Shadow, Lit, ToonHalf.w) * ToonHalf.rgb;
 	float3 Color = Shadow;
@@ -1110,6 +1128,334 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	return float4(Color * Alpha, Alpha);
 }
 
+// How much the clouds along V thin round the sun and the moon: Clearing = (the strength by the sun, by the moon, the
+// radius in degrees, the falloff's exponent), each light's strength times exp(-(angle / radius)^exponent).
+float DSky_Clearing(float3 V, float3 Sun, float3 Moon, float4 Clearing)
+{
+	if (Clearing.x <= 0.0 && Clearing.y <= 0.0)
+	{
+		return 0.0;
+	}
+	float Radius = radians(max(Clearing.z, 1.0));
+	float ToSun = acos(clamp(dot(V, Sun), -1.0, 1.0)) / Radius;
+	float ToMoon = acos(clamp(dot(V, Moon), -1.0, 1.0)) / Radius;
+	float Exponent = max(Clearing.w, 0.5);
+	return saturate(max(Clearing.x * exp(-pow(ToSun, Exponent)), Clearing.y * exp(-pow(ToMoon, Exponent))));
+}
+
+// The Bessel function J1 (the corona's diffraction): its series near the middle, its far form beyond.
+float DSky_BesselJ1(float X)
+{
+	X = abs(X);
+	if (X > 9.0)
+	{
+		return sqrt(2.0 / (3.14159265 * X)) * cos(X - 2.35619449);
+	}
+	float H = 0.5 * X;
+	float Term = H;
+	float Sum = H;
+	[unroll]
+	for (int k = 1; k < 14; ++k)
+	{
+		Term *= -H * H / (float(k) * float(k + 1));
+		Sum += Term;
+	}
+	return Sum;
+}
+
+// The ice halos and the corona round the light (LightDir: the sun by day, the moon by night), in the high cloud's light
+// (Lit): Halo = the 22 degree ring's brightness, the sun dogs', the corona's (each as far as the high cloud makes them),
+// the sheet's milkiness; Halo2 = the ring's radius, its width, the corona's first red ring, the moon's drawn radius
+// (degrees). Veil: the high
+// cloud's cover here (the halos are brightest in its veils). The ring has a sharp red inner edge, its colours running
+// out to a whitish fade; the dogs stand either side at the light's height, red toward it with a white tail outward,
+// moving out as it climbs; the corona's rings (the moon's, in thin cloud) are the droplets' diffraction.
+float3 DSky_Halos(float3 V, float3 LightDir, float3 Moon, float3 Lit, float4 Halo, float4 Halo2, float Veil, float Closing)
+{
+	float Shows = (1.0 - Closing) * smoothstep(-0.03, 0.02, LightDir.z);
+	if (Shows <= 0.0 || dot(Halo.xyz, float3(1, 1, 1)) <= 0.0)
+	{
+		return float3(0, 0, 0);
+	}
+	const float3 Dispersion = float3(-0.35, 0.0, 0.45);   // (red, green, blue: the inner edge red)
+	const float3 Index = float3(1.307, 1.311, 1.317);
+	float Angle = degrees(acos(clamp(dot(V, LightDir), -1.0, 1.0)));
+	float3 Light = float3(0, 0, 0);
+	// The 22 degree ring.
+	if (Halo.x > 0.0)
+	{
+		float3 Edge = Halo2.x + Dispersion;
+		float3 Ring = smoothstep(Edge - 0.3, Edge + 0.15, Angle) * exp(-max(Angle - Edge, 0.0) / Halo2.y);
+		Light += Halo.x * Ring * lerp(0.55, 1.0, Veil);
+	}
+	// The sun dogs, at the light's height, either side.
+	float H = asin(clamp(LightDir.z, -1.0, 1.0));
+	if (Halo.y > 0.0 && H < radians(60.0) && dot(V.xy, V.xy) > 1.0e-6 && dot(LightDir.xy, LightDir.xy) > 1.0e-6)
+	{
+		float Up = degrees(asin(clamp(V.z, -1.0, 1.0)) - H);
+		float Around = degrees(acos(clamp(dot(normalize(V.xy), normalize(LightDir.xy)), -1.0, 1.0)));
+		float3 Effective = sqrt(max(Index * Index - sin(H) * sin(H), 0.0)) / cos(H);
+		float3 Offset = degrees(2.0 * asin(saturate(Effective * 0.5))) - 60.0;
+		float3 X = Around - Offset;   // (negative toward the light)
+		float3 Dog = exp(-Up * Up / (2.0 * 0.9 * 0.9)) * lerp(exp(-X * X / (2.0 * 0.35 * 0.35)), exp(-X / 1.2) * 0.85 + 0.15 * exp(-X / 4.0), step(0.0, X));
+		Light += Halo.y * Dog * (1.0 - smoothstep(radians(40.0), radians(58.0), H)) * lerp(0.6, 1.0, Veil);
+	}
+	// (By the moon's light the eye sees little colour: the night's halo and dogs mostly white; the corona, bright by the
+	// moon, keeps its colours.)
+	bool bMoon = dot(LightDir, Moon) > 0.9999;
+	if (bMoon)
+	{
+		Light = lerp(Light, dot(Light, float3(0.2126, 0.7152, 0.0722)), 0.6);
+	}
+	// The moon's corona.
+	if (Halo.z > 0.0 && bMoon)
+	{
+		const float3 Wavelength = float3(0.65, 0.55, 0.45);
+		// (Its first ring at least two and a half times the drawn moon's radius: a moon drawn larger than the real one
+		// would hide the real corona's rings.)
+		float FirstRing = max(Halo2.z, 2.5 * Halo2.w);
+		float3 X = 5.14 * Angle / (FirstRing * Wavelength / Wavelength.r);
+		float3 Airy = float3(DSky_BesselJ1(X.r), DSky_BesselJ1(X.g), DSky_BesselJ1(X.b));
+		float3 Amplitude = abs(2.0 * Airy / max(X, 1.0e-3));
+		// (Drops of many sizes blur the rings and soften the glow's peak: the amplitude to the 0.7, not its square, fading
+		// out by the third ring.)
+		Light += Halo.z * pow(Amplitude, 0.7) * exp(-Angle / (1.5 * FirstRing)) * lerp(0.5, 1.0, Veil);
+	}
+	return Light * Lit * Shows;
+}
+
+// Meteors and satellites (real-time Seconds). M: sporadic and shower meteors an hour, the head's brightness, satellites
+// an hour; Radiant: xyz the shower's radiant, w the satellites' brightness; Look: rgb the meteors' colour, a their
+// trails' length. Each second may hold a few meteors, each a short-lived streak along a great circle: the shower's
+// leading away from the radiant, a sporadic one from anywhere; brightest at its head, its trail fading behind it,
+// flaring and dying out. A satellite crosses on a great circle some 550 km up in five minutes or so, as bright as the
+// sun lights it there (the earth's shadow takes it partway across). Pixel: the pixel's footprint, radians.
+float3 DSky_MeteorKey(float Slot, float Index, float Salt)
+{
+	return DSky_Hash33(float3(fmod(Slot, 997.0) + 0.37 * Index, floor(Slot / 997.0) + 13.1 * Salt, 7.3 * Index + 3.1 * Salt));
+}
+
+float3 DSky_Meteors(float3 V, float3 Sun, float3 Camera, float4 M, float4 Radiant, float4 Look, float Seconds, float Pixel)
+{
+	float3 Light = float3(0, 0, 0);
+	if (V.z <= -0.02)
+	{
+		return Light;
+	}
+	float Width = max(Pixel, radians(0.035));
+	// Meteors: four chances a second, the seconds now and before (none lasts longer).
+	float PerSecond = (M.x + M.y) / 3600.0;
+	if (PerSecond > 0.0 && M.z > 0.0)
+	{
+		const int Chances = 4;
+		float Chance = saturate(PerSecond / float(Chances));
+		float Now = floor(Seconds);
+		[unroll]
+		for (int s = 0; s < 2; ++s)
+		{
+			float Slot = Now - float(s);
+			[unroll]
+			for (int j = 0; j < Chances; ++j)
+			{
+				float3 H0 = DSky_MeteorKey(Slot, float(j), 1.0);
+				if (H0.x >= Chance)
+				{
+					continue;
+				}
+				float3 H1 = DSky_MeteorKey(Slot, float(j), 2.0);
+				float3 H2 = DSky_MeteorKey(Slot, float(j), 3.0);
+				float Duration = 0.25 + 0.75 * H1.x;
+				float Age = Seconds - (Slot + H0.y);
+				if (Age < 0.0 || Age > Duration)
+				{
+					continue;
+				}
+				// (Where it is first seen: anywhere well above the horizon.)
+				float Z = lerp(0.12, 0.95, H1.y);
+				float Around = 6.2831853 * H1.z;
+				float3 Start = float3(sqrt(1.0 - Z * Z) * float2(cos(Around), sin(Around)), Z);
+				bool bShower = H0.z < M.y / max(M.x + M.y, 1.0e-6);
+				float3 From = bShower ? normalize(Radiant.xyz) : normalize(H2 - 0.5);
+				float3 Axis = cross(From, Start);
+				if (dot(Axis, Axis) < 1.0e-6)
+				{
+					continue;
+				}
+				Axis = normalize(Axis);
+				float3 Onward = cross(Axis, Start);   // (away from where it comes from)
+				float Length = radians(lerp(5.0, 25.0, H2.z)) * Look.a * (bShower ? 1.0 : 0.6);
+				float Life = Age / Duration;
+				float Head = Length * Life;
+				float Tail = min(Head, 0.4 * Length);
+				float Off = asin(clamp(dot(V, Axis), -1.0, 1.0));
+				float At = atan2(dot(V, Onward), dot(V, Start));
+				float Behind = Head - At;   // (0 at the head, growing back along the trail)
+				float Along = Behind < 0.0 ? exp(-DSky_Square(Behind / Width)) : (Behind <= Tail ? 1.0 - 0.85 * Behind / max(Tail, 1.0e-4) : exp(-DSky_Square((Behind - Tail) / Width)) * 0.15);
+				float Across = exp(-DSky_Square(Off / Width));
+				float Flare = sin(3.14159265 * Life) * (0.6 + 0.4 * sin(31.0 * Age + 6.0 * H2.x)) * lerp(0.4, 1.0, H1.x);
+				Light += Look.rgb * (M.z * Across * Along * Flare);
+			}
+		}
+	}
+	// Satellites: two chances a minute, each crossing for some five minutes; the minutes now and the five before.
+	if (M.w > 0.0 && Radiant.w > 0.0)
+	{
+		float Chance = saturate(M.w / 60.0 / 2.0);
+		float Minute = floor(Seconds / 60.0);
+		float Planet = DSky_PlanetRadius * 1.0e-5;
+		float3 Eye = float3(0.0, 0.0, Planet + max(Camera.z, 0.0) * 1.0e-5);
+		[unroll]
+		for (int s = 0; s < 6; ++s)
+		{
+			[unroll]
+			for (int j = 0; j < 2; ++j)
+			{
+				float Slot = Minute - float(s);
+				float3 H0 = DSky_MeteorKey(Slot, float(j), 5.0);
+				if (H0.x >= Chance)
+				{
+					continue;
+				}
+				float3 H1 = DSky_MeteorKey(Slot, float(j), 6.0);
+				float Duration = 240.0 + 120.0 * H1.x;
+				float Age = Seconds - (Slot + H0.y) * 60.0;
+				if (Age < 0.0 || Age > Duration)
+				{
+					continue;
+				}
+				// (Its track: a great circle over the sky, horizon to horizon, highest at H1.y of the way to the zenith.)
+				float Peak = lerp(0.15, 1.0, H1.y);
+				float Heading = 6.2831853 * H1.z;
+				float3 Across = float3(cos(Heading), sin(Heading), 0.0);
+				float3 Top = normalize(float3(-Across.y, Across.x, 0.0) * sqrt(1.0 - Peak * Peak) + float3(0.0, 0.0, Peak));
+				float Angle = 3.14159265 * (Age / Duration - 0.5);
+				float3 D = normalize(Top * cos(Angle) + Across * sin(Angle));
+				if (D.z <= 0.0)
+				{
+					continue;
+				}
+				// (Lit while the sun's ray to it, 550 km up along D, clears the earth and its lower air.)
+				float Shell = Planet + 550.0;
+				float B = dot(Eye, D);
+				float3 P = Eye + D * (-B + sqrt(max(B * B - dot(Eye, Eye) + Shell * Shell, 0.0)));
+				float AlongSun = dot(P, Sun);
+				float Closest = AlongSun >= 0.0 ? length(P) : length(P - AlongSun * Sun);
+				float Lit = smoothstep(Planet + 10.0, Planet + 60.0, Closest);
+				float Spot = exp(-DSky_Square(acos(clamp(dot(V, D), -1.0, 1.0)) / (0.8 * Width)));
+				Light += float3(1.0, 0.97, 0.92) * (Radiant.w * Lit * Spot * lerp(0.3, 1.0, H1.y) * smoothstep(0.0, 0.08, D.z));
+			}
+		}
+	}
+	return Light;
+}
+
+// Noctilucent clouds: a thin shell N.y km up, seen where the sun still lights it (its ray to them passing more than
+// some 15 km over the ground: the air below screens it), in bands N.z km apart, broken and wavering, with billows
+// NC.a km across them, drifting N.w km/s; silver-blue (NC.rgb) as bright as N.x (the dome's measure, already times how
+// present they are and how far the twilight lets them show), brightest toward the sun (they scatter forward), denser
+// toward the horizon (the shell seen edge on), dimmed by the low air.
+float3 DSky_Noctilucent(float3 V, float3 Sun, float3 Camera, float4 N, float4 NC, float Seconds, Texture3D Noise, SamplerState NoiseSampler)
+{
+	if (N.x <= 0.0 || V.z <= 0.005)
+	{
+		return float3(0, 0, 0);
+	}
+	float Planet = DSky_PlanetRadius * 1.0e-5;   // km
+	float3 Eye = float3(0.0, 0.0, Planet + max(Camera.z, 0.0) * 1.0e-5);
+	float Shell = Planet + N.y;
+	float B = dot(Eye, V);
+	float T = -B + sqrt(max(B * B - dot(Eye, Eye) + Shell * Shell, 0.0));
+	float3 P = Eye + V * T;
+	// (Lit while the sun's ray to them clears the screening air.)
+	float Along = dot(P, Sun);
+	float Closest = Along >= 0.0 ? length(P) : length(P - Along * Sun);
+	float Lit = smoothstep(Planet + 10.0, Planet + 22.0, Closest);
+	if (Lit <= 0.0)
+	{
+		return float3(0, 0, 0);
+	}
+	float2 Q = P.xy + Camera.xy * 1.0e-5;
+	// (The bands lie across a slow direction of their own; they drift along it.)
+	float2 Across = normalize(float2(0.83, 0.56));
+	float2 AlongBands = float2(-Across.y, Across.x);
+	Q += Across * (Seconds * N.w);
+	float Cover = smoothstep(0.38, 0.72, Noise.SampleLevel(NoiseSampler, float3(Q / 900.0, 0.31), 0).r);
+	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 260.0, 0.77), 0).r - 0.5;
+	float Bands = 0.5 + 0.5 * sin(6.2831853 * (dot(Q, Across) / N.z + 0.5 * Bend));
+	float Break = Noise.SampleLevel(NoiseSampler, float3(Q / 120.0, 0.13), 0).r;
+	float Billows = 0.5 + 0.5 * sin(6.2831853 * (dot(Q, AlongBands) / NC.a + 2.0 * Break));
+	float Pattern = Cover * (0.3 + 0.7 * Bands * sqrt(Bands)) * lerp(0.65, 1.0, Billows) * smoothstep(0.1, 0.5, Break + 0.3);
+	// (Edge on toward the horizon the thin shell is seen through more of itself; the low air dims and reddens it a little.)
+	float Grazing = sqrt(max(1.0 - dot(Eye, Eye) / (Shell * Shell) * (1.0 - V.z * V.z), 0.0));
+	float Path = 1.0 / max(Grazing, 0.12);
+	float3 Air = exp(-float3(0.05, 0.08, 0.14) / max(V.z, 0.03));
+	float Toward = 0.35 + 0.65 * DSky_Square(saturate(0.5 + 0.5 * dot(V, Sun)));
+	return NC.rgb * Air * (N.x * Lit * Pattern * Path * Toward);
+}
+
+// The earth's shadow and the Belt of Venus over the style's gradient (Share: how much of the sky is the gradient; the
+// physical sky has its own): after sunset, away from the sun, the gradient is tinted blue-grey (Shadow.rgb) up to
+// Shadow.a times the sun's depression and pink (Belt.rgb) in a band over it, as strongly as Belt.a; from the sun's
+// setting to some 9 degrees under, broad across the sky away from it.
+float3 DSky_EarthShadow(float3 V, float3 Sun, float3 Sky, float4 Shadow, float4 Belt, float Share)
+{
+	float Down = -Sun.z;
+	float Shows = smoothstep(0.0, 0.02, Down) * (1.0 - smoothstep(0.1, 0.16, Down)) * Belt.a * Share;
+	if (Shows <= 0.0 || dot(V.xy, V.xy) < 1.0e-6 || dot(Sun.xy, Sun.xy) < 1.0e-6)
+	{
+		return Sky;
+	}
+	float Away = saturate(-dot(normalize(V.xy), normalize(Sun.xy)));
+	float Spread = Away * sqrt(Away) * Shows;
+	float Top = Shadow.a * Down;
+	float Under = 1.0 - smoothstep(0.8 * Top, 1.15 * Top, V.z);
+	float Width = 0.6 * Top + 0.03;
+	float Band = exp(-DSky_Square((V.z - 1.3 * Top) / Width)) * smoothstep(-0.01, 0.0, V.z);
+	Sky *= lerp(float3(1, 1, 1), Shadow.rgb, Under * Spread);
+	return Sky * lerp(float3(1, 1, 1), Belt.rgb, Band * (1.0 - Under) * Spread);
+}
+
+// The flat clouds (DreamSkyFlatClouds.ush) seen from below: a sheet at the cloud base, thin edges lit through and the
+// thick middles in the style's shade, the side toward the light brighter (the cloud a little denser away from it), dark
+// where the weather is (a storm), in the style's tones when it asks (FlatClouds.y); veiled by the air far off like any
+// cloud. Returns the colour (premultiplied) and the cover.
+float4 DSky_FlatClouds(float3 V, float3 Camera, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud3, float4 CloudLayer,
+	float4 MapParams, float4 FlatClouds, float4 CloudLit, float4 CloudShadow, float3 SkyBehind, float3 Halo, float Thin, Texture2D Map,
+	SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
+{
+	if (FlatClouds.x <= 0.0 || V.z <= 0.003 || Camera.z >= CloudLayer.x)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float T = DSky_AltitudeT(Camera, V, CloudLayer.x);
+	float2 W = Camera.xy + V.xy * T;
+	float Lod = DSky_NoiseLod(T, 95000.0);
+	float2 Here = DFC_Cover(W, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Lod);
+	// (Thinned round the sun and the moon: eaten back from the edges, the rest fainter.)
+	Here.x = saturate((Here.x - 0.35 * Thin) / (1.0 - 0.35 * Thin)) * (1.0 - 0.5 * Thin);
+	if (Here.x <= 0.001)
+	{
+		return float4(0, 0, 0, 0);
+	}
+	float2 Toward = dot(LightDir.xy, LightDir.xy) > 1.0e-6 ? normalize(LightDir.xy) : float2(1.0, 0.0);
+	float Ahead = DFC_Cover(W + Toward * 60000.0, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Lod + 1.0).x;
+	float Thick = saturate(1.25 * Here.x - 0.2 + 0.6 * (Ahead - Here.x));
+	if (FlatClouds.y >= 2.0)
+	{
+		// (In flat tones, their edges a little soft.)
+		float Steps = FlatClouds.y - 1.0;
+		float Scaled = Thick * Steps;
+		Thick = (floor(Scaled) + smoothstep(0.42, 0.58, frac(Scaled))) / Steps;
+	}
+	float3 Shade = CloudShadow.rgb * lerp(1.0, 0.45, Here.y);
+	float3 Color = lerp(CloudLit.rgb, Shade, Thick);
+	// (Their thin edges glow round the light, as the sky about it does.)
+	Color += Halo * (1.5 * (1.0 - Here.x));
+	float Alpha = Here.x * FlatClouds.x * smoothstep(0.003, 0.03, V.z);
+	Color = lerp(Color, SkyBehind, DCS_AirVeil(T, V.z, Camera.z, Cloud0.x, Cloud3));
+	return float4(Color * Alpha, Alpha);
+}
+
 // Rain hanging under distant clouds: grey curtains from the cloud base down into the horizon, wherever the weather
 // map has rain under a closed cover some way off along V (looked for from 8 to 45 km; the nearest raining one hangs
 // its curtain). Broad curtains in azimuth, finely streaked, thinning as they fall and veiled by the air like
@@ -1224,7 +1570,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds, float4 CloudClearing,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1253,6 +1599,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float3 Afterglow = lerp(float3(0.16, 0.06, 0.13), float3(0.55, 0.24, 0.12), smoothstep(-0.15, -0.03, Sun.z));
 		Sky += Afterglow * Dusk * Side * Side * Side * Band * GradientShare;
 	}
+	Sky = DSky_EarthShadow(V, Sun, Sky, EarthShadow, EarthBelt, GradientShare);
 	// Through the holes of an overcast the sky shows its own colour: the style greys the whole sky as the cover closes
 	// (by then it is mostly seen through the cloud), and a hole would show that grey; there it is given its blue back.
 	float Closing = smoothstep(0.7, 0.95, Cloud0.x) * GradientShare;
@@ -1271,9 +1618,19 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		VC = Panorama.SampleLevel(PanoramaSampler, UV, 0);
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
+	// (The clouds clearing round the sun and the moon: the high cloud fainter there.)
+	float Thin = DSky_Clearing(V, Sun, Moon, CloudClearing);
+	High *= 1.0 - 0.85 * Thin;
 	float4 Shafts = DSky_RainShafts(V, Camera, Cloud0, CloudLayer, Cloud3, MapParams, WeatherMap, WeatherMapSampler, Noise,
 		NoiseSampler, Base + Halo, CloudShadow.rgb);
-	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a);
+	// The flat clouds, where the renderer does not draw (CloudLayer.w = 0).
+	float4 Flat = float4(0, 0, 0, 0);
+	if (CloudLayer.w < 0.5 && FlatClouds.x > 0.0)
+	{
+		Flat = DSky_FlatClouds(V, Camera, LightDir, Cloud0, Cloud1, Cloud3, CloudLayer, MapParams, FlatClouds, CloudLit, CloudShadow,
+			Base + Halo, Halo, Thin, WeatherMap, WeatherMapSampler, Noise, NoiseSampler);
+	}
+	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a) * (1.0 - Flat.a);
 
 	float3 MoonColor = DSky_Moon(V, Moon, Sun, MoonDir.w, MoonDisk.a, MoonDisk.rgb, LunarEclipse, MoonLook);
 	float MoonCover = saturate(dot(MoonColor, float3(1, 1, 1)) * 4.0);
@@ -1289,6 +1646,11 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	{
 		Sky += DSky_MilkyWay(V, StarPole, StarEquinox, Galaxy, GalaxySampler, MilkyWay, MilkyWayDust) * (1.0 - MoonCover) * Clear;
 	}
+	// Meteors and satellites, in front of the stars, behind the clouds (the sky light sees none).
+	if (Capture < 0.5 && (Meteors.x + Meteors.y + Meteors.w) > 0.0)
+	{
+		Sky += DSky_Meteors(V, Sun, Camera, Meteors, MeteorRadiant, MeteorLook, Seconds, max(length(fwidth(V)), 1.0e-5)) * Clear;
+	}
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);
 	// (In an eclipse the moon's disk masks the sun's; the corona shows round it at totality.)
@@ -1300,9 +1662,21 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
+	// Noctilucent clouds in the deep twilight, far above everything else, behind the high cloud.
+	Sky += DSky_Noctilucent(V, Sun, Camera, Noctilucent, NoctilucentColor, Seconds, Noise, NoiseSampler);
+	// The ice halos in a sheet of high cloud, the corona in thin cloud round the moon: the sheet milks the sky a little,
+	// the halos are in its light (behind the high cloud's veils, which they brighten).
+	if (any(Halo4 > 0.0))
+	{
+		float Closing = smoothstep(0.7, 0.95, Cloud0.x);
+		float Veil = saturate(High.a / 0.2);
+		Sky = lerp(Sky, CloudLit.rgb * 0.85, Halo4.w * (1.0 - Closing) * smoothstep(0.0, 0.12, V.z));
+		Sky += DSky_Halos(V, LightDir, Moon, CloudLit.rgb, Halo4, Halo2, Veil, Closing);
+	}
 
 	Sky = Sky * (1.0 - High.a) + High.rgb;
 	Sky = Sky * (1.0 - Shafts.a) + Shafts.rgb;
+	Sky = Sky * (1.0 - Flat.a) + Flat.rgb;
 	Sky = Sky * (1.0 - VC.a) + VC.rgb;
 
 	// Weather fog and dust hide the sky in the height fog's colour, from the horizon up: the fogged ground then
@@ -1327,7 +1701,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float SkyLevel = dot(Mean, float3(0.2126, 0.7152, 0.0722));
 		float Level = saturate(0.3 + SkyLevel * 3.0);
 		float Body = lerp(0.6, 1.4, saturate(CloudCore));
-		float Cloudy = VC.a;
+		float Cloudy = max(VC.a, Flat.a);
 		Sky += float3(0.75, 0.8, 1.0) * FlashNow * Level * (0.15 + 0.85 * Toward) * (0.3 + 1.7 * Cloudy) * Body;
 	}
 	return max(Sky, 0.0);

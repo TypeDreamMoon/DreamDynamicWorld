@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWindVolumeRenderer.h"
+#include "DreamWindBackground.h"
 #include "DreamWindModule.h"
 
 #include "GlobalShader.h"
@@ -24,12 +25,7 @@ class FDreamWindVolumeUpdateCS : public FGlobalShader
 	SHADER_USE_PARAMETER_STRUCT(FDreamWindVolumeUpdateCS, FGlobalShader);
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
-		SHADER_PARAMETER(FVector4f, P0)
-		SHADER_PARAMETER(FVector4f, P1)
-		SHADER_PARAMETER(FVector4f, P2)
-		SHADER_PARAMETER(FVector4f, T0)
-		SHADER_PARAMETER(FVector4f, T1)
-		SHADER_PARAMETER(FVector4f, T2)
+		SHADER_PARAMETER_STRUCT_INCLUDE(FDreamWindBackgroundParameters, Background)
 		SHADER_PARAMETER(FVector3f, PrevCenter)
 		SHADER_PARAMETER(float, PrevValid)
 		SHADER_PARAMETER(FVector3f, NewCenter)
@@ -43,8 +39,6 @@ class FDreamWindVolumeUpdateCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Sources)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, PrevVolume)
 		SHADER_PARAMETER_SAMPLER(SamplerState, PrevSampler)
-		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, TerrainTexture)
-		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutVolume)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -162,12 +156,7 @@ void FDreamWindVolumeRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 	const FVector3f Extent = FVector3f(Res) * Args.VoxelSize;
 
 	FDreamWindVolumeUpdateCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamWindVolumeUpdateCS::FParameters>();
-	Params->P0 = Args.Frame.P0;
-	Params->P1 = Args.Frame.P1;
-	Params->P2 = Args.Frame.P2;
-	Params->T0 = Args.Frame.T0;
-	Params->T1 = Args.Frame.T1;
-	Params->T2 = Args.Frame.T2;
+	DreamWind::Background::Fill(GraphBuilder, Params->Background, Args.Frame, Args.Background);
 	Params->PrevCenter = Args.PrevCenter;
 	Params->PrevValid = bHistoryValid ? 1.0f : 0.0f;
 	Params->NewCenter = Args.NewCenter;
@@ -181,23 +170,6 @@ void FDreamWindVolumeRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 	Params->Sources = GraphBuilder.CreateSRV(SourceBuffer);
 	Params->PrevVolume = HistoryTexture;
 	Params->PrevSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-	Params->TerrainSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
-	{
-		FRDGTextureRef TerrainRDG = nullptr;
-		if (Args.Frame.T1.X > 0.5f && Args.TerrainResource)
-		{
-			if (FRHITexture* TerrainRHI = Args.TerrainResource->GetRenderTargetTexture())
-			{
-				TerrainRDG = RegisterExternalTexture(GraphBuilder, TerrainRHI, TEXT("DreamWind.TerrainRT"));
-			}
-		}
-		if (!TerrainRDG)
-		{
-			Params->T1.X = 0.0f;
-			TerrainRDG = GraphBuilder.RegisterExternalTexture(GSystemTextures.BlackDummy);
-		}
-		Params->TerrainTexture = TerrainRDG;
-	}
 	Params->OutVolume = GraphBuilder.CreateUAV(Target);
 
 	TShaderMapRef<FDreamWindVolumeUpdateCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

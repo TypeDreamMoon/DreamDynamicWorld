@@ -95,15 +95,22 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(MoonLightColor, { { -90.0f, C(0.55f, 0.65f, 1.0f) }, { 0.0f, C(0.60f, 0.65f, 0.95f) } });
 	SetKeys(MoonIlluminance, { { -12.0f, 1.2f }, { -6.0f, 0.5f }, { -2.0f, 0.0f } });
 	SetKeys(StarIntensity, { { -12.0f, 1.0f }, { -6.0f, 0.3f }, { -2.0f, 0.0f } });
+	// The disks drawn larger near the horizon (the moon illusion): by half again on it, as they were from 20 degrees up.
+	SetKeys(SunDiskScale, { { -4.0f, 1.5f }, { 0.0f, 1.5f }, { 3.0f, 1.38f }, { 8.0f, 1.18f }, { 20.0f, 1.0f }, { 90.0f, 1.0f } });
+	SetKeys(MoonDiskScale, { { -4.0f, 1.45f }, { 0.0f, 1.45f }, { 4.0f, 1.32f }, { 12.0f, 1.12f }, { 25.0f, 1.0f }, { 90.0f, 1.0f } });
+	// The clouds clearing round the light: plain with it low (the evening's sun showing through), almost none overhead.
+	SetKeys(CloudClearing.SunStrength, { { -4.0f, 0.0f }, { 0.0f, 0.55f }, { 6.0f, 0.55f }, { 15.0f, 0.3f }, { 30.0f, 0.05f }, { 45.0f, 0.0f } });
+	SetKeys(CloudClearing.MoonStrength, { { -4.0f, 0.0f }, { 0.0f, 0.4f }, { 10.0f, 0.35f }, { 30.0f, 0.15f }, { 60.0f, 0.05f } });
 
-	// Sunlit cloud tops are about as bright as a white surface in the sun; their shaded sides take the sky's blue.
+	// Sunlit cloud tops are about as bright as a white surface in the sun; their shaded sides take the sky's blue. In the
+	// deep twilight and the night a low-saturation grey-blue (as bright as before; a saturated blue read as glowing).
 	SetKeys(CloudLitColor, {
-		{ -12.0f, C(0.060f, 0.070f, 0.110f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
+		{ -12.0f, C(0.064f, 0.071f, 0.088f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
 		{ 5.0f, C(1.800f, 1.400f, 1.080f) }, { 15.0f, C(2.000f, 1.950f, 1.880f) }, { 60.0f, C(2.200f, 2.200f, 2.150f) } });
 	// Painted cloud shade is a pale sky-tinted blue-grey by day (the shade about 0.85 of the lit side's brightness
 	// on screen), a lavender blue toward sunset (about half): the complement of the warm light, never a neutral grey.
 	SetKeys(CloudShadowColor, {
-		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.090f, 0.075f, 0.140f) }, { 0.0f, C(0.300f, 0.230f, 0.420f) },
+		{ -12.0f, C(0.033f, 0.0365f, 0.050f) }, { -4.0f, C(0.092f, 0.078f, 0.115f) }, { 0.0f, C(0.300f, 0.230f, 0.420f) },
 		{ 5.0f, C(0.560f, 0.520f, 0.780f) }, { 10.0f, C(0.950f, 0.960f, 1.250f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) },
 		{ 60.0f, C(1.400f, 1.520f, 1.780f) } });
 
@@ -144,6 +151,14 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.StarIntensity = FMath::Max(0.0f, Eval(StarIntensity, E));
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
+	Look.HighCover = FMath::Clamp(CloudHighCover, 0.0f, 1.0f);
+	Look.SunClearing = CloudClearing.bEnabled ? FMath::Clamp(Eval(CloudClearing.SunStrength, Celestial.SunElevation), 0.0f, 1.0f) : 0.0f;
+	Look.MoonClearing = CloudClearing.bEnabled ? FMath::Clamp(Eval(CloudClearing.MoonStrength, Celestial.MoonElevation), 0.0f, 1.0f) : 0.0f;
+	Look.ClearingRadius = FMath::Max(CloudClearing.Radius, 1.0f);
+	Look.ClearingExponent = FMath::Max(CloudClearing.Exponent, 0.5f);
+	Look.SunDiskScale = FMath::Max(Eval(SunDiskScale, Celestial.SunElevation, 1.0f), 0.05f);
+	Look.MoonDiskScale = FMath::Max(Eval(MoonDiskScale, Celestial.MoonElevation, 1.0f), 0.05f);
+	Look.Meteors = 1.0f;
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
@@ -166,10 +181,105 @@ float UDreamSkyStyle::EvaluateAuroraPresence(const FDreamCelestialSettings& Sett
 	return To > From ? FMath::SmoothStep(From, To, Latitude) : (Latitude >= To ? 1.0f : 0.0f);
 }
 
+FDreamSkyMeteors::FDreamSkyMeteors()
+{
+	// The seven strongest yearly showers (the International Meteor Organization's working list).
+	auto Add = [this](const TCHAR* Name, int32 Month, int32 Day, float Width, float Ra, float Dec, float Zhr)
+	{
+		FDreamSkyMeteorShower& S = Showers.AddDefaulted_GetRef();
+		S.Name = FName(Name);
+		S.PeakMonth = Month;
+		S.PeakDay = Day;
+		S.WidthDays = Width;
+		S.RightAscension = Ra;
+		S.Declination = Dec;
+		S.ZenithalHourlyRate = Zhr;
+	};
+	Add(TEXT("Quadrantids"), 1, 4, 0.6f, 230.0f, 49.0f, 110.0f);
+	Add(TEXT("Lyrids"), 4, 22, 1.5f, 272.0f, 33.0f, 18.0f);
+	Add(TEXT("EtaAquariids"), 5, 6, 4.0f, 338.0f, -1.0f, 50.0f);
+	Add(TEXT("Perseids"), 8, 12, 2.5f, 48.0f, 58.0f, 100.0f);
+	Add(TEXT("Orionids"), 10, 21, 3.0f, 95.0f, 16.0f, 20.0f);
+	Add(TEXT("Leonids"), 11, 17, 1.0f, 152.0f, 22.0f, 15.0f);
+	Add(TEXT("Geminids"), 12, 14, 1.5f, 112.0f, 33.0f, 150.0f);
+}
+
+FDreamSkyShowerActivity UDreamSkyStyle::EvaluateMeteorShower(const FDateTime& Date) const
+{
+	FDreamSkyShowerActivity Best;
+	const double Day = double(Date.GetDayOfYear()) + Date.GetTimeOfDay().GetTotalHours() / 24.0;
+	for (const FDreamSkyMeteorShower& S : Meteors.Showers)
+	{
+		const int32 Month = FMath::Clamp(S.PeakMonth, 1, 12);
+		const int32 PeakDay = FMath::Clamp(S.PeakDay, 1, FDateTime::DaysInMonth(Date.GetYear(), Month));
+		double Days = FMath::Abs(Day - double(FDateTime(Date.GetYear(), Month, PeakDay).GetDayOfYear()));
+		Days = FMath::Min(Days, 365.25 - Days);
+		const float Rate = S.ZenithalHourlyRate * float(FMath::Exp(-0.5 * FMath::Square(Days / FMath::Max(double(S.WidthDays), 0.1))));
+		if (Rate > Best.ZenithalHourlyRate && Rate > 1.0f)
+		{
+			Best.Name = S.Name;
+			Best.ZenithalHourlyRate = Rate;
+			Best.RightAscension = S.RightAscension;
+			Best.Declination = S.Declination;
+		}
+	}
+	return Best;
+}
+
+float UDreamSkyStyle::EvaluateNoctilucentPresence(const FDreamCelestialSettings& Settings, const FDateTime& Date) const
+{
+	if (!Noctilucent.bEnabled)
+	{
+		return 0.0f;
+	}
+	if (Settings.Mode != EDreamCelestialMode::Realistic)
+	{
+		return FMath::Clamp(Noctilucent.ArtisticPresence, 0.0f, 1.0f);
+	}
+	const FDreamSkyNoctilucent& N = Noctilucent;
+	const float Latitude = FMath::Abs(float(Settings.Latitude));
+	const float Band = FMath::SmoothStep(N.StartLatitude, FMath::Max(N.FullLatitude, N.StartLatitude + 0.01f), Latitude)
+		* (1.0f - FMath::SmoothStep(FMath::Max(N.EndLatitude - 5.0f, N.FullLatitude), FMath::Max(N.EndLatitude, N.FullLatitude + 0.01f), Latitude));
+	// (Days from the hemisphere's midsummer, round the year.)
+	const float Midsummer = Settings.Latitude >= 0.0 ? 172.0f : 355.0f;
+	float Days = FMath::Abs(float(Date.GetDayOfYear()) - Midsummer);
+	Days = FMath::Min(Days, 365.0f - Days);
+	const float Season = 1.0f - FMath::SmoothStep(N.SeasonFullDays, FMath::Max(N.SeasonEndDays, N.SeasonFullDays + 1.0f), Days);
+	return Band * Season;
+}
+
+float UDreamSkyStyle::NoctilucentTwilight(float SunElevation)
+{
+	return FMath::SmoothStep(-17.0f, -13.0f, SunElevation) * (1.0f - FMath::SmoothStep(-7.0f, -4.0f, SunElevation));
+}
+
 float UDreamSkyStyle::GlowNight(float SunElevation)
 {
 	// (A city's lights come on as the sun sets and stand out by the end of the civil twilight.)
 	return 1.0f - FMath::SmoothStep(-6.0f, 2.0f, SunElevation);
+}
+
+FVector2f UDreamSkyStyle::EvaluateHaloPresence(float HighCover) const
+{
+	if (!Halos.bEnabled)
+	{
+		return FVector2f::ZeroVector;
+	}
+	auto Over = [HighCover](float From, float Full) { return FMath::SmoothStep(From, FMath::Max(Full, From + 1.0e-3f), HighCover); };
+	return FVector2f(Over(Halos.HighCoverFrom, Halos.HighCoverFull), Over(Halos.CoronaCoverFrom, Halos.CoronaCoverFull));
+}
+
+float UDreamSkyStyle::SunDogAzimuth(float LightElevation, float RefractiveIndex)
+{
+	// (Plate crystals floating flat turn a light this high as a 60 degree prism of the effective index
+	// sqrt(n^2 - sin^2 h) / cos h: the least deviation 2 asin(n' / 2) - 60, in azimuth.)
+	const float H = FMath::DegreesToRadians(FMath::Clamp(LightElevation, -10.0f, 89.0f));
+	const float Effective = FMath::Sqrt(FMath::Max(RefractiveIndex * RefractiveIndex - FMath::Square(FMath::Sin(H)), 0.0f)) / FMath::Cos(H);
+	if (Effective * 0.5f >= 1.0f)
+	{
+		return -1.0f;
+	}
+	return FMath::RadiansToDegrees(2.0f * FMath::Asin(Effective * 0.5f)) - 60.0f;
 }
 
 float UDreamSkyStyle::AuroraNight(float SunElevation)

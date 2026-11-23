@@ -164,11 +164,23 @@ float UDreamWeatherSubsystem::ExposureAt(const FVector& Position) const
 	const UWorld* World = GetWorld();
 	const UDreamWindSubsystem* Wind = World && S->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
 	const FDreamWindTerrainCpuData* Terrain = Wind ? Wind->GetFrameData().TerrainCpu.Get() : nullptr;
-	if (Terrain && Terrain->IsInside(Position.X, Position.Y))
+	// The runtime terrain map's CPU grid where it has swept (its heights are the level as it stands now), else the baked map.
+	const FDreamWindTerrainGridData* Grid = Wind ? Wind->GetFrameData().TerrainGrid.Get() : nullptr;
+	const auto GridHeight = [Grid](double X, double Y)
 	{
-		const auto CoveredAt = [Terrain, &Position, S](double X, double Y)
+		return Grid ? Grid->HeightAt(X, Y) : FDreamWindTerrainGridData::NotSwept;
+	};
+	const auto Known = [](float Height) { return Height > FDreamWindTerrainGridData::NotSwept * 0.75f; };
+	if (Known(GridHeight(Position.X, Position.Y)) || (Terrain && Terrain->IsInside(Position.X, Position.Y)))
+	{
+		const auto CoveredAt = [Terrain, &Position, S, &GridHeight, &Known](double X, double Y)
 		{
-			return Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
+			const float FromGrid = GridHeight(X, Y);
+			if (Known(FromGrid))
+			{
+				return double(FromGrid) > Position.Z + S->RoofClearance;
+			}
+			return Terrain && Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
 		};
 		if (CoveredAt(Position.X, Position.Y))
 		{
@@ -401,12 +413,21 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	// supercooled part of the rain: freezing rain stays rain below freezing.
 	S.FreezingRain = FMath::Clamp(Values.Get(C::FreezingRain), 0.0f, 1.0f);
 	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
-	S.Rain = S.Precipitation * (1.0f - S.SnowRatio);
-	S.Snow = S.Precipitation * S.SnowRatio;
+	// The precipitation's kinds: its hail share first (at any temperature), the sleet's of what is left, the rest rain
+	// and snow by the snow ratio.
+	const float HailShare = FMath::Clamp(Values.Get(C::Hail), 0.0f, 1.0f);
+	const float SleetShare = FMath::Clamp(Values.Get(C::Sleet), 0.0f, 1.0f) * (1.0f - HailShare);
+	const float Left = 1.0f - HailShare - SleetShare;
+	S.Hail = S.Precipitation * HailShare;
+	S.Sleet = S.Precipitation * SleetShare;
+	S.Rain = S.Precipitation * Left * (1.0f - S.SnowRatio);
+	S.Snow = S.Precipitation * Left * S.SnowRatio;
 	S.Exposure = ExposureAt(Position);
 	S.bSheltered = S.Exposure < 0.5f;
 	S.RainHere = S.Rain * S.Exposure;
 	S.SnowHere = S.Snow * S.Exposure;
+	S.HailHere = S.Hail * S.Exposure;
+	S.SleetHere = S.Sleet * S.Exposure;
 
 	if (S.CloudCoverage < 0.3f)
 	{
@@ -427,6 +448,14 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	if (S.Snow > 0.1f)
 	{
 		S.Tags.AddTag(S.Snow > 0.6f ? State_Snow_Heavy : State_Snow);
+	}
+	if (S.Hail > 0.05f)
+	{
+		S.Tags.AddTag(State_Hail);
+	}
+	if (S.Sleet > 0.1f)
+	{
+		S.Tags.AddTag(State_Sleet);
 	}
 	if (S.Lightning > 0.2f)
 	{
@@ -476,6 +505,16 @@ float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channe
 float UDreamWeatherSubsystem::GetTemperatureAt(FVector Position) const
 {
 	return SampleWeather(Position).Temperature;
+}
+
+FText UDreamWeatherSubsystem::GetCurrentWeatherDisplayName() const
+{
+	const UDreamWeatherPreset* Preset = GetCurrentWeather();
+	if (!Preset)
+	{
+		return FText::GetEmpty();
+	}
+	return Preset->DisplayName.IsEmpty() ? FText::FromName(Preset->GetFName()) : Preset->DisplayName;
 }
 
 UDreamWeatherPreset* UDreamWeatherSubsystem::GetCurrentWeather() const

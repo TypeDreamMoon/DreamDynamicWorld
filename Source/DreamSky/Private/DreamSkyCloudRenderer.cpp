@@ -549,6 +549,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"), TEXT("DDW_SkyModClouds"), TEXT("DDW_NightGlow"), TEXT("DDW_LightPollution"),
 		TEXT("DDW_MoonDir"), TEXT("DDW_SkyGrade0"), TEXT("DDW_SkyGrade1"), TEXT("DDW_SkyGrade2"), TEXT("DDW_SkyGrade3"),
 		TEXT("DDW_AtmosphereSun"), TEXT("DDW_AtmosphereMoon"), TEXT("DDW_AmbientSky"), TEXT("DDW_AmbientEquator"),
+		TEXT("DDW_CloudClearing"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;
@@ -571,7 +572,7 @@ void FDreamSkyCloudViewExtension::FillAtmosphere(DreamSkyCloudRender::FCommonPar
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 5, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 5 + 1, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -616,6 +617,7 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[159] = FVector4f(L.PaintedCloudLitScale.R, L.PaintedCloudLitScale.G, L.PaintedCloudLitScale.B, 0.0f);
 	Out[160] = FVector4f(L.PaintedCloudShadeScale.R, L.PaintedCloudShadeScale.G, L.PaintedCloudShadeScale.B, 0.0f);
 	Out[161] = L.CloudToStyle;
+	Out[162] = FVector4f(L.MoonlightCloudSaturation, 0.0f, 0.0f, 0.0f);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)
@@ -744,7 +746,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		{
 			const FVector Sun = Clock->GetCelestial().SunDirection;
 			Settings.Flare.bEnabled = Sun.Z > -0.05;
-			Settings.Flare.SunDirection = FVector4f(float(Sun.X), float(Sun.Y), float(Sun.Z), FMath::DegreesToRadians(FMath::Max(Style->SunDiskSize, 0.05f)));
+			Settings.Flare.SunDirection = FVector4f(float(Sun.X), float(Sun.Y), float(Sun.Z), FMath::DegreesToRadians(FMath::Max(Style->SunDiskSize * Sky->GetLook().SunDiskScale, 0.05f)));
 			Settings.Flare.Flare = FVector4f(Strength, FMath::Max(F.Threshold, 0.0f), float(uint8(Preset)), 0.0f);
 			Settings.Flare.Tint = FVector4f(F.Tint.R, F.Tint.G, F.Tint.B, 1.0f);
 		}

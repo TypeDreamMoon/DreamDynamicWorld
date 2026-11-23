@@ -10,8 +10,10 @@
 #include "DreamSky.h"
 #include "DreamSkyConditions.h"
 #include "DreamSkyModifier.h"
+#include "DreamSkyStyle.h"
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamWeather.h"
+#include "DreamWeatherRadar.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -111,7 +113,30 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 18.0f && Entry.Condition.EndHour <= 6.0f;
 		}
 		TestTrue(TEXT("an aurora modifier for the night"), bAurora);
+		bool bHalo = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bHalo |= Entry.Modifier && Entry.Modifier->Settings.bOverride_HighCloudCover && Entry.Modifier->Settings.HighCloudCover
+				>= GetDefault<UDreamSkyStyle>()->Halos.HighCoverFull && Entry.Condition.bHours && Entry.Condition.StartHour < 12.0f;
+		}
+		TestTrue(TEXT("a sheet of high cloud for the morning's halo"), bHalo);
+		bool bShine = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bShine |= Entry.Modifier && Entry.Modifier->Settings.bOverride_Noctilucent && Entry.Modifier->Settings.Noctilucent > 0.5f
+				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 17.0f && Entry.Condition.EndHour <= 21.0f;
+		}
+		TestTrue(TEXT("noctilucent clouds for the evening's twilight"), bShine);
+		bool bStorm = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bStorm |= Entry.Modifier && Entry.Modifier->Settings.bOverride_Meteors && Entry.Modifier->Settings.Meteors > 1.0f && Entry.Condition.bHours
+				&& Entry.Condition.StartHour >= 20.0f && Entry.Condition.EndHour <= 6.0f;
+		}
+		TestTrue(TEXT("a meteor storm for the night"), bStorm);
 	}
+
+	TestEqual(TEXT("a weather radar screen"), ActorsOf<ADreamWeatherRadarDisplay>(World).Num(), 1);
 
 	// The day's weather in order, a cycle of a day.
 	const TArray<ADreamWeather*> Weathers = ActorsOf<ADreamWeather>(World);

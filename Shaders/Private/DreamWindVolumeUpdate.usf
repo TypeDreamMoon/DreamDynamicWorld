@@ -3,14 +3,8 @@
 // One step of the dynamic wind volume (L2). See FDreamWindVolumeRenderer.
 
 #include "/Engine/Private/Common.ush"
-#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+#include "/Plugin/DreamDynamicWorld/Private/DreamWindBackground.ush"
 
-float4 P0;
-float4 P1;
-float4 P2;
-float4 T0;
-float4 T1;
-float4 T2;
 float3 PrevCenter;
 float  PrevValid;
 float3 NewCenter;
@@ -25,8 +19,6 @@ float  AdvectScale;
 StructuredBuffer<float4> Sources;
 Texture3D<float4> PrevVolume;
 SamplerState PrevSampler;
-Texture2D<float4> TerrainTexture;
-SamplerState TerrainSampler;
 RWTexture3D<float4> OutVolume;
 
 float4 SamplePrev(float3 WorldPos)
@@ -52,42 +44,7 @@ void MainCS(uint3 DTid : SV_DispatchThreadID)
 	const float3 HalfExtent = 0.5f / InvExtent;
 	const float3 WorldPos = NewCenter - HalfExtent + (float3(DTid) + 0.5f) * VoxelSize;
 
-	const FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
-	FDreamWindSample Analytic = DW_SampleAnalyticCheap(P, WorldPos);
-	{
-		const FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
-		const float2 TUV = DW_TerrainUV(WorldPos, TP);
-		const float Inside = DW_TerrainInside(TUV, TP);
-		if (Inside > 0.0f)
-		{
-			FDreamWindSample S = DW_ApplyTerrain(Analytic, TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP, Inside);
-			// occlusion: the sample's own texel, then upwind taps through the baked heights
-			if (DW_OcclusionActive(TP, length(float2(S.Velocity.x, S.Velocity.y))))
-			{
-				float Shadow = DW_OcclusionSelf(DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP), WorldPos.z);
-				const float2 UpDir = -normalize(float2(S.Velocity.x, S.Velocity.y));
-				[unroll]
-				for (int k = 1; k <= DW_OCCLUSION_TAPS; ++k)
-				{
-					const int Level = DW_OcclusionTapLevel(k, TP);
-					const float TapDist = DW_OcclusionTapDistance(k, TP);
-					const float2 TapXY = DW_OcclusionXYAt(WorldPos, UpDir, TapDist);
-					const float2 TapUV = DW_TerrainUV(float3(TapXY.x, TapXY.y, WorldPos.z), TP);
-					if (DW_TerrainInside(TapUV, TP) <= 0.0f)
-					{
-						break;
-					}
-					const float MidDist = DW_OcclusionMidDistance(k, TP);
-					const float2 MidXY = DW_OcclusionXYAt(WorldPos, UpDir, MidDist);
-					const float2 MidUV = DW_TerrainUV(float3(MidXY.x, MidXY.y, WorldPos.z), TP);
-					Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(MidUV, Level, TP), 0), TP), WorldPos.z, MidDist, TP);
-					Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TapUV, Level, TP), 0), TP), WorldPos.z, TapDist, TP);
-				}
-				S = DW_ApplyOcclusion(S, Shadow, TP);
-			}
-			Analytic = S;
-		}
-	}
+	const FDreamWindSample Analytic = DW_Background(WorldPos);
 
 	float4 Residual = 0;
 	if (PrevValid > 0.5f)

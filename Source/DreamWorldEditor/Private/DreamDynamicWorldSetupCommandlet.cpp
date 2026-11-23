@@ -5,6 +5,7 @@
 #include "DreamCloudTestMap.h"
 #include "DreamAtmosphereBake.h"
 #include "DreamSurfaceSetup.h"
+#include "DreamWindTestMap.h"
 #include "DreamWorldShowcaseSetup.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamSky.h"
@@ -22,6 +23,7 @@
 
 #include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
+#include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -54,6 +56,7 @@ namespace DreamWorld::Setup
 	static const TCHAR* StarMapPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamStarMap");
 	static const TCHAR* StarMapStampKey = TEXT("DreamStarMapStamp");
 	static const TCHAR* MilkyWayPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamMilkyWay");
+	static const TCHAR* WhiteCubePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamSkyWhiteCube");
 	static const TCHAR* MilkyWayVersionKey = TEXT("DreamMilkyWayVersion");
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
@@ -299,6 +302,36 @@ namespace DreamWorld::Setup
 	 * The Milky Way's map (see DreamMilkyWay.h), made from noise: no file needed. Built again when its version changed,
 	 * or with bForce; bPreview also writes it as <project>/Saved/DreamDynamicWorld/MilkyWay.bmp to look at.
 	 */
+	/**
+	 * A plain white cubemap, 16 texels a face: the sky light's TintedCubemap source takes it when none is given, the sky's
+	 * ambient light tinting it as it is (the ground comes from the sky light's lower hemisphere).
+	 */
+	static bool EnsureWhiteCube()
+	{
+		const FString ObjectPath = FString(WhiteCubePackage) + TEXT(".") + FPackageName::GetShortName(WhiteCubePackage);
+		if (FPackageName::DoesPackageExist(WhiteCubePackage) && LoadObject<UTextureCube>(nullptr, *ObjectPath))
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("White cubemap %s: up to date"), *ObjectPath);
+			return true;
+		}
+		UPackage* Package = CreatePackage(WhiteCubePackage);
+		Package->FullyLoad();
+		UTextureCube* Cube = NewObject<UTextureCube>(Package, *FPackageName::GetShortName(WhiteCubePackage), RF_Public | RF_Standalone);
+		constexpr int32 Size = 16;
+		TArray<FFloat16Color> Texels;
+		Texels.Init(FFloat16Color(FLinearColor::White), Size * Size * 6);
+		Cube->PreEditChange(nullptr);
+		Cube->Source.Init(Size, Size, 6, 1, TSF_RGBA16F, reinterpret_cast<const uint8*>(Texels.GetData()));
+		Cube->SRGB = false;
+		Cube->CompressionSettings = TC_HDR;
+		Cube->MipGenSettings = TMGS_FromTextureGroup;
+		Cube->LODGroup = TEXTUREGROUP_Skybox;
+		Cube->PostEditChange();
+		FAssetRegistryModule::AssetCreated(Cube);
+		UE_LOG(LogDreamWorld, Display, TEXT("White cubemap %s: made"), *ObjectPath);
+		return Save(Package, Cube, FPackageName::GetAssetPackageExtension());
+	}
+
 	static bool EnsureMilkyWay(bool bForce, bool bPreview)
 	{
 		const FString ObjectPath = FString(MilkyWayPackage) + TEXT(".") + FPackageName::GetShortName(MilkyWayPackage);
@@ -368,7 +401,7 @@ namespace DreamWorld::Setup
 		using namespace DreamWeather::Tags;
 		const FGameplayTag Coverage = Channel_CloudCoverage, Dark = Channel_CloudDarkness, Precip = Channel_Precipitation, Snow = Channel_SnowRatio,
 			Fog = Channel_Fog, Dust = Channel_Dust, Wind = Channel_Wind, Lightning = Channel_Lightning, Temperature = Channel_Temperature, Wet = Channel_Wetness,
-			SnowCover = Channel_SnowCover, Freezing = Channel_FreezingRain;
+			SnowCover = Channel_SnowCover, Freezing = Channel_FreezingRain, HailShare = Channel_Hail, SleetShare = Channel_Sleet;
 		const TArray<FPresetSpec> Specs = {
 			{ TEXT("WP_Clear"), TEXT("Clear"), { { Coverage, 0.15f }, { Wind, 0.2f }, { Temperature, 1.0f } } },
 			{ TEXT("WP_Cloudy"), TEXT("Cloudy"), { { Coverage, 0.55f }, { Dark, 0.05f }, { Wind, 0.35f } } },
@@ -382,6 +415,10 @@ namespace DreamWorld::Setup
 			{ TEXT("WP_Frost"), TEXT("Frost"), { { Coverage, 0.05f }, { Wind, 0.05f }, { Temperature, -2.0f } } },
 			// Freezing rain: supercooled rain falling with the air below freezing; it glazes what it lands on.
 			{ TEXT("WP_FreezingRain"), TEXT("Freezing Rain"), { { Coverage, 1.0f }, { Dark, 0.35f }, { Precip, 0.55f }, { Freezing, 1.0f }, { Wind, 0.3f }, { Fog, 0.2f }, { Temperature, -8.0f }, { Wet, 1.0f } } },
+			// A hailstorm: a summer thunderstorm's hail, short and hard, under a dark sky.
+			{ TEXT("WP_Hail"), TEXT("Hail"), { { Coverage, 1.0f }, { Dark, 0.75f }, { Precip, 0.75f }, { HailShare, 0.85f }, { Lightning, 0.4f }, { Wind, 0.55f }, { Wet, 0.9f } } },
+			// Sleet: wet snow and ice pellets with the air just above freezing.
+			{ TEXT("WP_Sleet"), TEXT("Sleet"), { { Coverage, 1.0f }, { Dark, 0.3f }, { Precip, 0.6f }, { SleetShare, 1.0f }, { Wind, 0.4f }, { Fog, 0.15f }, { Temperature, -9.0f }, { Wet, 1.0f } } },
 			// A freezing fog in a breeze: rime builds on everything.
 			{ TEXT("WP_FreezingFog"), TEXT("Freezing Fog"), { { Coverage, 0.7f }, { Dark, 0.1f }, { Fog, 0.95f }, { Wind, 0.5f }, { Temperature, -14.0f } } },
 		};
@@ -400,7 +437,8 @@ namespace DreamWorld::Setup
 			{
 				Preset = NewObject<UDreamWeatherPreset>(CreatePackage(*PackageName), Spec.Name, RF_Public | RF_Standalone);
 			}
-			Preset->DisplayName = FText::FromString(Spec.Display);
+			// (Localizable: the localization gather takes it from the asset, keyed by the preset's name.)
+			Preset->DisplayName = FText::AsLocalizable_Advanced(TEXT("DreamWeatherPresets"), Spec.Name, Spec.Display);
 			Preset->Channels.Reset();
 			for (const TPair<FGameplayTag, float>& Channel : Spec.Channels)
 			{
@@ -570,6 +608,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	bOk &= EnsureStarMap(Params, FParse::Param(*Params, TEXT("ForceStarMap")));
 	bOk &= EnsureMilkyWay(FParse::Param(*Params, TEXT("ForceMilkyWay")), FParse::Param(*Params, TEXT("MilkyWayPreview")));
+	bOk &= EnsureWhiteCube();
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
 
@@ -598,6 +637,10 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	if (FParse::Param(*Params, TEXT("SurfaceTestMap")))
 	{
 		bOk &= BuildSurfaceTestMap(Style);
+	}
+	if (FParse::Param(*Params, TEXT("WindFieldTestMap")))
+	{
+		bOk &= BuildWindTestMap(Style);
 	}
 	if (FParse::Param(*Params, TEXT("WorldShowcase")))
 	{

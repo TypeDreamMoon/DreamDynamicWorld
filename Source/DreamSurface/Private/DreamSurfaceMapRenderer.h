@@ -51,6 +51,9 @@ public:
 		/** The wind's terrain map (null: none) and its DW_UnpackTerrain vectors. */
 		FTextureRenderTargetResource* Terrain = nullptr;
 		FVector4f TerrainParams[3];
+		/** The wind's runtime terrain map's near level (DW_UnpackL1Level; w = 0: none) and its height map. */
+		FVector4f L1Level = FVector4f::Zero();
+		FTextureRenderTargetResource* L1Height = nullptr;
 		/** How far around a texel the ground's lows are judged (cm). */
 		float LowRadius = 300.0f;
 		/** Three float4 per shelter box. */

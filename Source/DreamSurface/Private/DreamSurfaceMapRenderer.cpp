@@ -90,6 +90,9 @@ class FDreamSurfaceCoverCS : public FGlobalShader
 		SHADER_PARAMETER(uint32, NumShelters)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, TerrainTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
+		SHADER_PARAMETER(FVector4f, L1Level)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, L1HeightMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, L1HeightSampler)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Shelters)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutCover)
 		SHADER_PARAMETER(float, LowRadius)
@@ -265,6 +268,11 @@ void FDreamSurfaceMapRenderer::Cover_RenderThread(FRDGBuilder& GraphBuilder, con
 	Params->NumShelters = uint32(Args.Shelters.Num() / 3);
 	Params->TerrainTexture = Terrain;
 	Params->TerrainSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	// The wind's runtime terrain map (near level), when it runs: the level's top surfaces as they stand now.
+	FRHITexture* L1RHI = Args.L1Height && Args.L1Level.W > 0.5f ? Args.L1Height->GetRenderTargetTexture() : nullptr;
+	Params->L1Level = L1RHI ? Args.L1Level : FVector4f::Zero();
+	Params->L1HeightMap = L1RHI ? RegisterExternalTexture(GraphBuilder, L1RHI, TEXT("DreamSurface.WindHeight")) : GSystemTextures.GetBlackDummy(GraphBuilder);
+	Params->L1HeightSampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 	Params->Shelters = GraphBuilder.CreateSRV(ShelterBuffer);
 	Params->OutCover = GraphBuilder.CreateUAV(Target);
 	Params->LowRadius = FMath::Max(Args.LowRadius, 50.0f);

@@ -8,6 +8,8 @@
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSettings.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldQuality.h"
+#include "HAL/IConsoleManager.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "Engine/World.h"
@@ -728,6 +730,332 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("halfway to the modifier's painted tones"), W.SkySubsystem->GetLook().Painted.HalfToneAt, 0.5f * (Style.HalfToneAt + 0.12f), 1.0e-4f);
 	TestNearlyEqual(TEXT("and its finer settings"), W.SkySubsystem->GetLook().Painted.WarmMax, 0.5f * (Style.WarmMax + 3.0f), 1.0e-4f);
 	W.SkySubsystem->RemoveModifier(Paint);
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyHalosTest, "DreamSky.Night.Halos", DreamSky::NightTests::Flags)
+bool FDreamSkyHalosTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The sun dogs: 22 degrees out with the sun on the horizon, further as it climbs, none past some 60 degrees.
+	TestNearlyEqual(TEXT("on the horizon: 22 degrees"), UDreamSkyStyle::SunDogAzimuth(0.0f), 21.84f, 0.05f);
+	TestNearlyEqual(TEXT("at 30 degrees: further out"), UDreamSkyStyle::SunDogAzimuth(30.0f), 28.7f, 0.3f);
+	TestTrue(TEXT("red nearer the sun than blue"), UDreamSkyStyle::SunDogAzimuth(10.0f, 1.307f) < UDreamSkyStyle::SunDogAzimuth(10.0f, 1.317f));
+	TestTrue(TEXT("none with the sun at 65"), UDreamSkyStyle::SunDogAzimuth(65.0f) < 0.0f);
+
+	// Where they show: a sheet of high cloud makes the halos, thinner cloud the corona; the default thin cirrus neither.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	TestTrue(TEXT("the default high cloud: no halos, no corona"), Style->EvaluateHaloPresence(Style->CloudHighCover).Equals(FVector2f::ZeroVector, 1e-6f));
+	TestTrue(TEXT("a sheet: both in full"), Style->EvaluateHaloPresence(0.9f).Equals(FVector2f(1.0f, 1.0f), 1e-6f));
+	const FVector2f Half = Style->EvaluateHaloPresence(0.55f);
+	TestTrue(FString::Printf(TEXT("thinner: the corona before the halos (%s)"), *Half.ToString()), Half.Y > Half.X && Half.X > 0.0f);
+	Style->Halos.bEnabled = false;
+	TestTrue(TEXT("off: none"), Style->EvaluateHaloPresence(0.9f).Equals(FVector2f::ZeroVector, 1e-6f));
+
+	// What the dome reads: the style's brightness times how far they show.
+	FNightWorld W(FDateTime(2026, 6, 21, 10, 0, 0), 35.0, 139.7, 9.0f);
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	UDreamSkyStyle* Live = W.Sky->GetEffectiveStyle();
+	TestTrue(TEXT("the default sky: nothing"), W.Parameter(MPC_Halo).Equals(FLinearColor::Transparent, 1e-6f));
+	Live->CloudHighCover = 0.9f;
+	W.Clock->Tick(0.016f);
+	const FLinearColor H = W.Parameter(MPC_Halo);
+	TestNearlyEqual(TEXT("a sheet of high cloud: the ring"), H.R, Live->Halos.Intensity, 1e-5f);
+	TestNearlyEqual(TEXT("the dogs"), H.G, Live->Halos.SunDogs, 1e-5f);
+	TestNearlyEqual(TEXT("the corona"), H.B, Live->Halos.Corona, 1e-5f);
+	TestNearlyEqual(TEXT("the ring's radius"), W.Parameter(MPC_Halo2).R, Live->Halos.Radius, 1e-5f);
+	Live->Halos.bEnabled = false;
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("turned off: nothing"), W.Parameter(MPC_Halo).Equals(FLinearColor::Transparent, 1e-6f));
+
+	// The earth's shadow over the style's gradient: its tints, its height, its strength (none when off).
+	TestNearlyEqual(TEXT("the earth's shadow drawn as strongly as the style says"), W.Parameter(MPC_EarthBelt).A, Live->EarthShadow.Strength, 1e-5f);
+	TestNearlyEqual(TEXT("as high"), W.Parameter(MPC_EarthShadow).A, Live->EarthShadow.Height, 1e-5f);
+	TestTrue(TEXT("its shadow blue-grey, its belt pink"), W.Parameter(MPC_EarthShadow).B > W.Parameter(MPC_EarthShadow).R && W.Parameter(MPC_EarthBelt).R > W.Parameter(MPC_EarthBelt).G);
+	Live->EarthShadow.bEnabled = false;
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("off: not drawn"), W.Parameter(MPC_EarthBelt).A, 0.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyNoctilucentTest, "DreamSky.Night.Noctilucent", DreamSky::NightTests::Flags)
+bool FDreamSkyNoctilucentTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// Where and when: high latitudes, either hemisphere, in the weeks round its midsummer; as told in the artistic mode.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	FDreamCelestialSettings Settings;
+	Settings.Mode = EDreamCelestialMode::Realistic;
+	Settings.Latitude = 60.0;
+	const FDateTime June(2026, 6, 21), July(2026, 7, 20), December(2026, 12, 21);
+	TestNearlyEqual(TEXT("60 N at midsummer: in full"), Style->EvaluateNoctilucentPresence(Settings, June), 1.0f, 1e-4f);
+	TestTrue(TEXT("a month after: still"), Style->EvaluateNoctilucentPresence(Settings, July) > 0.9f);
+	TestEqual(TEXT("in midwinter: none"), Style->EvaluateNoctilucentPresence(Settings, December), 0.0f);
+	Settings.Latitude = -60.0;
+	TestNearlyEqual(TEXT("60 S in December: in full"), Style->EvaluateNoctilucentPresence(Settings, December), 1.0f, 1e-4f);
+	TestEqual(TEXT("60 S in June: none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Latitude = 35.0;
+	TestEqual(TEXT("35 N: none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Latitude = 85.0;
+	TestEqual(TEXT("85 N (the sun never sets in summer): none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Mode = EDreamCelestialMode::Artistic;
+	TestEqual(TEXT("artistic: none unless told"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Style->Noctilucent.ArtisticPresence = 0.7f;
+	TestNearlyEqual(TEXT("artistic: as told"), Style->EvaluateNoctilucentPresence(Settings, June), 0.7f, 1e-6f);
+	// In the deep twilight only.
+	TestEqual(TEXT("not with the sun up"), UDreamSkyStyle::NoctilucentTwilight(2.0f), 0.0f);
+	TestEqual(TEXT("not in the bright civil twilight"), UDreamSkyStyle::NoctilucentTwilight(-3.0f), 0.0f);
+	TestEqual(TEXT("in full 10 degrees under"), UDreamSkyStyle::NoctilucentTwilight(-10.0f), 1.0f);
+	TestEqual(TEXT("not at night, the sun too far under to light them"), UDreamSkyStyle::NoctilucentTwilight(-18.0f), 0.0f);
+
+	// Helsinki at a midsummer midnight: the dome is told to draw them.
+	{
+		FNightWorld W(FDateTime(2026, 6, 21, 0, 30, 0), 60.17, 24.94, 2.0f);
+		if (!TestTrue(TEXT("north world"), W.IsValid()))
+		{
+			return false;
+		}
+		const FLinearColor N = W.Parameter(MPC_Noctilucent);
+		const float Brightness = W.Sky->GetEffectiveStyle()->Noctilucent.Brightness;
+		TestTrue(FString::Printf(TEXT("drawn at midsummer midnight (%.4f of %.4f)"), N.R, Brightness), N.R > 0.5f * Brightness);
+		TestNearlyEqual(TEXT("as high as the style says"), N.G, W.Sky->GetEffectiveStyle()->Noctilucent.Altitude, 1e-3f);
+		W.Sky->GetEffectiveStyle()->Noctilucent.bEnabled = false;
+		W.Clock->Tick(0.016f);
+		TestEqual(TEXT("turned off: not drawn"), W.Parameter(MPC_Noctilucent).R, 0.0f);
+	}
+	// The same place at a midwinter midnight: none.
+	{
+		FNightWorld W(FDateTime(2026, 12, 21, 18, 0, 0), 60.17, 24.94, 2.0f);
+		if (TestTrue(TEXT("winter world"), W.IsValid()))
+		{
+			TestEqual(TEXT("not in midwinter"), W.Parameter(MPC_Noctilucent).R, 0.0f);
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyMeteorsTest, "DreamSky.Night.Meteors", DreamSky::NightTests::Flags)
+bool FDreamSkyMeteorsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The showers by the date: at their peaks, falling off either side, none between.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	const FDreamSkyShowerActivity Perseids = Style->EvaluateMeteorShower(FDateTime(2026, 8, 12, 12, 0, 0));
+	TestEqual(TEXT("August 12: the Perseids"), Perseids.Name, FName(TEXT("Perseids")));
+	TestTrue(FString::Printf(TEXT("at their peak (%.1f)"), Perseids.ZenithalHourlyRate), Perseids.ZenithalHourlyRate > 90.0f);
+	TestNearlyEqual(TEXT("their radiant in Perseus"), Perseids.Declination, 58.0f, 1e-3f);
+	TestTrue(TEXT("a week after: much weaker"), Style->EvaluateMeteorShower(FDateTime(2026, 8, 19, 12, 0, 0)).ZenithalHourlyRate < 0.2f * Perseids.ZenithalHourlyRate);
+	TestEqual(TEXT("December 14: the Geminids"), Style->EvaluateMeteorShower(FDateTime(2026, 12, 14, 12, 0, 0)).Name, FName(TEXT("Geminids")));
+	TestEqual(TEXT("January 4 (round the year's end): the Quadrantids"), Style->EvaluateMeteorShower(FDateTime(2027, 1, 4, 0, 0, 0)).Name, FName(TEXT("Quadrantids")));
+	const FDreamSkyShowerActivity March = Style->EvaluateMeteorShower(FDateTime(2026, 3, 1));
+	TestTrue(TEXT("early March: none"), March.Name.IsNone() && March.ZenithalHourlyRate == 0.0f);
+
+	// The Perseids' night at 45 N: the radiant up in the north-east, the shower drawn from it, sporadic ones besides.
+	FNightWorld W(FDateTime(2026, 8, 12, 23, 30, 0), 45.0, 10.0, 1.0f);
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	const FLinearColor M = W.Parameter(MPC_Meteors);
+	const FLinearColor Radiant = W.Parameter(MPC_MeteorRadiant);
+	TestEqual(TEXT("the subsystem says the Perseids"), W.SkySubsystem->GetMeteorShower().Name, FName(TEXT("Perseids")));
+	TestTrue(FString::Printf(TEXT("the radiant above the horizon (%.2f)"), Radiant.B), Radiant.B > 0.2f);
+	TestTrue(FString::Printf(TEXT("the shower drawn (%.1f an hour) with sporadic ones (%.1f)"), M.G, M.R), M.G > M.R && M.R > 0.0f);
+	TestNearlyEqual(TEXT("the rate the subsystem gives is the dome's"), W.SkySubsystem->GetMeteorRate(), M.R + M.G, 1e-3f);
+	TestTrue(TEXT("satellites"), M.A > 0.0f);
+	// By day: none.
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 8, 12, 13, 0, 0);
+	Config.bAnimate = false;
+	Config.Celestial = W.Clock->GetCelestialSettings();
+	W.Clock->ApplyClockConfig(Config, true);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("by day: no meteors"), W.SkySubsystem->GetMeteorRate(), 0.0f);
+	W.Sky->GetEffectiveStyle()->Meteors.bEnabled = false;
+	Config.StartTime = FDateTime(2026, 8, 12, 23, 30, 0);
+	W.Clock->ApplyClockConfig(Config, true);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("turned off: none at night either"), W.Parameter(MPC_Meteors).R + W.Parameter(MPC_Meteors).G + W.Parameter(MPC_Meteors).A, 0.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudClearingTest, "DreamSky.Clouds.Clearing", DreamSky::NightTests::Flags)
+bool FDreamSkyCloudClearingTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The clouds clear round a low sun, hardly round a high one; round the moon likewise; none when off.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	auto Look = [Style](float SunElevation, float MoonElevation)
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = SunElevation;
+		Celestial.MoonElevation = MoonElevation;
+		return Style->EvaluateLook(Celestial);
+	};
+	const FDreamSkyLook Evening = Look(3.0f, -30.0f), Noon = Look(60.0f, -30.0f), Night = Look(-30.0f, 5.0f);
+	TestTrue(FString::Printf(TEXT("a low sun clears the clouds round it (%.2f)"), Evening.SunClearing), Evening.SunClearing > 0.4f);
+	TestTrue(FString::Printf(TEXT("hardly at noon (%.2f)"), Noon.SunClearing), Noon.SunClearing < 0.05f);
+	TestTrue(FString::Printf(TEXT("a low moon too (%.2f)"), Night.MoonClearing), Night.MoonClearing > 0.3f);
+	TestEqual(TEXT("the sun under the horizon: none round it"), Night.SunClearing, 0.0f);
+	TestNearlyEqual(TEXT("as far round as the style says"), Evening.ClearingRadius, Style->CloudClearing.Radius, 1e-5f);
+	Style->CloudClearing.bEnabled = false;
+	TestEqual(TEXT("off: none"), Look(3.0f, 5.0f).SunClearing + Look(3.0f, 5.0f).MoonClearing, 0.0f);
+	Style->CloudClearing.bEnabled = true;
+
+	// A sky modifier turns it toward its own, halfway at half strength.
+	UDreamSkyModifier* Modifier = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Modifier->Settings.bOverride_CloudClearing = true;
+	Modifier->Settings.CloudClearing = FVector4f(1.0f, 1.0f, 30.0f, 4.0f);
+	FDreamSkyLook Blended = Evening;
+	FDreamSkyLighting Lighting;
+	Modifier->Settings.Apply(Lighting, Blended, 0.5f);
+	TestNearlyEqual(TEXT("a modifier halfway: the strength"), Blended.SunClearing, 0.5f * (Evening.SunClearing + 1.0f), 1e-4f);
+	TestNearlyEqual(TEXT("and the radius"), Blended.ClearingRadius, 0.5f * (Evening.ClearingRadius + 30.0f), 1e-3f);
+
+	// What the renderer and the dome read.
+	FNightWorld W(FDateTime(2026, 6, 21, 19, 40, 0), 35.0, 139.7, 9.0f);
+	if (TestTrue(TEXT("world"), W.IsValid()))
+	{
+		const FLinearColor C = W.Parameter(MPC_CloudClearing);
+		TestNearlyEqual(TEXT("the shared parameters carry the sun's strength"), C.R, W.SkySubsystem->GetLook().SunClearing, 1e-5f);
+		TestNearlyEqual(TEXT("and the radius"), C.B, W.SkySubsystem->GetLook().ClearingRadius, 1e-5f);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyDiskScaleTest, "DreamSky.Night.DiskScale", DreamSky::NightTests::Flags)
+bool FDreamSkyDiskScaleTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The disks drawn larger near the horizon, as they are high up.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	auto Look = [Style](float SunElevation, float MoonElevation)
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = SunElevation;
+		Celestial.MoonElevation = MoonElevation;
+		return Style->EvaluateLook(Celestial);
+	};
+	const FDreamSkyLook Low = Look(1.0f, 1.0f), High = Look(60.0f, 60.0f);
+	TestTrue(FString::Printf(TEXT("the sun larger on the horizon (%.2f)"), Low.SunDiskScale), Low.SunDiskScale > 1.3f);
+	TestTrue(FString::Printf(TEXT("the moon too (%.2f)"), Low.MoonDiskScale), Low.MoonDiskScale > 1.3f);
+	TestNearlyEqual(TEXT("high up: as they are"), High.SunDiskScale, 1.0f, 1e-4f);
+	TestNearlyEqual(TEXT("the moon high up: as it is"), High.MoonDiskScale, 1.0f, 1e-4f);
+
+	// A modifier turns them toward its own.
+	UDreamSkyModifier* Modifier = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Modifier->Settings.bOverride_DiskScale = true;
+	Modifier->Settings.DiskScale = FVector2f(3.0f, 2.0f);
+	FDreamSkyLook Blended = High;
+	FDreamSkyLighting Lighting;
+	Modifier->Settings.Apply(Lighting, Blended, 0.5f);
+	TestNearlyEqual(TEXT("a modifier halfway: the sun's"), Blended.SunDiskScale, 2.0f, 1e-4f);
+	TestNearlyEqual(TEXT("the moon's"), Blended.MoonDiskScale, 1.5f, 1e-4f);
+
+	// What the dome is told: the disk larger, its glow wider; the sun light's source angle untouched.
+	FNightWorld W(FDateTime(2026, 6, 21, 19, 0, 0), 35.0, 139.7, 9.0f);
+	if (TestTrue(TEXT("world"), W.IsValid()))
+	{
+		const UDreamSkyStyle* Live = W.Sky->GetEffectiveStyle();
+		const float Scale = W.SkySubsystem->GetLook().SunDiskScale;
+		TestTrue(FString::Printf(TEXT("the evening sun drawn larger (%.2f)"), Scale), Scale > 1.1f);
+		TestNearlyEqual(TEXT("the disk's radius"), W.Parameter(MPC_SunDisk).A, Live->SunDiskSize * Scale, 1e-4f);
+		TestNearlyEqual(TEXT("its glow wider"), W.Parameter(MPC_SunHalo).A, FMath::Max(Live->SunHaloExponent / (Scale * Scale), 1.0f), 1e-4f);
+		const float SourceAngle = W.Sky->SunLight->LightSourceAngle;
+		W.Clock->Tick(0.016f);
+		TestNearlyEqual(TEXT("the light's source angle as it was"), W.Sky->SunLight->LightSourceAngle, SourceAngle, 1e-6f);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyTwilightCloudColoursTest, "DreamSky.Clouds.TwilightColours", DreamSky::NightTests::Flags)
+bool FDreamSkyTwilightCloudColoursTest::RunTest(const FString& Parameters)
+{
+	// The style's own cloud colours in the deep twilight and the night: a low-saturation grey-blue, not a glowing blue.
+	const UDreamSkyStyle* Style = GetDefault<UDreamSkyStyle>();
+	for (float Elevation : { -12.0f, -10.0f, -8.0f, -6.0f })
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = Elevation;
+		const FDreamSkyLook Look = Style->EvaluateLook(Celestial);
+		const FLinearColor S = Look.CloudShadow, L = Look.CloudLit;
+		TestTrue(FString::Printf(TEXT("sun %.0f: the shade low in saturation (%s)"), Elevation, *S.ToString()), S.B < 1.6f * FMath::Min(S.R, S.G));
+		TestTrue(FString::Printf(TEXT("sun %.0f: the lit side too (%s)"), Elevation, *L.ToString()), L.B < 1.45f * FMath::Min(L.R, L.G));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldQualityTest, "DreamSky.Quality", DreamSky::NightTests::Flags)
+bool FDreamWorldQualityTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+	IConsoleManager& Console = IConsoleManager::Get();
+	auto Int = [&Console](const TCHAR* Name) { const IConsoleVariable* V = Console.FindConsoleVariable(Name); return V ? V->GetInt() : -999; };
+	auto Float = [&Console](const TCHAR* Name) { const IConsoleVariable* V = Console.FindConsoleVariable(Name); return V ? V->GetFloat() : -999.0f; };
+	const int32 Saved = UDreamWorldQuality::GetQualityOverride();
+
+	// Every entry of the mapping table names a console variable that is there, with five levels.
+	for (int32 G = 0; G < 5; ++G)
+	{
+		for (const FDreamWorldQualitySetting& Setting : UDreamWorldQuality::QualityTable(EDreamWorldQualityGroup(G)))
+		{
+			TestNotNull(*FString::Printf(TEXT("%s is a console variable"), Setting.Name), Console.FindConsoleVariable(Setting.Name));
+		}
+	}
+	TestNotNull(TEXT("the wind's entry"), Console.FindConsoleVariable(TEXT("r.DreamWind.Quality")));
+
+	// Low: the flat clouds, coarse clouds, no shafts, the sky's extras gone, fewer particles, no volumetric fog.
+	UDreamWorldQuality::SetQualityOverride(0);
+	UDreamWorldQuality::Apply();
+	TestEqual(TEXT("low: every group low"), UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup::Sky) + UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup::Wind), 0);
+	TestEqual(TEXT("low: the flat clouds"), Int(TEXT("DreamSky.Clouds.Flat")), 1);
+	TestEqual(TEXT("low: the clouds at a quarter"), Int(TEXT("DreamSky.CloudRender.Downsample")), 4);
+	TestEqual(TEXT("low: no sky extras"), Int(TEXT("DreamSky.SkyDetail")), 0);
+	TestNearlyEqual(TEXT("low: fewer particles"), Float(TEXT("DreamWeather.ParticleDensity")), 0.35f, 1e-4f);
+	TestEqual(TEXT("low: no volumetric fog"), Int(TEXT("DreamSky.VolumetricFog")), 0);
+	{
+		// The dome is told: no halos, no meteors with the sky's extras gone.
+		FNightWorld W(FDateTime(2026, 8, 12, 23, 30, 0), 45.0, 10.0, 1.0f);
+		if (TestTrue(TEXT("world"), W.IsValid()))
+		{
+			W.Sky->GetEffectiveStyle()->CloudHighCover = 0.9f;
+			W.Clock->Tick(0.016f);
+			TestEqual(TEXT("low: no meteors drawn"), W.Parameter(MPC_Meteors).G, 0.0f);
+			TestEqual(TEXT("low: no halos"), W.Parameter(MPC_Halo).R, 0.0f);
+		}
+	}
+	// A value set by hand outlives the levels.
+	if (IConsoleVariable* Samples = Console.FindConsoleVariable(TEXT("DreamSky.CloudRender.Samples")))
+	{
+		Samples->Set(200, ECVF_SetByConsole);
+		UDreamWorldQuality::SetQualityOverride(1);
+		UDreamWorldQuality::Apply();
+		TestEqual(TEXT("set by hand: kept over the level's"), Int(TEXT("DreamSky.CloudRender.Samples")), 200);
+		TestEqual(TEXT("the rest at medium"), Int(TEXT("DreamSky.CloudRender.Downsample")), 3);
+		Samples->Set(160, ECVF_SetByConsole);
+	}
+	// Cinematic, then back to the engine's levels (epic by default: the tuned values).
+	UDreamWorldQuality::SetQualityOverride(4);
+	UDreamWorldQuality::Apply();
+	TestEqual(TEXT("cinematic: the clouds at full resolution"), Int(TEXT("DreamSky.CloudRender.Downsample")), 1);
+	TestEqual(TEXT("cinematic: the sun maps whole"), Int(TEXT("DreamSky.CloudRender.SunMapSlices")), 1);
+	UDreamWorldQuality::SetQualityOverride(Saved);
+	UDreamWorldQuality::Apply(true);
 	return true;
 }
 

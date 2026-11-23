@@ -6,6 +6,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamWorldTypes.h"
 #include "DreamWorldScheduler.h"
+#include "DreamWorldCalendar.h"
 #include "DreamWorldViewProbe.h"
 #include "DreamWorldSubsystem.generated.h"
 
@@ -17,6 +18,8 @@ class UDreamWorldSubsystem;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDreamWorldHourEvent, int32, Hour);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDreamWorldDateEvent, FDateTime, Date);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FDreamWorldEvent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FDreamWorldMinuteEvent, int32, Hour, int32, Minute);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FDreamWorldTimeEvent, FName, Name, float, Hour);
 
 /** Fired every frame after the clock moved and the sun and moon were placed; consumers update in this order. */
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDreamWorldTick, UDreamWorldSubsystem& /*World*/, float /*RealDeltaSeconds*/);
@@ -196,6 +199,25 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
 	FDreamWorldEvent OnTimeJumped;
 
+	/** A new game minute began (once a frame at most: a fast clock skips minutes, it reports the one it is in). */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldMinuteEvent OnMinuteChanged;
+
+	/** The clock passed a time registered with RegisterTimeEvent (each one it passed, in the frame it passed it). */
+	UPROPERTY(BlueprintAssignable, Category = "Dream World|Events")
+	FDreamWorldTimeEvent OnTimeEvent;
+
+	/** Have OnTimeEvent fire with Name each day the clock passes Hour (0..24; a name registered again moves it). */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Events")
+	void RegisterTimeEvent(FName Name, float Hour);
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Events")
+	void UnregisterTimeEvent(FName Name);
+
+	/** The date as the clock's calendar tells it (its custom calendar, or the Gregorian). */
+	UFUNCTION(BlueprintPure, Category = "Dream World|Clock")
+	FDreamCalendarDate GetCalendarDate() const;
+
 	/** Native per-frame hook that runs first, after the clock moved: what others depend on (the weather) updates here. */
 	FOnDreamWorldTick OnWorldPreTick;
 
@@ -286,6 +308,7 @@ private:
 	FDreamCelestialState Celestial;
 	FDreamWorldEnvironment Environment;
 	double LastEventSeconds = 0.0;
+	TMap<FName, float> TimeEvents;
 	float LastSunElevation = 0.0f;
 	bool bEventsPrimed = false;
 	bool bJumpPending = false;

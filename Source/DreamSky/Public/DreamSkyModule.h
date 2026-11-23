@@ -25,6 +25,17 @@ namespace DreamSky::Names
 	inline const FName MPC_StarLook(TEXT("DDW_StarLook"));        // the stars' size, twinkle speed, the stylized scatter's dimmest, -
 	inline const FName MPC_StarPole(TEXT("DDW_StarPole"));        // xyz the north celestial pole in the world, w 1 = the catalogue's stars (T_DreamStarMap), 0 = the stylized ones
 	inline const FName MPC_MoonLook(TEXT("DDW_MoonLook"));        // how soft the moon's terminator, how bright its earthshine at most, -, -
+	inline const FName MPC_Halo(TEXT("DDW_Halo"));                // the 22 degree ring, the sun dogs, the corona (each times how far it shows), the sheet's milkiness
+	inline const FName MPC_EarthShadow(TEXT("DDW_EarthShadow"));  // over the style's gradient: rgb the shadow's tint, a its height (sun depressions)
+	inline const FName MPC_EarthBelt(TEXT("DDW_EarthBelt"));      // rgb the Belt of Venus's tint, a how strongly both are drawn
+	inline const FName MPC_Noctilucent(TEXT("DDW_Noctilucent"));          // brightness (presence, twilight), altitude, band spacing (km), drift (km/s)
+	inline const FName MPC_NoctilucentColor(TEXT("DDW_NoctilucentColor")); // rgb, a = the billows' spacing (km)
+	inline const FName MPC_Meteors(TEXT("DDW_Meteors"));            // sporadic, shower meteors an hour (as the night shows them), the head's brightness, satellites an hour
+	inline const FName MPC_MeteorRadiant(TEXT("DDW_MeteorRadiant"));// xyz the shower's radiant in the world, w the satellites' brightness
+	inline const FName MPC_MeteorLook(TEXT("DDW_MeteorLook"));      // rgb the meteors' colour, a their trails' length
+	inline const FName MPC_FlatClouds(TEXT("DDW_FlatClouds"));      // the flat clouds: opacity (0 = not drawn), tones (0 smooth), the pattern's scale, the shadow's strength
+	inline const FName MPC_CloudClearing(TEXT("DDW_CloudClearing")); // the clouds' clearing round the lights: strength by the sun, by the moon, radius (degrees), falloff exponent
+	inline const FName MPC_Halo2(TEXT("DDW_Halo2"));              // the ring's radius, its width, the corona's first ring, the moon's drawn radius (degrees)
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
 	inline const FName MPC_AuroraShape2(TEXT("DDW_AuroraShape2")); // ray contrast, upward fade, the banded tones' first two levels
 	inline const FName MPC_AuroraShape3(TEXT("DDW_AuroraShape3")); // lower edge, top (km), the edge band's brightness, the oval's width (ArcWidths)

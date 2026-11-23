@@ -25,6 +25,23 @@ static TAutoConsoleVariable<int32> CVarDreamSkyStarField(
 	TEXT("The dome's stars whatever the style says: 0 the stylized scatter, 1 the catalogue's; -1 = the style's StarField."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarDreamSkySkyDetail(
+	TEXT("DreamSky.SkyDetail"), 2,
+	TEXT("How much of the night's and the high sky's detail the dome draws (the quality levels set it): 2 all of it; 1 no meteors,")
+	TEXT(" satellites or noctilucent clouds; 0 none of those, nor the aurora or the ice halos."),
+	ECVF_Scalability);
+
+static TAutoConsoleVariable<float> CVarDreamSkyMeteors(
+	TEXT("DreamSky.Meteors"), -1.0f,
+	TEXT("Scales the meteors' and satellites' rates whatever the style says (its Meteors.RateScale for the meteors, 1 for the")
+	TEXT(" satellites; 100 = a dense sky to look at); -1 = the style's."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarDreamSkyCloudClearing(
+	TEXT("DreamSky.CloudClearing"), -1.0f,
+	TEXT("Scales the clouds' clearing round the sun and the moon whatever the style says (0 = none, to compare); -1 = the style's."),
+	ECVF_Default);
+
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
 
 namespace DreamSky::Subsystem
@@ -185,6 +202,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
 	Look.Aurora = Style->EvaluateAuroraPresence(Clock.GetCelestialSettings());
+	Look.Noctilucent = Style->EvaluateNoctilucentPresence(Clock.GetCelestialSettings(), Clock.GetDateTime());
 	if (Style->Eclipse.bFromSunAndMoon && Clock.GetCelestialSettings().Mode == EDreamCelestialMode::Realistic)
 	{
 		FVector2D Offset;
@@ -195,7 +213,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	// (While the sky cloud renderer draws the clouds their shadow falls on the ground through the sun's light function:
 	// the overcast does not dim the sun light as well.)
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->DrawsClouds() && Sky->SunLight);
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, (Sky->DrawsClouds() || Sky->DrawsFlatClouds()) && Sky->SunLight);
 	// The physical sky (DreamAtmosphere) over the style's curves, as far as its grade says.
 	DreamSky::AtmosphereBridge::Apply(Clock, *Sky, *Style, Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
@@ -239,7 +257,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
 	bStylizedClouds = Sky->GetEffectiveCloudLook() != EDreamSkyCloudLook::Realistic;
-	WriteParameters(Clock, *Style, Sky->DrawsClouds());
+	WriteParameters(Clock, *Style, Sky->DrawsClouds(), Sky->DrawsFlatClouds());
 	LogLighting(Clock);
 	Applied = Modified;
 }
@@ -663,7 +681,7 @@ void UDreamSkySubsystem::ApplySnapshot(const FDreamWorldSnapshot& Snapshot)
 	}
 }
 
-void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds)
+void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds, bool bFlatClouds)
 {
 	using namespace DreamSky::Names;
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
@@ -671,10 +689,14 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_Zenith, With(Look.Zenith, 0.0f));
 	Clock.SetVectorParameter(MPC_Horizon, With(Look.Horizon, Look.HorizonExponent));
 	Clock.SetVectorParameter(MPC_Ground, With(Look.Ground, 0.0f));
-	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, Style.SunHaloExponent));
-	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize));
-	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
-	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
+	// (The disks as large as the look draws them -- larger near the horizon -- and their glows with them: a glow's
+	// exponent, its tightness, over the scale squared.)
+	const float SunScale = FMath::Max(Look.SunDiskScale, 0.05f);
+	const float MoonScale = FMath::Max(Look.MoonDiskScale, 0.05f);
+	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, FMath::Max(Style.SunHaloExponent / (SunScale * SunScale), 1.0f)));
+	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize * SunScale));
+	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize * MoonScale));
+	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, FMath::Max(Style.MoonHaloExponent / (MoonScale * MoonScale), 1.0f)));
 	Clock.SetVectorParameter(MPC_MoonLook, FLinearColor(FMath::Max(Style.MoonTerminatorSoftness, 0.002f), FMath::Max(Style.MoonEarthshine, 0.0f), 0.0f, 0.0f));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
 	Clock.SetVectorParameter(MPC_StarLook, FLinearColor(FMath::Max(Style.StarSize, 0.1f), FMath::Max(Style.StarTwinkleSpeed, 0.0f), FMath::Clamp(Style.StarDimmest, 0.0f, 1.0f), 0.0f));
@@ -716,7 +738,8 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
 		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
 		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
-		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
+		const float Strength = (CVarDreamSkySkyDetail.GetValueOnGameThread() >= 1 ? 1.0f : 0.0f)
+			* FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
 			* (Style.Aurora.bStylizedTones && bStylizedClouds ? -1.0f : 1.0f);
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
@@ -754,7 +777,74 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		DreamSky::CloudFormation(Clock.GetWorldSeconds(), Style.CloudFormationSpeed), 0.0f));
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
-	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Style.CloudHighCover, Style.CloudHighAltitude));
+	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The clouds clearing round the sun and the moon (the renderer and the dome read it).
+	{
+		const float Forced = CVarDreamSkyCloudClearing.GetValueOnGameThread();
+		const float Scale = Forced >= 0.0f ? Forced : 1.0f;
+		Clock.SetVectorParameter(MPC_CloudClearing, FLinearColor(FMath::Clamp(Look.SunClearing * Scale, 0.0f, 1.0f), FMath::Clamp(Look.MoonClearing * Scale, 0.0f, 1.0f),
+			Look.ClearingRadius, Look.ClearingExponent));
+	}
+	// The flat clouds, while the dome draws them instead of the renderer.
+	{
+		const FDreamSkyFlatClouds& F = Style.FlatClouds;
+		Clock.SetVectorParameter(MPC_FlatClouds, FLinearColor(bFlatClouds ? FMath::Clamp(F.Opacity, 0.0f, 1.0f) : 0.0f, float(FMath::Clamp(F.Tones, 0, 4)),
+			FMath::Max(F.Scale, 0.1f), FMath::Clamp(F.ShadowStrength, 0.0f, 1.0f)));
+	}
+	// Meteors and satellites: the sporadic ones, the shower of the date streaking from its radiant (as high as it stands:
+	// none with it under the horizon), as dark as the night is.
+	{
+		const FDreamSkyMeteors& MS = Style.Meteors;
+		MeteorShower = Style.EvaluateMeteorShower(Clock.GetDateTime());
+		using DreamWorld::Celestial::DirectionFromAngles;
+		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
+		const double Latitude = FMath::Clamp(Settings.Latitude, -89.9, 89.9);
+		const FVector Pole = DirectionFromAngles(Latitude, 0.0, Settings.NorthYaw);
+		const FVector Meridian = DirectionFromAngles(90.0 - Latitude, 180.0, Settings.NorthYaw);
+		const FVector East = DirectionFromAngles(0.0, 90.0, Settings.NorthYaw);
+		const double Hour = FMath::DegreesToRadians(double(Clock.GetCelestial().StarRotation));
+		const FVector Equinox = FMath::Cos(Hour) * Meridian - FMath::Sin(Hour) * East;
+		// (The catalogue stars' frame: x the equinox, z the pole, y = x cross z.)
+		const FVector X = (Equinox - Pole * FVector::DotProduct(Equinox, Pole)).GetSafeNormal();
+		const FVector Y = FVector::CrossProduct(X, Pole);
+		const double Ra = FMath::DegreesToRadians(double(MeteorShower.RightAscension));
+		const double Dec = FMath::DegreesToRadians(double(MeteorShower.Declination));
+		const FVector Radiant = (FMath::Cos(Dec) * (FMath::Cos(Ra) * X + FMath::Sin(Ra) * Y) + FMath::Sin(Dec) * Pole).GetSafeNormal();
+		const float Dark = MS.bEnabled ? UDreamSkyStyle::AuroraNight(Applied.SunElevation) * (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) : 0.0f;
+		const float Forced = CVarDreamSkyMeteors.GetValueOnGameThread();
+		const float Detail = CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2 ? 1.0f : 0.0f;
+		const float Scale = (Forced >= 0.0f ? Forced : FMath::Max(MS.RateScale, 0.0f)) * FMath::Max(Look.Meteors, 0.0f) * Dark * Detail;
+		const float Sporadic = FMath::Max(MS.SporadicPerHour, 0.0f) * Scale;
+		const float Shower = MeteorShower.ZenithalHourlyRate * FMath::Max(float(Radiant.Z), 0.0f) * Scale;
+		MeteorRate = Sporadic + Shower;
+		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) * Detail : 0.0f;
+		Clock.SetVectorParameter(MPC_Meteors, FLinearColor(Sporadic, Shower, FMath::Max(MS.Brightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f), Satellites));
+		Clock.SetVectorParameter(MPC_MeteorRadiant, FLinearColor(float(Radiant.X), float(Radiant.Y), float(Radiant.Z), FMath::Max(MS.SatelliteBrightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f)));
+		Clock.SetVectorParameter(MPC_MeteorLook, With(MS.Color, FMath::Max(MS.TrailLength, 0.2f)));
+	}
+	// Noctilucent clouds, as present as the world (or a modifier) says, in the deep twilight.
+	{
+		const FDreamSkyNoctilucent& N = Style.Noctilucent;
+		const float Strength = N.bEnabled && CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2
+			? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) : 0.0f;
+		Clock.SetVectorParameter(MPC_Noctilucent, FLinearColor(Strength, FMath::Clamp(N.Altitude, 40.0f, 150.0f), FMath::Max(N.BandSpacing, 1.0f), FMath::Max(N.Drift, 0.0f)));
+		Clock.SetVectorParameter(MPC_NoctilucentColor, With(N.Color, FMath::Max(N.BillowSpacing, 0.5f)));
+	}
+	// The earth's shadow and the Belt of Venus over the style's gradient (the physical sky has its own).
+	{
+		const FDreamSkyEarthShadow& E = Style.EarthShadow;
+		Clock.SetVectorParameter(MPC_EarthShadow, With(E.ShadowTint, FMath::Max(E.Height, 0.5f)));
+		Clock.SetVectorParameter(MPC_EarthBelt, With(E.BeltTint, E.bEnabled ? FMath::Clamp(E.Strength, 0.0f, 1.0f) : 0.0f));
+	}
+	// The ice halos under a sheet of high cloud, the corona in thinner cloud (the dome hides both under a closing overcast).
+	{
+		const FDreamSkyHalos& H = Style.Halos;
+		const FVector2f Shows = Style.EvaluateHaloPresence(Look.HighCover) * (CVarDreamSkySkyDetail.GetValueOnGameThread() >= 1 ? 1.0f : 0.0f);
+		Clock.SetVectorParameter(MPC_Halo, FLinearColor(FMath::Max(H.Intensity, 0.0f) * Shows.X, FMath::Max(H.SunDogs, 0.0f) * Shows.X,
+			FMath::Max(H.Corona, 0.0f) * Shows.Y, FMath::Clamp(H.Milkiness, 0.0f, 1.0f) * Shows.X));
+		Clock.SetVectorParameter(MPC_Halo2, FLinearColor(FMath::Clamp(H.Radius, 10.0f, 40.0f), FMath::Max(H.Width, 0.2f), FMath::Max(H.CoronaRadius, 0.5f),
+			FMath::Max(Style.MoonDiskSize * Look.MoonDiskScale, 0.0f)));
+	}
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));
 	// w: 1 while the sky cloud renderer draws the clouds (the dome's sky light capture then shows its panorama), 0 while

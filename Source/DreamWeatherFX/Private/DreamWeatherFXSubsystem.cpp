@@ -19,6 +19,8 @@
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
 #include "NiagaraSystem.h"
 
+#include "HAL/IConsoleManager.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamWeatherFXSubsystem)
 
 DECLARE_CYCLE_STAT(TEXT("DreamWeather Precipitation"), STAT_DreamWeatherPrecipitation, STATGROUP_Game);
@@ -30,9 +32,19 @@ namespace DreamWeatherFX
 	static const FName Starts(TEXT("User.Starts"));
 	static const FName Normals(TEXT("User.Normals"));
 	static const FName DropRate(TEXT("User.DropRate"));
+	static TAutoConsoleVariable<float> CVarParticleDensity(
+		TEXT("DreamWeather.ParticleDensity"), 1.0f,
+		TEXT("How many of the weather's particles (rain, snow, dust, their splashes) are spawned, of the style's (the quality levels set it)."),
+		ECVF_Scalability);
 	static const FName SplashRate(TEXT("User.SplashRate"));
 	static const FName Anywhere(TEXT("User.Anywhere"));
 	static const FName Presence(TEXT("User.Presence"));
+
+	static const TCHAR* LayerName(int32 Index)
+	{
+		static const TCHAR* Names[] = { TEXT("Rain"), TEXT("Snow"), TEXT("Dust"), TEXT("Hail"), TEXT("Sleet") };
+		return Index >= 0 && Index < UE_ARRAY_COUNT(Names) ? Names[Index] : TEXT("?");
+	}
 
 	/** Seconds an effect stays alive after its precipitation stopped (its last drops finish falling). */
 	static constexpr float IdleSecondsBeforeDeactivate = 8.0f;
@@ -59,6 +71,20 @@ UDreamWeatherFXSettings::UDreamWeatherFXSettings()
 	Dust.WindDrift = 1.0f;
 	Dust.MaxSlant = 12.0f;
 	WindDebris = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/Effects/NS_DreamWindLeaves.NS_DreamWindLeaves"));
+	Hail.System = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamHail.NS_DreamHail"));
+	Hail.DropsPerSecond = 9000.0f;
+	Hail.SplashesPerSecond = 3000.0f;
+	Hail.FallSpeed = 1800.0f;
+	Hail.WindDrift = 0.05f;
+	Hail.MaxSlant = 0.15f;
+	Hail.WindResponse = 0.05f;
+	Sleet.System = FSoftObjectPath(TEXT("/DreamDynamicWorld/Weather/Effects/NS_DreamSleet.NS_DreamSleet"));
+	Sleet.DropsPerSecond = 5000.0f;
+	Sleet.SplashesPerSecond = 500.0f;
+	Sleet.FallSpeed = 450.0f;
+	Sleet.WindDrift = 0.45f;
+	Sleet.MaxSlant = 1.0f;
+	Sleet.WindResponse = 0.5f;
 }
 
 UDreamWeatherFXSubsystem* UDreamWeatherFXSubsystem::Get(const UObject* WorldContextObject)
@@ -285,6 +311,8 @@ void UDreamWeatherFXSubsystem::HandleWeatherFrame(UDreamWorldSubsystem& Clock, U
 	}
 	UpdateLayer(RainLayer, S->Rain, FMath::Clamp(View.Rain, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
 	UpdateLayer(SnowLayer, S->Snow, FMath::Clamp(View.Snow, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
+	UpdateLayer(HailLayer, S->Hail, FMath::Clamp(View.Hail, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
+	UpdateLayer(SleetLayer, S->Sleet, FMath::Clamp(View.Sleet, 0.0f, 1.0f), Weather, ViewLocation, Forward, Wind, DeltaTime);
 
 	// Blown dust, and the debris of a strong wind: both on the dust layer's nearly flat paths, which run while either blows.
 	FLinearColor DebrisColor;
@@ -410,8 +438,10 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 
 	const int32 Count = State.Paths.GetEnds().Num();
 	const float Landed = Count > 0 ? float(State.Paths.CountLanded()) / float(Count) : 0.0f;
-	State.DropRate = Layer.DropsPerSecond * Strength * FMath::Clamp(DropShare, 0.0f, 1.0f);
-	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed;
+	// (As many as the quality's particle density allows.)
+	const float Density = FMath::Max(DreamWeatherFX::CVarParticleDensity.GetValueOnGameThread(), 0.0f);
+	State.DropRate = Layer.DropsPerSecond * Strength * FMath::Clamp(DropShare, 0.0f, 1.0f) * Density;
+	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed * Density;
 
 	Effect = EnsureEffect(Index, Layer, ViewLocation);
 	if (!Effect)
@@ -440,7 +470,7 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 		State.bFillPending = true;
 		Effect->Activate(true);
 		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s starts: %d paths (%.0f%% landed), %.0f drops/s, %.0f splashes/s, falling (%.0f, %.0f, %.0f) cm/s"),
-			Index == RainLayer ? TEXT("Rain") : Index == SnowLayer ? TEXT("Snow") : TEXT("Dust"), Count, Landed * 100.0f, State.DropRate, State.SplashRate,
+			DreamWeatherFX::LayerName(Index), Count, Landed * 100.0f, State.DropRate, State.SplashRate,
 			State.FallVelocity.X, State.FallVelocity.Y, State.FallVelocity.Z);
 	}
 
@@ -462,10 +492,11 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 		SpawnAnywhere = InTheAir / FMath::Max(InTheAir + State.DropRate * DeltaTime, 1.0f);
 		State.FillCount = InTheAir;
 		UE_LOG(LogDreamWeatherFX, Display, TEXT("%s fills the air: %.0f drops (%.1f s average fall)"),
-			Index == RainLayer ? TEXT("Rain") : Index == SnowLayer ? TEXT("Snow") : TEXT("Dust"), InTheAir, float(FallSeconds / double(Count)));
+			DreamWeatherFX::LayerName(Index), InTheAir, float(FallSeconds / double(Count)));
 	}
 	Effect->SetVariableFloat(DropRate, SpawnRate);
 	Effect->SetVariableFloat(SplashRate, State.SplashRate);
+	Effect->SetVariableFloat(TEXT("User.WindResponse"), FMath::Max(Layer.WindResponse, 0.0f));
 	Effect->SetVariableFloat(Anywhere, SpawnAnywhere);
 	if (Index == DustLayer)
 	{
@@ -507,7 +538,7 @@ void UDreamWeatherFXSubsystem::UpdateDebris(UDreamWorldSubsystem& Clock, float S
 	using namespace DreamWeatherFX;
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
 	const FLayerState& Blown = States[DustLayer];
-	DebrisRate = S->DebrisPerSecond * FMath::Max(Strength, 0.0f);
+	DebrisRate = S->DebrisPerSecond * FMath::Max(Strength, 0.0f) * FMath::Max(DreamWeatherFX::CVarParticleDensity.GetValueOnGameThread(), 0.0f);
 	if (DebrisRate <= 0.0f && !DebrisEffect)
 	{
 		return;

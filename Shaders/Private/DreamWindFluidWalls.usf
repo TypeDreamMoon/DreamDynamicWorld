@@ -1,0 +1,50 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The wind fluid's walls from the engine's global distance field, in a view's post-processing (where the renderer has
+// it up to date). Cells not known yet (-1: new in the grid) are looked up every frame, the others one slab of cells in
+// RefreshPeriod at a time (moving buildings). A cell outside every clipmap stays unknown: the fluid falls back to the
+// terrain map's heights there.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/DistanceField/GlobalDistanceFieldShared.ush"
+
+int3 Resolution;
+float CellSize;            // cm
+float3 TranslatedOrigin;   // the grid's lowest corner, translated world space
+float WallThickness;       // a surface within this fraction of a cell of the centre makes a wall
+int RefreshPhase;
+int RefreshPeriod;
+RWTexture3D<float> Theta;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void WallsCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (any(C >= Resolution))
+	{
+		return;
+	}
+	const float Old = Theta[C];
+	if (Old >= 0.0f && (C.x % RefreshPeriod) != RefreshPhase)
+	{
+		return;
+	}
+	const float3 Position = TranslatedOrigin + (float3(C) + 0.5f) * CellSize;
+	bool bCovered = false;
+	for (uint Clipmap = 0; Clipmap < NumGlobalSDFClipmaps; ++Clipmap)
+	{
+		const float4 CenterExtent = GlobalVolumeTranslatedCenterAndExtent[Clipmap];
+		if (ComputeDistanceFromBoxToPointInside(CenterExtent.xyz, CenterExtent.www, Position) > CenterExtent.w * GlobalVolumeTexelSize)
+		{
+			bCovered = true;
+			break;
+		}
+	}
+	if (!bCovered)
+	{
+		Theta[C] = -1.0f;
+		return;
+	}
+	const float Distance = GetDistanceToNearestSurfaceGlobal(Position);
+	Theta[C] = saturate((WallThickness * CellSize - Distance) / CellSize + 0.5f);
+}

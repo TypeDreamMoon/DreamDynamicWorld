@@ -168,8 +168,63 @@ bool UDreamWindEditorLibrary::EnsureAssets(bool bSaveAssets)
 	const bool bMPC = EnsureParameterCollection(bSaveAssets) != nullptr;
 	const bool bRT = EnsureVolumeTexture(bSaveAssets) != nullptr;
 	const bool bTerrain = EnsureTerrainTexture(bSaveAssets) != nullptr;
+	const bool bRuntimeTerrain = EnsureRuntimeTerrainTextures(bSaveAssets);
 	const bool bPresets = EnsurePresets(bSaveAssets);
-	return bMPC && bRT && bTerrain && bPresets;
+	return bMPC && bRT && bTerrain && bRuntimeTerrain && bPresets;
+}
+
+UTextureRenderTarget2D* UDreamWindEditorLibrary::EnsureRuntimeTerrainTexture(const FSoftObjectPath& Path, EPixelFormat Format, bool bSaveAsset)
+{
+	using namespace DreamWind::EditorSetup;
+	FString PackageName, AssetName;
+	if (!SplitAssetPath(Path, PackageName, AssetName))
+	{
+		return nullptr;
+	}
+	// A ring buffer over the world, written by a compute pass: wrap addressing, UAV, 256 texels a side (the wind sizes it
+	// at run time to the level's resolution).
+	constexpr int32 Size = 256;
+	UTextureRenderTarget2D* RT = Cast<UTextureRenderTarget2D>(Path.TryLoad());
+	bool bCreated = false;
+	if (!RT)
+	{
+		UPackage* Package = CreatePackage(*PackageName);
+		Package->FullyLoad();
+		RT = NewObject<UTextureRenderTarget2D>(Package, *AssetName, RF_Public | RF_Standalone);
+		bCreated = true;
+	}
+	if (bCreated || RT->GetFormat() != Format || !RT->bSupportsUAV || RT->AddressX != TA_Wrap || RT->AddressY != TA_Wrap)
+	{
+		RT->PreEditChange(nullptr);
+		RT->ClearColor = FLinearColor(1, 0, 0, 0);
+		RT->AddressX = TA_Wrap;
+		RT->AddressY = TA_Wrap;
+		RT->bSupportsUAV = true;
+		RT->InitCustomFormat(Size, Size, Format, true);
+		RT->PostEditChange();
+		RT->UpdateResourceImmediate(true);
+		RT->MarkPackageDirty();
+		if (bSaveAsset)
+		{
+			SavePackageFor(RT);
+		}
+	}
+	if (bCreated)
+	{
+		FAssetRegistryModule::AssetCreated(RT);
+	}
+	UE_LOG(LogDreamWind, Display, TEXT("Runtime terrain render target %s: %s"), *RT->GetPathName(), bCreated ? TEXT("created") : TEXT("up to date"));
+	return RT;
+}
+
+bool UDreamWindEditorLibrary::EnsureRuntimeTerrainTextures(bool bSaveAssets)
+{
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	bool bOk = EnsureRuntimeTerrainTexture(Settings->TerrainNearTexture, PF_A32B32G32R32F, bSaveAssets) != nullptr;
+	bOk &= EnsureRuntimeTerrainTexture(Settings->TerrainFarTexture, PF_A32B32G32R32F, bSaveAssets) != nullptr;
+	bOk &= EnsureRuntimeTerrainTexture(Settings->HeightNearTexture, PF_R32_FLOAT, bSaveAssets) != nullptr;
+	bOk &= EnsureRuntimeTerrainTexture(Settings->HeightFarTexture, PF_R32_FLOAT, bSaveAssets) != nullptr;
+	return bOk;
 }
 
 bool UDreamWindEditorLibrary::EnsurePresets(bool bSaveAssets)

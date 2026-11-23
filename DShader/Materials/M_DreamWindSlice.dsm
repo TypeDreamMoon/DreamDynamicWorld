@@ -1,0 +1,214 @@
+// DreamWind slice: one layer of the wind field painted on a plane (ADreamWindSliceActor, console DreamWind.Slice).
+//
+//   Mode 0  the whole wind (analytic + terrain + volume): hue = horizontal direction (+X red, +Y green, -X cyan),
+//           brightness = speed / SpeedForFullBrightness
+//   Mode 1  the terrain map alone: grey = how much wind the shadow leaves (white = all, black = none, red = inside a
+//           solid); warm where the map speeds the wind up (ridges), cool where it slows it (hollows)
+//   Mode 2  the dynamic volume alone: its residual (the fluid's deviation from the background), hue = direction,
+//           brightness = |residual| / (SpeedForFullBrightness / 2); a thin line marks the near window's edge; the fluid's
+//           walls grey
+//   Mode 4  the runtime terrain map alone (as mode 1)
+//   Mode 5  the fluid's residual divergence (black = none, red 5 %, yellow 10 % of the speed), walls grey
+//
+// The maths is the shared header's, as MF_DreamWindSample runs it; only the split into layers is here.
+
+Function float3 DreamWind_Slice(
+	in float3 WorldPos,
+	in float4 P0, in float4 P1, in float4 P2,
+	in float4 V0, in float4 V1, in float4 V2, in float4 V3,
+	in float4 T0, in float4 T1, in float4 T2,
+	in VolumeTexture Volume, in VolumeTexture VolumeFar,
+	in Texture2D Terrain,
+	in Texture2D L1NearMap, in Texture2D L1FarMap,
+	in float4 L1Near, in float4 L1Far, in float4 L1Params,
+	in float Mode,
+	in float SpeedFull)
+{
+	#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+	FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
+	FDreamWindSample S = DW_SampleAnalyticCheap(P, WorldPos);
+	if (Mode > 4.5f)
+	{
+		// The fluid's residual divergence (DreamWind.Fluid.ShowDivergence puts it in the volumes' w; the slice turns it on):
+		// black = divergence free, red at 5 % of the speed, yellow at 10 %; walls grey; the near level, the far one beyond.
+		FDreamWindVolumeParams DVP = DW_UnpackVolume(V0, V1);
+		FDreamWindVolumeParams DVPF = DW_UnpackVolume(V2, V3);
+		float W = -2.0f;
+		if (DW_VolumeMask(WorldPos, DVP) > 0.0f)
+		{
+			W = Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, DVP), 0).w;
+		}
+		else if (DW_VolumeMask(WorldPos, DVPF) > 0.0f)
+		{
+			W = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, DVPF), 0).w;
+		}
+		if (W < -1.5f)
+		{
+			return float3(0.1f, 0.1f, 0.15f);   // outside both grids
+		}
+		if (W < -0.5f)
+		{
+			return float3(0.45f, 0.45f, 0.45f);
+		}
+		return float3(saturate(W / 0.05f), saturate(W / 0.05f - 1.0f), 0.0f);
+	}
+	if (Mode > 3.5f)
+	{
+		// The runtime terrain map alone: grey = how much of the wind it leaves at this height, warm where it speeds it up.
+		FDreamWindL1Level LN = DW_UnpackL1Level(L1Near);
+		FDreamWindL1Level LF = DW_UnpackL1Level(L1Far);
+		FDreamWindL1Params LP = DW_UnpackL1Params(L1Params);
+		float WN = DW_L1Weight(WorldPos, LN);
+		float WF = DW_L1Weight(WorldPos, LF);
+		float4 TN = WN > 0.0f ? L1NearMap.SampleLevel(L1NearMapSampler, DW_L1UV(WorldPos, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		float4 TF = WF > 0.0f ? L1FarMap.SampleLevel(L1FarMapSampler, DW_L1UV(WorldPos, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		FDreamWindSample Unit = (FDreamWindSample)0;
+		Unit.Velocity = float3(P.BaseDirection.x, P.BaseDirection.y, 0.0f);
+		Unit.Gust = 1.0f;
+		FDreamWindSample O = DW_ApplyL1(Unit, WorldPos, TN, WN, TF, WF, LP);
+		float Left = length(O.Velocity);
+		float3 Grey = float3(1.0f, 1.0f, 1.0f) * saturate(Left);
+		float3 Warm = lerp(Grey, float3(1.0f, 0.75f, 0.35f), saturate((Left - 1.0f) * 2.0f));
+		float Covered = max(WN, WF);
+		return lerp(float3(0.15f, 0.15f, 0.15f), Warm, Covered) + float3(0.0f, 0.0f, 0.25f) * WN * (1.0f - WN) * 4.0f;
+	}
+	float Shadow = 0.0f;
+	float SpeedMul = 1.0f;
+	float Solid = 0.0f;
+	FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
+	float2 TUV = DW_TerrainUV(WorldPos, TP);
+	float Inside = DW_TerrainInside(TUV, TP);
+	// The whole wind takes the runtime terrain map where it runs, as MF_DreamWindSample does (mode 1 stays the baked map).
+	{
+		FDreamWindL1Level RN = DW_UnpackL1Level(L1Near);
+		FDreamWindL1Level RF = DW_UnpackL1Level(L1Far);
+		if (Mode < 0.5f && (RN.Mode > 0.5f || RF.Mode > 0.5f))
+		{
+			float RWN = DW_L1Weight(WorldPos, RN);
+			float RWF = DW_L1Weight(WorldPos, RF);
+			float4 RTN = RWN > 0.0f ? L1NearMap.SampleLevel(L1NearMapSampler, DW_L1UV(WorldPos, RN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+			float4 RTF = RWF > 0.0f ? L1FarMap.SampleLevel(L1FarMapSampler, DW_L1UV(WorldPos, RF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+			S = DW_ApplyL1(S, WorldPos, RTN, RWN, RTF, RWF, DW_UnpackL1Params(L1Params));
+			Inside = 0.0f;
+		}
+	}
+	if (Inside > 0.0f)
+	{
+		float4 Texel = Terrain.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0);
+		SpeedMul = lerp(1.0f, max(Texel.x, 0.0f), saturate(TP.SpeedScale));
+		S = DW_ApplyTerrain(S, Texel, TP, Inside);
+		if (DW_OcclusionActive(TP, length(float2(S.Velocity.x, S.Velocity.y))))
+		{
+			Solid = DW_OcclusionSelf(DW_TerrainHeight(Texel, TP), WorldPos.z);
+			Shadow = Solid;
+			const float2 UpDir = -normalize(float2(S.Velocity.x, S.Velocity.y));
+			[unroll]
+			for (int k = 1; k <= DW_OCCLUSION_TAPS; ++k)
+			{
+				const int Level = DW_OcclusionTapLevel(k, TP);
+				const float TapDist = DW_OcclusionTapDistance(k, TP);
+				const float2 TapXY = DW_OcclusionXYAt(WorldPos, UpDir, TapDist);
+				const float2 TapUV = DW_TerrainUV(float3(TapXY.x, TapXY.y, WorldPos.z), TP);
+				if (DW_TerrainInside(TapUV, TP) <= 0.0f)
+				{
+					break;
+				}
+				const float MidDist = DW_OcclusionMidDistance(k, TP);
+				const float2 MidXY = DW_OcclusionXYAt(WorldPos, UpDir, MidDist);
+				const float2 MidUV = DW_TerrainUV(float3(MidXY.x, MidXY.y, WorldPos.z), TP);
+				Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(Terrain.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(MidUV, Level, TP), 0), TP), WorldPos.z, MidDist, TP);
+				Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(Terrain.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TapUV, Level, TP), 0), TP), WorldPos.z, TapDist, TP);
+			}
+			S = DW_ApplyOcclusion(S, Shadow, TP);
+		}
+	}
+
+	FDreamWindVolumeParams VP = DW_UnpackVolume(V0, V1);
+	FDreamWindVolumeParams VPF = DW_UnpackVolume(V2, V3);
+	float NearMask = DW_VolumeMask(WorldPos, VP);
+	float FarMask = DW_VolumeMask(WorldPos, VPF);
+	float3 Residual = float3(0.0f, 0.0f, 0.0f);
+	float Wall = 0.0f;
+	if (FarMask > 0.0f)
+	{
+		float4 FarTexel = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0);
+		Residual = FarTexel.xyz * FarMask;
+		Wall = saturate(FarTexel.w) * FarMask;
+	}
+	if (NearMask > 0.0f)
+	{
+		float4 NearTexel = Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0);
+		Residual = lerp(Residual, NearTexel.xyz, NearMask);
+		Wall = lerp(Wall, saturate(NearTexel.w), NearMask);
+	}
+
+	float Full = max(SpeedFull, 1.0f);
+	if (Mode < 0.5f)
+	{
+		float3 V = S.Velocity + Residual;
+		float Speed = length(V);
+		float3 Dir = V / max(Speed, 0.001f);
+		return saturate(float3(Dir.x, Dir.y, -Dir.x) * 0.5f + 0.5f) * saturate(Speed / Full);
+	}
+	if (Mode < 1.5f)
+	{
+		float Left = 1.0f - saturate(Shadow) * saturate(TP.OcclusionStrength);
+		float3 Tint = SpeedMul >= 1.0f ? lerp(float3(1.0f, 1.0f, 1.0f), float3(1.0f, 0.75f, 0.35f), saturate((SpeedMul - 1.0f) * 2.0f))
+		                               : lerp(float3(1.0f, 1.0f, 1.0f), float3(0.4f, 0.6f, 1.0f), saturate((1.0f - SpeedMul) * 2.0f));
+		float3 C = Tint * Left * Inside + float3(0.15f, 0.15f, 0.15f) * (1.0f - Inside);
+		return lerp(C, float3(0.8f, 0.05f, 0.05f), saturate(Solid));
+	}
+	float R = length(Residual);
+	float3 RDir = Residual / max(R, 0.001f);
+	float3 C2 = saturate(float3(RDir.x, RDir.y, -RDir.x) * 0.5f + 0.5f) * saturate(R / (Full * 0.5f));
+	// the near window's edge
+	float3 Edge = abs(WorldPos - VP.Center) * VP.InvExtent * 2.0f;
+	float Border = max(Edge.x, Edge.y);
+	C2 += float3(0.6f, 0.6f, 0.6f) * saturate(1.0f - abs(Border - 1.0f) * 60.0f) * VP.Enabled;
+	// the fluid's walls (its volumes' w), grey
+	return lerp(C2, float3(0.45f, 0.45f, 0.45f), saturate(Wall) * 0.8f);
+}
+
+Shader(Name="Wind/Materials/M_DreamWindSlice", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		float Mode = 0.0 [Group="Debug"; Desc="0 = the whole wind, 1 = the baked terrain map (shadow, speed-up), 2 = the dynamic volume, 4 = the runtime terrain map, 5 = the fluid's residual divergence"];
+		float SpeedForFullBrightness = 1200.0 [Group="Debug"; Desc="cm/s that maps to full brightness"];
+		const VolumeTexture WindVolume    = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolume");
+		const VolumeTexture WindVolumeFar = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolumeFar");
+		const Texture2D     WindTerrain   = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrain");
+		const Texture2D     WindL1NearMap = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrainNear");
+		const Texture2D     WindL1FarMap  = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrainFar");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Near") L1Near;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Far") L1Far;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Params") L1Params;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P0") P0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P1") P1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P2") P2;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_V0") V0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_V1") V1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_V2") V2;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_V3") V3;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_T0") T0;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_T1") T1;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_T2") T2;
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Opaque";
+		ShadingModel = "Unlit";
+		TwoSided = true;
+	}
+
+	Outputs = {
+		vec3 Color;
+		Base.EmissiveColor = Color;
+	}
+
+	Graph = {
+		float3 WorldPos = UE.WorldPosition();
+		Color = DreamWind_Slice(WorldPos, P0, P1, P2, V0, V1, V2, V3, T0, T1, T2, WindVolume, WindVolumeFar, WindTerrain, WindL1NearMap, WindL1FarMap, L1Near, L1Far, L1Params, Mode, SpeedForFullBrightness);
+	}
+}

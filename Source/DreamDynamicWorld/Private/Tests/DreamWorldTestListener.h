@@ -23,6 +23,8 @@ public:
 	int32 Sunrises = 0;
 	int32 Sunsets = 0;
 	int32 Jumps = 0;
+	int32 Minutes = 0;
+	TArray<FName> Times;
 
 	UFUNCTION()
 	void HandleHour(int32 Hour) { ++Hours; LastHour = Hour; }
@@ -38,4 +40,10 @@ public:
 
 	UFUNCTION()
 	void HandleJump() { ++Jumps; }
+
+	UFUNCTION()
+	void HandleMinute(int32 Hour, int32 Minute) { ++Minutes; }
+
+	UFUNCTION()
+	void HandleTime(FName Name, float Hour) { Times.Add(Name); }
 };

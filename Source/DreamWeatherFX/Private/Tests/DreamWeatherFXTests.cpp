@@ -199,6 +199,13 @@ bool FDreamWeatherFXAssetsTest::RunTest(const FString& Parameters)
 		System->GetExposedParameters().GetParameters(Exposed);
 		return Exposed.ContainsByPredicate([](const FNiagaraVariable& V) { return V.GetName() == TEXT("User.Starts"); });
 	};
+	// Hail and sleet: their effects built, their wind responses (hail hardly any, sleet about half, rain whole).
+	TestNotNull(TEXT("the hail effect is built (DFX/Effects/NS_DreamHail.dfs)"), Cast<UNiagaraSystem>(S->Hail.System.TryLoad()));
+	TestNotNull(TEXT("the sleet effect is built (DFX/Effects/NS_DreamSleet.dfs)"), Cast<UNiagaraSystem>(S->Sleet.System.TryLoad()));
+	TestNearlyEqual(TEXT("hail hardly takes the wind"), S->Hail.WindResponse, 0.05f, 1e-6f);
+	TestNearlyEqual(TEXT("sleet half"), S->Sleet.WindResponse, 0.5f, 1e-6f);
+	TestNearlyEqual(TEXT("rain all of it"), S->Rain.WindResponse, 1.0f, 1e-6f);
+	TestTrue(TEXT("hail falls faster than rain"), S->Hail.FallSpeed > S->Rain.FallSpeed);
 	for (const FSoftObjectPath& Path : { S->Rain.System, S->Snow.System, S->Dust.System, S->WindDebris })
 	{
 		TestTrue(FString::Printf(TEXT("%s takes the paths' starts (User.Starts)"), *Path.GetAssetName()), TakesStarts(Cast<UNiagaraSystem>(Path.TryLoad())));

@@ -1,0 +1,33 @@
+// M_DreamWindProbeSlice.dss -- a slice of the engine's global distance field as the wind reads it (ADreamWindSliceActor,
+// console DreamWind.Slice 3): red inside or on a surface, white near one, fading to blue over Range metres; magenta where
+// the view had no global distance field that frame.
+#pragma material(ShadingModel = Unlit, TwoSided = true)
+
+/// The slice the wind's probe writes (R = distance in m, G = the view's clipmap count, B = inside the clipmaps).
+/// @default /Engine/EngineResources/Black
+uniform Texture2D ProbeSlice;
+
+/// @desc Where the slice lies: its middle x, y (world cm), 1 / its width (1/cm), the distance (m) that maps to full blue
+uniform float4 ProbeMap = float4(0.0, 0.0, 0.0003333, 5.0);
+
+/// @custom
+float3 DreamWindProbe_Color(float4 Texel, float Range)
+{
+	if (Texel.g < 0.5)
+	{
+		return float3(1.0, 0.0, 1.0);
+	}
+	float D = Texel.r;
+	if (D <= 0.05)
+	{
+		return float3(0.85, 0.05, 0.05);
+	}
+	return lerp(float3(1.0, 1.0, 1.0), float3(0.1, 0.25, 0.9), saturate(D / max(Range, 0.01)));
+}
+
+export void M_DreamWindProbeSlice(inout material m)
+{
+	float2 UV = (UE.WorldPosition().XYZ.xy - ProbeMap.xy) * ProbeMap.z + 0.5;
+	float4 Texel = ProbeSlice.SampleLevel(saturate(UV), 0.0);
+	m.EmissiveColor = DreamWindProbe_Color(Texel, ProbeMap.w);
+}
