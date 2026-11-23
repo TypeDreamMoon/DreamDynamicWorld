@@ -145,6 +145,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
 	Look.HighCover = FMath::Clamp(CloudHighCover, 0.0f, 1.0f);
+	Look.Meteors = 1.0f;
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
@@ -165,6 +166,51 @@ float UDreamSkyStyle::EvaluateAuroraPresence(const FDreamCelestialSettings& Sett
 	const float From = FMath::Min(Aurora.StartLatitude, Aurora.FullLatitude);
 	const float To = FMath::Max(Aurora.StartLatitude, Aurora.FullLatitude);
 	return To > From ? FMath::SmoothStep(From, To, Latitude) : (Latitude >= To ? 1.0f : 0.0f);
+}
+
+FDreamSkyMeteors::FDreamSkyMeteors()
+{
+	// The seven strongest yearly showers (the International Meteor Organization's working list).
+	auto Add = [this](const TCHAR* Name, int32 Month, int32 Day, float Width, float Ra, float Dec, float Zhr)
+	{
+		FDreamSkyMeteorShower& S = Showers.AddDefaulted_GetRef();
+		S.Name = FName(Name);
+		S.PeakMonth = Month;
+		S.PeakDay = Day;
+		S.WidthDays = Width;
+		S.RightAscension = Ra;
+		S.Declination = Dec;
+		S.ZenithalHourlyRate = Zhr;
+	};
+	Add(TEXT("Quadrantids"), 1, 4, 0.6f, 230.0f, 49.0f, 110.0f);
+	Add(TEXT("Lyrids"), 4, 22, 1.5f, 272.0f, 33.0f, 18.0f);
+	Add(TEXT("EtaAquariids"), 5, 6, 4.0f, 338.0f, -1.0f, 50.0f);
+	Add(TEXT("Perseids"), 8, 12, 2.5f, 48.0f, 58.0f, 100.0f);
+	Add(TEXT("Orionids"), 10, 21, 3.0f, 95.0f, 16.0f, 20.0f);
+	Add(TEXT("Leonids"), 11, 17, 1.0f, 152.0f, 22.0f, 15.0f);
+	Add(TEXT("Geminids"), 12, 14, 1.5f, 112.0f, 33.0f, 150.0f);
+}
+
+FDreamSkyShowerActivity UDreamSkyStyle::EvaluateMeteorShower(const FDateTime& Date) const
+{
+	FDreamSkyShowerActivity Best;
+	const double Day = double(Date.GetDayOfYear()) + Date.GetTimeOfDay().GetTotalHours() / 24.0;
+	for (const FDreamSkyMeteorShower& S : Meteors.Showers)
+	{
+		const int32 Month = FMath::Clamp(S.PeakMonth, 1, 12);
+		const int32 PeakDay = FMath::Clamp(S.PeakDay, 1, FDateTime::DaysInMonth(Date.GetYear(), Month));
+		double Days = FMath::Abs(Day - double(FDateTime(Date.GetYear(), Month, PeakDay).GetDayOfYear()));
+		Days = FMath::Min(Days, 365.25 - Days);
+		const float Rate = S.ZenithalHourlyRate * float(FMath::Exp(-0.5 * FMath::Square(Days / FMath::Max(double(S.WidthDays), 0.1))));
+		if (Rate > Best.ZenithalHourlyRate && Rate > 1.0f)
+		{
+			Best.Name = S.Name;
+			Best.ZenithalHourlyRate = Rate;
+			Best.RightAscension = S.RightAscension;
+			Best.Declination = S.Declination;
+		}
+	}
+	return Best;
 }
 
 float UDreamSkyStyle::EvaluateNoctilucentPresence(const FDreamCelestialSettings& Settings, const FDateTime& Date) const

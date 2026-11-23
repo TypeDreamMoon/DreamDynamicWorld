@@ -650,6 +650,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Aurora = 0.0f;
 	/** How present noctilucent clouds are, 0..1 (where and when the world is, or a modifier's); the twilight goes on when they are drawn. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Noctilucent = 0.0f;
+	/** Scales the meteors' and satellites' rates (1 the style's; a modifier's scale on it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Meteors = 1.0f;
 	/** How strong the city's light is at the horizon (the style's LightPollution, or a modifier's), in the dome's measure. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
 	/** Scales the night sky's own glow (the style's Airglow). */
@@ -678,4 +680,24 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudCoverageAdded = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarknessKept = 1.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float CloudDarknessAdded = 0.0f;
+};
+
+/** What the meteor showers give on a date: the strongest shower then, its rate and its radiant. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyShowerActivity
+{
+	GENERATED_BODY()
+
+	/** The shower (none when no shower is active). */
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	FName Name;
+
+	/** Its zenithal hourly rate on that date (the peak's, as far as the date is from it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float ZenithalHourlyRate = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float RightAscension = 0.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Meteors")
+	float Declination = 90.0f;
 };

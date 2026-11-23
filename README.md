@@ -344,6 +344,20 @@ under, in full from 7 to 13 (`UDreamSkyStyle::NoctilucentTwilight`), as bright a
 in the dome's measure, the same under every look; a sky modifier's *Noctilucent* brings them anywhere (the showcase's
 evening has them from 17:30 to 20).
 
+**Meteors and satellites.** On a dark night the dome draws meteors: short streaks along great circles, brightest at
+the head with the trail fading behind, flaring and dying out within a second -- sporadic ones from anywhere
+(`SporadicPerHour`, 8), and the yearly showers by the world's date streaking away from their radiant among the stars
+(the Quadrantids, Lyrids, Eta Aquariids, Perseids, Orionids, Leonids and Geminids, each at its peak date and radiant,
+falling off over `WidthDays`; the rate their zenithal hourly rate times how high the radiant stands, none with it under
+the horizon). `RateScale` (3) multiplies every rate -- real ones are sparse for a game -- and a sky modifier's *Meteors*
+scales them again (the showcase's clear night has a storm, ten times over). Satellites the sun still lights after
+dusk cross on great circles some 550 km up in about five minutes (`SatellitesPerHour`, 12), fading into the earth's
+shadow partway across, as a real pass does. `Brightness`, `Color`, `TrailLength` and `SatelliteBrightness` set how they
+look; they are drawn in real seconds, behind the clouds and the moon, not in the sky light.
+`UDreamSkySubsystem::GetMeteorShower` says which shower is active on the date and how strong, `GetMeteorRate` how many
+meteors an hour are drawn now; the style's `Meteors.Showers` is the list. `DreamSky.Meteors <scale>` scales the rates
+whatever the style says (100 fills the sky to look at; -1 = the style's).
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

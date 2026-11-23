@@ -30,6 +30,9 @@ namespace DreamSky::Names
 	inline const FName MPC_EarthBelt(TEXT("DDW_EarthBelt"));      // rgb the Belt of Venus's tint, a how strongly both are drawn
 	inline const FName MPC_Noctilucent(TEXT("DDW_Noctilucent"));          // brightness (presence, twilight), altitude, band spacing (km), drift (km/s)
 	inline const FName MPC_NoctilucentColor(TEXT("DDW_NoctilucentColor")); // rgb, a = the billows' spacing (km)
+	inline const FName MPC_Meteors(TEXT("DDW_Meteors"));            // sporadic, shower meteors an hour (as the night shows them), the head's brightness, satellites an hour
+	inline const FName MPC_MeteorRadiant(TEXT("DDW_MeteorRadiant"));// xyz the shower's radiant in the world, w the satellites' brightness
+	inline const FName MPC_MeteorLook(TEXT("DDW_MeteorLook"));      // rgb the meteors' colour, a their trails' length
 	inline const FName MPC_Halo2(TEXT("DDW_Halo2"));              // the ring's radius, its width, the corona's first ring, the moon's drawn radius (degrees)
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
 	inline const FName MPC_AuroraShape2(TEXT("DDW_AuroraShape2")); // ray contrast, upward fade, the banded tones' first two levels

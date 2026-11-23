@@ -14,6 +14,7 @@ namespace DreamWorld::Setup
 	inline const TCHAR* ShowcaseAuroraPackage = TEXT("/DreamDynamicWorld/Showcase/DSM_ShowcaseAurora");
 	inline const TCHAR* ShowcaseHaloPackage = TEXT("/DreamDynamicWorld/Showcase/DSM_ShowcaseHalo");
 	inline const TCHAR* ShowcaseNoctilucentPackage = TEXT("/DreamDynamicWorld/Showcase/DSM_ShowcaseNoctilucent");
+	inline const TCHAR* ShowcaseMeteorsPackage = TEXT("/DreamDynamicWorld/Showcase/DSM_ShowcaseMeteors");
 	inline const TCHAR* ShowcasePondPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcasePond");
 
 	/** The showcase pond: its middle, its water level (cm), and how far inside the bank's waterline its rim lies. */

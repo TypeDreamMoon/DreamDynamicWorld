@@ -25,6 +25,12 @@ static TAutoConsoleVariable<int32> CVarDreamSkyStarField(
 	TEXT("The dome's stars whatever the style says: 0 the stylized scatter, 1 the catalogue's; -1 = the style's StarField."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<float> CVarDreamSkyMeteors(
+	TEXT("DreamSky.Meteors"), -1.0f,
+	TEXT("Scales the meteors' and satellites' rates whatever the style says (its Meteors.RateScale for the meteors, 1 for the")
+	TEXT(" satellites; 100 = a dense sky to look at); -1 = the style's."),
+	ECVF_Default);
+
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
 
 namespace DreamSky::Subsystem
@@ -756,6 +762,36 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// Meteors and satellites: the sporadic ones, the shower of the date streaking from its radiant (as high as it stands:
+	// none with it under the horizon), as dark as the night is.
+	{
+		const FDreamSkyMeteors& MS = Style.Meteors;
+		MeteorShower = Style.EvaluateMeteorShower(Clock.GetDateTime());
+		using DreamWorld::Celestial::DirectionFromAngles;
+		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
+		const double Latitude = FMath::Clamp(Settings.Latitude, -89.9, 89.9);
+		const FVector Pole = DirectionFromAngles(Latitude, 0.0, Settings.NorthYaw);
+		const FVector Meridian = DirectionFromAngles(90.0 - Latitude, 180.0, Settings.NorthYaw);
+		const FVector East = DirectionFromAngles(0.0, 90.0, Settings.NorthYaw);
+		const double Hour = FMath::DegreesToRadians(double(Clock.GetCelestial().StarRotation));
+		const FVector Equinox = FMath::Cos(Hour) * Meridian - FMath::Sin(Hour) * East;
+		// (The catalogue stars' frame: x the equinox, z the pole, y = x cross z.)
+		const FVector X = (Equinox - Pole * FVector::DotProduct(Equinox, Pole)).GetSafeNormal();
+		const FVector Y = FVector::CrossProduct(X, Pole);
+		const double Ra = FMath::DegreesToRadians(double(MeteorShower.RightAscension));
+		const double Dec = FMath::DegreesToRadians(double(MeteorShower.Declination));
+		const FVector Radiant = (FMath::Cos(Dec) * (FMath::Cos(Ra) * X + FMath::Sin(Ra) * Y) + FMath::Sin(Dec) * Pole).GetSafeNormal();
+		const float Dark = MS.bEnabled ? UDreamSkyStyle::AuroraNight(Applied.SunElevation) * (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) : 0.0f;
+		const float Forced = CVarDreamSkyMeteors.GetValueOnGameThread();
+		const float Scale = (Forced >= 0.0f ? Forced : FMath::Max(MS.RateScale, 0.0f)) * FMath::Max(Look.Meteors, 0.0f) * Dark;
+		const float Sporadic = FMath::Max(MS.SporadicPerHour, 0.0f) * Scale;
+		const float Shower = MeteorShower.ZenithalHourlyRate * FMath::Max(float(Radiant.Z), 0.0f) * Scale;
+		MeteorRate = Sporadic + Shower;
+		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) : 0.0f;
+		Clock.SetVectorParameter(MPC_Meteors, FLinearColor(Sporadic, Shower, FMath::Max(MS.Brightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f), Satellites));
+		Clock.SetVectorParameter(MPC_MeteorRadiant, FLinearColor(float(Radiant.X), float(Radiant.Y), float(Radiant.Z), FMath::Max(MS.SatelliteBrightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f)));
+		Clock.SetVectorParameter(MPC_MeteorLook, With(MS.Color, FMath::Max(MS.TrailLength, 0.2f)));
+	}
 	// Noctilucent clouds, as present as the world (or a modifier) says, in the deep twilight.
 	{
 		const FDreamSkyNoctilucent& N = Style.Noctilucent;

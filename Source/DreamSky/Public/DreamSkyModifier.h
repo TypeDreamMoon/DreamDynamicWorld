@@ -124,6 +124,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float Noctilucent = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Meteors = false;
+	/** Scales the meteors' and satellites' rates (a meteor storm, an empty sky). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Meteors", ClampMin = "0", UIMax = "50"))
+	float Meteors = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_LightPollution = false;
 	/** How strong a city's light turns at the horizon, in the dome's measure (see the style's NightGlow). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightPollution", ClampMin = "0", UIMax = "0.3"))
