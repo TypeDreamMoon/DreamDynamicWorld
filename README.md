@@ -313,6 +313,37 @@ is the air's own light, so the style's `Rainbow` is on by default; `Intensity` s
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
 
+**Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
+sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
+sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light
+climbs (22 degrees on the horizon, 29 at 30 degrees up) and gone past some 55 degrees; the sheet milks the sky a little
+round them (`Milkiness`). In thinner cloud the moon has a corona, its bluish-white glow ringed in brown-red and blue,
+the droplets' diffraction (`CoronaRadius`, the first red ring, 2.5 degrees, or two and a half times the drawn moon's
+radius if that is larger). They are in the light the high cloud is lit
+by, brightest in its veils, the same under every look. The style's `Halos` sets when they show by the high cloud's cover
+(`HighCoverFrom` 0.45 to `HighCoverFull` 0.8 for the halos, `CoronaCoverFrom` 0.4 to `CoronaCoverFull` 0.7 for the
+corona: the style's own thin cirrus, 0.35, shows neither) and how bright (`Intensity`, `SunDogs`, `Corona`); a sky
+modifier's *High Cloud Cover* brings a sheet over (the showcase's clear morning has one from 8 to 9). A closing
+overcast hides them.
+
+**The earth's shadow.** After sunset the low sky away from the sun lies in the earth's own shadow: a blue-grey band
+along that horizon, rising to some twice the sun's depression as it sinks, and over it the pink Belt of Venus, air still
+in the reddened sun; gone by some 9 degrees under. The physical sky has them of itself (the sky table's walk leaves the
+air in the planet's shadow unlit), so they show whenever the grade's `GradientBlend` is 0. Over the style's own
+gradient the style's `EarthShadow` draws them as far as the gradient shows: `ShadowTint` and `BeltTint` multiply the
+gradient, `Height` is the shadow's top in sun depressions (2, as the physical sky's), `Strength` how strongly.
+
+**Noctilucent clouds.** In the deep twilight of high-latitude summer nights thin silver-blue clouds some 82 km up shine
+low over where the sun went, lit long after it has set on the air below: the dome draws them on a shell that high,
+where the sun's ray to them still clears the lower air, in bands (`BandSpacing`, 50 km) broken and wavering, with
+billows across them (`BillowSpacing`, 9 km), drifting (`Drift`, 0.05 km/s), brightest toward the sun and denser toward
+the horizon. In the realistic mode they come from `StartLatitude` (45) to full at `FullLatitude` (52), fading out by
+`EndLatitude` (72), north or south, within `SeasonFullDays` (35) of the hemisphere's midsummer and gone by
+`SeasonEndDays` (65); in the artistic mode as `ArtisticPresence` says. They show with the sun from 4 to 17 degrees
+under, in full from 7 to 13 (`UDreamSkyStyle::NoctilucentTwilight`), as bright as the style's `Noctilucent.Brightness`
+in the dome's measure, the same under every look; a sky modifier's *Noctilucent* brings them anywhere (the showcase's
+evening has them from 17:30 to 20).
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

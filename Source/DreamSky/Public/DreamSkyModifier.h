@@ -118,6 +118,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float Aurora = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Noctilucent = false;
+	/** How present noctilucent clouds turn, 0..1, wherever and whenever the world is (they still show only in the deep twilight). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Noctilucent", ClampMin = "0", ClampMax = "1"))
+	float Noctilucent = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_LightPollution = false;
 	/** How strong a city's light turns at the horizon, in the dome's measure (see the style's NightGlow). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightPollution", ClampMin = "0", UIMax = "0.3"))
@@ -190,6 +196,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	/** How dark the clouds turn, 0..1 (storm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudDarkness", ClampMin = "0", ClampMax = "1"))
 	float CloudDarkness = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_HighCloudCover = false;
+	/** The thin high cloud's cover the sky turns toward, 0..1 (a sheet of it, over the style's ice halo threshold, shows the halos). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_HighCloudCover", ClampMin = "0", ClampMax = "1"))
+	float HighCloudCover = 0.9f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_CloudLitTint = false;

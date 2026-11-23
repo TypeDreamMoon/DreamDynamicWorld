@@ -7,6 +7,7 @@
 #include "DreamSky.h"
 #include "DreamSkyConditions.h"
 #include "DreamSkyModifier.h"
+#include "DreamSkyStyle.h"
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
@@ -108,6 +109,20 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 18.0f && Entry.Condition.EndHour <= 6.0f;
 		}
 		TestTrue(TEXT("an aurora modifier for the night"), bAurora);
+		bool bHalo = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bHalo |= Entry.Modifier && Entry.Modifier->Settings.bOverride_HighCloudCover && Entry.Modifier->Settings.HighCloudCover
+				>= GetDefault<UDreamSkyStyle>()->Halos.HighCoverFull && Entry.Condition.bHours && Entry.Condition.StartHour < 12.0f;
+		}
+		TestTrue(TEXT("a sheet of high cloud for the morning's halo"), bHalo);
+		bool bShine = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bShine |= Entry.Modifier && Entry.Modifier->Settings.bOverride_Noctilucent && Entry.Modifier->Settings.Noctilucent > 0.5f
+				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 17.0f && Entry.Condition.EndHour <= 21.0f;
+		}
+		TestTrue(TEXT("noctilucent clouds for the evening's twilight"), bShine);
 	}
 
 	// The day's weather in order, a cycle of a day.

@@ -67,6 +67,28 @@ namespace DreamWorld::ShowcaseSetup
 		return Asset;
 	}
 
+	/** A sheet of high ice cloud: the halo and the sun dogs round a low sun. */
+	UDreamSkyModifier* EnsureHalo()
+	{
+		UDreamSkyModifier* Halo = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseHaloPackage);
+		Halo->Settings.bOverride_HighCloudCover = true;
+		Halo->Settings.HighCloudCover = 0.9f;
+		Halo->FadeInSeconds = 6.0f;
+		Halo->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Halo) ? Halo : nullptr;
+	}
+
+	/** Noctilucent clouds whatever the place and the season (they still show only in the deep twilight). */
+	UDreamSkyModifier* EnsureNoctilucent()
+	{
+		UDreamSkyModifier* Shine = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseNoctilucentPackage);
+		Shine->Settings.bOverride_Noctilucent = true;
+		Shine->Settings.Noctilucent = 1.0f;
+		Shine->FadeInSeconds = 6.0f;
+		Shine->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Shine) ? Shine : nullptr;
+	}
+
 	/** The night's aurora: a sky modifier that lights it fully (the sky shows it only once it is dark). */
 	UDreamSkyModifier* EnsureAurora()
 	{
@@ -599,7 +621,7 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, ULevelSequence* Dusk)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -632,6 +654,28 @@ namespace DreamWorld::ShowcaseSetup
 			Night.Condition.EndHour = 5.0f;
 			Night.Condition.FadeHours = 1.0f;
 			Night.BlendSeconds = 4.0f;
+		}
+		if (Halo)
+		{
+			// (The clear morning, 8 to 9: the sun low in the south-east.)
+			FDreamSkyConditionalModifier& Sheet = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Sheet.Modifier = Halo;
+			Sheet.Condition.bHours = true;
+			Sheet.Condition.StartHour = 8.0f;
+			Sheet.Condition.EndHour = 9.0f;
+			Sheet.Condition.FadeHours = 0.25f;
+			Sheet.BlendSeconds = 4.0f;
+		}
+		if (Shine)
+		{
+			// (The evening's deep twilight, 17:30 to 20.)
+			FDreamSkyConditionalModifier& Evening = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Evening.Modifier = Shine;
+			Evening.Condition.bHours = true;
+			Evening.Condition.StartHour = 17.5f;
+			Evening.Condition.EndHour = 20.0f;
+			Evening.Condition.FadeHours = 0.25f;
+			Evening.BlendSeconds = 4.0f;
 		}
 		Sky->SetActorLabel(TEXT("DreamSky"));
 
@@ -723,9 +767,11 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 		return false;
 	}
 	UDreamSkyModifier* Aurora = ShowcaseSetup::EnsureAurora();
+	UDreamSkyModifier* Halo = ShowcaseSetup::EnsureHalo();
+	UDreamSkyModifier* Shine = ShowcaseSetup::EnsureNoctilucent();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Dusk);
+	bool bOk = Aurora && Halo && Shine && Dusk;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, nullptr);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Dusk);
 	return bOk;
 }

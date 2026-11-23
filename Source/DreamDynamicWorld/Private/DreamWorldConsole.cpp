@@ -385,7 +385,17 @@ namespace DreamWorld::Console
 					AActor* ViewTarget = PC ? PC->GetViewTarget() : nullptr;
 					const bool bCamera = !PC || (ViewTarget && ViewTarget->IsA<ACameraActor>());
 					const double Yaw = bCamera ? (ViewTarget ? ViewTarget : Carrier)->GetActorRotation().Yaw : PC->GetControlRotation().Yaw;
-					const FRotator R(Num(1, 0), Num(2, Yaw), 0.0);
+					FRotator R(Num(1, 0), Num(2, Yaw), 0.0);
+					// (aim sun|moon|antisun [pitch offset] [yaw offset]: toward the body, or away from the sun.)
+					const FString Body = Words.IsValidIndex(1) ? Words[1].ToLower() : FString();
+					const UDreamWorldSubsystem* Clock = W.GetSubsystem<UDreamWorldSubsystem>();
+					if (Clock && (Body == TEXT("sun") || Body == TEXT("moon") || Body == TEXT("antisun")))
+					{
+						const FDreamCelestialState& Sky = Clock->GetCelestial();
+						const FVector D = Body == TEXT("moon") ? Sky.MoonDirection : (Body == TEXT("sun") ? Sky.SunDirection : -Sky.SunDirection);
+						R = FRotator(FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(D.Z, -1.0, 1.0))) + Num(2, 0),
+							FMath::RadiansToDegrees(FMath::Atan2(D.Y, D.X)) + Num(3, 0), 0.0);
+					}
 					if (bCamera)
 					{
 						(ViewTarget ? ViewTarget : Carrier)->SetActorRotation(R);
