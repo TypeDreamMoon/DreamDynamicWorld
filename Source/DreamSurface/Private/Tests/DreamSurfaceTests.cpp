@@ -1895,7 +1895,7 @@ bool FDreamSurfaceFloodTest::RunTest(const FString& Parameters)
 	const FDreamSurfaceState After = W.Surface->SampleSurface(Under);
 	AddInfo(FString::Printf(TEXT("45 min after the water went down: flooded %.2f, wet %.2f, water %.2f, silt %.2f"), After.Flooded, After.Wetness, After.Water, After.Silt));
 	TestTrue(TEXT("out of the water"), After.Flooded < 0.5f);
-	TestTrue(TEXT("a wet mark where it stood"), After.Wetness > 0.7f && After.Water > 0.5f);
+	TestTrue(TEXT("a wet mark where it stood (the film drying in the noon sun, the hollows still full)"), After.Wetness > 0.5f && After.Water > 0.8f);
 	W.RunTo(At(20.0));
 	const FDreamSurfaceState Evening = W.Surface->SampleSurface(Under);
 	AddInfo(FString::Printf(TEXT("by the evening: flooded %.2f, wet %.2f, water %.2f, silt %.2f"), Evening.Flooded, Evening.Wetness, Evening.Water, Evening.Silt));
