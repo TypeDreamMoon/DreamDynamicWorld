@@ -62,6 +62,43 @@ struct DREAMWIND_API FDreamWindTerrainCpuData
 };
 
 /**
+ * The runtime terrain wind map as the CPU has it (gameplay, physics, sound, Niagara CPU sims, the weather's roofs): a
+ * grid of cells around the camera whose heights come from box sweeps against the level's collision (no read-back of the
+ * GPU's map), with the same derivation the GPU runs: the wind shadow height swept along the wind, the speed multiplier
+ * and steering from the blurred heights. An immutable snapshot, shared between threads.
+ */
+struct DREAMWIND_API FDreamWindTerrainGridData
+{
+	/** The window's first cell and its size in cells; cell size in cm. Arrays are row-major over the window. */
+	FIntPoint WindowMin = FIntPoint::ZeroValue;
+	int32 Size = 0;
+	float CellSize = 400.0f;
+	/** Per cell: (speed multiplier, steer x, steer y, wind shadow height cm). */
+	TArray<FVector4f> Derived;
+	/** Per cell: the top surface's height (cm), Unknown until swept (or nothing below). */
+	TArray<float> Heights;
+	DreamWind::Hlsl::FDreamWindL1Params Params;
+
+	/** Swept, nothing below; and not swept yet (the grid does not cover the cell: the baked map, if any, stands in). */
+	static constexpr float Unknown = -1.0e7f;
+	static constexpr float NotSwept = -2.0e7f;
+
+	bool IsValid() const { return Size > 0 && Derived.Num() == Size * Size && Heights.Num() == Size * Size; }
+
+	/** 1 well inside the window, fading over its outer eighth, 0 outside. */
+	float Weight(double WorldX, double WorldY) const;
+
+	/** Bilinear fetch of the derived values, clamped into the window. */
+	FVector4f SampleDerived(double WorldX, double WorldY) const;
+
+	/** The top surface's height (cm) of the cell over a point, Unknown outside or unswept. */
+	float HeightAt(double WorldX, double WorldY) const;
+
+	/** What the terrain does to an analytic sample here (weighted by the window's coverage; unchanged outside). */
+	DreamWind::Hlsl::FDreamWindSample Apply(DreamWind::Hlsl::FDreamWindSample S, const DreamWind::Hlsl::float3& Pos) const;
+};
+
+/**
  * Everything a GPU consumer needs for one frame, in the packed layout the shared header unpacks.
  * Built once per tick on the game thread; copied (not referenced) by whoever needs it.
  */
@@ -97,6 +134,8 @@ struct DREAMWIND_API FDreamWindFrameData
 	TWeakObjectPtr<UTextureRenderTarget2D> L1FarDerived;
 	TWeakObjectPtr<UTextureRenderTarget2D> L1NearHeight;
 	TWeakObjectPtr<UTextureRenderTarget2D> L1FarHeight;
+	/** The runtime terrain wind map as the CPU has it (null when it does not run). */
+	TSharedPtr<const FDreamWindTerrainGridData, ESPMode::ThreadSafe> TerrainGrid;
 	/** Game-thread frame this data was built on. */
 	uint64 FrameNumber = 0;
 
@@ -394,8 +433,9 @@ private:
 	DreamWorld::SharedTargets::FWriter VolumeWriter;
 	DreamWorld::SharedTargets::FWriter TerrainWriter;
 	DreamWorld::SharedTargets::FWriter RuntimeTerrainWriter;
-	/** The runtime terrain wind map (null until it first runs). */
+	/** The runtime terrain wind map (null until it first runs), and its CPU grid. */
 	TSharedPtr<class FDreamWindTerrainField> TerrainField;
+	TSharedPtr<class FDreamWindTerrainGrid, ESPMode::ThreadSafe> TerrainGrid;
 	void UpdateRuntimeTerrain();
 	FVector LatestViewOrigin = FVector::ZeroVector;
 	bool bHasViewOrigin = false;
