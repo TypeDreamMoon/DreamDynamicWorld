@@ -2,12 +2,18 @@
 
 // The shared render targets with a play session: while it runs only it draws them, the editor world leaves them (and
 // its own materials) alone; when it ends the editor world draws them all afresh. Needs the editor with a renderer.
+//
+// (The editor world only ticks -- and so only draws its maps -- while Slate allows expensive tasks: a mouse moving over
+// the editor's window, a menu open or a notification fading puts Slate in its responsive mode and the editor world
+// stops ticking for as long as it lasts. Someone using the machine while the suite runs did that for whole seconds, so
+// the test turns the throttle off while it runs.)
 
 #include "CoreMinimal.h"
 #include "DreamSurfaceSubsystem.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWorldSharedTargets.h"
 
+#include "Application/ThrottleManager.h"
 #include "Editor.h"
 #include "Editor/EditorPerformanceSettings.h"
 #include "Engine/World.h"
@@ -85,9 +91,10 @@ namespace DreamWorldSharedTargetsPIETests
 		const UDreamWeatherSubsystem* Weather = World->GetSubsystem<UDreamWeatherSubsystem>();
 		const UDreamSurfaceSubsystem* Surface = World->GetSubsystem<UDreamSurfaceSubsystem>();
 		const FCounts C = CountsOf(World);
-		return FString::Printf(TEXT("%s: owns the targets %d, weather active %d, surface active %d, weather maps %u, surface maps %u"),
+		return FString::Printf(TEXT("%s: owns the targets %d, weather active %d, surface active %d, weather maps %u, surface maps %u, ticked to %.2f s real time (Slate allowing it %d)"),
 			*World->GetName(), DreamWorld::SharedTargets::Owns(World) ? 1 : 0, Weather && Weather->IsActive() ? 1 : 0,
-			Surface && Surface->IsActive() ? 1 : 0, C.Weather, C.Surface);
+			Surface && Surface->IsActive() ? 1 : 0, C.Weather, C.Surface, World->GetRealTimeSeconds(),
+			FSlateThrottleManager::Get().IsAllowingExpensiveTasks() ? 1 : 0);
 	}
 
 	/**
@@ -125,6 +132,8 @@ bool FDreamWorldSharedTargetsPIETest::RunTest(const FString& Parameters)
 		return true;
 	}
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	// (The editor world ticking whatever the mouse does: given back at the end.)
+	FSlateThrottleManager::Get().DisableThrottle(true);
 	FAutomationEditorCommonUtils::LoadMap(Map);
 	for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
 	{
@@ -140,13 +149,18 @@ bool FDreamWorldSharedTargetsPIETest::RunTest(const FString& Parameters)
 
 	// The editor world draws the maps while nothing plays.
 	WaitFrames(30);
-	Then([Before]() { *Before = CountsOf(EditorWorld()); });
+	TSharedRef<double> BeforeTicked = MakeShared<double>(0.0);
+	Then([Before, BeforeTicked]()
+	{
+		*Before = CountsOf(EditorWorld());
+		*BeforeTicked = EditorWorld() ? EditorWorld()->GetRealTimeSeconds() : 0.0;
+	});
 	TSharedRef<FWait> Drawing = MakeShared<FWait>();
 	WaitUntil(Drawing, [Before]() { return CountsOf(EditorWorld()).Surface > Before->Surface; });
-	Then([this, Before, Drawing]()
+	Then([this, Before, BeforeTicked, Drawing]()
 	{
 		const FCounts Now = CountsOf(EditorWorld());
-		AddInfo(FString::Printf(TEXT("nothing playing, after %d frames: %s"), Drawing->Frames, *Describe(EditorWorld())));
+		AddInfo(FString::Printf(TEXT("nothing playing, after %d frames (from %.2f s real time): %s"), Drawing->Frames, *BeforeTicked, *Describe(EditorWorld())));
 		TestTrue(TEXT("the editor world owns the shared targets with nothing playing"), DreamWorld::SharedTargets::Owns(EditorWorld()));
 		TestTrue(FString::Printf(TEXT("and draws the surface maps (%u -> %u)"), Before->Surface, Now.Surface), Drawing->bMet);
 	});
@@ -207,7 +221,11 @@ bool FDreamWorldSharedTargetsPIETest::RunTest(const FString& Parameters)
 	});
 	// (The showcase out of memory: a test that loads it next gets it fresh from disk, not the editor's played copy.)
 	WaitFrames(2);
-	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	Then([]()
+	{
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		FSlateThrottleManager::Get().DisableThrottle(false);
+	});
 	return true;
 }
 
