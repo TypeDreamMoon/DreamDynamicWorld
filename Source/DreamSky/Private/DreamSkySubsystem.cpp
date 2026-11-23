@@ -791,12 +791,14 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		FLinearColor Funnel[DreamSky::Funnels::MaxFunnels];
 		FLinearColor Shape[DreamSky::Funnels::MaxFunnels];
 		const FVector View = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
-		DreamSky::Funnels::Pack(Clock.GetVortices(), View, Clock.GetWorldSeconds(), Clock.GetTimeScale(), Funnel, Shape);
+		FLinearColor Decay;
+		DreamSky::Funnels::Pack(Clock.GetVortices(), View, Clock.GetWorldSeconds(), Clock.GetTimeScale(), Funnel, Shape, Decay);
 		for (int32 i = 0; i < DreamSky::Funnels::MaxFunnels; ++i)
 		{
 			Clock.SetVectorParameter(MPC_Funnel[i], Funnel[i]);
 			Clock.SetVectorParameter(MPC_FunnelShape[i], Shape[i]);
 		}
+		Clock.SetVectorParameter(MPC_FunnelDecay, Decay);
 	}
 	// The flat clouds, while the dome draws them instead of the renderer.
 	{

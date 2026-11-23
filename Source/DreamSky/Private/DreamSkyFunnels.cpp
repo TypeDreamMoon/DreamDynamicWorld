@@ -12,9 +12,15 @@ float DreamSky::Funnels::Turned(const FDreamWorldVortex& Vortex, double WorldSec
 	return float(Angle < 0.0 ? Angle + UE_DOUBLE_TWO_PI : Angle);
 }
 
-int32 DreamSky::Funnels::Pack(const TMap<int32, FDreamWorldVortex>& Vortices, const FVector& View, double WorldSeconds, float TimeScale,
-	FLinearColor OutFunnel[MaxFunnels], FLinearColor OutShape[MaxFunnels])
+float DreamSky::Funnels::RopeLean(float Decay)
 {
+	return 1.0f + 2.0f * FMath::SmoothStep(0.0f, 0.7f, FMath::Clamp(Decay, 0.0f, 1.0f));
+}
+
+int32 DreamSky::Funnels::Pack(const TMap<int32, FDreamWorldVortex>& Vortices, const FVector& View, double WorldSeconds, float TimeScale,
+	FLinearColor OutFunnel[MaxFunnels], FLinearColor OutShape[MaxFunnels], FLinearColor& OutDecay)
+{
+	OutDecay = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	TArray<const FDreamWorldVortex*, TInlineAllocator<16>> Shown;
 	for (const TPair<int32, FDreamWorldVortex>& Pair : Vortices)
 	{
@@ -34,9 +40,14 @@ int32 DreamSky::Funnels::Pack(const TMap<int32, FDreamWorldVortex>& Vortices, co
 		if (i < Count)
 		{
 			const FDreamWorldVortex& V = *Shown[i];
-			const float Strength = FMath::Clamp(V.Strength, 0.0f, 1.0f) * (V.Spin < 0.0f ? -1.0f : 1.0f);
+			// (Roping out it stays down to the ground, however its strength falls, leaning further: so far the bounds the
+			// renderer marches by take it in.)
+			const float Decay = FMath::Clamp(V.Decay, 0.0f, 1.0f);
+			const float Strength = (Decay > 0.0f ? 1.0f : FMath::Clamp(V.Strength, 0.0f, 1.0f)) * (V.Spin < 0.0f ? -1.0f : 1.0f);
+			const FVector2D Lean = V.Lean * double(RopeLean(Decay));
 			OutFunnel[i] = FLinearColor(float(V.Location.X), float(V.Location.Y), V.Radius, Strength);
-			OutShape[i] = FLinearColor(Turned(V, WorldSeconds, TimeScale), float(V.Location.Z), float(V.Lean.X), float(V.Lean.Y));
+			OutShape[i] = FLinearColor(Turned(V, WorldSeconds, TimeScale), float(V.Location.Z), float(Lean.X), float(Lean.Y));
+			OutDecay.Component(i) = Decay;
 		}
 		else
 		{

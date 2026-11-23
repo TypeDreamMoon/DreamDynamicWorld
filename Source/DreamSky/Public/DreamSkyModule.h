@@ -39,6 +39,7 @@ namespace DreamSky::Names
 	// how far it has turned, the ground's height, the lean x, y.
 	inline const FName MPC_Funnel[4] = { TEXT("DDW_Funnel0"), TEXT("DDW_Funnel1"), TEXT("DDW_Funnel2"), TEXT("DDW_Funnel3") };
 	inline const FName MPC_FunnelShape[4] = { TEXT("DDW_FunnelShape0"), TEXT("DDW_FunnelShape1"), TEXT("DDW_FunnelShape2"), TEXT("DDW_FunnelShape3") };
+	inline const FName MPC_FunnelDecay(TEXT("DDW_FunnelDecay"));  // how far each of the four has roped out as it dies (x..w: funnel 0..3)
 	inline const FName MPC_Halo2(TEXT("DDW_Halo2"));              // the ring's radius, its width, the corona's first ring, the moon's drawn radius (degrees)
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
 	inline const FName MPC_AuroraShape2(TEXT("DDW_AuroraShape2")); // ray contrast, upward fade, the banded tones' first two levels

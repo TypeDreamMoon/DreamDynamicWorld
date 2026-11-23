@@ -35,18 +35,18 @@ namespace DreamWorld::Console
 	}
 
 	/**
-	 * DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed]: registers or moves a whirlwind by hand
+	 * DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed] [Decay]: registers or moves a whirlwind by hand
 	 * (Id 0 a new one, logged), for looking at a funnel cloud without a tornado; DreamWorld.Vortex.Remove Id.
 	 */
 	static FAutoConsoleCommandWithWorldAndArgs VortexCommand(
 		TEXT("DreamWorld.Vortex"),
-		TEXT("Registers or moves a whirlwind by hand: DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed] (cm, cm/s; Id 0 = a new one)."),
+		TEXT("Registers or moves a whirlwind by hand: DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed] [Decay] (cm, cm/s; Id 0 = a new one; Decay 0..1 how far it has roped out)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamWorldSubsystem* Clock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
 			if (!Clock || Args.Num() < 6)
 			{
-				UE_LOG(LogDreamWorld, Display, TEXT("DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed]"));
+				UE_LOG(LogDreamWorld, Display, TEXT("DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed] [Decay]"));
 				return;
 			}
 			auto Arg = [&Args](int32 Index, float Default) { return Args.IsValidIndex(Index) ? FCString::Atof(*Args[Index]) : Default; };
@@ -63,8 +63,9 @@ namespace DreamWorld::Console
 			V.Spin = Arg(6, V.Spin) < 0.0f ? -1.0f : 1.0f;
 			V.Lean = FVector2D(Arg(7, float(V.Lean.X)), Arg(8, float(V.Lean.Y)));
 			V.TangentialSpeed = FMath::Max(Arg(9, V.TangentialSpeed), 0.0f);
-			UE_LOG(LogDreamWorld, Display, TEXT("Vortex %d at (%.0f, %.0f, %.0f), radius %.0f, strength %.2f"), Clock->SetVortex(Id, V),
-				V.Location.X, V.Location.Y, V.Location.Z, V.Radius, V.Strength);
+			V.Decay = FMath::Clamp(Arg(10, 0.0f), 0.0f, 1.0f);
+			UE_LOG(LogDreamWorld, Display, TEXT("Vortex %d at (%.0f, %.0f, %.0f), radius %.0f, strength %.2f, decay %.2f"), Clock->SetVortex(Id, V),
+				V.Location.X, V.Location.Y, V.Location.Z, V.Radius, V.Strength, V.Decay);
 		}));
 
 	static FAutoConsoleCommandWithWorldAndArgs VortexRemoveCommand(

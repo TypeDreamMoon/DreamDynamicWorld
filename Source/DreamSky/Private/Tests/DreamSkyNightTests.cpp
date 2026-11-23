@@ -1098,7 +1098,8 @@ bool FDreamSkyFunnelsTest::RunTest(const FString& Parameters)
 	Vortices.Add(7, Vortex(70000.0, 0.0, 1.0f, 1.0f, true));
 	FLinearColor Funnel[DreamSky::Funnels::MaxFunnels];
 	FLinearColor Shape[DreamSky::Funnels::MaxFunnels];
-	const int32 Count = DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape);
+	FLinearColor Decay;
+	const int32 Count = DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape, Decay);
 	TestEqual(TEXT("four of the five tornadoes"), Count, 4);
 	TestTrue(TEXT("the nearest first: 100 m, a clockwise one at half strength"), FMath::IsNearlyEqual(Funnel[0].R, 10000.0f) && FMath::IsNearlyEqual(Funnel[0].A, -0.5f));
 	TestTrue(TEXT("then 200 m, 500 m, 700 m"), FMath::IsNearlyEqual(Funnel[1].R, 20000.0f) && FMath::IsNearlyEqual(Funnel[2].R, 50000.0f) && FMath::IsNearlyEqual(Funnel[3].R, 70000.0f));
@@ -1106,13 +1107,29 @@ bool FDreamSkyFunnelsTest::RunTest(const FString& Parameters)
 		&& FMath::IsNearlyEqual(Shape[0].B, 4000.0f) && FMath::IsNearlyEqual(Shape[0].A, -2000.0f));
 	Vortices.Reset();
 	Vortices.Add(1, Vortex(1000.0, 0.0, 1.0f, 1.0f, true));
-	TestEqual(TEXT("one tornado"), DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape), 1);
+	TestEqual(TEXT("one tornado"), DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape, Decay), 1);
 	TestTrue(TEXT("the other slots empty"), Funnel[1] == FLinearColor(0.0f, 0.0f, 0.0f, 0.0f) && Shape[3] == FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	TestTrue(TEXT("none roping out"), Decay == FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+
+	// Roping out as it dies: drawn all the way down however its strength falls, leaning further, its decay in its slot.
+	Vortices.Reset();
+	FDreamWorldVortex Dying = Vortex(1000.0, 0.0, 0.3f, -1.0f, true);
+	Dying.Decay = 0.7f;
+	Vortices.Add(1, Vortex(500.0, 0.0, 1.0f, 1.0f, true));
+	Vortices.Add(2, Dying);
+	DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape, Decay);
+	TestTrue(TEXT("its decay in the second slot, none in the first"), FMath::IsNearlyEqual(Decay.G, 0.7f) && Decay.R == 0.0f);
+	TestTrue(TEXT("all the way down, still clockwise"), FMath::IsNearlyEqual(Funnel[1].A, -1.0f));
+	TestTrue(TEXT("leaning three times as far"), FMath::IsNearlyEqual(Shape[1].B, 12000.0f, 1.0f) && FMath::IsNearlyEqual(Shape[1].A, -6000.0f, 1.0f)
+		&& FMath::IsNearlyEqual(Shape[0].B, 4000.0f, 1.0f));
+	TestTrue(TEXT("the lean grows smoothly from none"), DreamSky::Funnels::RopeLean(0.0f) == 1.0f && DreamSky::Funnels::RopeLean(0.35f) > 1.5f
+		&& DreamSky::Funnels::RopeLean(0.35f) < 2.5f && DreamSky::Funnels::RopeLean(1.0f) == 3.0f);
 
 	// The renderer reads them after its other parameters, as DreamSkyCloudRender.usf's DSKY_FUNNEL_A / _B have them.
 	const TArray<FName>& Names = FDreamSkyCloudViewExtension::GetParameterNames();
-	TestTrue(TEXT("the renderer's parameters: the funnels at 31..34, their shapes at 35..38"), Names.Num() == 39 && Names[31] == MPC_Funnel[0]
-		&& Names[34] == MPC_Funnel[3] && Names[35] == MPC_FunnelShape[0] && Names[38] == MPC_FunnelShape[3]);
+	TestTrue(TEXT("the renderer's parameters: the funnels at 31..34, their shapes at 35..38, their decay at 39"), Names.Num() == 40
+		&& Names[31] == MPC_Funnel[0] && Names[34] == MPC_Funnel[3] && Names[35] == MPC_FunnelShape[0] && Names[38] == MPC_FunnelShape[3]
+		&& Names[39] == MPC_FunnelDecay);
 
 	// In a world: registered with the clock, updated and removed by id; written to the shared parameters each frame.
 	FNightWorld W(FDateTime(2026, 6, 21, 16, 0, 0), 35.0, 139.7, 9.0f);
@@ -1129,6 +1146,10 @@ bool FDreamSkyFunnelsTest::RunTest(const FString& Parameters)
 		const FLinearColor F0 = W.Parameter(MPC_Funnel[0]);
 		const FLinearColor S0 = W.Parameter(MPC_FunnelShape[0]);
 		TestTrue(TEXT("the shared parameters carry it"), FMath::IsNearlyEqual(F0.R, 32000.0f, 1.0f) && FMath::IsNearlyEqual(F0.A, 0.9f, 1e-4f));
+		Tornado.Decay = 0.4f;
+		W.Clock->SetVortex(Id, Tornado);
+		W.Clock->Tick(0.016f);
+		TestNearlyEqual(TEXT("and its decay"), W.Parameter(MPC_FunnelDecay).R, 0.4f, 1e-4f);
 		TestNearlyEqual(TEXT("turned as far as the time says"), S0.R, DreamSky::Funnels::Turned(Tornado, W.Clock->GetWorldSeconds(), W.Clock->GetTimeScale()), 1e-3f);
 		W.Clock->RemoveVortex(Id);
 		W.Clock->Tick(0.016f);

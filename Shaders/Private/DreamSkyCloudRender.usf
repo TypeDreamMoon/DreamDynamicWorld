@@ -42,7 +42,7 @@ SamplerState SkyTableSampler;
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
 // its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
-float4 Parameters[39];
+float4 Parameters[40];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -77,6 +77,7 @@ float4 Parameters[39];
 // The tornadoes' funnel clouds (DreamSkyFunnels.h): DreamSkyStylized.ush's DSky_Funnels draws them into the clouds' shape.
 #define DSKY_FUNNEL_A(i) Parameters[31 + (i)]
 #define DSKY_FUNNEL_B(i) Parameters[35 + (i)]
+#define DSKY_FUNNEL_DECAY(i) Parameters[39][(i)]
 #define DCS_MAP_ADJUST P_SkyModClouds
 
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
