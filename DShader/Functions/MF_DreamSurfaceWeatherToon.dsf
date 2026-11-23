@@ -9,6 +9,8 @@
 //           and while it rains hard-edged ripple rings on them and wet dots where the surface is not soaked
 //   snow    a hard-edged cover with an irregular edge, pale blue-white, with hard-edged prints where it was trodden
 //   dust    the block shifts toward the dust's colour, with a hard edge
+//   cold    a glaze shifts the block toward a pale ice tint with a wider highlight band; a frozen puddle is a hard-edged
+//           pale block with hard crack lines; frost and rime a hard-edged white-blue cover with sparse glint dots
 // The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
 // DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush. How far each block shifts, where the hard
 // edges fall and the covers' colours are material parameters (group "Toon Weather Look"): set them in an instance, or in
@@ -37,6 +39,30 @@ Function float4 DreamSurfaceToon_Covers(in float3 WorldPos, in float4 State, in 
 	float Low = DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
 	float Depth = DSF_PuddleDepth(DSF_Hollow(WorldPos.x + 57.0f, WorldPos.y - 23.0f, max(Params.w, 20.0f)), Low);
 	return float4(DSF_PuddleCover(State.y, Up, Depth, Soft), Snow, State.w * saturate(Up * 1.2f + 0.1f), 0.0f);
+}
+
+Function float4 DreamSurfaceToon_Ice(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewIce, in float4 Params,
+	in Texture2D NearIceMap, in Texture2D FarIceMap, in Texture2D CoverMap, in Texture2D MaskMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float4 Ice = DSM_IceState(WorldPos, NearPlace, FarPlace, ViewIce, NearIceMap, NearIceMapSampler, FarIceMap, FarIceMapSampler);
+	return DSM_IceShown(Ice, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float4 DreamSurfaceToon_ColdCovers(in float3 WorldPos, in float4 Ice, in float Puddle, in float3 Normal, in float Gain)
+{
+	// (glaze, frozen puddle, frost, rime) covers, soft, where the realistic look has them; the graph hardens their edges.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_ColdCovers(Ice, Puddle, Normal, WorldPos, Gain);
+}
+
+Function float2 DreamSurfaceToon_ColdMarks(in float3 WorldPos, in float3 Normal)
+{
+	// A frozen puddle's crack lines, and the frost's glint dots, for hard-edged lines and dots.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return float2(DSM_IceCracks(WorldPos), DSM_GlintDots(WorldPos, Normal));
 }
 
 Function float DreamSurfaceToon_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
@@ -84,10 +110,13 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
 		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
 		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
+		const Texture2D NearIceMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearIce");
+		const Texture2D FarIceMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarIce");
 		const Texture2D TrailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceTrails");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewIce") ViewIce;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceTrails") TrailPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
@@ -123,6 +152,22 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 			VectorParameter ToonDustColor          = float4(0.6, 0.5, 0.36, 1.0) [Description="The dust's colour."];
 			ScalarParameter ToonDustAmount         = 0.8  [Slider(0, 1); Description="How much of the dust's colour shows where it lies."];
 			ScalarParameter ToonDustRoughness      = 0.95 [Slider(0, 1)];
+		}
+		Group("Toon Weather Look|Cold") {
+			ScalarParameter ToonIceThreshold       = 0.5  [Slider(0, 1); Description="Where a glaze's edge falls on its cover."];
+			VectorParameter ToonIceTint            = float4(0.82, 0.9, 1.0, 1.0) [Description="The pale tint a glaze shifts the block toward."];
+			ScalarParameter ToonIceTintAmount      = 0.35 [Slider(0, 1); Description="How far a glaze shifts the block toward its tint."];
+			ScalarParameter ToonIceRoughnessScale  = 0.25 [Slider(0, 1); Description="A glazed surface's roughness, as a share of its own (low: a wider highlight band)."];
+			ScalarParameter ToonFrozenPuddleThreshold = 0.5 [Slider(0, 1); Description="Where a frozen puddle's edge falls on its cover."];
+			VectorParameter ToonFrozenPuddleColor  = float4(0.7, 0.8, 0.88, 1.0) [Description="A frozen puddle's colour."];
+			ScalarParameter ToonCrackBrightness    = 0.15 [Slider(0, 1); Description="How bright a frozen puddle's crack lines are."];
+			ScalarParameter ToonFrostThreshold     = 0.45 [Slider(0, 1); Description="Where frost and rime's edge falls on their cover: lower, they reach further."];
+			VectorParameter ToonFrostColor         = float4(0.88, 0.93, 1.0, 1.0) [Description="Frost and rime's colour."];
+			ScalarParameter ToonFrostRoughness     = 0.8  [Slider(0, 1)];
+			ScalarParameter ToonFrostCoverGain     = 1.0  [Slider(0, 3); Description="How readily frost and rime cover."];
+			ScalarParameter ToonGlintBrightness    = 0.25 [Slider(0, 1); Description="How bright the frost's glint dots are."];
+			ScalarParameter ToonFrostAmount        = 0.5  [Slider(0, 1); Description="How far frost shifts the block toward its colour: a frost lets the block show through."];
+			ScalarParameter ToonRimeAmount         = 0.9  [Slider(0, 1); Description="How far rime shifts the block toward its colour (a crust)."];
 		}
 	}
 
@@ -173,6 +218,21 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float DustCover = smoothstep(ToonDustThreshold - W, ToonDustThreshold + W, Covers.z) * (1.0 - SnowCover) * (1.0 - Print);
 		Color = lerp(Color, ToonDustColor.rgb, DustCover * ToonDustAmount);
 		Rough = lerp(Rough, ToonDustRoughness, DustCover);
+
+		// The cold under the snow: a glaze shifts the block toward the ice's tint and widens the highlight band; a frozen
+		// puddle is a pale block with crack lines; frost and rime a white-blue cover with glint dots.
+		float4 Ice = DreamSurfaceToon_Ice(WP, NearPlace, FarPlace, ViewIce, Params, NearIceMap, FarIceMap, CoverMap, MaskMap);
+		float4 Cold = DreamSurfaceToon_ColdCovers(WP, Ice, Covers.x, UE.VertexNormalWS(), ToonFrostCoverGain);
+		float2 Marks = DreamSurfaceToon_ColdMarks(WP, UE.VertexNormalWS());
+		float Glaze = smoothstep(ToonIceThreshold - W, ToonIceThreshold + W, Cold.x) * (1.0 - SnowCover);
+		Color = lerp(Color, Color * ToonIceTint.rgb, Glaze * ToonIceTintAmount);
+		Rough = lerp(Rough, Rough * ToonIceRoughnessScale, Glaze);
+		float Frozen = smoothstep(ToonFrozenPuddleThreshold - W, ToonFrozenPuddleThreshold + W, Cold.y) * (1.0 - SnowCover);
+		Color = lerp(Color, ToonFrozenPuddleColor.rgb + smoothstep(0.45, 0.55, Marks.x) * ToonCrackBrightness, Frozen);
+		float FrostCover = smoothstep(ToonFrostThreshold - W, ToonFrostThreshold + W, Cold.z) * (1.0 - SnowCover);
+		float RimeCover = smoothstep(ToonFrostThreshold - W, ToonFrostThreshold + W, Cold.w) * (1.0 - SnowCover);
+		Color = lerp(Color, ToonFrostColor.rgb, max(FrostCover * ToonFrostAmount, RimeCover * ToonRimeAmount)) + Marks.y * ToonGlintBrightness * max(FrostCover, RimeCover);
+		Rough = lerp(Rough, ToonFrostRoughness, max(FrostCover, RimeCover));
 
 		// The weather never takes the roughness below the floor (0.4, or the surface's own): a lit toon material keeps the
 		// engine's reflections (screen space, Lumen) blurred, never a mirror; the puddles' reflection is the sky colour above.

@@ -11,16 +11,28 @@
 //   y  Water  water standing in its hollows: rising, it fills the deepest dips first, then spreads into puddles
 //   z  Snow   lying snow (0..1 of the deepest cover the settings allow)
 //   w  Dust   dust or sand settled on it
+// and what the cold has made of it, four more (S2, DSF_StepIce):
+//   x  Ice    a glaze of clear ice: the film frozen on cold ground (black ice), rain freezing as it lands
+//   y  Frost  hoarfrost: white crystals growing on cold ground under a clear, still night sky
+//   z  Rime   white ice built up from freezing fog, faster in a wind
+//   w  Frozen how much of the standing water (y) is frozen over
 // What drives it over a step, two float4s:
 //   D0 = (rain landing 0..1, snow landing 0..1, air temperature in Celsius, wind 0..1)
-//   D1 = (sunlight on it 0..1, dust in the air 0..1, unused, unused)
+//   D1 = (sunlight on it 0..1, dust in the air 0..1, open sky 0..1, fog 0..1)
 // The landing amounts are the weather's times the exposure there: under a roof nothing lands, and the shade there keeps
-// the sun off too. The rates, three float4s, in game hours (DSF_Rates):
+// the sun off too. The open sky is the clear part of the sky the surface sees (no cloud, no roof): what it loses its
+// warmth to at night. The rates, five float4s, in game hours (DSF_Rates):
 //   R0 = (wet, dry, fill, drain)            hours for a full rise or fall at full drive
 //   R1 = (settle, melt, melt to water, -)   settle: hours to full snow in a full snowfall; melt: hours to melt all of
 //                                           it at 10 Celsius in the sun; melt to water: how much of the melt wets
 //   R2 = (dust, dust wash, dust clear, -)   dust: hours to full dust in a full dust storm; wash: by full rain; clear:
 //                                           by wind and time alone
+//   R3 = (freeze, puddle freeze, frost, rime)  hours for a soaked film to freeze at -2 Celsius on the ground, for the
+//                                           puddles to freeze over, for a full frost on a clear still night, for a full
+//                                           rime in a freezing fog
+//   R4 = (thaw, sun warming, sky cooling, -)   thaw: hours for a full glaze to melt with the ground at 5 Celsius in
+//                                           the sun; how much warmer than the air the ground gets in a full sun, and
+//                                           how much colder under a clear, still night sky (Celsius)
 //
 // The rates are linear in the step, so a long step and many short ones come out close while the drive holds still
 // (they part only where one amount waits on another: the hollows on a soaked film, the water on the melt).
@@ -67,10 +79,48 @@ DSF_FN float DSF_Melt(float4 D0, float4 D1, float4 R1, float Hours)
 	return Hours * Degrees / (10.0f * max(R1.y, 1.0e-3f)) * Sun * Rain / 1.5f;
 }
 
-// The state after Hours of this weather.
-DSF_FN float4 DSF_Step(float4 S, float4 D0, float4 D1, float4 R0, float4 R1, float4 R2, float Hours)
+// The ground's temperature, Celsius: the air's, warmer in the sun, and at night colder under a clear sky (it radiates its
+// warmth away to it), less so in a wind (which mixes the air's warmth back down). So frost and black ice come on clear,
+// still nights with the air a few degrees above freezing, and go once the sun is on them.
+DSF_FN float DSF_GroundTemperature(float4 D0, float4 D1, float4 R4)
 {
-	float Rain = saturate(D0.x);
+	float Sun = saturate(D1.x);
+	float Calm = 1.0f - 0.6f * saturate(D0.w);
+	return D0.z + R4.y * Sun - R4.z * saturate(D1.z) * Calm * (1.0f - Sun);
+}
+
+// What the cold does over Hours, shared by the water's side (DSF_Step) and the ice's (DSF_StepIce) so the two agree:
+//   x  the film frozen into glaze (0..1 of a soaked film)
+//   y  how cold the ground is, 0 at freezing .. 1 from -2 Celsius: the share of the rain landing that freezes
+//   z  the thaw: how much of a full glaze melts over Hours (frost and rime, thinner, melt faster)
+//   w  the ground's temperature
+DSF_FN float4 DSF_Cold(float4 S, float4 D0, float4 D1, float4 R3, float4 R4, float Hours)
+{
+	float Ground = DSF_GroundTemperature(D0, D1, R4);
+	float Cold = saturate(-Ground * 0.5f);
+	float Freeze = min(saturate(S.x), Cold * Hours / max(R3.x, 1.0e-3f));
+	float Sun = 0.5f + saturate(D1.x);
+	float Rain = 1.0f + 4.0f * saturate(D0.x);
+	float Thaw = Hours * max(Ground, 0.0f) / (5.0f * max(R4.x, 1.0e-3f)) * Sun * Rain / 1.5f;
+	return float4(Freeze, Cold, Thaw, Ground);
+}
+
+// How much water the ice, frost and rime give back to the film as they melt over a step (C = DSF_Cold): frost holds
+// little water, rime a little more.
+DSF_FN float DSF_IceMeltWater(float4 S2, float4 C)
+{
+	return min(saturate(S2.x), C.z) + 0.3f * min(saturate(S2.y), C.z * 3.0f) + 0.5f * min(saturate(S2.z), C.z * 2.0f);
+}
+
+// The state after Hours of this weather (S2: the ice's side, as it stood at the start of the step).
+DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 D0, float4 D1, float4 R0, float4 R1, float4 R2, float4 R3, float4 R4, float Hours)
+{
+	// The cold first: on frozen ground the film freezes into glaze and the rain freezes as it lands; what thaws runs back
+	// into the film. Frozen puddles neither fill nor dry.
+	float4 C = DSF_Cold(S, D0, D1, R3, R4, Hours);
+	float Frozen = saturate(S2.w);
+	S.x = saturate(S.x) - C.x;
+	float Rain = saturate(D0.x) * (1.0f - C.y);
 	float SnowFall = saturate(D0.y);
 	float Dry = DSF_DryFactor(D0, D1) * Hours;
 
@@ -81,13 +131,13 @@ DSF_FN float4 DSF_Step(float4 S, float4 D0, float4 D1, float4 R0, float4 R1, flo
 	float Melted = min(SnowIn, DSF_Melt(D0, D1, R1, Hours));
 	float Snow = SnowIn - Melted;
 	float MeltWater = Melted * R1.z;
-	Rain = saturate(Rain + SnowFall * (1.0f - Settle));
+	Rain = saturate(Rain + SnowFall * (1.0f - Settle) * (1.0f - C.y));
 
 	// The film wets fast and dries by the weather (not under lying snow); the hollows fill once the film is soaked and
 	// drain slower.
-	float Wet = saturate(S.x + Rain * Hours / max(R0.x, 1.0e-3f) + MeltWater - Dry * (1.0f - Snow) / max(R0.y, 1.0e-3f));
+	float Wet = saturate(S.x + Rain * Hours / max(R0.x, 1.0e-3f) + MeltWater + DSF_IceMeltWater(S2, C) - Dry * (1.0f - Snow) / max(R0.y, 1.0e-3f));
 	float Soaked = saturate((Wet - 0.8f) * 5.0f);
-	float Water = saturate(S.y + (Rain * Soaked * Hours + MeltWater * 0.5f) / max(R0.z, 1.0e-3f) - Dry / max(R0.w, 1.0e-3f));
+	float Water = saturate(S.y + ((Rain * Soaked * Hours + MeltWater * 0.5f) / max(R0.z, 1.0e-3f) - Dry / max(R0.w, 1.0e-3f)) * (1.0f - Frozen));
 
 	// Dust settles from a dusty air, a little from dry wind, and rain washes it off; it clears on its own slowly.
 	float DustIn = saturate(D1.y) * Hours / max(R2.x, 1.0e-3f) + saturate(D0.w) * (1.0f - Wet) * 0.1f * Hours / max(R2.x, 1.0e-3f);
@@ -97,18 +147,54 @@ DSF_FN float4 DSF_Step(float4 S, float4 D0, float4 D1, float4 R0, float4 R1, flo
 	return float4(Wet, Water, Snow, Dust);
 }
 
+// The ice's side after Hours of this weather (S: the water's side at the start of the step, as DSF_Step had it).
+//   Ice     the film frozen on cold ground, and the rain freezing as it lands (as fast as it would wet); melts as the
+//           ground warms above freezing
+//   Frost   grows on cold ground, most under a clear still sky, not while something falls; goes quickly in the sun
+//   Rime    grows in a freezing fog, faster in a wind
+//   Frozen  the puddles freeze over slowly in the cold and thaw as the glaze does
+DSF_FN float4 DSF_StepIce(float4 S, float4 S2, float4 D0, float4 D1, float4 R0, float4 R3, float4 R4, float Hours)
+{
+	float4 C = DSF_Cold(S, D0, D1, R3, R4, Hours);
+	float Rain = saturate(D0.x);
+	float Falling = saturate((D0.x + D0.y) * 20.0f);
+	float Calm = 1.0f - 0.7f * saturate(D0.w);
+	float Ice = saturate(saturate(S2.x) + C.x + Rain * C.y * Hours / max(R0.x, 1.0e-3f) - min(saturate(S2.x), C.z));
+	float FrostIn = C.y * Calm * (0.2f + 0.8f * saturate(D1.z)) * (1.0f - Falling) * Hours / max(R3.z, 1.0e-3f);
+	float Frost = saturate(saturate(S2.y) + FrostIn - min(saturate(S2.y), C.z * 3.0f));
+	float RimeIn = C.y * saturate(D1.w) * (0.3f + 0.7f * saturate(D0.w)) * Hours / max(R3.w, 1.0e-3f);
+	float Rime = saturate(saturate(S2.z) + RimeIn - min(saturate(S2.z), C.z * 2.0f));
+	float Frozen = saturate(saturate(S2.w) + C.y * Hours / max(R3.y, 1.0e-3f) - C.z);
+	return float4(Ice, Frost, Rime, Frozen);
+}
+
+// How slippery a surface is, as a multiplier on its grip (1 as dry .. near 0 on black ice): the worst of what lies on it,
+// each by how much of it there is. Grip = (ice, a frozen puddle, frost or rime, snow), Grip2 = (standing water, a wet
+// film, -, -), each the grip at full cover; Cover = (ice, the frozen puddle there, frost or rime, snow) and Cover2 =
+// (the puddle there, wet), 0..1.
+DSF_FN float DSF_Grip(float4 Grip, float4 Grip2, float4 Cover, float4 Cover2)
+{
+	float G = lerp(1.0f, Grip.x, saturate(Cover.x));
+	G = min(G, lerp(1.0f, Grip.y, saturate(Cover.y)));
+	G = min(G, lerp(1.0f, Grip.z, saturate(Cover.z)));
+	G = min(G, lerp(1.0f, Grip.w, saturate(Cover.w)));
+	G = min(G, lerp(1.0f, Grip2.x, saturate(Cover2.x)));
+	G = min(G, lerp(1.0f, Grip2.y, saturate(Cover2.y)));
+	return G;
+}
+
 // A step's drive in the open from the weather there (what the surface map does per texel; a query's DriveAt gets the
 // same from the weather's sample): Weather = (cloud coverage, -, precipitation after the cloud gate, snow ratio
-// channel), Air = (temperature, wind, dust, the sun's Z).
+// channel), Air = (temperature, wind, dust, the sun's Z), Fog = the fog channel there.
 DSF_FN float4 DSF_OpenD0(float4 Weather, float4 Air)
 {
 	float Ratio = DSF_SnowRatio(Weather.w, Air.x);
 	return float4(Weather.z * (1.0f - Ratio), Weather.z * Ratio, Air.x, Air.y);
 }
 
-DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air)
+DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air, float Fog)
 {
-	return float4(DSF_Sunlight(Air.w, Weather.x), Air.z, 0.0f, 0.0f);
+	return float4(DSF_Sunlight(Air.w, Weather.x), Air.z, 1.0f - saturate(Weather.x), saturate(Fog));
 }
 
 // How far the ground at a point lies below its surroundings, cm (positive in a dip, negative on a rise), from its height

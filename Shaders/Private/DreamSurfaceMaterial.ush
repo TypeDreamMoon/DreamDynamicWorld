@@ -160,6 +160,75 @@ float4 DSM_Covered(float4 State, float Exposure)
 	return float4(State.x * Exposure, State.y * Exposure, State.z * Exposure, State.w * (0.2f + 0.8f * Exposure));
 }
 
+// The cold's state over a point (ice, frost, rime, frozen water): the ice maps beside the state maps, the view's beyond
+// both (DDW_SurfaceViewIce), read as the state is.
+float4 DSM_IceState(float3 WorldPos, float4 NearPlace, float4 FarPlace, float4 ViewIce,
+	Texture2D NearIce, SamplerState NearSampler, Texture2D FarIce, SamplerState FarSampler)
+{
+	return DSM_StateRead(WorldPos, NearPlace, FarPlace, ViewIce, NearIce, NearSampler, FarIce, FarSampler, true);
+}
+
+// ...under the mask brushes' multipliers (wet, water, snow, dust): the glaze goes with the wet, the frost and the rime
+// with the snow (UDreamSurfaceSubsystem::SampleSurface does the same), and lowered under cover: no glaze or frost where
+// nothing lands and the sky is not seen, half the rime (the fog gets in).
+float4 DSM_IceShown(float4 Ice, float4 Mask, float Exposure)
+{
+	Ice = saturate(Ice);
+	return float4(Ice.x * Mask.x * Exposure, Ice.y * Mask.z * Exposure, Ice.z * Mask.z * (0.5f + 0.5f * Exposure), Ice.w);
+}
+
+// How much of a surface the cold covers, softly, before the snow: (glaze, frozen puddle, frost, rime).
+//   glaze          on every face (freezing rain coats all of it), most on what faces up, where the film was
+//   frozen puddle  where the puddle is (Puddle: its cover, DSF_PuddleCover)
+//   frost          on what sees the sky, most on what faces up; fine clumps of crystals break it up as it thins
+//   rime           on every face, most on upright ones, breaking up the same way
+// Gain = how readily frost and rime cover (above 1 sooner). Normal = the face's world normal: the patterns lie in the
+// face's own plane (projected along its main axis), so an upright face's frost does not streak.
+float2 DSM_FacePlane(float3 WorldPos, float3 Normal)
+{
+	float3 N = abs(Normal);
+	return N.z > max(N.x, N.y) ? WorldPos.xy : (N.x > N.y ? WorldPos.yz : WorldPos.xz);
+}
+
+float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, float Gain)
+{
+	float Up = saturate(Normal.z);
+	float2 P = DSM_FacePlane(WorldPos, Normal);
+	float Fine = DSF_Hollow(P.x + 3.7f, P.y - 8.1f, 5.0f);
+	float Patch = DSF_Hollow(P.x - 41.0f, P.y + 13.0f, 60.0f);
+	float Glaze = saturate(Ice.x * 1.5f) * (0.5f + 0.5f * Up);
+	float Frozen = saturate(Puddle) * saturate(Ice.w * 1.2f);
+	float Frost = saturate((Ice.y * Gain * (0.3f + 0.7f * Up) * 1.4f - (1.0f - Fine) * 0.35f - (1.0f - Patch) * 0.15f) * 2.0f);
+	float Rime = saturate((Ice.z * Gain * (0.6f + 0.4f * (1.0f - Up)) * 1.4f - (1.0f - Fine) * 0.3f) * 2.0f);
+	return float4(Glaze, Frozen, Frost, Rime);
+}
+
+// Cracks in a frozen puddle, 0..1 (thin bright lines): the contour lines of a pattern some 40 cm across.
+float DSM_IceCracks(float3 WorldPos)
+{
+	float H = DSF_Hollow(WorldPos.x - 17.0f, WorldPos.y + 29.0f, 40.0f);
+	return 1.0f - smoothstep(0.0f, 0.02f, abs(frac(H * 3.0f) - 0.5f));
+}
+
+// A crystal's glint: per cell of some 1.5 cm a tilt of the normal (tangent space x, y), so under the sun or a lamp a
+// frosted surface sparkles.
+float2 DSM_Glints(float3 WorldPos)
+{
+	float2 C = floor(float2(WorldPos.x + WorldPos.z, WorldPos.y - WorldPos.z) / 1.5f);
+	return float2(DSF_Hash(C.x + 7.3f, C.y), DSF_Hash(C.x, C.y + 19.1f)) - 0.5f;
+}
+
+// A toon frost's glint dots, 0..1: a round dot in one cell of 5 cm in some fourteen, in the face's own plane (the cell
+// pattern follows the face's height as well, so an upright face gets dots, not streaks).
+float DSM_GlintDots(float3 WorldPos, float3 Normal)
+{
+	float2 Q = DSM_FacePlane(WorldPos, Normal) / 5.0f;
+	float2 C = floor(Q);
+	float2 Centre = C + 0.3f + 0.4f * float2(DSF_Hash(C.x + 3.1f, C.y), DSF_Hash(C.x, C.y + 8.7f));
+	float Lit = step(0.93f, DSF_Hash(C.x + 11.0f, C.y + 29.0f));
+	return Lit * (1.0f - smoothstep(0.12f, 0.18f, length(Q - Centre)));
+}
+
 // The rain landing on a surface now, 0..1: the precipitation at the view that is rain (DDW_Weather0: coverage, darkness,
 // precipitation, snow ratio), none under cover.
 float DSM_RainHere(float4 Weather0, float Exposure)
@@ -255,6 +324,7 @@ struct FDreamSurfaceLook
 	float Metallic;
 	float3 Normal;      // tangent space
 	float SnowCover;    // how much of it the snow covers (the terrain's snow depth follows it)
+	float Puddle;       // how much of it the standing water covers
 };
 
 // Rain = the rain landing there now (DSM_RainHere), Time in seconds: the puddles' ripples and the drops' wet spots.
@@ -330,6 +400,47 @@ FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, f
 	L.Metallic = Metallic;
 	L.Normal = Normal;
 	L.SnowCover = Snow;
+	L.Puddle = Puddle;
+	return L;
+}
+
+// The cold on a realistic surface (DSM_IceShown's state), over the rest of the weather and under the snow:
+//   glaze          clear ice over the surface: it darkens the way water does and turns glossy, slightly cold in tint
+//   frozen puddle  milky, pale ice over the puddle, flat, with bright cracks and trapped bubbles; no ripples
+//   frost, rime    white crystals, matte, sparkling where a crystal catches the light: a frost whitens a surface without
+//                  hiding it, a rime builds up into a white crust
+// The coefficients (the material functions' parameters, defaults in brackets):
+//   LookIce   = (the glaze's tint [0.92, 0.95, 1.0], its roughness [0.06])
+//   LookIce2  = (a frozen puddle's colour [0.62, 0.68, 0.74], its roughness [0.15])
+//   LookFrost = (the frost's colour [0.86, 0.89, 0.93], its roughness [0.75])
+//   LookCold  = (how readily frost and rime cover [1], how much of its colour a glazed surface keeps [0.8], how far the
+//               crystals' glints tilt the normal [0.5], the rime's brightness over the frost's [1.04])
+//   LookCold2 = (how far a full frost whitens a surface [0.5], a full rime [0.9], -, -)
+FDreamSurfaceLook DSM_RealisticCold(FDreamSurfaceLook L, float4 Ice, float3 WorldPos, float3 NormalWS,
+	float4 LookIce, float4 LookIce2, float4 LookFrost, float4 LookCold, float4 LookCold2)
+{
+	float4 C = DSM_ColdCovers(Ice, L.Puddle, NormalWS, WorldPos, LookCold.x) * (1.0f - L.SnowCover);
+	float Dielectric = 1.0f - L.Metallic;
+
+	// The glaze: darker as water is, a cold tint, glossy, smoothing the surface's small bumps a little.
+	L.Color = L.Color * lerp(float3(1.0f, 1.0f, 1.0f), LookIce.rgb * LookCold.y, C.x * Dielectric);
+	L.Roughness = lerp(L.Roughness, min(L.Roughness, LookIce.w), C.x);
+	L.Normal = normalize(lerp(L.Normal, float3(0.0f, 0.0f, 1.0f), C.x * 0.3f));
+
+	// A frozen puddle: the ice lets some of what lies under it through.
+	float Cracks = DSM_IceCracks(WorldPos);
+	L.Color = lerp(L.Color, LookIce2.rgb * (0.9f + 0.3f * Cracks), C.y * 0.65f);
+	L.Roughness = lerp(L.Roughness, LookIce2.w + 0.2f * Cracks, C.y);
+	L.Normal = normalize(lerp(L.Normal, float3(0.0f, 0.0f, 1.0f), C.y));
+
+	// Frost and rime: white crystals, matte, glinting; a frost lets the surface show through.
+	float White = max(C.z, C.w);
+	float3 Crystal = lerp(LookFrost.rgb, saturate(LookFrost.rgb * LookCold.w), saturate(C.w - C.z));
+	L.Color = lerp(L.Color, Crystal, max(C.z * LookCold2.x, C.w * LookCold2.y));
+	L.Roughness = lerp(L.Roughness, saturate(LookFrost.w + 0.1f * C.w), White);
+	L.Metallic = L.Metallic * (1.0f - White);
+	float2 Glint = DSM_Glints(WorldPos) * (LookCold.z * White);
+	L.Normal = normalize(L.Normal + float3(Glint.x, Glint.y, 0.0f));
 	return L;
 }
 

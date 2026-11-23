@@ -25,6 +25,19 @@ namespace DreamSurface::Private
 
 	/** The view moving less than this keeps its step's start state (the weather does not change over a few metres). */
 	constexpr double ViewAnchorReach = 500.0;
+
+	/**
+	 * A state under the mask brushes' multipliers (wet, water, snow, dust): the glaze goes with the wet, the frost and the
+	 * rime with the snow (white deposits a brush keeping the snow off keeps off too). The materials do the same (DSM_MaskIce).
+	 */
+	FDreamSurfaceState Masked(const FDreamSurfaceState& State, const FVector4f& Mask)
+	{
+		const FVector4f V = State.ToVector();
+		const FVector4f C = State.ToIceVector();
+		auto Unit = [](float X) { return FMath::Clamp(X, 0.0f, 1.0f); };
+		return FDreamSurfaceState::FromVectors(FVector4f(Unit(V.X * Mask.X), Unit(V.Y * Mask.Y), Unit(V.Z * Mask.Z), Unit(V.W * Mask.W)),
+			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)));
+	}
 }
 
 UDreamSurfaceSubsystem* UDreamSurfaceSubsystem::Get(const UObject* WorldContextObject)
@@ -101,9 +114,19 @@ int32 UDreamSurfaceSubsystem::MemorySteps()
 FDreamSurfaceState UDreamSurfaceSubsystem::Step(const FDreamSurfaceState& State, const FDreamSurfaceDrive& Drive, const FDreamSurfaceRates& Rates, float Hours)
 {
 	using namespace DreamSurface::Private;
-	const DreamWind::Hlsl::float4 Out = DreamWind::Hlsl::DSF_Step(ToHlsl4(State.ToVector()), ToHlsl4(Drive.D0()), ToHlsl4(Drive.D1()),
-		ToHlsl4(Rates.R0()), ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), FMath::Max(Hours, 0.0f));
-	return FDreamSurfaceState::FromVector(FVector4f(Out.x, Out.y, Out.z, Out.w));
+	using DreamWind::Hlsl::float4;
+	const float4 S = ToHlsl4(State.ToVector());
+	const float4 S2 = ToHlsl4(State.ToIceVector());
+	const float4 D0 = ToHlsl4(Drive.D0());
+	const float4 D1 = ToHlsl4(Drive.D1());
+	const float4 R0 = ToHlsl4(Rates.R0());
+	const float4 R3 = ToHlsl4(Rates.R3());
+	const float4 R4 = ToHlsl4(Rates.R4());
+	const float H = FMath::Max(Hours, 0.0f);
+	// Both sides from the state at the start of the step, as the surface map does.
+	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, D0, D1, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, H);
+	const float4 Cold = DreamWind::Hlsl::DSF_StepIce(S, S2, D0, D1, R0, R3, R4, H);
+	return FDreamSurfaceState::FromVectors(FVector4f(Out.x, Out.y, Out.z, Out.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w));
 }
 
 FDreamWeatherValues UDreamSurfaceSubsystem::GlobalAtStep(int64 StepIndex) const
@@ -133,8 +156,8 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	const FVector4f Here(W.CloudCoverage, W.CloudDarkness, W.Precipitation, W.Values.Get(FDreamWeatherChannels::SnowRatio));
 	const FVector4f Air(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
 	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air));
-	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air));
-	// ...then the cover: under a roof nothing lands, the air is stiller, the sun is off and less dust gets in.
+	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::Fog));
+	// ...then the cover: under a roof nothing lands, the air is stiller, the sun and the sky are off and less dust gets in.
 	const float Exposure = bOpenSky ? 1.0f : W.Exposure;
 	Drive.Rain = D0.x * Exposure;
 	Drive.Snow = D0.y * Exposure;
@@ -142,6 +165,8 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	Drive.Wind = D0.w * (0.3f + 0.7f * Exposure);
 	Drive.Sunlight = D1.x * Exposure;
 	Drive.Dust = D1.y * (0.2f + 0.8f * Exposure);
+	Drive.OpenSky = D1.z * Exposure;
+	Drive.Fog = D1.w;
 	return Drive;
 }
 
@@ -173,9 +198,7 @@ FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurfaceAt(const FVector& Positi
 	const FDreamSurfaceState State = Step(AtStep, DriveAt(Position, double(Now) * Seconds), UDreamSurfaceSettings::Get()->Rates, Partial);
 	// The mask brushes over the point (what the materials read from the mask map).
 	const FVector4f Mask = GetMaskAt(Position);
-	const FVector4f V = State.ToVector();
-	return FDreamSurfaceState::FromVector(FVector4f(FMath::Clamp(V.X * Mask.X, 0.0f, 1.0f), FMath::Clamp(V.Y * Mask.Y, 0.0f, 1.0f),
-		FMath::Clamp(V.Z * Mask.Z, 0.0f, 1.0f), FMath::Clamp(V.W * Mask.W, 0.0f, 1.0f)));
+	return DreamSurface::Private::Masked(State, Mask);
 }
 
 namespace DreamSurface::Contact
@@ -220,10 +243,26 @@ FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVe
 	Contact.Puddle = DSF_PuddleCover(Contact.State.Water, Up, Depth, 0.0f);
 	const float SnowCover = DSF_SnowCover(Contact.State.Snow, Up, Hollow, DSF_SnowEdge(X, Y));
 	Contact.SnowDepth = Contact.State.Snow * SnowCover * UDreamSurfaceSettings::Get()->MaxSnowDepth;
-	// The dominant: snow over water over dust over a wet film.
+	// The grip: the worst of what lies there, each by how much of it covers the point (as the materials draw it).
+	const FDreamSurfaceState& S = Contact.State;
+	const float FrostCover = FMath::Clamp(FMath::Max(S.Frost, S.Rime) * (1.0f - SnowCover), 0.0f, 1.0f);
+	const float FrozenPuddle = Contact.Puddle * S.FrozenWater;
+	const float IceCover = FMath::Clamp(S.Ice * (1.0f - SnowCover), 0.0f, 1.0f);
+	const FDreamSurfaceGrip& Grip = UDreamSurfaceSettings::Get()->Grip;
+	Contact.Grip = DSF_Grip(DreamSurface::Private::ToHlsl4(Grip.G0()), DreamSurface::Private::ToHlsl4(Grip.G1()),
+		float4(IceCover, FrozenPuddle, FrostCover, SnowCover), float4(Contact.Puddle * (1.0f - S.FrozenWater), S.Wetness, 0.0f, 0.0f));
+	// The dominant: snow over ice over frost over water over dust over a wet film.
 	if (SnowCover > 0.5f)
 	{
 		Contact.Kind = EDreamSurfaceContactKind::Snow;
+	}
+	else if (IceCover > 0.4f || FrozenPuddle > 0.5f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Ice;
+	}
+	else if (FrostCover > 0.4f)
+	{
+		Contact.Kind = EDreamSurfaceContactKind::Frost;
 	}
 	else if (Contact.Puddle > 0.5f)
 	{
@@ -238,6 +277,11 @@ FDreamSurfaceContact UDreamSurfaceSubsystem::SampleContact(FVector Location, FVe
 		Contact.Kind = EDreamSurfaceContactKind::Wet;
 	}
 	return Contact;
+}
+
+float UDreamSurfaceSubsystem::GetGripAt(FVector Location) const
+{
+	return SampleContact(Location, FVector::UpVector).Grip;
 }
 
 void UDreamSurfaceSubsystem::Stamp(FVector Location, float Radius, float Strength, bool bSnowAndDust, bool bPuddles)
@@ -345,7 +389,7 @@ void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeathe
 	const FDreamWeatherValues Global = GlobalAtStep(StepIndex);
 	// The global values: the map applies the zones to them per texel.
 	OutWeather = FVector4f(Global.Get(C::CloudCoverage), Global.Get(C::CloudDarkness), Global.Get(C::Precipitation), Global.Get(C::SnowRatio));
-	OutChannels = FVector4f(Global.Get(C::Temperature), Global.Get(C::Dust), Global.Get(C::Wind), 0.0f);
+	OutChannels = FVector4f(Global.Get(C::Temperature), Global.Get(C::Dust), Global.Get(C::Wind), Global.Get(C::Fog));
 	const UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get();
 	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
 	if (!Weather || !Clock)
@@ -353,10 +397,13 @@ void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeathe
 		OutAir = FVector4f(15.0f, -1.0f, 0.0f, 0.0f);
 		return;
 	}
-	// The temperature of the hour at the view, less the offset there: a texel adds its own offset.
-	const FDreamWeatherSample W = Weather->SampleWeatherAt(ViewAnchor, Global, T);
+	// The temperature of the hour at the view with no offset and a clear sky, and how much less of the daily swing a
+	// closed cover leaves: a texel takes its own cover's share of that and adds its own offset (a cloudy zone's night is
+	// milder there, as a query has it).
 	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), T);
-	OutAir = FVector4f(W.Temperature - W.Values.Get(C::Temperature), float(Sky.SunDirection.Z), 0.0f, 0.0f);
+	const float ClearSky = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 0.0f, T);
+	const float Overcast = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 1.0f, T);
+	OutAir = FVector4f(ClearSky, float(Sky.SunDirection.Z), ClearSky - Overcast, 0.0f);
 }
 
 void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)

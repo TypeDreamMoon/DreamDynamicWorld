@@ -712,11 +712,13 @@ sequence in Sequencer to scrub it.
 
 **Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
 shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
-day and a storm by night (the schedule has them the other way round), looks at the far land from beside the hut (9 m
+day and a storm by night (the schedule has them the other way round), a winter morning after an evening's rain and a
+clear, still night — frost and black ice at dawn, the thaw by late morning, then rime in a freezing fog (`-Parts cold`,
+its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views; the far land's own sheet). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
@@ -739,7 +741,8 @@ Module `DreamSurface`: what the weather leaves on the ground. Each surface carri
 (`FDreamSurfaceState`): **Wetness** (the film of water: dark and glossy), **Water** (water standing where the surface lies low:
 rising, it fills the deepest dips first; full, a real dip holds it all over and flat ground in its deepest small hollows
 only, some tenth of it), **Snow** (of the deepest cover, *Max Snow Depth*,
-30 cm by default) and **Dust**.
+30 cm by default) and **Dust**; and what the cold makes of them, four more: **Ice** (a glaze of clear ice), **Frost**
+(hoarfrost), **Rime** and **Frozen Water** (how much of the standing water is frozen over).
 
 **How they change.** Rain soaks a surface within minutes, then fills its hollows; after the rain the film dries in
 an hour or two of sun and wind (slower in the shade, the cold or still air), the puddles outlast it. Snow settles
@@ -747,6 +750,25 @@ below freezing (warm ground melts the flakes as they land), melts above it — f
 the melt wets the ground. A dust storm lays dust, a dry wind a little, and rain washes it off. Under a roof
 (shelters, the wind's baked roofs) nothing lands, and the shade keeps the sun off. The rates are in *Project
 Settings ▸ Dream Surface ▸ Rates*, in game hours.
+
+**The cold.** What freezes is the ground, not the air: its temperature is the air's, warmer in the sun (*Sun Warming*,
+6 °C in a full sun) and at night colder under a clear sky, which it radiates its warmth away to (*Sky Cooling*, 4 °C
+under a clear, still sky, less in a wind; cloud and roofs keep it in). So on a clear, still night with the air at a
+couple of degrees above freezing the ground freezes, and once the sun is on it it thaws. On frozen ground:
+
+- **black ice** — the wet film freezes into a glaze within the half hour (*Freeze Hours*, at −2 °C on the ground), and
+  rain landing on it freezes as it lands, wetting nothing; the glaze melts back into the film as the ground warms
+  above freezing (*Thaw Hours*, at 5 °C in the sun);
+- **frozen puddles** — the standing water freezes over in a few hours (*Puddle Freeze Hours*) and while frozen neither
+  fills nor dries;
+- **frost** — hoarfrost grows under a clear, still sky (*Frost Hours*; a fifth as fast under cloud, none in a wind or
+  while something falls) and goes within the half hour once the sun is on it;
+- **rime** — a freezing fog (the weather's fog channel) builds it on everything, some three times as fast in a full
+  wind (*Rime Hours*).
+
+The weather has no rain below some −1 °C of air (what falls turns to snow near freezing), so the glaze comes from a
+wet surface freezing after the rain or from rain on ground still frozen. The presets `WP_Frost` (a clear, still, cold
+night) and `WP_FreezingFog` show them.
 
 **Deterministic, nothing saved.** A surface's state is the weather integrated over its past (*Memory Hours*, 48 by
 default, in *Step Minutes* of 15) on the timeline's own grid: the same moment gives the same state whenever and
@@ -764,39 +786,45 @@ the world time is where it was then. The formula is one file, `Shaders/Shared/Dr
 CPU queries and the GPU surface map alike.
 
 **Queries.** `UDreamSurfaceSubsystem::SampleSurface(Position)` (and `SampleSurfaceAt(Position, WorldSeconds)`),
-`GetSnowDepthAt(Position)` in cm, `GetViewState()` — the state in the open at the view this frame. A query
+`GetSnowDepthAt(Position)` in cm, `GetGripAt(Position)` — how much grip is left there, a multiplier on a surface's own
+(1 as dry .. some 0.1 on black ice or a frozen puddle; the worst of the ice, frozen puddle, frost or rime, snow,
+standing water and wet film there, each by how much of it covers the point, each one's grip at full cover in *Project
+Settings ▸ Dream Surface ▸ Grip*) — and `GetViewState()`, the state in the open at the view this frame. A query
 integrates the whole memory (some 190 steps of the weather at that point, about 0.1 ms), so ask it for the places
 that matter (the player, a footstep), not for thousands of points a frame.
 
 **Surface maps.** For the materials, the subsystem keeps the same state on the GPU in maps around the camera
 (`Shaders/Private/DreamSurfaceMap.usf`): a **near map** (`RT_DreamSurfaceNear`, 256², *Near Map Extent* 128 m,
 moving in eighths of its size), a **far map** as wide as the weather map (`RT_DreamSurfaceFar`, 128²), and a
-**cover map** (`RT_DreamSurfaceCover`). Each texel integrates the same steps a query does — the global weather of each
+**cover map** (`RT_DreamSurfaceCover`); beside each state map an ice map of the same size holds the cold's four
+(`RT_DreamSurfaceNearIce`, `RT_DreamSurfaceFarIce`). Each texel integrates the same steps a query does — the global weather of each
 step, the zones applied where the texel is (their footprint as the weather map has it; on cloud cover, darkness,
-precipitation, snow ratio, temperature, dust and wind), each where it stood and as strong as it was at that step (a
+precipitation, snow ratio, temperature, dust, wind and fog), each where it stood and as strong as it was at that step (a
 moving storm leaves its snow along its way, not 48 hours of it wherever it is now), then the shared formula — so a
 map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`, `DreamSurface.Gpu.MovingZone` for a
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
-cut out), and a snow zone's border shows on the ground from afar. The whole
+cut out, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
+jump), and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
 up to which something keeps the sky off (the wind's baked roofs, shelter boxes), and a material lowers the state of a
 surface below it. What differs from a query: under partial cover (the windward edge of the eaves) a query integrates
-the reduced weather while a material scales the open state; the map takes the hour's temperature at the view (a zone's
-offset added), not at each texel's height; and like the weather map it takes Override zones only, without their
-height limits. The maps are placed by `DDW_SurfaceNear / Far` in the
-shared collection, beyond both the view's state stands (`DDW_SurfaceView`). GPU cost: some 0.03 ms a frame (both maps
+the reduced weather while a material scales the open state; the map takes the hour's temperature at the view's height
+(with each texel's own cloud cover, which takes some of the daily swing off, and its zones' offset), not at each
+texel's height; and like the weather map it takes Override zones only, without their height limits. The maps are
+placed by `DDW_SurfaceNear / Far` in the shared collection, beyond both the view's state stands (`DDW_SurfaceView`,
+`DDW_SurfaceViewIce`). GPU cost: some 0.03 ms a frame (both maps
 and the cover), 0.2 ms for an integration.
 
 **Materials.** One node at the end of a material's attributes (Material Attributes in and out):
 
 | Function | For | What the weather does |
 | :-- | :-- | :-- |
-| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into a white crust on every face; both break up in fine clumps as they thin |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
-| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust |
+| `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust; a glaze shifts the block toward a pale ice tint and widens the highlight band, a frozen puddle is a hard-edged pale block with crack lines, frost and rime a hard-edged white-blue cover with sparse glint dots |
 | `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
-| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position |
+| `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position, and the ice, frost, rime and frozen water |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
 **Tuning the look.** What the weather does to a surface is set in the editor, per material instance: every shift,
@@ -805,8 +833,8 @@ values a set of materials shares in a parent instance and let the materials inhe
 
 | Group | Parameters (defaults) |
 | :-- | :-- |
-| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95 |
-| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95 |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
 
 Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
 formula, so a CPU query and every material agree on it; the parameters change how it looks there.
@@ -848,7 +876,8 @@ outlast the rain as long as the ground's film does. The drops are a pure functio
 A translucent glass material wants per-pixel lighting (*Surface ForwardShading*) for the drops' highlights to show.
 
 **Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
-what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust: a
+what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust (the
+glaze follows the wet, frost and rime the snow): a
 heated square with no snow, a path kept clear, more water in a gutter. A box or circle seen from above (the weather
 zones' footprint function), fading over *Fade Distance*; overlapping brushes multiply; `SampleSurface` and the maps
 (a mask map beside the cover, `RT_DreamSurfaceMask`) both see it. A **roof capture box** (`ADreamSurfaceRoofCapture`)
@@ -859,8 +888,8 @@ per capture, so the box is a weather shelter as well: exposure, the rain's fall 
 
 **Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
 wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is
-there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow or dust, with the state, the puddle's depth
-and the snow's) and calls `OnContact` with it — the place for a footstep sound or a splash — then presses a print
+there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow, dust, ice or frost, with the state, the
+puddle's depth, the snow's and the grip left) and calls `OnContact` with it — the place for a footstep sound or a splash — then presses a print
 with `Stamp(Location, Radius, Strength)`. The prints go to a **trail map** around the camera
 (`RT_DreamSurfaceTrails`, 1024² over *Trail Extent*, 51.2 m; placed by `DDW_SurfaceTrails`): how deep a print is and
 how stirred the water. The materials sink the snow and the dust where it was trodden (the terrain function lowers
