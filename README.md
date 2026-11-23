@@ -507,8 +507,9 @@ raining before its clouds break up, and starts only once they have closed in.
 **Shelter.** Every query carries an *Exposure* (0 under a roof .. 1 in the open) and `RainHere / SnowHere`,
 the rain and snow that actually land on the point. Shelters are boxes (`ADreamWeatherShelter`, or
 `UDreamWeatherShelterComponent` inside a house, under a bridge, in a cave mouth) or anything implementing
-`IDreamWeatherShelterProvider`; with a baked wind terrain map (`ADreamWindGlobal`) the level's own roofs count too, and
-rain blown by the wind reaches in under the windward eaves. `IsSheltered(Position)` for gameplay.
+`IDreamWeatherShelterProvider`; the level's own roofs count too, from the wind's runtime terrain map (or a baked one,
+`ADreamWindGlobal`, where the runtime map has not looked yet), and rain blown by the wind reaches in under the
+windward eaves. `IsSheltered(Position)` for gameplay.
 
 **Lightning.** Strikes come out of the Lightning channel — around the view, preferring wherever the lightning is
 strongest, so a far storm flashes on the horizon — at `StrikesPerMinute` real-time strikes at full strength
@@ -851,8 +852,9 @@ paving, wood, metal), 1 soft ground (soil, grass). Wet, soft ground mostly darke
 the water), and its puddles are faint; the demo terrain is soft. **Where the water stands**: in small hollows of
 *Project Settings ▸ Dream Surface ▸ Water ▸ Puddle Scale* (1.5 m by default) on flat ground, and in the ground's own
 dips — where it lies below its surroundings within *Low Radius* (3 m), judged from the wind's baked level heights
-(`DSF_GroundLow`; the cover map's third channel), so a level with a wind terrain map gets puddles in its real
-valleys and hollows; without one, the small hollows only. Walls, boxes and posts beside a point do not count as its
+(`DSF_GroundLow`; the cover map's third channel), so a level with a baked wind terrain map gets puddles in its real
+valleys and hollows; without one, the small hollows only. Roofs over the cover map come from the wind's runtime
+terrain map where it runs (the baked heights elsewhere). Walls, boxes and posts beside a point do not count as its
 surroundings. **Where snow thins out** — a zone's border, a light fall, a thaw — it breaks up over metres to tens of
 metres along a large pattern (`DSF_SnowEdge`), what faces up keeping it longest; the functions read the snow at four
 points 5 m around a pixel along an offset that wanders by up to 10 m (`DSM_SnowSoft`), so a zone's border fades over
@@ -1122,6 +1124,40 @@ sample and the Niagara DI apply them directly, materials get them through the dy
 `InjectRate` of 60 settles in a few frames). Shelters are kept ahead of everything else when the source
 cap is reached. `ADreamWindSourceActor` draws the box.
 
+**The runtime terrain map.** Without baking anything, the wind looks at the level round the camera while it runs
+and works out the same three things a baked map gives — where walls cast a wind shadow, how the ground speeds the
+wind over ridges and slows it in hollows, and which way slopes steer it — for streamed, moving and procedural worlds
+alike. *Project Settings ▸ Dream Wind ▸ Terrain | Runtime*, on by default (`bRuntimeTerrain`):
+
+* Two levels follow the camera: **near** 256 m at 1 m texels (`RuntimeNearExtent`, `RuntimeNearResolution`) for the
+  shadows of walls and houses, **far** 2 km at 8 m (`RuntimeFarExtent`, `RuntimeFarResolution`) for hills: its
+  speed-up and steering, and shadows out to `RuntimeFarShadowRange` (500 m). Each is a ring buffer over the world, so
+  as the camera moves only the strip that came into view is looked at (one eighth of the level at a time).
+* The heights come from a top-down depth capture `RuntimeCaptureAltitude` (1 km) above the camera, without foliage,
+  grass, particles, translucency, skeletal meshes, decals and pass-through actors. At most one capture runs a frame:
+  what came into view first, and otherwise, every `RuntimeRefreshInterval` frames (4), the next of each level's
+  `RuntimeRefreshStrips` (16) refresh strips, the levels in turn, so a moved building or a streamed-in cell shows up
+  within about two seconds by itself. Gameplay that moves big blockers calls **`MarkObstaclesDirty(Bounds)`** on the
+  wind subsystem to have the box looked at again at once.
+* Compute passes turn the heights into the derived map whenever they change or the wind turns by 5°: the speed-up and
+  steering from the blurred heights (the bake's `RuntimeShape` settings), and the wind shadow height swept along the
+  current wind (`OcclusionRange` near, `RuntimeFarShadowRange` far, falling `OcclusionSlope` per cm). A sample under
+  the shadow height loses wind by `OcclusionStrength`, fading in over `RuntimeShadowFadeBand` (1 m) below it. One
+  texture read per level replaces the baked map's 12-tap march.
+* **CPU side.** Gameplay, cloth, the weather's roof check and the CPU wind sample read a grid of their own: 64×64 cells
+  of 4 m round the camera, its heights from asynchronous box sweeps through the level's collision (256 a frame, then a
+  row a frame again), derived the same way. It needs no renderer, so dedicated servers have it too. Cells not swept
+  yet leave the sample to the baked map.
+* Who reads it: materials (`MF_DreamWindSample`), Niagara (the wind DI), the dynamic volume, the weather's exposure and
+  the surface cover map. Only one world at a time owns the shared render targets (`DreamWorldSharedTargets`): in PIE
+  with several worlds the others fall back to the baked map; every world has its own CPU grid.
+* **The baked map stays** as the fallback: for where the runtime map is off (`bRuntimeTerrain`, `DreamWind.RuntimeTerrain
+  0`, no SM5 compute, mobile) and for the puddles' ground dips. Both on, the runtime map wins wherever it has looked.
+* Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, 40 000 grass blades, `Measure-ShowcaseGpu.ps1
+  -Scene WindField`): the wind shadow costs **0.04–0.30 ms** of the frame with the runtime map, against 0.71–0.74 ms for
+  the baked march; its capture scatter and derive passes take 0.06 ms in the frames they run. Each scene capture is a
+  render with a fixed cost of about 0.3 ms, which is why they are spread out.
+
 **Walls block the wind.** With a baked terrain map, every sample also marches upwind through the
 baked heights (12 taps over `OcclusionRange`, dense near the sample, each reading the max-height level
 whose texel is at least as wide as the step, at the tap and at the mid-step — so a one-texel wall is
@@ -1151,11 +1187,13 @@ tests), `DreamWind.TimeScale`, and the debug view:
   world Z `Height` upward.
 * **Slices** (seen in the 3D view and in screenshots, which the arrows are not): `DreamWind.Slice <mode> [height]
   [size] [yaw]` lays a plane under the camera (`ADreamWindSliceActor`, also placeable): `0` the whole wind (hue =
-  direction, brightness = speed), `1` the terrain map alone (grey = how much wind its shadow leaves, red inside a solid,
-  warm where it speeds the wind up, cool where it slows it), `2` the dynamic volume alone (its residual, and the near
-  window's edge), `3` the engine's global distance field (red on a surface, white near one, blue farther off, magenta
-  where the view had none). A yaw stands the plane up, 15 m ahead of the camera, across that yaw. `DreamWind.Slice off`.
-* `DreamWind.Occlusion 0|1|-1` switches the terrain map's wind shadow off for every consumer (to time it, or to compare).
+  direction, brightness = speed; the runtime terrain map where it runs), `1` the baked terrain map alone (grey = how
+  much wind its shadow leaves, red inside a solid, warm where it speeds the wind up, cool where it slows it), `2` the
+  dynamic volume alone (its residual, and the near window's edge), `3` the engine's global distance field (red on a
+  surface, white near one, blue farther off, magenta where the view had none), `4` the runtime terrain map alone (as
+  `1`). A yaw stands the plane up, 15 m ahead of the camera, across that yaw. `DreamWind.Slice off`.
+* `DreamWind.Occlusion 0|1|-1` switches the terrain maps' wind shadow off for every consumer (to time it, or to compare);
+  `DreamWind.RuntimeTerrain 0|1|-1` the runtime terrain map (off: back to the baked map).
 * **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
   tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
   reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
@@ -1291,7 +1329,11 @@ effects driven by real weather.
 (determinism, continuity across lattice cells and in time, calm wind, source blending incl. jets and
 shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow both ways, holes/ripple),
 `DreamWind.Perf.CpuSample` times the CPU sample, `DreamWind.Subsystem.TickAndImpulse` drives a real
-subsystem tick with an impulse in whichever editor/game world is up.
+subsystem tick with an impulse in whichever editor/game world is up, `DreamWind.Terrain.GridShadow` the runtime
+terrain map's CPU grid (a wall's lee and its wedge, the wind turning, unswept cells). With a renderer, on the wind
+field test level: `DreamWind.Gpu.RuntimeTerrain` (the GPU's map has the house's lee where the wedge says and none
+upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone) and
+`DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
