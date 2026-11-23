@@ -870,6 +870,17 @@ registers in a game world, when it moves and on `CaptureNow`, so what lies benea
 shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
 per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
 
+**Eaves.** A **drip line** (`ADreamSurfaceDripLine`, or `UDreamSurfaceDripLineComponent` on anything; along its X
+axis, *Length* long) along a roof's lower edge drips while it rains and after: how hard (`DSF_EaveDrip`) follows the
+rain landing on the roof and, once it stops, the roof's own film (the state in the open at the eave,
+`SampleOpenSurface`) — it drips on while the film stays above *Drip From Wetness* (0.55 of a soaked film), fewer and
+fewer drops as it dries, so a shaded, still eave drips longest; frozen, it stops. *Drops Per Metre* (8 a second in a
+full rain) sets how many. The drops (`NS_DreamEaveDrips`: they form along the eave, fall freely and splash on the
+ground traced below each end) ring the puddles they land in (the trail map, near the view). `GetDripStrength`,
+`GetDropRate` ask it; `DreamSurface.Dump` lists every drip line with its strength, rate and live particles. The
+showcase's hut and porch have them on their edges. `DreamSurface.EaveDrips` checks the rain, the drying and the
+puddles' rings.
+
 **Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
 wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is
 there (`UDreamSurfaceSubsystem::SampleContact`: dry, wet, puddle, snow, dust, ice or frost, with the state, the
