@@ -144,6 +144,14 @@ editor's mobile preview, the sky is drawn without its cumulus — the sky itself
 ever — and the log and the editor say so once. `DreamSky.CloudRender.Enable 0` leaves them out the same way: set it in
 a device profile to have no clouds on a platform.
 
+**Sky light.** The sky light takes its light from the dome captured in real time (`SkyLightSource`, by default),
+or captured again only when the sky has changed enough (`CaptureWhenChanged`, as `bRealTimeSkyCapture` off), or --
+for low end and mobile, with no capture at all -- from a cubemap: `Cubemap` a fixed one (`SkyLightCubemap`, the
+engine's daylight cubemap if none) at the style's sky light intensity, or `TintedCubemap` one tinted by the sky's
+ambient light and as bright as it (a plain white cube Setup makes, `T_DreamSkyWhiteCube`, if none: a neutral cubemap
+takes the tint best), the ground below it the sky's ambient ground; `SkyLightCubemapScale` scales either.
+`DreamSky.SkyLightSource 0..3` overrides it (a device profile or a quality setting).
+
 **Flat clouds.** Where the renderer does not draw, the dome draws flat clouds instead (`DreamSky.Clouds.Flat`, -1): a
 cheap sheet at the cloud base from the weather map's cover and darkness -- a few clouds, then many, then an overcast,
 dark under a storm, a storm zone showing from afar -- shaped by three octaves of the cloud noise drifting with the

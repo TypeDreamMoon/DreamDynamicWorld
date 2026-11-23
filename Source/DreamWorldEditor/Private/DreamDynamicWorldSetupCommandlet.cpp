@@ -22,6 +22,7 @@
 
 #include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
+#include "Engine/TextureCube.h"
 #include "Engine/TextureRenderTarget2D.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -54,6 +55,7 @@ namespace DreamWorld::Setup
 	static const TCHAR* StarMapPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamStarMap");
 	static const TCHAR* StarMapStampKey = TEXT("DreamStarMapStamp");
 	static const TCHAR* MilkyWayPackage = TEXT("/DreamDynamicWorld/Sky/T_DreamMilkyWay");
+	static const TCHAR* WhiteCubePackage = TEXT("/DreamDynamicWorld/Sky/T_DreamSkyWhiteCube");
 	static const TCHAR* MilkyWayVersionKey = TEXT("DreamMilkyWayVersion");
 
 	static bool Save(UPackage* Package, UObject* Asset, const FString& Extension)
@@ -299,6 +301,36 @@ namespace DreamWorld::Setup
 	 * The Milky Way's map (see DreamMilkyWay.h), made from noise: no file needed. Built again when its version changed,
 	 * or with bForce; bPreview also writes it as <project>/Saved/DreamDynamicWorld/MilkyWay.bmp to look at.
 	 */
+	/**
+	 * A plain white cubemap, 16 texels a face: the sky light's TintedCubemap source takes it when none is given, the sky's
+	 * ambient light tinting it as it is (the ground comes from the sky light's lower hemisphere).
+	 */
+	static bool EnsureWhiteCube()
+	{
+		const FString ObjectPath = FString(WhiteCubePackage) + TEXT(".") + FPackageName::GetShortName(WhiteCubePackage);
+		if (FPackageName::DoesPackageExist(WhiteCubePackage) && LoadObject<UTextureCube>(nullptr, *ObjectPath))
+		{
+			UE_LOG(LogDreamWorld, Display, TEXT("White cubemap %s: up to date"), *ObjectPath);
+			return true;
+		}
+		UPackage* Package = CreatePackage(WhiteCubePackage);
+		Package->FullyLoad();
+		UTextureCube* Cube = NewObject<UTextureCube>(Package, *FPackageName::GetShortName(WhiteCubePackage), RF_Public | RF_Standalone);
+		constexpr int32 Size = 16;
+		TArray<FFloat16Color> Texels;
+		Texels.Init(FFloat16Color(FLinearColor::White), Size * Size * 6);
+		Cube->PreEditChange(nullptr);
+		Cube->Source.Init(Size, Size, 6, 1, TSF_RGBA16F, reinterpret_cast<const uint8*>(Texels.GetData()));
+		Cube->SRGB = false;
+		Cube->CompressionSettings = TC_HDR;
+		Cube->MipGenSettings = TMGS_FromTextureGroup;
+		Cube->LODGroup = TEXTUREGROUP_Skybox;
+		Cube->PostEditChange();
+		FAssetRegistryModule::AssetCreated(Cube);
+		UE_LOG(LogDreamWorld, Display, TEXT("White cubemap %s: made"), *ObjectPath);
+		return Save(Package, Cube, FPackageName::GetAssetPackageExtension());
+	}
+
 	static bool EnsureMilkyWay(bool bForce, bool bPreview)
 	{
 		const FString ObjectPath = FString(MilkyWayPackage) + TEXT(".") + FPackageName::GetShortName(MilkyWayPackage);
@@ -564,6 +596,7 @@ int32 UDreamDynamicWorldSetupCommandlet::Main(const FString& Params)
 	bOk &= EnsureCloudNoise(FParse::Param(*Params, TEXT("ForceCloudNoise")));
 	bOk &= EnsureStarMap(Params, FParse::Param(*Params, TEXT("ForceStarMap")));
 	bOk &= EnsureMilkyWay(FParse::Param(*Params, TEXT("ForceMilkyWay")), FParse::Param(*Params, TEXT("MilkyWayPreview")));
+	bOk &= EnsureWhiteCube();
 	const TMap<FString, UDreamWeatherPreset*> Presets = EnsureWeatherPresets(FParse::Param(*Params, TEXT("ForcePresets")));
 	bOk &= Presets.Num() > 0;
 

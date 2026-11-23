@@ -16,6 +16,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureCube.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
 #include "MaterialShared.h"
@@ -507,6 +508,66 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(FString::Printf(TEXT("the materials' main light dimmed either way (%.2f against %.2f lux)"), GreyMain, ClearMain), GreyMain,
 		ClearMain * (1.0f - Style->OvercastLightDimming), FMath::Max(1e-3f, ClearMain * 2e-3f));
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyLightSourceTest, "DreamSky.Actor.SkyLightSource", DreamSky::Tests::Flags)
+bool FDreamSkyLightSourceTest::RunTest(const FString& Parameters)
+{
+	// The sky light's source: the dome captured in real time (by default) or when it changed, or a cubemap, fixed or
+	// tinted by the sky's ambient light.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	USkyLightComponent* Light = Sky.SkyLight;
+	auto At = [&W](int32 Hour, float Minutes = 0.0f)
+	{
+		FDreamWorldClockConfig Config;
+		Config.StartTime = FDateTime(2026, 6, 21, Hour, 0, 0) + FTimespan::FromMinutes(Minutes);
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+	};
+	At(12);
+	TestTrue(TEXT("by default: the dome captured in real time"), Light->SourceType == SLS_CapturedScene && Light->bRealTimeCapture);
+	Sky.bRealTimeSkyCapture = false;
+	At(12);
+	TestTrue(TEXT("real time off: captured when it changed"), Sky.GetEffectiveSkyLightSource() == EDreamSkyLightSource::CaptureWhenChanged && !Light->bRealTimeCapture);
+	Sky.bRealTimeSkyCapture = true;
+
+	Sky.SkyLightSource = EDreamSkyLightSource::Cubemap;
+	At(12);
+	TestTrue(TEXT("a fixed cubemap: no capture"), Light->SourceType == SLS_SpecifiedCubemap && !Light->bRealTimeCapture);
+	TestTrue(TEXT("none given: the engine's daylight one"), Light->Cubemap && Light->Cubemap->GetName() == TEXT("DaylightAmbientCubemap"));
+	TestTrue(TEXT("white"), Light->GetLightColor().Equals(FLinearColor::White, 1e-5f));
+	const float Fixed = Light->Intensity;
+
+	Sky.SkyLightSource = EDreamSkyLightSource::TintedCubemap;
+	At(12);
+	TestTrue(TEXT("tinted: the plain white cube"), Light->Cubemap && Light->Cubemap->GetName() == TEXT("T_DreamSkyWhiteCube"));
+	const FLinearColor Noon = Light->GetLightColor();
+	const float NoonIntensity = Light->Intensity;
+	TestTrue(FString::Printf(TEXT("tinted by the noon sky: blue (%s)"), *Noon.ToString()), Noon.B >= Noon.R && FMath::IsNearlyEqual(FMath::Max3(Noon.R, Noon.G, Noon.B), 1.0f, 1e-4f));
+	TestTrue(TEXT("the ground below from the sky's ambient ground"), Light->bLowerHemisphereIsBlack);
+	At(0);
+	TestTrue(FString::Printf(TEXT("darker at night (%.4f against %.4f)"), Light->Intensity, NoonIntensity), Light->Intensity < 0.5f * NoonIntensity);
+	TestTrue(TEXT("the fixed cubemap's brightness was the style's sky light intensity"), Fixed > 0.0f);
+
+	// The console overrides it; back to the capture.
+	IConsoleVariable* Forced = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.SkyLightSource"));
+	if (TestNotNull(TEXT("DreamSky.SkyLightSource"), Forced))
+	{
+		Forced->Set(0, ECVF_SetByCode);
+		At(12);
+		TestTrue(TEXT("forced back to the real time capture"), Light->SourceType == SLS_CapturedScene && Light->bRealTimeCapture);
+		TestTrue(TEXT("its colour white again"), Light->GetLightColor().Equals(FLinearColor::White, 1e-5f));
+		Forced->Set(-1, ECVF_SetByCode);
+	}
+	Sky.SkyLightSource = EDreamSkyLightSource::RealTimeCapture;
+	At(12);
+	TestTrue(TEXT("the capture again"), Light->SourceType == SLS_CapturedScene);
 	return true;
 }
 

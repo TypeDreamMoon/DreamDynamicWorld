@@ -8,6 +8,7 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Engine/TextureCube.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -37,6 +38,12 @@ static TAutoConsoleVariable<bool> CVarDreamSkyCloudRenderEnable(
 	TEXT("Whether the sky cloud renderer draws the sky's clouds. 0 leaves them out (the sky, the high cloud and the rain shafts")
 	TEXT(" are still drawn): set it in a device profile to have no clouds on a platform. Where the renderer cannot run (below")
 	TEXT(" Shader Model 5, the mobile renderer) they are left out whatever it says."),
+	ECVF_Scalability);
+
+static TAutoConsoleVariable<int32> CVarDreamSkySkyLightSource(
+	TEXT("DreamSky.SkyLightSource"), -1,
+	TEXT("The sky light's source whatever the sky says: 0 the dome captured in real time, 1 captured when it changed, 2 a fixed")
+	TEXT(" cubemap, 3 a cubemap tinted by the sky (for low end and mobile); -1 = the sky's SkyLightSource."),
 	ECVF_Scalability);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudsFlat(
@@ -93,6 +100,8 @@ namespace DreamSky::Actor
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
 	static const TCHAR* FlatCloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamFlatCloudShadow.M_DreamFlatCloudShadow");
+	static const TCHAR* DaylightCubemapPath = TEXT("/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap");
+	static const TCHAR* WhiteCubemapPath = TEXT("/DreamDynamicWorld/Sky/T_DreamSkyWhiteCube.T_DreamSkyWhiteCube");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
 	static constexpr int32 CloudShadowResolution = 512;
 	static constexpr float CloudShadowHalfExtent = 6000000.0f;
@@ -640,7 +649,81 @@ void ADreamSky::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	ApplyDome();
-	SkyLight->SetRealTimeCapture(bRealTimeSkyCapture);
+	SkyLight->SetRealTimeCapture(GetEffectiveSkyLightSource() == EDreamSkyLightSource::RealTimeCapture);
+}
+
+EDreamSkyLightSource ADreamSky::GetEffectiveSkyLightSource() const
+{
+	const int32 Forced = CVarDreamSkySkyLightSource.GetValueOnAnyThread();
+	if (Forced >= 0)
+	{
+		return EDreamSkyLightSource(FMath::Min(Forced, 3));
+	}
+	return SkyLightSource == EDreamSkyLightSource::RealTimeCapture && !bRealTimeSkyCapture ? EDreamSkyLightSource::CaptureWhenChanged : SkyLightSource;
+}
+
+void ADreamSky::ApplySkyLightSource(const FDreamSkyLighting& L, bool bSnap)
+{
+	using namespace DreamSky::Actor;
+	const EDreamSkyLightSource Source = GetEffectiveSkyLightSource();
+	const bool bCubemap = Source == EDreamSkyLightSource::Cubemap || Source == EDreamSkyLightSource::TintedCubemap;
+	if (!bCubemap)
+	{
+		const bool bRealTime = Source == EDreamSkyLightSource::RealTimeCapture;
+		if (SkyLight->SourceType != SLS_CapturedScene)
+		{
+			SkyLight->SourceType = SLS_CapturedScene;
+			SkyLight->SetLightColor(FLinearColor::White);
+			AppliedSkyLightCubemap = nullptr;
+			SkyLight->SetRealTimeCapture(bRealTime);
+			SkyLight->RecaptureSky();
+		}
+		else if (SkyLight->bRealTimeCapture != bRealTime)
+		{
+			SkyLight->SetRealTimeCapture(bRealTime);
+		}
+		if (SkyLight->Intensity != L.SkyLightIntensity && FMath::Abs(SkyLight->Intensity - L.SkyLightIntensity) > (bSnap ? 1.0e-5f : 0.005f) * FMath::Max(L.SkyLightIntensity, 1.0e-3f))
+		{
+			SkyLight->SetIntensity(L.SkyLightIntensity);
+		}
+		return;
+	}
+	// A cubemap: none given, the engine's daylight one (the tinted, a plain white one, which takes the tint as it is).
+	UTextureCube* Cube = SkyLightCubemap.LoadSynchronous();
+	if (!Cube)
+	{
+		Cube = LoadObject<UTextureCube>(nullptr, Source == EDreamSkyLightSource::TintedCubemap ? WhiteCubemapPath : DaylightCubemapPath);
+	}
+	if (SkyLight->SourceType != SLS_SpecifiedCubemap || AppliedSkyLightCubemap != Cube)
+	{
+		SkyLight->SetRealTimeCapture(false);
+		SkyLight->SourceType = SLS_SpecifiedCubemap;
+		SkyLight->SetCubemap(Cube);
+		AppliedSkyLightCubemap = Cube;
+		SkyLight->RecaptureSky();
+	}
+	// Tinted: the sky's ambient light from above as a captured dome gives it -- its colour mostly the zenith's (most of
+	// the dome; the horizon toward a low sun is a narrow warm band), the brightest channel to 1; as bright as the zenith's
+	// and the horizon's together -- fixed: the sky light's intensity as the style gives it, white.
+	FLinearColor Color = FLinearColor::White;
+	float Intensity = L.SkyLightIntensity * FMath::Max(SkyLightCubemapScale, 0.0f);
+	if (Source == EDreamSkyLightSource::TintedCubemap)
+	{
+		const FLinearColor Hue = L.AmbientSky * 0.7f + L.AmbientEquator * 0.3f;
+		const float Peak = FMath::Max3(Hue.R, Hue.G, FMath::Max(Hue.B, 1.0e-6f));
+		Color = FLinearColor(Hue.R / Peak, Hue.G / Peak, Hue.B / Peak, 1.0f);
+		const float Bright = ((L.AmbientSky + L.AmbientEquator) * 0.5f).GetLuminance();
+		Intensity *= Bright / FMath::Max(Color.GetLuminance(), 1.0e-4f);
+	}
+	const float Tolerance = bSnap ? 1.0e-5f : 0.002f;
+	if (!SkyLight->GetLightColor().Equals(Color, Tolerance))
+	{
+		SkyLight->SetLightColor(Color);
+	}
+	if (FMath::Abs(SkyLight->Intensity - Intensity) > (bSnap ? 1.0e-5f : 0.005f) * FMath::Max(Intensity, 1.0e-3f))
+	{
+		SkyLight->SetIntensity(Intensity);
+	}
 }
 
 void ADreamSky::PostRegisterAllComponents()
@@ -900,17 +983,18 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 	const float ColorTolerance = bSnap ? 1.0e-5f : 0.002f;
 	if (SkyLight)
 	{
-		if (Differs(SkyLight->Intensity, L.SkyLightIntensity, Relative, 1.0e-5f))
-		{
-			SkyLight->SetIntensity(L.SkyLightIntensity);
-		}
 		if (Differs(SkyLight->LowerHemisphereColor, L.AmbientGround, ColorTolerance))
 		{
 			SkyLight->SetLowerHemisphereColor(L.AmbientGround);
 		}
-		if (SkyLight->bRealTimeCapture != bRealTimeSkyCapture)
+		// (Its source -- the dome captured, or a cubemap, tinted by the sky or not -- and its intensity.)
+		ApplySkyLightSource(L, bSnap);
+		// (A cubemap brings its own ground: under a tinted one the lower hemisphere is the sky's ambient ground.)
+		const bool bBlackBelow = GetEffectiveSkyLightSource() == EDreamSkyLightSource::TintedCubemap;
+		if (SkyLight->bLowerHemisphereIsBlack != bBlackBelow)
 		{
-			SkyLight->SetRealTimeCapture(bRealTimeSkyCapture);
+			SkyLight->bLowerHemisphereIsBlack = bBlackBelow;
+			SkyLight->MarkRenderStateDirty();
 		}
 	}
 
@@ -1021,7 +1105,7 @@ float ADreamSky::GetPostProcessWeight(int32 Index) const
 
 void ADreamSky::RecaptureSkyLight()
 {
-	if (SkyLight && !SkyLight->bRealTimeCapture)
+	if (SkyLight && GetEffectiveSkyLightSource() == EDreamSkyLightSource::CaptureWhenChanged && !SkyLight->bRealTimeCapture)
 	{
 		SkyLight->RecaptureSky();
 	}
