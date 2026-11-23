@@ -81,6 +81,8 @@ private:
 	TObjectPtr<UTextureRenderTarget2D> Trails;
 	FVector2D TrailCenter = FVector2D(1.0e30, 1.0e30);
 	double LastTrailDraw = -1.0e30;
+	/** Real time until which the water in the puddles may still be moving (the trail map updates every frame till then). */
+	double WavesUntil = -1.0e30;
 	double LastTrailWorldSeconds = -1.0e30;
 	FVector2D CoverCenter = FVector2D(1.0e30, 1.0e30);
 	double LastCoverDraw = -1.0e30;

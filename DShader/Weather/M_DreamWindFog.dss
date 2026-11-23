@@ -1,0 +1,112 @@
+// M_DreamWindFog.dss -- fog blown by the wind, low over the ground: a post-process pass (ADreamWindFog).
+//
+// From the camera to what it sees (no further than FogReach) the pass marches a slab of noise from FogBase up
+// FogThickness: the noise is stretched along the wind and drifts with it (DDW_FogDrift: the wind summed at the view, and
+// the wind there now), so wisps stream past at knee to head height in a wind. It shows as far as the weather has fog and
+// the wind blows (DDW_Weather1: fog, -, wind), lit by the sky (ambient plus a share of the main light).
+#pragma material(Domain = PostProcess, BlendableLocation = BL_SceneColorBeforeDOF)
+
+/// @group Wind Fog @desc The slab's floor, world cm (the actor's height)
+uniform float FogBase = 0.0;
+
+/// @group Wind Fog @desc The slab's thickness, cm
+uniform float FogThickness = 250.0;
+
+/// @group Wind Fog @desc How thick the wisps get at full fog and wind, 0..1
+uniform float FogAmount = 0.6;
+
+/// @group Wind Fog @desc How far the wisps reach from the camera, cm
+uniform float FogReach = 4000.0;
+
+/// @group Wind Fog @desc The wisps' size across the wind, cm (along it they stretch four times as long)
+uniform float WispScale = 220.0;
+
+/// @group Wind Fog @desc How bright the wisps are against the light around them
+uniform float Brightness = 1.1;
+
+/// @group Wind Fog @desc Share of the main (sun / moon) light the wisps catch
+uniform float MainLightShare = 0.25;
+
+/// @custom
+float WispHash(float3 P)
+{
+    P = frac(P * 0.3183099 + 0.1);
+    P *= 17.0;
+    return frac(P.x * P.y * P.z * (P.x + P.y + P.z));
+}
+
+/// @custom
+float WispNoise(float3 P)
+{
+    float3 I = floor(P);
+    float3 F = P - I;
+    float3 U = F * F * (3.0 - 2.0 * F);
+    float A = lerp(lerp(WispHash(I + float3(0, 0, 0)), WispHash(I + float3(1, 0, 0)), U.x), lerp(WispHash(I + float3(0, 1, 0)), WispHash(I + float3(1, 1, 0)), U.x), U.y);
+    float B = lerp(lerp(WispHash(I + float3(0, 0, 1)), WispHash(I + float3(1, 0, 1)), U.x), lerp(WispHash(I + float3(0, 1, 1)), WispHash(I + float3(1, 1, 1)), U.x), U.y);
+    return lerp(A, B, U.z);
+}
+
+/// @custom
+float WindFogMarch(float3 Camera, float3 World, float4 Drift, float Base, float Thickness, float Reach, float Scale, float Time)
+{
+    // The ray within the slab and within reach.
+    float3 Ray = World - Camera;
+    float Length = min(length(Ray), Reach);
+    float3 Dir = Ray / max(length(Ray), 1.0);
+    float T0 = 0.0;
+    float T1 = Length;
+    if (abs(Dir.z) > 1.0e-4)
+    {
+        float A = (Base - Camera.z) / Dir.z;
+        float B = (Base + Thickness - Camera.z) / Dir.z;
+        T0 = max(T0, min(A, B));
+        T1 = min(T1, max(A, B));
+    }
+    else if (Camera.z < Base || Camera.z > Base + Thickness)
+    {
+        return 0.0;
+    }
+    if (T1 <= T0)
+    {
+        return 0.0;
+    }
+    // The wind's axis: the noise stretched four times along it, drifting with it.
+    float2 Wind = Drift.zw;
+    float Speed = length(Wind);
+    float2 Along = Speed > 1.0 ? Wind / Speed : float2(1.0, 0.0);
+    float2 Across = float2(-Along.y, Along.x);
+    float Optical = 0.0;
+    const int Steps = 8;
+    float Step = (T1 - T0) / Steps;
+    for (int i = 0; i < Steps; ++i)
+    {
+        float3 P = Camera + Dir * (T0 + (i + 0.5) * Step);
+        float2 Flat = P.xy - Drift.xy;
+        float3 Q = float3(dot(Flat, Along) / (Scale * 4.0), dot(Flat, Across) / Scale, (P.z - Base) / (Scale * 0.6) + Time * 0.05);
+        float N = WispNoise(Q) * 0.6 + WispNoise(Q * 2.13 + 7.7) * 0.4;
+        float Height = saturate((P.z - Base) / (Thickness * 0.15)) * saturate((Base + Thickness - P.z) / (Thickness * 0.6));
+        Optical += saturate((N - 0.45) * 2.5) * Height * Step;
+    }
+    // Some 3 m of the thickest wisps hide what is behind them.
+    return 1.0 - exp(-Optical / 300.0);
+}
+
+export void M_DreamWindFog(inout material m)
+{
+    float3 Scene = UE.SceneTexture(SceneTextureId = "PostProcessInput0").Color.rgb;
+    float4 Weather1  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Weather1");
+    float4 Drift     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_FogDrift");
+    float4 Ambient   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
+    float4 MainLight = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+    float4 MainColor = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLightColor");
+
+    // As much as the weather has fog and the wind blows.
+    float Strength = FogAmount * saturate(Weather1.x) * smoothstep(0.05, 0.5, Weather1.z);
+    float Cover = 0.0;
+    if (Strength > 0.001)
+    {
+        Cover = WindFogMarch(UE.CameraPositionWS(), UE.WorldPosition(), Drift, FogBase, FogThickness, FogReach, WispScale, UE.Time()) * Strength;
+    }
+    float3 Light = (Ambient.rgb + MainColor.rgb * MainLight.w * MainLightShare) * Brightness;
+    m.EmissiveColor = lerp(Scene, Light, Cover);
+}

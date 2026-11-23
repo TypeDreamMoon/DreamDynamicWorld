@@ -296,15 +296,21 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The trail map: prints pressed into the snow and the dust (R, 0..1 of the way down) and water stirred by them (G), around
-// the camera. Each update carries the previous map over where the map moved, lets the prints fill (new snow, wind) and
-// the stirred water settle, then presses the new prints (UDreamSurfaceSubsystem::Stamp).
+// The trail map: prints pressed into the snow and the dust (R, 0..1 of the way down), water stirred by them (G), and the
+// water's surface (B its height, A how fast it moves: a wave field), around the camera. Each update carries the previous
+// map over where the map moved, lets the prints fill (new snow, wind) and the stirred water settle, moves the water's
+// surface on a step (a wave equation: what a foot pushes away runs out in a ring and flows back as the ring dies
+// away), then presses the new prints (UDreamSurfaceSubsystem::Stamp): under a foot in the water the surface goes down
+// to -1, the water pushed away.
 
 float2 TrailCenter;      // world cm, this update
 float2 PreviousCenter;   // world cm, the previous map's
 float TrailExtent;       // world cm the map spans
 float PrintKeep;         // how much of a print stays over this update (new snow and wind fill it)
 float RippleKeep;        // how much of the stirred water's energy stays
+float WaveStep;          // the wave equation's (speed x seconds / texel)^2 over this update, at most 0.5
+float WaveKeep;          // how much of the water's motion stays over this update
+float WaveSettle;        // how much of the surface's height stays (the water flowing back level)
 uint NumStamps;
 int2 TrailResolution;
 Texture2D PreviousTrails;
@@ -324,13 +330,30 @@ void TrailsCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 	// The previous map where this texel was in it.
 	float2 Before = (P - PreviousCenter) / TrailExtent + 0.5f;
-	float2 T = float2(0.0f, 0.0f);
+	float4 T = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	float Sides = 0.0f;
+	float Corners = 0.0f;
 	if (all(Before >= 0.0f) && all(Before <= 1.0f))
 	{
-		T = PreviousTrails.SampleLevel(PreviousSampler, Before, 0).rg;
+		T = PreviousTrails.SampleLevel(PreviousSampler, Before, 0);
+		// The water's surface around the texel, its four sides and four corners (beyond the map, level).
+		float2 X = float2(1.0f / float(TrailResolution.x), 0.0f);
+		float2 Y = float2(0.0f, 1.0f / float(TrailResolution.y));
+		Sides = PreviousTrails.SampleLevel(PreviousSampler, Before + X, 0).b + PreviousTrails.SampleLevel(PreviousSampler, Before - X, 0).b
+			+ PreviousTrails.SampleLevel(PreviousSampler, Before + Y, 0).b + PreviousTrails.SampleLevel(PreviousSampler, Before - Y, 0).b;
+		Corners = PreviousTrails.SampleLevel(PreviousSampler, Before + X + Y, 0).b + PreviousTrails.SampleLevel(PreviousSampler, Before - X - Y, 0).b
+			+ PreviousTrails.SampleLevel(PreviousSampler, Before + X - Y, 0).b + PreviousTrails.SampleLevel(PreviousSampler, Before - X + Y, 0).b;
 	}
 	T.x *= PrintKeep;
 	T.y *= RippleKeep;
+	// A step of the waves: the surface's pull toward its neighbours (a nine-point Laplacian, the same every way round, so
+	// a ring stays round on the grid) speeds it up or slows it down, the motion dies away, the surface settles level and
+	// is smoothed a little (the grid's finest ripples are not the water's).
+	float Pull = (4.0f * Sides + Corners - 20.0f * T.z) / 6.0f;
+	float Velocity = (T.w + WaveStep * Pull) * WaveKeep;
+	float Smoothed = T.z + 0.15f * sqrt(WaveStep) * Pull;
+	T.z = clamp((Smoothed + Velocity) * WaveSettle, -1.0f, 1.0f);
+	T.w = clamp(Velocity, -1.0f, 1.0f);
 
 	for (uint i = 0; i < NumStamps; ++i)
 	{
@@ -341,6 +364,13 @@ void TrailsCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		// A step stirs the water further than its print: the splash spreads some three times as wide.
 		float Splash = 1.0f - smoothstep(S0.z * 0.5f, S0.z * 3.0f, length(P - S0.xy));
 		T.y = max(T.y, Splash * S1.y);
+		// Under the foot the water is pushed away, the surface down to the bottom.
+		float Under = (1.0f - smoothstep(S0.z * 0.3f, S0.z * 1.3f, length(P - S0.xy))) * S1.y;
+		if (Under > 0.0f)
+		{
+			T.z = min(T.z, -Under);
+			T.w = T.w * (1.0f - Under);
+		}
 	}
-	OutTrails[DispatchThreadId.xy] = float4(T, 0.0f, 1.0f);
+	OutTrails[DispatchThreadId.xy] = T;
 }

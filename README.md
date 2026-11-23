@@ -524,6 +524,24 @@ height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay cond
 `OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
 are saved in the world snapshot; the schedule needs nothing saved.
 
+**Ground fog and wind fog.** Two actors for fog of a place rather than of the whole sky (module `DreamWeatherFX`):
+
+- **Fog bank** (`ADreamFogBank`): patches of fog filling a box (*Extent*, the actor at its floor), each a local fog
+  volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
+  taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
+  or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
+  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
+  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+- **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
+  actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
+  the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
+  the wind blows (`DDW_Weather1` at the view), times *Amount*.
+
+Both drift with the wind summed at the view, frame by frame (`DDW_FogDrift`: xy how far the air has been carried, zw
+the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of wind never jumps the fog. The showcase has
+a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
+(`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
+
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
@@ -898,7 +916,7 @@ its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
@@ -1013,8 +1031,8 @@ values a set of materials shares in a parent instance and let the materials inhe
 
 | Group | Parameters (defaults) |
 | :-- | :-- |
-| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
-| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
+| *Weather Look* (realistic, terrain) | wet: `WetValueHard` 0.85 and `WetValuePorous` 0.4 (how much colour a wet hard / porous surface keeps), `WetRoughHard` 0.2 and `WetRoughPorous` 0.35 (the roughness it goes down to); water: `PuddleValue` 0.35, `PuddleRoughness` 0.02, `RippleStrength` 0.35, `WaveStrength` 0.6; snow: `SnowColor`, `SnowRoughness` 0.6, `SnowCoverGain` 1 (above 1 a thin fall covers sooner), `PrintDarken` 0.12; dust: `DustColor`, `DustAmount` 0.85, `DustRoughness` 0.95; cold: `IceTint`, `IceRoughness` 0.06, `IceValue` 0.8 (how much colour a glazed surface keeps), `FrozenPuddleColor`, `FrozenPuddleRoughness` 0.15, `FrostColor`, `FrostRoughness` 0.75, `FrostCoverGain` 1, `FrostGlints` 0.5 (how much frost sparkles), `RimeBrightness` 1.04, `FrostAmount` 0.5 and `RimeAmount` 0.9 (how far a full frost / rime whitens a surface: a frost lets it show through) |
+| *Toon Weather Look* | wet: `ToonWetValueDrop` 0.18, `ToonWetSaturationBoost` 0.35, `ToonWetRoughnessScale` 0.35 (the highlight band's widening); edges: `ToonEdgeWidth` 0.05 (half the width of every hard edge: 0 a cut line), `ToonRoughnessFloor` 0.4; water: `ToonPuddleThreshold` 0.5 (lower, wider puddles), `ToonPuddleValue` 0.45, `ToonPuddleSkyReflection` 0.55, `ToonPuddleRoughness` 0.05, `ToonPuddleRimWidth` 0.2, `ToonPuddleRimColor`, `ToonRippleBrightness` 0.18, `ToonWaveThreshold` 0.15, `ToonWaveBrightness` 0.2; snow: `ToonSnowThreshold` 0.5, `ToonSnowColor`, `ToonSnowRoughness` 0.7, `ToonPrintThreshold` 0.5; dust: `ToonDustThreshold` 0.4, `ToonDustColor`, `ToonDustAmount` 0.8, `ToonDustRoughness` 0.95; cold: `ToonIceThreshold` 0.5, `ToonIceTint`, `ToonIceTintAmount` 0.35, `ToonIceRoughnessScale` 0.25, `ToonFrozenPuddleThreshold` 0.5, `ToonFrozenPuddleColor`, `ToonCrackBrightness` 0.15, `ToonFrostThreshold` 0.45, `ToonFrostColor`, `ToonFrostRoughness` 0.8, `ToonFrostCoverGain` 1, `ToonGlintBrightness` 0.25, `ToonFrostAmount` 0.5, `ToonRimeAmount` 0.9 |
 
 Where the weather lies (the wet film, the puddles' hollows, the snow's cover and edge pattern) stays the shared
 formula, so a CPU query and every material agree on it; the parameters change how it looks there.
@@ -1114,6 +1132,24 @@ fresh snow falls (*Print Fill Hours* of snow), the wind blows them over (*Print 
 case (*Print Fade Hours*, in game hours); the stirred water settles in *Ripple Seconds*, real time. The map follows
 the camera in eighths of its size and keeps what it carried over; prints that leave it are gone. The trail map is
 for the look: `SampleSurface` does not see the prints.
+
+**Water underfoot.** The trail map's other two channels are the puddles' water surface, a small wave field (its height
+and how fast it moves) stepped on the GPU with each update (`TrailsCS`: a nine-point wave equation, the same every way
+round so a ring stays round on the grid). A step into a puddle pushes the water away under the foot, down to the
+ground; the water then rushes back, a ring runs out across the puddle and dies away, and the surface settles level —
+*Wave Speed* (40 cm/s), *Wave Seconds* (1.2: how long a wave lives) and *Flow Back Seconds* (1.5), real seconds, in
+*Project Settings ▸ Dream Surface ▸ Trails ▸ Water*. While the water moves the trail map updates every frame. The
+materials (`DSM_Wave`) open the puddle where the water is pushed away, down to the wet ground beneath, and tilt its
+surface along the waves (`WaveStrength`; the toon function draws a hard bright line on a steep wave, `ToonWaveThreshold`,
+`ToonWaveBrightness`). An eave's drops push the water too, so a drip line rings the puddle below it. Like the prints, it
+is for the look. `DreamSurface.Gpu.PuddleWaves` checks the hole, the ring and the level water after.
+
+**A walker.** `ADreamSurfaceWalker` walks an ellipse round *Center* (*Radii*) at *Speed* (1.2 m/s), on the ground
+(traced) and facing the way it goes, its two feet (surface interaction components) stepping in turn every half
+*Stride*: prints in the snow and the dust, puddles pushed away and ringing, with no character or animation. Its body is
+any mesh standing on its pivot; anything else that moves with a body can be attached to it.
+`DreamSurface.Walker.Frame [behind] [height] [pitch] [side]` puts the view behind it (a shot tour's following view).
+`DreamSurface.Walker` checks its pace, its loop and its alternating prints.
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
 a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, a wind
@@ -1247,7 +1283,7 @@ the analytic model above, plus a small camera-following volume for local air.
 | :-- | :-- | :-- | :-- |
 | **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
 | **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys, and level geometry casts a **wind shadow** (walls, rocks, hill crests; calm inside solids) | 1 bilinear fetch + 25 for the shadow march, ~1 MB per 256² map (2 MB with its max-height chain) | everyone |
-| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
+| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); a fluid round walls (flow round buildings, corner eddies, backflow in the lee), sources' impulses and wakes; or, with the fluid off, the residual wind advected and decayed | 0.2 ms for both grids (fluid), ~8 MB | materials (on by default), Niagara GPU |
 | **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres (directional and vortex can be **stretched** into a jet along their axis) and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
@@ -1383,6 +1419,44 @@ turning the wind moves every shadow — the CPU sample, materials, Niagara and t
 same way. It is 2.5D: overhangs, bridges and roofed rooms need a `Shelter` box for the space
 underneath. Things that must not shade — see the pass-through component above.
 
+**The wind fluid.** The dynamic volumes are solved as a fluid round the camera (*Project Settings ▸ Dream Wind ▸
+Volume | Fluid*, `bFluid`, on by default): the air flows round buildings and speeds up past their sides, eddies spin
+off their corners and fill an L's pocket, and behind them it turns back toward the wall. It is the visual wind —
+materials and Niagara read it (`MF_DreamWindSample`, the wind DI) as before; the CPU sample does not (gameplay stays
+deterministic, a dedicated server has none).
+
+* Two grids, the volumes' (`VolumeResolution` 64×64×32): **near** at 1 m cells (64 m across, 32 m tall), **far** at 4 m
+  (256 m, 128 m). They sit on the ground under the camera (`FluidCellsBelowGround` cells into it; they rise with a camera
+  high above it) and follow it by whole cells; a jump of more than a quarter of a grid starts it afresh.
+* Each frame, per grid: carry the air along itself (semi-Lagrangian; on the near grid MacCormack, `bFluidMacCormack`,
+  sharp enough for the shear off a corner to roll up), vorticity confinement on the near grid (`FluidVorticity`, 0.4),
+  the sources, the pull back toward the background, then the pressure: red-black Gauss-Seidel from last frame's pressure
+  (`FluidPressureIterations` 8 near, `FluidFarPressureIterations` 4 far, over-relaxed by `FluidPressureRelaxation` 1.5),
+  free slip along the walls, a speed limit (`FluidMaxSpeed`) and a NaN guard.
+* What the grids hold is the fluid's deviation from the background wind (analytic + terrain maps). The background is
+  evaluated afresh at every cell and every point, so its gusts pass through unblurred; the fluid pulls toward it without
+  the terrain maps' wind shadow (its walls make the lee) over `FluidNudgeTime` (10 s) inside, tightening to
+  `FluidSpongeTime` over the `FluidSpongeCells` (4) along the sides and the top, so the open borders do not reflect.
+  Across that sponge the near grid takes the far grid's wind (what lies outside it comes in); inside, it solves its own
+  walls. The volumes' deviation is measured against the shadowed background consumers evaluate, so they add it as before.
+* **Walls.** From the engine's global distance field (`bFluidDistanceField`): 3D, so air passes under bridges and
+  through arches. The wind asks the renderer to keep the field up to date while the fluid runs (the project needs
+  *Generate Mesh Distance Fields*; see *Global distance field* below), and its views look the walls up after the scene
+  (new cells at once, the others an eighth a frame, so a moved building shows within eight frames). A cell is a wall when
+  a surface lies within `FluidWallThickness` (0.45) of a cell of its centre — a wall thinner than a cell stays watertight,
+  a face on a cell boundary stays where it is; the far grid uses the same thickness in cm. Where the field has nothing
+  (outside its clipmaps, `DreamWind.Fluid.DistanceField 0`, no distance fields), the walls come from the terrain maps'
+  heights (2.5D: the runtime map's texel under the cell, or the baked map's max heights over it). Actors whose meshes do
+  not affect distance field lighting are not walls in 3D (the grass field's are off). A sheet has no inside for the
+  distance field, so a ground made of a plane mesh is invisible to the fluid (the air runs under it to the grid's
+  floor): give the ground thickness (a landscape, a slab).
+* Wall cells hand consumers what the air beside them does (grass on the ground, leaves on a wall sit in them).
+* The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
+* Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
+  near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
+  (paid only by projects that would not keep it anyway: not with software Lumen or distance field AO). Fluid instead of
+  the residual volume: +0.2 ms of the frame. What the pressure leaves of the divergence: 0.2 % of the speed on average.
+
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, and the debug view:
 
@@ -1403,11 +1477,16 @@ tests), `DreamWind.TimeScale`, and the debug view:
   [size] [yaw]` lays a plane under the camera (`ADreamWindSliceActor`, also placeable): `0` the whole wind (hue =
   direction, brightness = speed; the runtime terrain map where it runs), `1` the baked terrain map alone (grey = how
   much wind its shadow leaves, red inside a solid, warm where it speeds the wind up, cool where it slows it), `2` the
-  dynamic volume alone (its residual, and the near window's edge), `3` the engine's global distance field (red on a
-  surface, white near one, blue farther off, magenta where the view had none), `4` the runtime terrain map alone (as
-  `1`). A yaw stands the plane up, 15 m ahead of the camera, across that yaw. `DreamWind.Slice off`.
+  dynamic volume alone (its residual — the fluid's deviation — the near window's edge, the fluid's walls grey), `3` the
+  engine's global distance field (red on a surface, white near one, blue farther off, magenta where the view had none),
+  `4` the runtime terrain map alone (as `1`), `5` what the fluid's pressure left of the divergence (black none, red 5 %,
+  yellow 10 % of the speed; walls grey; it turns `DreamWind.Fluid.ShowDivergence` on). A yaw stands the plane up, 15 m
+  ahead of the camera, across that yaw. `DreamWind.Slice off`.
 * `DreamWind.Occlusion 0|1|-1` switches the terrain maps' wind shadow off for every consumer (to time it, or to compare);
   `DreamWind.RuntimeTerrain 0|1|-1` the runtime terrain map (off: back to the baked map).
+* `DreamWind.Fluid 0|1|-1` the fluid (0: the residual volume), `DreamWind.Fluid.DistanceField 0|1|-1` its walls from the
+  global distance field (0: the terrain maps' heights), `DreamWind.Fluid.Stats` reads the volumes back and logs the
+  largest and mean deviation, the walls and any NaN.
 * **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
   tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
   reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
@@ -1445,11 +1524,12 @@ usable in your own levels; none of the runtime depends on them.
 
 **Wind field test level.** `/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindFieldTest` is generated (`Setup -WindFieldTestMap`)
 for measuring and comparing the wind field itself: flat ground with 40 000 blades of wind grass, a 10 x 8 x 6 m house, a
-24 m wall across the wind, an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
-4 s, a steady 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is
-in `DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on
-it (the volume update, the wind shadow's march in the materials and in the volume, the volume's material reads, the
-grass).
+24 m wall across the wind off to its side (in the fluid a wall's wake runs tens of metres: nothing stands right behind
+it but the hill, 40 m on), an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
+4 s, a 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is in
+`DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on it
+(the volume update, the wind shadow, the runtime terrain map, the fluid's grids and walls, the distance field's update,
+the volume's material reads, the grass).
 
 ## Architecture notes
 
@@ -1546,8 +1626,11 @@ shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow
 subsystem tick with an impulse in whichever editor/game world is up, `DreamWind.Terrain.GridShadow` the runtime
 terrain map's CPU grid (a wall's lee and its wedge, the wind turning, unswept cells). With a renderer, on the wind
 field test level: `DreamWind.Gpu.RuntimeTerrain` (the GPU's map has the house's lee where the wedge says and none
-upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone) and
-`DreamWind.Gpu.DistanceFieldProbe`.
+upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone),
+`DreamWind.Gpu.Fluid` (in a steady wind, averaged over six reads: the air turns back in the house's lee, blows faster
+past its sides than in the open, spins opposite ways behind its two downwind corners, turns back in the L's pocket and
+not in the open, stays still in the house's walls, with the walls from the distance field — twice, 300 frames apart —
+and from the heights; and the residual divergence) and `DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night

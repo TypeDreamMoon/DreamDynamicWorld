@@ -6,12 +6,14 @@
 #include "DreamWindDistanceProbe.h"
 #include "SceneViewExtension.h"
 
+class FDreamWindFluid;
 class UDreamWindSubsystem;
 
 /**
  * Tells the subsystem where the views of its world are, so the dynamic volume can follow the camera in game AND in the
- * editor viewport without a dependency on UnrealEd. Also where the wind reads what only a view has: a slice of the
- * global distance field (DistanceProbe), in the view's post-processing, where the renderer has updated it.
+ * editor viewport without a dependency on UnrealEd. Also where the wind reads what only a view has, in the view's
+ * post-processing where the renderer has updated it: the global distance field, for the fluid's walls and for a slice
+ * of it (DistanceProbe).
  */
 class FDreamWindViewExtension : public FWorldSceneViewExtension
 {
@@ -32,8 +34,13 @@ public:
 	/** How many probes have been written (any thread). */
 	uint32 GetDistanceProbeCount() const { return ProbesWritten.load(); }
 
+	/** Game thread: the wind fluid whose walls the views look up in the global distance field (null: none). */
+	void SetFluid(const TSharedPtr<FDreamWindFluid, ESPMode::ThreadSafe>& InFluid);
+
 private:
 	TWeakObjectPtr<UDreamWindSubsystem> Subsystem;
+	/** Render thread. */
+	TSharedPtr<FDreamWindFluid, ESPMode::ThreadSafe> Fluid;
 	/** Render thread. */
 	TOptional<DreamWind::DistanceField::FProbeRequest> PendingProbe;
 	std::atomic<uint32> ProbesWritten{ 0 };

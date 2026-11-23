@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "RenderGraphResources.h"
+#include "DreamWindBackground.h"
 #include "DreamWindSubsystem.h"
 
 class FTextureRenderTargetResource;
@@ -25,10 +26,7 @@ public:
 	{
 		FDreamWindFrameData Frame;
 		FTextureRenderTargetResource* TargetResource = nullptr;
-		FTextureRenderTargetResource* TerrainResource = nullptr;
-		/** The runtime terrain wind map's derived maps (null when it does not run). */
-		FTextureRenderTargetResource* L1NearResource = nullptr;
-		FTextureRenderTargetResource* L1FarResource = nullptr;
+		FDreamWindBackgroundResources Background;
 		FIntVector Resolution = FIntVector(64, 64, 32);
 		FVector3f PrevCenter = FVector3f::ZeroVector;
 		FVector3f NewCenter = FVector3f::ZeroVector;

@@ -7,8 +7,8 @@ import sys
 from PIL import Image, ImageDraw
 
 shots, out = sys.argv[1], sys.argv[2]
-views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow', 'Car', 'CarGlass']
-rows = ['Clear', 'Cloudy', 'Rain', 'Storm', 'AfterRain', 'Snow', 'Dust', 'Night', 'SnowDay', 'DustDay', 'StormNight']
+views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow', 'Car', 'CarGlass', 'Walker']
+rows = ['Clear', 'Cloudy', 'Rain', 'Storm', 'AfterRain', 'Snow', 'Dust', 'Night', 'SnowDay', 'DustDay', 'StormNight', 'FogDay', 'WindFog']
 W, H = 480, 270
 
 
@@ -29,7 +29,7 @@ def sheet(name, rows, cols):
 
 
 sheet('ShowcaseSheet.png', rows, views)
-sheet('ShowcaseCold.png', ['Frost', 'Thaw', 'Rime'], ['Wide', 'Toon', 'Ground', 'Pond', 'Grove'])
+sheet('ShowcaseCold.png', ['Frost', 'Thaw', 'Rime'], ['Wide', 'Toon', 'Ground', 'Pond', 'Grove', 'Walker'])
 sheet('ShowcaseDusk.png', ['Dusk'], ['%02d' % i for i in range(7)])
 sheet('ShowcaseFar.png', ['Far_Noon', 'Far_Evening', 'Far_Overcast', 'Far_Fog'],
       ['ApOn_FogOn', 'ApOff_FogOn', 'ApOn_FogOff', 'ApOff_FogOff'])

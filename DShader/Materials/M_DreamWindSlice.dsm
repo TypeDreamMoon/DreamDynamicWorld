@@ -4,8 +4,11 @@
 //           brightness = speed / SpeedForFullBrightness
 //   Mode 1  the terrain map alone: grey = how much wind the shadow leaves (white = all, black = none, red = inside a
 //           solid); warm where the map speeds the wind up (ridges), cool where it slows it (hollows)
-//   Mode 2  the dynamic volume alone: its residual, hue = direction, brightness = |residual| / (SpeedForFullBrightness / 2);
-//           a thin line marks the near window's edge
+//   Mode 2  the dynamic volume alone: its residual (the fluid's deviation from the background), hue = direction,
+//           brightness = |residual| / (SpeedForFullBrightness / 2); a thin line marks the near window's edge; the fluid's
+//           walls grey
+//   Mode 4  the runtime terrain map alone (as mode 1)
+//   Mode 5  the fluid's residual divergence (black = none, red 5 %, yellow 10 % of the speed), walls grey
 //
 // The maths is the shared header's, as MF_DreamWindSample runs it; only the split into layers is here.
 
@@ -24,6 +27,31 @@ Function float3 DreamWind_Slice(
 	#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
 	FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
 	FDreamWindSample S = DW_SampleAnalyticCheap(P, WorldPos);
+	if (Mode > 4.5f)
+	{
+		// The fluid's residual divergence (DreamWind.Fluid.ShowDivergence puts it in the volumes' w; the slice turns it on):
+		// black = divergence free, red at 5 % of the speed, yellow at 10 %; walls grey; the near level, the far one beyond.
+		FDreamWindVolumeParams DVP = DW_UnpackVolume(V0, V1);
+		FDreamWindVolumeParams DVPF = DW_UnpackVolume(V2, V3);
+		float W = -2.0f;
+		if (DW_VolumeMask(WorldPos, DVP) > 0.0f)
+		{
+			W = Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, DVP), 0).w;
+		}
+		else if (DW_VolumeMask(WorldPos, DVPF) > 0.0f)
+		{
+			W = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, DVPF), 0).w;
+		}
+		if (W < -1.5f)
+		{
+			return float3(0.1f, 0.1f, 0.15f);   // outside both grids
+		}
+		if (W < -0.5f)
+		{
+			return float3(0.45f, 0.45f, 0.45f);
+		}
+		return float3(saturate(W / 0.05f), saturate(W / 0.05f - 1.0f), 0.0f);
+	}
 	if (Mode > 3.5f)
 	{
 		// The runtime terrain map alone: grey = how much of the wind it leaves at this height, warm where it speeds it up.
@@ -100,13 +128,18 @@ Function float3 DreamWind_Slice(
 	float NearMask = DW_VolumeMask(WorldPos, VP);
 	float FarMask = DW_VolumeMask(WorldPos, VPF);
 	float3 Residual = float3(0.0f, 0.0f, 0.0f);
+	float Wall = 0.0f;
 	if (FarMask > 0.0f)
 	{
-		Residual = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0).xyz * FarMask;
+		float4 FarTexel = VolumeFar.SampleLevel(VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0);
+		Residual = FarTexel.xyz * FarMask;
+		Wall = saturate(FarTexel.w) * FarMask;
 	}
 	if (NearMask > 0.0f)
 	{
-		Residual = lerp(Residual, Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz, NearMask);
+		float4 NearTexel = Volume.SampleLevel(VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0);
+		Residual = lerp(Residual, NearTexel.xyz, NearMask);
+		Wall = lerp(Wall, saturate(NearTexel.w), NearMask);
 	}
 
 	float Full = max(SpeedFull, 1.0f);
@@ -132,13 +165,14 @@ Function float3 DreamWind_Slice(
 	float3 Edge = abs(WorldPos - VP.Center) * VP.InvExtent * 2.0f;
 	float Border = max(Edge.x, Edge.y);
 	C2 += float3(0.6f, 0.6f, 0.6f) * saturate(1.0f - abs(Border - 1.0f) * 60.0f) * VP.Enabled;
-	return C2;
+	// the fluid's walls (its volumes' w), grey
+	return lerp(C2, float3(0.45f, 0.45f, 0.45f), saturate(Wall) * 0.8f);
 }
 
 Shader(Name="Wind/Materials/M_DreamWindSlice", Root="Plugin.DreamDynamicWorld")
 {
 	Properties = {
-		float Mode = 0.0 [Group="Debug"; Desc="0 = the whole wind, 1 = the terrain map (shadow, speed-up), 2 = the dynamic volume"];
+		float Mode = 0.0 [Group="Debug"; Desc="0 = the whole wind, 1 = the baked terrain map (shadow, speed-up), 2 = the dynamic volume, 4 = the runtime terrain map, 5 = the fluid's residual divergence"];
 		float SpeedForFullBrightness = 1200.0 [Group="Debug"; Desc="cm/s that maps to full brightness"];
 		const VolumeTexture WindVolume    = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolume");
 		const VolumeTexture WindVolumeFar = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolumeFar");

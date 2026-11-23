@@ -9,6 +9,7 @@
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
 #include "DreamSurfaceVehicleGlass.h"
+#include "DreamSurfaceWalker.h"
 
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
@@ -639,6 +640,55 @@ bool FDreamSurfaceEaveDripTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWalkerTest, "DreamSurface.Walker", DreamSurface::Tests::Flags)
+bool FDreamSurfaceWalkerTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	W.GoTo(At(12.0));
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSurfaceWalker* Walker = W.World->SpawnActor<ADreamSurfaceWalker>(FVector(500.0, 0.0, 0.0), FRotator::ZeroRotator, Params);
+	Walker->Center = FVector2D(0.0, 0.0);
+	Walker->Radii = FVector2D(500.0, 300.0);
+	Walker->LeftFoot->bTraceGround = false;
+	Walker->RightFoot->bTraceGround = false;
+	W.Surface->TakePendingStamps();
+
+	// Ten seconds at 1.2 m/s: some 12 m round the loop, a foot down every 65 cm, in turn.
+	FVector Last = Walker->GetActorLocation();
+	double Walked = 0.0;
+	for (int32 i = 0; i < 100; ++i)
+	{
+		Walker->WalkFor(0.1f);
+		Walked += FVector::Dist2D(Walker->GetActorLocation(), Last);
+		Last = Walker->GetActorLocation();
+		const FVector2D P(Last);
+		TestTrue(TEXT("it stays on its loop"), FMath::IsNearlyEqual(FMath::Square(P.X / 500.0) + FMath::Square(P.Y / 300.0), 1.0, 0.02));
+	}
+	const TArray<FVector4f> Stamps = W.Surface->TakePendingStamps();
+	AddInfo(FString::Printf(TEXT("walked %.0f cm in 10 s, %d steps"), Walked, Walker->GetStepCount()));
+	TestNearlyEqual(TEXT("at its speed"), Walked, 1200.0, 30.0);
+	TestEqual(TEXT("a step every half stride"), Walker->GetStepCount(), 18);
+	TestEqual(TEXT("each a print"), Stamps.Num() / 2, Walker->GetStepCount());
+	// The feet step in turn: consecutive prints lie either side of the way it goes.
+	if (Stamps.Num() >= 6)
+	{
+		const FVector2D A(Stamps[0].X, Stamps[0].Y), B(Stamps[2].X, Stamps[2].Y), C(Stamps[4].X, Stamps[4].Y);
+		const FVector2D Ahead = (C - A).GetSafeNormal();
+		const double SideA = FVector2D::CrossProduct(Ahead, A - B), SideC = FVector2D::CrossProduct(Ahead, C - B);
+		TestTrue(TEXT("left, right, left"), SideA * SideC > 0.0 && FMath::Abs(SideA) > 1.0);
+	}
+	TestTrue(TEXT("its prints stir the puddles"), Stamps.Num() >= 2 && Stamps[1].Y > 0.5f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWhereWaterTest, "DreamSurface.WhereWaterAndSnowLie", DreamSurface::Tests::Flags)
 bool FDreamSurfaceWhereWaterTest::RunTest(const FString& Parameters)
 {
@@ -1160,6 +1210,82 @@ bool FDreamSurfaceGpuTrailsTest::RunTest(const FString& Parameters)
 	const FLinearColor Filled = TrailAt(Print);
 	AddInfo(FString::Printf(TEXT("after an hour of snow %.2f"), Filled.R));
 	TestTrue(TEXT("new snow fills the print"), Filled.R < Fresh.R * 0.6f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuWavesTest, "DreamSurface.Gpu.PuddleWaves", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuWavesTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.GoTo(At(12.0));
+	FlushRenderingCommands();
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Trails = Maps ? Maps->GetTrailMap() : nullptr;
+	if (!TestNotNull(TEXT("trail map (run the Setup)"), Trails))
+	{
+		return false;
+	}
+	// The water's surface (the trail map's blue) at a point.
+	auto HeightAt = [Trails, Maps](const FVector2D& P)
+	{
+		TArray<FLinearColor> Pixels;
+		Trails->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+		const int32 Size = Trails->SizeX;
+		const FVector2D UV = (P - Maps->GetTrailCenter()) / UDreamSurfaceSettings::Get()->TrailExtent + 0.5;
+		return Pixels[FMath::Clamp(int32(UV.Y * Size), 0, Size - 1) * Size + FMath::Clamp(int32(UV.X * Size), 0, Size - 1)].B;
+	};
+	// Frames in real time (the waves run on it), drawing the trail map each one.
+	auto RunFor = [&W](double Seconds)
+	{
+		const double End = FPlatformTime::Seconds() + Seconds;
+		while (FPlatformTime::Seconds() < End)
+		{
+			FPlatformProcess::Sleep(0.02f);
+			W.Clock->Tick(0.0f);
+			FlushRenderingCommands();
+		}
+	};
+	// A step into a puddle: the water under the foot is pushed away.
+	const FVector2D Foot(300.0, -200.0);
+	W.Surface->Stamp(FVector(Foot, 0.0), 12.0f, 0.0f, false, true);
+	W.Clock->Tick(0.0f);
+	FlushRenderingCommands();
+	const float Pushed = HeightAt(Foot);
+	// A moment later a ring runs out from it.
+	float Crest = 0.0f;
+	float Trough = 0.0f;
+	const double Start = FPlatformTime::Seconds();
+	while (FPlatformTime::Seconds() - Start < 1.0)
+	{
+		RunFor(0.05);
+		for (double R = 15.0; R <= 60.0; R += 5.0)
+		{
+			const float H = HeightAt(Foot + FVector2D(R, 0.0));
+			Crest = FMath::Max(Crest, H);
+			Trough = FMath::Min(Trough, H);
+		}
+	}
+	// And a few seconds on the water has flowed back level.
+	RunFor(5.0);
+	const float After = HeightAt(Foot);
+	AddInfo(FString::Printf(TEXT("under the foot %.2f; around it, a crest %.3f and a trough %.3f within a second; %.3f five seconds on"), Pushed, Crest, Trough, After));
+	TestTrue(TEXT("a step pushes the water away"), Pushed < -0.9f);
+	TestTrue(TEXT("a wave runs out from it"), Crest > 0.01f || Trough < -0.01f);
+	TestTrue(TEXT("and the water flows back level"), FMath::Abs(After) < 0.05f);
+	TestTrue(TEXT("nothing far away"), FMath::Abs(HeightAt(Foot + FVector2D(1500.0, 0.0))) < 1.0e-3f);
 	return true;
 }
 

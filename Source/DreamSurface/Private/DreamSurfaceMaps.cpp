@@ -471,7 +471,11 @@ void FDreamSurfaceMaps::DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldS
 {
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	const bool bPrints = Surface.GetPendingStamps().Num() > 0;
-	if (!bPrints && Now - LastTrailDraw < S->MapInterval)
+	if (bPrints)
+	{
+		WavesUntil = Now + 3.0 * double(FMath::Max(S->WaveSeconds, S->FlowBackSeconds));
+	}
+	if (!bPrints && Now >= WavesUntil && Now - LastTrailDraw < S->MapInterval)
 	{
 		return;
 	}
@@ -497,6 +501,13 @@ void FDreamSurfaceMaps::DrawTrails(UDreamSurfaceSubsystem& Surface, UDreamWorldS
 	Args.Extent = Extent;
 	Args.PrintKeep = float(FMath::Exp(-GameHours * FillRate));
 	Args.RippleKeep = float(FMath::Exp(-RealSeconds / FMath::Max(0.05f, S->RippleSeconds)));
+	// The water's surface: one step of the wave equation over the real time gone by (no further than half a texel's
+	// reach, where it stays stable: a long frame slows the waves rather than blowing them up).
+	const double Texel = Extent / FMath::Max(1, Trails->SizeX);
+	const double Reach = FMath::Min(double(S->WaveSpeed) * RealSeconds / Texel, 0.7);
+	Args.WaveStep = float(Reach * Reach);
+	Args.WaveKeep = float(FMath::Exp(-RealSeconds / FMath::Max(0.05f, S->WaveSeconds)));
+	Args.WaveSettle = float(FMath::Exp(-RealSeconds / FMath::Max(0.05f, S->FlowBackSeconds)));
 	Args.bReset = bFirst || WorldSeconds < LastTrailWorldSeconds;
 	Args.Stamps = Surface.TakePendingStamps();
 	Renderer->EnqueueTrails(MoveTemp(Args));
