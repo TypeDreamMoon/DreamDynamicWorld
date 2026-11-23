@@ -691,6 +691,34 @@ reach, rings, every step's colour and threshold, the veil, the background, the m
 within a reach (an approaching shower). The material, `M_DreamWeatherRadar`, can go on any surface: `ApplyTo` sets a
 dynamic instance of it.
 
+### Clock and weather widgets
+
+Two UMG widgets in the *Dream Weather* palette, drawn by Slate (no textures), as examples of reading the world in a
+HUD: **`UDreamClockWidget`** shows the world clock's time -- an analog dial (with a sun or a moon for day and night), a
+digital time (24 or 12 hour, `FormatTime`), or both -- and the calendar's date under it (`FormatDate`: the weekday,
+day, month and year of the calendar in use, a custom one's names too); **`UDreamWeatherWidget`** shows the weather at
+the view: an icon (`IconFor`: a storm before hail, sleet, snow and rain, then fog, dust and the cloud cover; a sun or a
+moon by the hour), the name of the weather showing (`GetWeatherShown`: a forced one, else the schedule's) and the
+temperature in Celsius or Fahrenheit.
+Their colours (`FDreamWorldWidgetColors`) are muted by default. **`UDreamWorldWidgetsExample`** lays the two out with
+the radar on a dark card (Create Widget with it, or copy its layout into a widget blueprint), and
+**`ADreamWorldWidgetsDisplay`** shows that card on a screen in the world, as the showcase does beside the radar.
+
+### Painted cloud cover
+
+Where the clouds are can be painted by hand. A **`UDreamCloudPainting`** asset holds a square grid (256 x 256 by
+default) of two values: the cover painted (clear to overcast) and how far it pulls the weather's own cover to it. An
+**`ADreamCloudPaint`** in the level (its `UDreamCloudPaintComponent`) lays it over a square of the world, `Size` across
+(40 km by default) round the actor, axis-aligned; `Strength` scales it, `bEnabled` turns it off. The weather map draws
+it (`DreamWeatherMap.usf`) and the weather's samples read it (`SampleWeather`, `GetChannelAt`), the same bilinear
+lookup both ways, after the zones: where it is painted it has the last word on the cloud cover, and the precipitation
+follows the cover as everywhere -- clear sky painted over a storm zone stops its rain. One painting is used at a
+time, the latest one placed (`UDreamWeatherSubsystem::GetActiveCloudPaint`); `DreamWeather.CloudPaint 0` ignores it,
+to compare. Paint it in the editor (Dream World >
+Paint Cloud Cover, below) or from code: `PaintAt` (a soft round brush toward a cover, or erasing), `Fill`, `Resize`.
+The showcase paints a bank of cloud along its north horizon (`CP_ShowcaseClouds`), adding cloud only, so the weathers
+shown over the set stay as they are.
+
 ### Storms
 
 **Moving storms.** Any zone can move: *Motion* (`FDreamWeatherZoneMotion`) gives it a drift (km per game hour) or a
@@ -778,6 +806,42 @@ across with a bay cut into its south side) over land that reads the surface maps
 → storm → cloudy every three hours.
 `-ForceAudio` builds the graphs again, `-Force` the level.
 
+## Editor tools
+
+**The toolbar.** Beside the time of day slider on the level editor's toolbar, the **Dream World** menu:
+
+| Entry | What it does |
+| :-- | :-- |
+| Time of Day | jumps to dawn, morning, noon, afternoon, dusk or night (the slider scrubs) |
+| Weather | forces a weather preset (two seconds' transition), or *Back to the Schedule* |
+| Cloud Look | `DreamSky.CloudRender.Look` for every sky: each sky's own, toon, realistic, painted |
+| Quality | `r.DreamWorld.Quality`: following the engine's scalability, or low to cinematic |
+| Debug Views | the plugin's debug views, toggled: every `...Debug` / `...DebugDraw` console variable of it (found by name, so new ones show up) |
+| Paint Cloud Cover... | opens the cloud painting tab |
+| Wind | re-captures the obstacles around the view (`MarkObstaclesDirty`, after moving buildings); bakes the level's terrain wind map |
+| Configs | saves and switches whole sets of settings (below) |
+| Demo Maps | opens the showcase and test maps |
+| Project Settings | each of the plugin's settings pages |
+
+**Painting the cloud cover.** The *Dream Cloud Paint* tab shows the level's painting from above, north up, with a
+line every 5 km and the viewport as a dot and its heading. *Add to Level* places an `ADreamCloudPaint` over the view
+with a new painting in `/Game/DreamWorld/CloudPaint` (*New Painting* gives one to a painting actor that has none).
+Drag to paint clouds, Shift-drag to erase (the weather's own cover back), Ctrl-drag for clear sky; the modes, the
+brush's radius (km; the wheel sizes it too) and strength are above the canvas, and *Clear the Painting*, *Overcast
+Everywhere* and *Clear Sky Everywhere* fill it. Each stroke is one undo; the sky and the radar follow as you paint.
+The Content Browser makes paintings too (*Dream Cloud Painting*).
+
+**Configs.** A **`UDreamWorldConfig`** asset is a whole set of the plugin's settings put back in one go: every
+project settings object of the plugin (any `UDeveloperSettings` in one of its modules, found by reflection -- settings
+added later are included without changes here), the plugin's console variables set above their scalability level and
+off their defaults, and what the world shows (the time of day, the weather; modules add their own with
+`UDreamWorldConfig::RegisterWorldState`). `Capture` fills it from what is in effect, `Apply` puts it back (only what
+differs, each setting announced as if edited in Project Settings; the plugin's other console variables set from the
+console go back to what they were under it; the weather is forced), `DescribeDifferences` lists what differs. In the
+menu: *Save Current as New Config...*, *Update ... from Current* and *Log Differences from ...* (the config applied
+last), *Write Current Settings to the Project* (the project's config files), and every config to apply for this
+session. Games can switch configs at run time too (`Apply` is Blueprint callable).
+
 ## Showcase
 
 Everything the plugin does in one place, to look it over as a whole: **`/DreamDynamicWorld/Showcase/Maps/Lvl_DreamWorldShowcase`**,
@@ -794,7 +858,9 @@ sounds on them); a **campfire** warms the air around it (a temperature volume) a
 snow and puddles (a mask brush); **crates** slide and tip in a gale (`UDreamWindForceComponent`); an irregular
 **snow field** (a polygon zone) lies far ahead; a **storm** drifts in from the west in the morning of the first day. A
 wind terrain map baked over the set gives the roofs and the dips the puddles follow (props, posts and the crates are
-pass-through).
+pass-through). Ahead of the start stand two screens: the weather radar, and beside it the clock and weather widgets'
+example card (`ADreamWorldWidgetsDisplay`). A bank of cloud is painted along the north horizon (`CP_ShowcaseClouds`
+on an `ADreamCloudPaint`, see *Painted cloud cover*).
 
 **The far land.** Beyond the set the land runs on to the horizon (`SM_DreamShowcaseFarLand`, rings out to 35 km under
 the terrain material, so snow lies on it): it meets the set's ground without a step and rises into near hills 5–7.5 km

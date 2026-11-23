@@ -41,7 +41,9 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
+#include "DreamWeatherCloudPaint.h"
 #include "DreamWeatherRadar.h"
+#include "DreamWorldWidgets.h"
 #include "GameFramework/PlayerStart.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -69,6 +71,33 @@ namespace DreamWorld::ShowcaseSetup
 		T* Asset = NewObject<T>(Package, *FPackageName::GetShortName(PackagePath), RF_Public | RF_Standalone);
 		FAssetRegistryModule::AssetCreated(Asset);
 		return Asset;
+	}
+
+	/**
+	 * The hand-painted cloud cover's demo: a bank of cloud painted along the north, 9-17 km out, over a 40 km square
+	 * round the set. It only ever adds cloud (and only where nothing else rains), so the weathers shown over the set
+	 * stay as they are.
+	 */
+	UDreamCloudPainting* EnsureCloudPaint()
+	{
+		UDreamCloudPainting* Paint = FreshAsset<UDreamCloudPainting>(Setup::ShowcaseCloudPaintPackage);
+		Paint->Initialize(256);
+		for (int32 Pass = 0; Pass < 3; ++Pass)
+		{
+			for (int32 i = 0; i <= 60; ++i)
+			{
+				const double T = i / 60.0;
+				const FVector2D UV(0.8 + 0.035 * FMath::Sin(T * 9.0 + Pass) + 0.012 * Pass, FMath::Lerp(0.16, 0.84, T));
+				Paint->PaintAt(UV, 0.065f - 0.012f * Pass, 1.0f, 0.45f);
+			}
+		}
+		// A few loose heaps ahead of the bank.
+		const FVector2D Heaps[] = { FVector2D(0.7, 0.3), FVector2D(0.68, 0.55), FVector2D(0.72, 0.74) };
+		for (const FVector2D& UV : Heaps)
+		{
+			Paint->PaintAt(UV, 0.03f, 1.0f, 0.8f);
+		}
+		return SurfaceSetup::SaveAsset(Paint) ? Paint : nullptr;
 	}
 
 	/** A sheet of high ice cloud: the halo and the sun dogs round a low sun. */
@@ -735,7 +764,8 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk,
+		UDreamCloudPainting* Clouds)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -882,6 +912,22 @@ namespace DreamWorld::ShowcaseSetup
 			Radar->SetActorScale3D(FVector(2.4, 2.4, 1.0));
 			Radar->SetActorLabel(TEXT("WeatherRadar"));
 		}
+		// The UMG examples (the clock, the weather, the radar on a card) on a screen beside it, facing the start.
+		{
+			const FVector2D At(1500.0, -230.0);
+			ADreamWorldWidgetsDisplay* Widgets = World->SpawnActor<ADreamWorldWidgetsDisplay>(FVector(At, SurfaceSetup::GroundHeight(At.X, At.Y) + 200.0),
+				FRotator(0.0, 180.0, 0.0));
+			Widgets->SetActorScale3D(FVector(0.45));
+			Widgets->SetActorLabel(TEXT("WorldWidgets"));
+		}
+		// The hand-painted cloud: a bank along the north.
+		if (Clouds)
+		{
+			ADreamCloudPaint* Paint = World->SpawnActor<ADreamCloudPaint>(FVector::ZeroVector, FRotator::ZeroRotator);
+			Paint->CloudPaint->Paint = Clouds;
+			Paint->CloudPaint->Size = 4000000.0;
+			Paint->SetActorLabel(TEXT("CloudPaint"));
+		}
 		ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(200.0, -300.0, 320.0), FRotator(-10.0, 18.0, 0.0));
 		if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))
 		{
@@ -910,8 +956,9 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 	UDreamSkyModifier* Shine = ShowcaseSetup::EnsureNoctilucent();
 	UDreamSkyModifier* Storm = ShowcaseSetup::EnsureMeteors();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Halo && Shine && Storm && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk);
+	UDreamCloudPainting* Clouds = ShowcaseSetup::EnsureCloudPaint();
+	bool bOk = Aurora && Halo && Shine && Storm && Dusk && Clouds;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr, Clouds);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk, Clouds);
 	return bOk;
 }
