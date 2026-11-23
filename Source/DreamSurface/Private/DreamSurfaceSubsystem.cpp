@@ -201,6 +201,21 @@ FDreamSurfaceState UDreamSurfaceSubsystem::SampleSurfaceAt(const FVector& Positi
 	return DreamSurface::Private::Masked(State, Mask);
 }
 
+FDreamSurfaceState UDreamSurfaceSubsystem::SampleOpenSurface(FVector Position) const
+{
+	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
+	if (!IsActive() || !Clock)
+	{
+		return FDreamSurfaceState();
+	}
+	const double WorldSeconds = Clock->GetWorldSeconds();
+	const double Seconds = StepSeconds();
+	const int64 Now = FMath::FloorToInt64(WorldSeconds / Seconds);
+	const FDreamSurfaceState AtStep = IntegrateSteps(Position, Now - MemorySteps(), Now, FDreamSurfaceState(), true);
+	const float Partial = float((WorldSeconds - double(Now) * Seconds) / 3600.0);
+	return Step(AtStep, DriveAt(Position, double(Now) * Seconds, true), UDreamSurfaceSettings::Get()->Rates, Partial);
+}
+
 namespace DreamSurface::Contact
 {
 	/** How far the ground lies below its surroundings at a point (DSF_GroundLow), cm, from the wind's baked level heights

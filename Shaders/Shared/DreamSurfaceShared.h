@@ -416,6 +416,16 @@ DSF_FN float4 DSF_GlassRain(float2 Glass, float Time, float Rain, float Wet, flo
 	return float4(Run.x + Big.x + Small.x, Run.y + Big.y + Small.y, saturate(max(Run.z, max(Big.z, Small.z))), saturate(Run.z));
 }
 
+// How hard an eave drips, 0..1 of its drops while it runs in a full rain: while the rain lands on the roof the eave runs
+// with it; after the rain it drips on while the roof's film stays wet (above From of a soaked film), slower and slower
+// as it dries; frozen, nothing drips. Rain = the rain landing on the roof now, Wet = the roof's film, Ice = its glaze
+// (the state in the open there).
+DSF_FN float DSF_EaveDrip(float Rain, float Wet, float Ice, float From)
+{
+	float AfterRain = smoothstep(saturate(From), 1.0f, saturate(Wet));
+	return max(saturate(Rain), AfterRain * AfterRain) * (1.0f - saturate(Ice * 2.0f));
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Glass that moves (a car's windows): the drops are pushed along by the air as well as pulled down by gravity, the panes
 // facing the way it goes catch more rain, and wipers clear an arc.

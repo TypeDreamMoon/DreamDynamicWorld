@@ -70,6 +70,13 @@ public:
 	/** The same at any world time (the past this session saw, or the schedule's). */
 	FDreamSurfaceState SampleSurfaceAt(const FVector& Position, double WorldSeconds) const;
 
+	/**
+	 * What the weather has left at this point now as if nothing covered it (a roof's own top, an eave): the state in the
+	 * open, no mask brushes.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	FDreamSurfaceState SampleOpenSurface(FVector Position) const;
+
 	/** Lying snow at a point now, cm. */
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")
 	float GetSnowDepthAt(FVector Position) const;
