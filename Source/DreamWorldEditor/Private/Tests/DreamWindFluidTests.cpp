@@ -306,8 +306,8 @@ bool FDreamWindFluidFlowTest::RunTest(const FString& Parameters)
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
 	SetCVar(TEXT("DreamWind.Fluid"), 1);
 	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
-	// (the high quality level: the grids as tuned)
-	SetCVar(TEXT("r.DreamWind.Quality"), 2);
+	// (the epic quality level: the grids as tuned)
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	// The background the deviation is read against must be the same on both sides: the baked map (the same map and
 	// the same code on the CPU and the GPU; the runtime map's CPU grid has coarser cells) without its wind shadow (the
 	// fluid makes the lee). The walls of the 2.5D fallback then come from the baked map's heights.
@@ -482,8 +482,8 @@ bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
 	SetCVar(TEXT("DreamWind.Fluid"), 1);
 	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
-	// (the high quality level: the grids as tuned)
-	SetCVar(TEXT("r.DreamWind.Quality"), 2);
+	// (the epic quality level: the grids as tuned)
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
 	WaitFrames(10);
 
@@ -705,22 +705,21 @@ bool FDreamWindQualityTiersTest::RunTest(const FString& Parameters)
 	const FDreamWindQualityTier High = FDreamWindQualityTier::Resolve(S, 2);
 	const FDreamWindQualityTier Epic = FDreamWindQualityTier::Resolve(S, 3);
 	const FDreamWindQualityTier Cinematic = FDreamWindQualityTier::Resolve(S, 4);
-	TestTrue(TEXT("low: the analytic wind and the baked map only, without its shadow march on the GPU"), !Low.bVolume && !Low.bRuntimeTerrain && !Low.bBakedShadow && High.bBakedShadow);
+	TestTrue(TEXT("low: the analytic wind and the baked map only, without its shadow march on the GPU"), !Low.bVolume && !Low.bRuntimeTerrain && !Low.bBakedShadow && Epic.bBakedShadow);
 	TestTrue(TEXT("medium: the runtime terrain map, one grid at the far level's cells, no far level"),
-		Medium.bVolume && Medium.bRuntimeTerrain && !Medium.bFar && Medium.NearCell == High.FarCell && Medium.NearResolution.Z == High.NearResolution.Z / 2);
-	TestTrue(TEXT("high: the settings"), High.NearResolution == S.VolumeResolution && High.NearCell == S.VolumeVoxelSize
-		&& High.NearIterations == S.FluidPressureIterations && High.FarInterval == S.FluidFarStepInterval && High.bFar == S.bVolumeFarLevel);
-	TestTrue(TEXT("epic: finer near cells over more of them, the far level every frame"),
-		Epic.NearCell < High.NearCell && Epic.NearResolution.X > High.NearResolution.X && Epic.NearIterations > High.NearIterations && Epic.FarInterval == 1);
-	TestTrue(TEXT("cinematic: finer still, a wider far level"),
-		Cinematic.NearCell < Epic.NearCell && Cinematic.NearResolution.X > Epic.NearResolution.X && Cinematic.FarResolution.X > High.FarResolution.X);
-	TestTrue(TEXT("every level's near grid in whole thread groups"),
-		Epic.NearResolution.X % 4 == 0 && Epic.NearResolution.Z % 4 == 0 && Cinematic.FarResolution.Z % 4 == 0);
+		Medium.bVolume && Medium.bRuntimeTerrain && !Medium.bFar && Medium.NearCell == Epic.FarCell && Medium.NearResolution.Z == Epic.NearResolution.Z / 2);
+	TestTrue(TEXT("epic: the settings (as the sky's epic is its tuned defaults)"), Epic.NearResolution == S.VolumeResolution && Epic.NearCell == S.VolumeVoxelSize
+		&& Epic.NearIterations == S.FluidPressureIterations && Epic.FarInterval == S.FluidFarStepInterval && Epic.bFar == S.bVolumeFarLevel);
+	TestTrue(TEXT("high: epic's grids with less work on them"), High.SameLayout(Epic) && High.NearIterations < Epic.NearIterations && High.FarInterval > Epic.FarInterval);
+	TestTrue(TEXT("cinematic: finer near cells over more of them, more iterations, a wider far level every frame"),
+		Cinematic.NearCell < Epic.NearCell && Cinematic.NearResolution.X > Epic.NearResolution.X && Cinematic.NearIterations > Epic.NearIterations
+		&& Cinematic.FarResolution.X > Epic.FarResolution.X && Cinematic.FarInterval == 1);
+	TestTrue(TEXT("every level's grids in whole thread groups"),
+		Cinematic.NearResolution.X % 4 == 0 && Cinematic.NearResolution.Z % 4 == 0 && Cinematic.FarResolution.Z % 4 == 0 && Medium.NearResolution.Z % 4 == 0);
 	auto Cells = [](const FDreamWindQualityTier& T) { return T.bVolume ? double(T.NearResolution.X) * T.NearResolution.Y * T.NearResolution.Z : 0.0; };
-	TestTrue(TEXT("the near grid grows level by level"), Cells(Low) < Cells(Medium) && Cells(Medium) < Cells(High) && Cells(High) < Cells(Epic) && Cells(Epic) < Cells(Cinematic));
-	TestTrue(TEXT("the near level stays inside the far one"), Epic.NearResolution.X * Epic.NearCell < Epic.FarResolution.X * Epic.FarCell
-		&& Cinematic.NearResolution.X * Cinematic.NearCell < Cinematic.FarResolution.X * Cinematic.FarCell);
-	TestTrue(TEXT("a change of grids is told apart from a change of iterations"), !High.SameLayout(Epic) && !High.SameLayout(Medium) && High.SameLayout(High));
+	TestTrue(TEXT("the near grid grows level by level"), Cells(Low) < Cells(Medium) && Cells(Medium) < Cells(High) && Cells(High) <= Cells(Epic) && Cells(Epic) < Cells(Cinematic));
+	TestTrue(TEXT("the near level stays inside the far one"), Cinematic.NearResolution.X * Cinematic.NearCell < Cinematic.FarResolution.X * Cinematic.FarCell);
+	TestTrue(TEXT("a change of grids is told apart from a change of iterations"), !Epic.SameLayout(Cinematic) && !Epic.SameLayout(Medium) && High.SameLayout(Epic));
 	return true;
 }
 
@@ -845,7 +844,7 @@ bool FDreamWindFluidQualityTest::RunTest(const FString& Parameters)
 	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
 	SetCVar(TEXT("DreamWind.RuntimeTerrain"), 0);
 	SetCVar(TEXT("DreamWind.Occlusion"), 0);
-	SetCVar(TEXT("r.DreamWind.Quality"), 2);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
 	WaitFrames(10);
 	Then([]()
@@ -887,23 +886,26 @@ bool FDreamWindFluidQualityTest::RunTest(const FString& Parameters)
 	Then([this, CheckGrid]()
 	{
 		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
-		TestEqual(TEXT("high: the wind runs at it"), T.Level, 2);
-		TestEqual(TEXT("high: in full"), Wind()->GetVolumeFade(), 1.0f);
-		CheckGrid(TEXT("high"), false, T.NearResolution, T.NearCell);
-		CheckGrid(TEXT("high"), true, T.FarResolution, T.FarCell);
+		TestEqual(TEXT("epic: the wind runs at it"), T.Level, 3);
+		TestEqual(TEXT("epic: in full"), Wind()->GetVolumeFade(), 1.0f);
+		CheckGrid(TEXT("epic"), false, T.NearResolution, T.NearCell);
+		CheckGrid(TEXT("epic"), true, T.FarResolution, T.FarCell);
 	});
 
-	// Epic: the volume fades out, the finer grids start where the consumers had the wind without them, and fade in; the
-	// flow round the house as at high.
-	SwitchLevel(this, 3);
+	// High: epic's grids with less work on them, at once (no fade); the flow round the house as at epic.
+	SwitchLevel(this, 2);
 	WaitFrames(300);
 	Then([this, CheckGrid]()
 	{
 		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
-		CheckGrid(TEXT("epic"), false, T.NearResolution, T.NearCell);
-		CheckGrid(TEXT("epic"), true, T.FarResolution, T.FarCell);
+		TestEqual(TEXT("high: no fade for the same grids"), Wind()->GetVolumeFade(), 1.0f);
+		CheckGrid(TEXT("high"), false, T.NearResolution, T.NearCell);
+		CheckGrid(TEXT("high"), true, T.FarResolution, T.FarCell);
 	});
-	CheckAveraged(this, TEXT("epic"));
+	CheckAveraged(this, TEXT("high"));
+
+	// Cinematic: the volume fades out, the finer grids start where the consumers had the wind without them, and fade
+	// in; the flow round the house as at epic.
 
 	SwitchLevel(this, 4);
 	WaitFrames(300);
@@ -952,10 +954,10 @@ bool FDreamWindFluidQualityTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("low: no runtime terrain map"), Wind()->GetTerrainCaptureCount(), *Captures);
 	});
 	// and back: from nothing, the grids start at once and fade in
-	SwitchLevel(this, 2);
+	SwitchLevel(this, 3);
 	Then([this]()
 	{
-		TestTrue(TEXT("back at high: the fluid runs"), Wind()->IsFluidActive() && Wind()->GetVolumeFade() >= 1.0f);
+		TestTrue(TEXT("back at epic: the fluid runs"), Wind()->IsFluidActive() && Wind()->GetVolumeFade() >= 1.0f);
 	});
 
 	Then([]()
@@ -996,7 +998,7 @@ bool FDreamWindFluidPIETest::RunTest(const FString& Parameters)
 	}
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
 	SetCVar(TEXT("DreamWind.Fluid"), 1);
-	SetCVar(TEXT("r.DreamWind.Quality"), 2);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
 	WaitFrames(10);
 	Then([]()

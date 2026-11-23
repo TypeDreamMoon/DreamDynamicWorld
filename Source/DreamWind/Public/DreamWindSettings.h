@@ -147,7 +147,8 @@ public:
 
 	/**
 	 * The far level steps every this many frames, each step as long (it changes slowly at 4 m and is read only beyond the
-	 * near level: half its cost for nothing that shows). The epic and cinematic quality levels step it every frame.
+	 * near level: half its cost for nothing that shows). The cinematic quality level steps it every frame, high one frame
+	 * less often.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "4", EditCondition = "bFluid"))
 	int32 FluidFarStepInterval = 2;

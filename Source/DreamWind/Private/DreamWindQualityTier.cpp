@@ -57,11 +57,10 @@ FDreamWindQualityTier FDreamWindQualityTier::Resolve(const UDreamWindSettings& S
 		T.bMacCormack = false;
 		T.Vorticity = 0.0f;
 		break;
-	case 3:
-		T.NearCell = Voxel * 0.75f;
-		T.NearResolution = Scaled(Res, 3, 2);
-		T.NearIterations = T.NearIterations * 3 / 2;
-		T.FarInterval = 1;
+	case 2:
+		// The same grids (a change to or from epic needs no fade), a little less work on each.
+		T.NearIterations = FMath::Max(T.NearIterations * 3 / 4, 1);
+		T.FarInterval = FMath::Min(T.FarInterval + 1, 4);
 		break;
 	case 4:
 		T.NearCell = Voxel * 0.5f;
