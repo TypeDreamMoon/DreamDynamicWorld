@@ -1,0 +1,33 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// A horizontal slice of the engine's global distance field around a point, for the wind (whether there is one, what it
+// holds where): R = the distance to the nearest surface (m), G = how many clipmaps the view has (0: no global distance
+// field this frame), B = 1 where the slice lies inside the clipmaps, A = 1.
+
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/DistanceField/GlobalDistanceFieldShared.ush"
+
+float3 TranslatedCenter;   // the slice's middle, translated world space (cm)
+float Size;                // its width (cm)
+int2 Resolution;
+RWTexture2D<float4> OutSlice;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= Resolution))
+	{
+		return;
+	}
+	const float2 UV = (float2(Id.xy) + 0.5f) / float2(Resolution);
+	const float3 Position = TranslatedCenter + float3((UV.x - 0.5f) * Size, (UV.y - 0.5f) * Size, 0.0f);
+	float Distance = 0.0f;
+	float Inside = 0.0f;
+	const uint Clipmaps = NumGlobalSDFClipmaps;
+	if (Clipmaps > 0)
+	{
+		Distance = GetDistanceToNearestSurfaceGlobal(Position);
+		Inside = 1.0f;
+	}
+	OutSlice[Id.xy] = float4(Distance * 0.01f, float(Clipmaps), Inside, 1.0f);
+}

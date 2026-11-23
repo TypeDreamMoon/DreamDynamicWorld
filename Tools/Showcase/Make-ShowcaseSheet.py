@@ -1,12 +1,13 @@
 # Tiles the showcase tour's shots (Invoke-ShowcaseTour.ps1) into overview sheets: rows = weather, columns = views; the
-# far land, rows = weather, columns = aerial perspective and height fog on and off; and the dusk sequence as a strip.
+# winter morning's cold (frost, thaw, rime); the far land, rows = weather, columns = aerial perspective and height fog on
+# and off; and the dusk sequence as a strip.
 #   python Make-ShowcaseSheet.py <screenshots folder> <output folder>
 import os
 import sys
 from PIL import Image, ImageDraw
 
 shots, out = sys.argv[1], sys.argv[2]
-views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow']
+views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow', 'Car', 'CarGlass']
 rows = ['Clear', 'Cloudy', 'Rain', 'Storm', 'AfterRain', 'Snow', 'Dust', 'Night', 'SnowDay', 'DustDay', 'StormNight']
 W, H = 480, 270
 
@@ -28,6 +29,7 @@ def sheet(name, rows, cols):
 
 
 sheet('ShowcaseSheet.png', rows, views)
+sheet('ShowcaseCold.png', ['Frost', 'Thaw', 'Rime'], ['Wide', 'Toon', 'Ground', 'Pond', 'Grove'])
 sheet('ShowcaseDusk.png', ['Dusk'], ['%02d' % i for i in range(7)])
 sheet('ShowcaseFar.png', ['Far_Noon', 'Far_Evening', 'Far_Overcast', 'Far_Fog'],
       ['ApOn_FogOn', 'ApOff_FogOn', 'ApOn_FogOff', 'ApOff_FogOff'])

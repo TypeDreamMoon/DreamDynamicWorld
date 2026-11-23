@@ -28,6 +28,9 @@ namespace DreamSurface::Maps
 		TEXT("1: integrate the surface maps' whole memory on every update (to measure what an integration costs)."),
 		ECVF_Default);
 
+	/** Float4s per zone record (DreamSurfaceMap.usf's DSM_ZONE_FLOAT4S). */
+	constexpr int32 ZoneFloat4s = 5;
+
 	/** Loads a map's render target and makes it something a compute pass can write. */
 	UTextureRenderTarget2D* LoadTarget(const FSoftObjectPath& Path, EPixelFormat Format)
 	{
@@ -44,8 +47,9 @@ namespace DreamSurface::Maps
 	/**
 	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf), in the order the weather applies them.
 	 * Override zones only, as the weather map takes them.
-	 *   Records  four float4 each: the weather map's three (footprint and coverage, darkness, precipitation, strength),
-	 *            then the snow ratio, temperature offset, dust and wind (below -9999: not set); then the polygons' points.
+	 *   Records  five float4 each: the weather map's three (footprint and coverage, darkness, precipitation, strength),
+	 *            then the snow ratio, temperature offset, dust and wind, then the fog and the freezing rain (below -9999:
+	 *            not set); then the polygons' points.
 	 *            The footprint and strength are those at the start of the step in progress, as a query takes them.
 	 *   Tracks   NumSteps float4 per zone, oldest step first: where its footprint's centre stood (xy) and how strong it
 	 *            was (z) at the start of each whole step. A zone that moves (a storm drifting across) or fades has its
@@ -100,6 +104,7 @@ namespace DreamSurface::Maps
 			Set.Records.Add(Z1);
 			Set.Records.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), Zone->GetStrengthAt(Current)));
 			Set.Records.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
+			Set.Records.Add(FVector4f(Value(C::Fog, -1.0e4f), Value(C::FreezingRain, -1.0e4f), -1.0e4f, -1.0e4f));
 			for (int32 k = 0; k < NumSteps; ++k)
 			{
 				const double At = double(FirstStep + k) * StepSeconds;
@@ -107,7 +112,7 @@ namespace DreamSurface::Maps
 				Set.Tracks.Add(FVector4f(float(Center.X), float(Center.Y), Zone->GetStrengthAt(At), 0.0f));
 			}
 		}
-		UDreamWeatherZoneComponent::AppendPolygonPoints(Set.Records, 4, PolygonPoints);
+		UDreamWeatherZoneComponent::AppendPolygonPoints(Set.Records, DreamSurface::Maps::ZoneFloat4s, PolygonPoints);
 		return Set;
 	}
 
@@ -129,6 +134,8 @@ void FDreamSurfaceMaps::AddReferencedObjects(FReferenceCollector& Collector)
 {
 	Collector.AddReferencedObject(Near.Target);
 	Collector.AddReferencedObject(Far.Target);
+	Collector.AddReferencedObject(Near.IceTarget);
+	Collector.AddReferencedObject(Far.IceTarget);
 	Collector.AddReferencedObject(Cover);
 	Collector.AddReferencedObject(Mask);
 	Collector.AddReferencedObject(Trails);
@@ -146,7 +153,7 @@ uint32 FDreamSurfaceMaps::GetIntegrateCount() const
 
 bool FDreamSurfaceMaps::Resolve()
 {
-	if (Near.Target && Far.Target && Cover && Mask && Trails)
+	if (Near.Target && Far.Target && Near.IceTarget && Far.IceTarget && Cover && Mask && Trails)
 	{
 		return true;
 	}
@@ -160,15 +167,18 @@ bool FDreamSurfaceMaps::Resolve()
 	using namespace DreamSurface::Maps;
 	Near.Target = LoadTarget(S->NearMapTexture, PF_FloatRGBA);
 	Far.Target = LoadTarget(S->FarMapTexture, PF_FloatRGBA);
+	Near.IceTarget = LoadTarget(S->NearIceMapTexture, PF_FloatRGBA);
+	Far.IceTarget = LoadTarget(S->FarIceMapTexture, PF_FloatRGBA);
 	Cover = LoadTarget(S->CoverMapTexture, PF_A32B32G32R32F);
 	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
 	Trails = LoadTarget(S->TrailMapTexture, PF_FloatRGBA);
-	if (!Near.Target || !Far.Target || !Cover)
+	if (!Near.Target || !Far.Target || !Near.IceTarget || !Far.IceTarget || !Cover)
 	{
-		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, cover %s"),
-			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
+		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, ice %s, cover %s"),
+			Near.Target ? TEXT("ok") : TEXT("missing"), Far.Target ? TEXT("ok") : TEXT("missing"),
+			Near.IceTarget && Far.IceTarget ? TEXT("ok") : TEXT("missing"), Cover ? TEXT("ok") : TEXT("missing"));
 	}
-	return Near.Target && Far.Target && Cover && Mask && Trails;
+	return Near.Target && Far.Target && Near.IceTarget && Far.IceTarget && Cover && Mask && Trails;
 }
 
 void FDreamSurfaceMaps::ForgetDrawn()
@@ -194,6 +204,7 @@ void FDreamSurfaceMaps::Stop(UDreamWorldSubsystem* Clock)
 		Clock->SetVectorParameter(MPC_SurfaceNear, Off);
 		Clock->SetVectorParameter(MPC_SurfaceFar, Off);
 		Clock->SetVectorParameter(MPC_SurfaceView, Off);
+		Clock->SetVectorParameter(MPC_SurfaceViewIce, Off);
 		Clock->SetVectorParameter(MPC_SurfaceTrails, Off);
 	}
 }
@@ -204,6 +215,7 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
 	const FDreamSurfaceState& View = Surface.GetViewState();
 	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
+	Clock.SetVectorParameter(MPC_SurfaceViewIce, FLinearColor(View.Ice, View.Frost, View.Rime, View.FrozenWater));
 	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, S->PuddleScale));
 
 	UWorld* World = Surface.GetWorld();
@@ -269,7 +281,8 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	}
 	FDreamSurfaceMapRenderer::FStateArgs Args;
 	Args.Target = Map.Target->GameThread_GetRenderTargetResource();
-	if (!Args.Target)
+	Args.IceTarget = Map.IceTarget ? Map.IceTarget->GameThread_GetRenderTargetResource() : nullptr;
+	if (!Args.Target || !Args.IceTarget)
 	{
 		return;
 	}
@@ -289,6 +302,8 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.Rates[0] = Rates.R0();
 	Args.Rates[1] = Rates.R1();
 	Args.Rates[2] = Rates.R2();
+	Args.Rates[3] = Rates.R3();
+	Args.Rates[4] = Rates.R4();
 	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
 	Args.Zones = LastZones;
 	Args.NumZones = LastNumZones;
@@ -344,6 +359,13 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 			Args.TerrainParams[0] = Frame.T0;
 			Args.TerrainParams[1] = Frame.T1;
 			Args.TerrainParams[2] = Frame.T2;
+		}
+		// The runtime terrain map's heights where it runs: the level as it stands now, roofs that moved included.
+		UTextureRenderTarget2D* RuntimeHeight = Frame.L1NearHeight.Get();
+		if (RuntimeHeight && Frame.L1Near.W > 0.5f)
+		{
+			Args.L1Height = RuntimeHeight->GameThread_GetRenderTargetResource();
+			Args.L1Level = Frame.L1Near;
 		}
 	}
 

@@ -45,6 +45,12 @@ class FDreamWindVolumeUpdateCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, PrevSampler)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, TerrainTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TerrainSampler)
+		SHADER_PARAMETER(FVector4f, L1Near)
+		SHADER_PARAMETER(FVector4f, L1Far)
+		SHADER_PARAMETER(FVector4f, L1Params)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1NearMap)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1FarMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, L1Sampler)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float4>, OutVolume)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -197,6 +203,22 @@ void FDreamWindVolumeRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 			TerrainRDG = GraphBuilder.RegisterExternalTexture(GSystemTextures.BlackDummy);
 		}
 		Params->TerrainTexture = TerrainRDG;
+	}
+	// The runtime terrain wind map (one texel per level instead of the baked map's march), when it runs.
+	{
+		auto Register = [&GraphBuilder](FTextureRenderTargetResource* Resource, const TCHAR* Name) -> FRDGTextureRef
+		{
+			FRHITexture* RHI = Resource ? Resource->GetRenderTargetTexture() : nullptr;
+			return RHI ? RegisterExternalTexture(GraphBuilder, RHI, Name) : nullptr;
+		};
+		FRDGTextureRef NearRDG = Args.Frame.L1Near.W > 0.5f ? Register(Args.L1NearResource, TEXT("DreamWind.L1Near")) : nullptr;
+		FRDGTextureRef FarRDG = Args.Frame.L1Far.W > 0.5f ? Register(Args.L1FarResource, TEXT("DreamWind.L1Far")) : nullptr;
+		Params->L1Near = NearRDG ? Args.Frame.L1Near : FVector4f::Zero();
+		Params->L1Far = FarRDG ? Args.Frame.L1Far : FVector4f::Zero();
+		Params->L1Params = Args.Frame.L1Params;
+		Params->L1NearMap = NearRDG ? NearRDG : GraphBuilder.RegisterExternalTexture(GSystemTextures.BlackDummy);
+		Params->L1FarMap = FarRDG ? FarRDG : GraphBuilder.RegisterExternalTexture(GSystemTextures.BlackDummy);
+		Params->L1Sampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 	}
 	Params->OutVolume = GraphBuilder.CreateUAV(Target);
 

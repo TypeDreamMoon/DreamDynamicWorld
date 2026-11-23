@@ -21,6 +21,8 @@ public:
 	struct FStateArgs
 	{
 		FTextureRenderTargetResource* Target = nullptr;
+		/** The ice, frost, rime and frozen water beside it (the state's second half). */
+		FTextureRenderTargetResource* IceTarget = nullptr;
 		FVector2f Center = FVector2f::ZeroVector;
 		float Extent = 12800.0f;
 		/** Integrate the whole steps first (a step went by, the map moved, the zones changed). */
@@ -32,9 +34,9 @@ public:
 		FVector4f PartialChannels = FVector4f::Zero();
 		FVector4f PartialAir = FVector4f::Zero();
 		float PartialHours = 0.0f;
-		FVector4f Rates[3];
+		FVector4f Rates[5];
 		FVector2f PrecipitationGate = FVector2f::ZeroVector;
-		/** NumZones records of four float4 (DreamSurfaceMap.usf), lowest priority first, then the polygons' points. */
+		/** NumZones records of five float4 (DreamSurfaceMap.usf), lowest priority first, then the polygons' points. */
 		TArray<FVector4f> Zones;
 		int32 NumZones = 0;
 		/** When integrating: per zone, per whole step, its footprint's centre (xy) and strength (z) at the step's start. */
@@ -49,6 +51,9 @@ public:
 		/** The wind's terrain map (null: none) and its DW_UnpackTerrain vectors. */
 		FTextureRenderTargetResource* Terrain = nullptr;
 		FVector4f TerrainParams[3];
+		/** The wind's runtime terrain map's near level (DW_UnpackL1Level; w = 0: none) and its height map. */
+		FVector4f L1Level = FVector4f::Zero();
+		FTextureRenderTargetResource* L1Height = nullptr;
 		/** How far around a texel the ground's lows are judged (cm). */
 		float LowRadius = 300.0f;
 		/** Three float4 per shelter box. */
@@ -97,8 +102,9 @@ private:
 	/** Render thread: the previous trail map (what an update carries over). */
 	TRefCountPtr<IPooledRenderTarget> TrailHistory;
 
-	/** Render thread: the step-start texture of each map. */
+	/** Render thread: the step-start textures of each map (the state's two halves). */
 	TMap<int32, TRefCountPtr<IPooledRenderTarget>> StepStarts;
+	TMap<int32, TRefCountPtr<IPooledRenderTarget>> IceStepStarts;
 
 	std::atomic<uint32> DrawCount { 0 };
 	std::atomic<uint32> IntegrateCount { 0 };

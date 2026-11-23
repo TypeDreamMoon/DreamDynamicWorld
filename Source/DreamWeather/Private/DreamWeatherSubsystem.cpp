@@ -164,11 +164,23 @@ float UDreamWeatherSubsystem::ExposureAt(const FVector& Position) const
 	const UWorld* World = GetWorld();
 	const UDreamWindSubsystem* Wind = World && S->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
 	const FDreamWindTerrainCpuData* Terrain = Wind ? Wind->GetFrameData().TerrainCpu.Get() : nullptr;
-	if (Terrain && Terrain->IsInside(Position.X, Position.Y))
+	// The runtime terrain map's CPU grid where it has swept (its heights are the level as it stands now), else the baked map.
+	const FDreamWindTerrainGridData* Grid = Wind ? Wind->GetFrameData().TerrainGrid.Get() : nullptr;
+	const auto GridHeight = [Grid](double X, double Y)
 	{
-		const auto CoveredAt = [Terrain, &Position, S](double X, double Y)
+		return Grid ? Grid->HeightAt(X, Y) : FDreamWindTerrainGridData::NotSwept;
+	};
+	const auto Known = [](float Height) { return Height > FDreamWindTerrainGridData::NotSwept * 0.75f; };
+	if (Known(GridHeight(Position.X, Position.Y)) || (Terrain && Terrain->IsInside(Position.X, Position.Y)))
+	{
+		const auto CoveredAt = [Terrain, &Position, S, &GridHeight, &Known](double X, double Y)
 		{
-			return Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
+			const float FromGrid = GridHeight(X, Y);
+			if (Known(FromGrid))
+			{
+				return double(FromGrid) > Position.Z + S->RoofClearance;
+			}
+			return Terrain && Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
 		};
 		if (CoveredAt(Position.X, Position.Y))
 		{
@@ -397,8 +409,10 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	S.Wetness = Values.Get(C::Wetness);
 	S.SnowCover = Values.Get(C::SnowCover);
 	S.Temperature = TemperatureFor(Position, Values.Get(C::Temperature), S.CloudCoverage, WorldSeconds);
-	// What falls turns to snow near freezing, whatever the weather says (a mountain top snows in the rain).
-	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), 1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature));
+	// What falls turns to snow near freezing, whatever the weather says (a mountain top snows in the rain), all but the
+	// supercooled part of the rain: freezing rain stays rain below freezing.
+	S.FreezingRain = FMath::Clamp(Values.Get(C::FreezingRain), 0.0f, 1.0f);
+	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
 	S.Rain = S.Precipitation * (1.0f - S.SnowRatio);
 	S.Snow = S.Precipitation * S.SnowRatio;
 	S.Exposure = ExposureAt(Position);

@@ -38,6 +38,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Timeline", meta = (ClampMin = "1", ClampMax = "120", Units = "Minutes"))
 	float StepMinutes = 15.0f;
 
+	/**
+	 * How much grip each thing lying on a surface leaves (SampleContact, GetGripAt): a multiplier on the surface's own,
+	 * at full cover.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Grip", meta = (ShowOnlyInnerProperties))
+	FDreamSurfaceGrip Grip;
+
 	/** The depth of the deepest snow cover (Snow = 1), cm: what the terrain's displacement and footprints use. */
 	UPROPERTY(Config, EditAnywhere, Category = "Snow", meta = (ClampMin = "0", Units = "cm"))
 	float MaxSnowDepth = 30.0f;
@@ -83,6 +90,13 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath FarMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceFar.RT_DreamSurfaceFar"));
+
+	/** The ice, frost, rime and frozen water beside each state map (RGBA16F, the same size). */
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath NearIceMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceNearIce.RT_DreamSurfaceNearIce"));
+
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath FarIceMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceFarIce.RT_DreamSurfaceFarIce"));
 
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath CoverMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceCover.RT_DreamSurfaceCover"));

@@ -9,19 +9,28 @@
 // After the rain the sitting drops stay as long as the wetness there does (the surface maps' state), and go as it
 // dries. The drops bend the normal (their refraction and highlights), smooth the roughness and make the pane a little
 // less clear. The pane's own axes come from its geometric normal: across it horizontally and up it; a flat pane (a
-// skylight) gets sitting drops only. The drops are Shaders/Shared/DreamSurfaceShared.h (DSF_GlassRain), the same for the CPU tests.
+// skylight) gets sitting drops only, and snow lies on a pane that faces up enough (none on an upright one).
+//
+// Vehicle Glass (an input: 1 on a car's windows) reads the drops in the glass's own frame, so they stay put on it as it
+// moves; the air pushes them along at speed (the runners go up a windscreen at speed, the sitting drops streak), the
+// panes facing the way it goes catch more rain, and the wipers sweep their arcs clear, the rain laying the drops again
+// behind them. The glass's velocity and the wipers come from custom primitive data, which a DreamSurface Vehicle Glass
+// component writes (24..26 the velocity in the glass's frame, cm/s; 28 seconds per swing, 0 parked; 29 the time they
+// started; 30 the heater, which melts the snow); where the wipers are and how far they swing are parameters (group
+// "Vehicle Glass"). The drops are Shaders/Shared/DreamSurfaceShared.h (DSF_GlassRain, DSF_GlassRainFlow), the same for
+// the CPU tests.
 
 Function float4 DreamGlassRain_Shown(
 	in float3 WorldPos,
 	in float4 NearPlace, in float4 FarPlace, in float4 ViewState, in float4 Params, in float4 Weather0,
 	in Texture2D NearMap, in Texture2D FarMap, in Texture2D CoverMap, in Texture2D MaskMap)
 {
-	// The wetness left on the pane (x) and the rain landing on it now (y).
+	// The wetness left on the pane (x), the rain landing on it now (y) and the snow lying there (z).
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	float Exposure = DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler);
-	float4 State = DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
-		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler);
-	return float4(DSM_Covered(State, Exposure).x, DSM_RainHere(Weather0, Exposure), 0.0f, 0.0f);
+	float4 State = DSM_Covered(DSM_State(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler)
+		* DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), Exposure);
+	return float4(State.x, DSM_RainHere(Weather0, Exposure), State.z, 0.0f);
 }
 
 Function float4 DreamGlassRain_Water(in float3 WorldPos, in float3 Normal, in float Wet, in float Rain, in float Time)
@@ -37,10 +46,34 @@ Function float4 DreamGlassRain_Water(in float3 WorldPos, in float3 Normal, in fl
 	return float4(-(Across * R.x + UpPane * R.y) * 0.5f, R.z);
 }
 
+Function float4 DreamGlassRain_VehicleWater(in float3 LocalPos, in float3 LocalNormal, in float3 LocalUp, in float4 Velocity, in float4 Wipers, in float4 Pivot, in float4 Pivot2, in float4 Angles, in float Wet, in float Rain, in float Time, in float Vehicle)
+{
+	// A vehicle's pane: the water's bend of the normal in the glass's frame (xyz) and how much of it is water (w).
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	if (Vehicle < 0.5f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	FDreamVehicleGlass G = DSM_VehicleGlass(LocalPos, LocalNormal, LocalUp, Velocity, Wipers, Pivot, Pivot2, Angles, Wet, Rain, Time);
+	return float4(G.Bend, G.Water);
+}
+
+Function float DreamGlassRain_Snow(in float3 LocalPos, in float3 LocalNormal, in float3 LocalUp, in float4 Velocity, in float4 Wipers, in float4 Pivot, in float4 Pivot2, in float4 Angles, in float Wet, in float Rain, in float Time, in float Vehicle, in float Snow, in float Up)
+{
+	// The snow lying on the pane: none where a vehicle's wipers swept, less as its heater melts it.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Swept = 0.0f;
+	if (Vehicle > 0.5f && Snow > 0.0f)
+	{
+		Swept = DSM_VehicleGlass(LocalPos, LocalNormal, LocalUp, Velocity, Wipers, Pivot, Pivot2, Angles, Wet, Rain, Time).Swept;
+	}
+	return DSM_GlassSnow(Snow, Up, Swept, Vehicle > 0.5f ? Wipers.z : 0.0f);
+}
+
 ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamGlassRain", Root="Plugin.DreamDynamicWorld")
 {
 	Settings = {
-		Description       = "DreamSurface: rain on window glass (sitting and running drops, staying while the pane is wet). Attributes in, attributes out: put it last.";
+		Description       = "DreamSurface: rain and snow on window glass (sitting and running drops, staying while the pane is wet; on a vehicle's glass pushed by the air, wiped by its wipers). Attributes in, attributes out: put it last.";
 		ExposeToLibrary   = true;
 		LibraryCategories = "DreamSurface";
 	}
@@ -55,10 +88,20 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamGlassRain", Root="Plugin.
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
+
+		Group("Vehicle Glass") {
+			VectorParameter GlassVelocity = float4(0.0, 0.0, 0.0, 0.0) [UseCustomPrimitiveData = true; PrimitiveDataIndex = 24; Description="The glass's velocity in its own frame, cm/s (custom primitive data 24..26, written by a DreamSurface Vehicle Glass component)."];
+			VectorParameter GlassWipers   = float4(0.0, 0.0, 0.0, 0.0) [UseCustomPrimitiveData = true; PrimitiveDataIndex = 28; Description="Seconds per wiper swing out and back (0 parked), the time they started, the heater 0..1 (custom primitive data 28..30)."];
+			VectorParameter WiperPivot    = float4(0.0, 0.0, 0.0, 0.0) [Description="The first wiper's pivot in the glass mesh's frame (xyz, cm along its axes at the mesh's scale) and its length (w, cm; 0 none)."];
+			VectorParameter WiperPivot2   = float4(0.0, 0.0, 0.0, 0.0) [Description="The second wiper's pivot and length (w 0: none)."];
+			VectorParameter WiperAngles   = float4(10.0, 165.0, 0.0, 0.0) [Description="How far the wipers swing: from x to y, degrees in the pane (0 across it, 90 up it)."];
+			VectorParameter GlassSnowColor = float4(0.9, 0.92, 0.95, 1.0) [Description="The snow lying on the glass."];
+		}
 	}
 
 	Inputs = {
 		MaterialAttributes Attributes;
+		float VehicleGlass = 0.0 [Desc="1 on a vehicle's windows: the drops in the glass's own frame, pushed by the air, wiped by its wipers (custom primitive data from a DreamSurface Vehicle Glass component)."];
 	}
 
 	Outputs = {
@@ -68,11 +111,27 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamGlassRain", Root="Plugin.
 	Graph = {
 		float3 WP = UE.WorldPosition();
 		float4 Shown = DreamGlassRain_Shown(WP, NearPlace, FarPlace, ViewState, Params, Weather0, NearMap, FarMap, CoverMap, MaskMap);
-		float4 Water = DreamGlassRain_Water(WP, UE.VertexNormalWS(), Shown.x, Shown.y, UE.Time());
-		float3 Bend = UE.TransformVector(Input = Water.xyz, Source = "World", Destination = "Tangent");
+		float3 NWS = UE.VertexNormalWS();
+		float Seconds = UE.Time();
+		float4 Water = DreamGlassRain_Water(WP, NWS, Shown.x, Shown.y, Seconds);
+		// A vehicle's pane, in the glass's own frame at world scale (cm along its axes: a mesh scaled unevenly keeps round
+		// drops), the frame its velocity and its wipers are given in.
+		float3 Scale = float3(length(UE.TransformVector(Input = float3(1.0, 0.0, 0.0), Source = "Local", Destination = "World")),
+			length(UE.TransformVector(Input = float3(0.0, 1.0, 0.0), Source = "Local", Destination = "World")),
+			length(UE.TransformVector(Input = float3(0.0, 0.0, 1.0), Source = "Local", Destination = "World")));
+		float3 LP = UE.TransformPosition(Input = WP, Source = "World", Destination = "Local") * Scale;
+		float3 LN = UE.TransformVector(Input = NWS, Source = "World", Destination = "Local") * Scale;
+		float3 LUp = UE.TransformVector(Input = float3(0.0, 0.0, 1.0), Source = "World", Destination = "Local") * Scale;
+		float4 Moving = DreamGlassRain_VehicleWater(LP, LN, LUp, GlassVelocity, GlassWipers, WiperPivot, WiperPivot2, WiperAngles, Shown.x, Shown.y, Seconds, VehicleGlass);
+		float3 MovingBend = UE.TransformVector(Input = Moving.xyz / max(Scale, float3(1.0e-4, 1.0e-4, 1.0e-4)), Source = "Local", Destination = "World");
+		float3 BendWS = lerp(Water.xyz, MovingBend, VehicleGlass);
+		float Wet = lerp(Water.w, Moving.w, VehicleGlass);
+		float Snow = DreamGlassRain_Snow(LP, LN, LUp, GlassVelocity, GlassWipers, WiperPivot, WiperPivot2, WiperAngles, Shown.x, Shown.y, Seconds, VehicleGlass, Shown.z, NWS.z);
+		float3 Bend = UE.TransformVector(Input = BendWS, Source = "World", Destination = "Tangent");
 		Result = Attributes;
-		Result.Normal = normalize(Attributes.Normal + Bend);
-		Result.Roughness = lerp(Attributes.Roughness, min(Attributes.Roughness, 0.03), Water.w);
-		Result.Opacity = lerp(Attributes.Opacity, 1.0, 0.25 * Water.w);
+		Result.Normal = normalize(lerp(Attributes.Normal + Bend, float3(0.0, 0.0, 1.0), Snow * 0.8));
+		Result.Roughness = lerp(lerp(Attributes.Roughness, min(Attributes.Roughness, 0.03), Wet), 0.8, Snow);
+		Result.BaseColor = lerp(Attributes.BaseColor, GlassSnowColor.rgb, Snow);
+		Result.Opacity = lerp(lerp(Attributes.Opacity, 1.0, 0.25 * Wet), 0.95, Snow);
 	}
 }

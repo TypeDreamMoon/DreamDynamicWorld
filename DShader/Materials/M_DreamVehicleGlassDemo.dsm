@@ -1,0 +1,52 @@
+// DreamSurface demo: a vehicle's window glass (MF_DreamGlassRain with Vehicle Glass on) - the drops in the glass's own
+// frame, pushed by the air and wiped by the wipers, as a DreamSurface Vehicle Glass component on the vehicle tells it
+// (custom primitive data). Where the wipers are is the instance's (MI_DreamVehicleGlassDemo, made by the Setup).
+
+VirtualFunction(Name="MF_DreamGlassRain")
+{
+	Options = {
+		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamGlassRain");
+		Description = "DreamSurface: rain and snow on window glass.";
+	}
+	Inputs = {
+		MaterialAttributes Attributes;
+		float VehicleGlass = 0.0;
+	}
+	Outputs = {
+		MaterialAttributes Result;
+	}
+}
+
+Shader(Name="Surface/Materials/M_DreamVehicleGlassDemo", Root="Plugin.DreamDynamicWorld")
+{
+	Properties = {
+		vec3  Tint    = vec3(0.02, 0.025, 0.03) [Group="Glass"];
+		float Clarity = 0.6                     [Group="Glass"; Desc="How clear the dry pane is (1 - opacity): a car's glass is tinted."];
+	}
+
+	Settings = {
+		Backend = "Graph";
+		Domain = "Surface";
+		BlendMode = "Translucent";
+		ShadingModel = "DefaultLit";
+		TranslucencyLightingMode = "TLM_SurfacePerPixelLighting";
+		bUsedWithStaticLighting = false;
+		TwoSided = true;
+	}
+
+	Outputs = {
+		MaterialAttributes Attrs;
+		Base.MaterialAttributes = Attrs;
+	}
+
+	Graph = {
+		MaterialAttributes Dry;
+		Dry.BaseColor = Tint;
+		Dry.Roughness = 0.04;
+		Dry.Metallic = 0.0;
+		Dry.Specular = 0.5;
+		Dry.Opacity = 1.0 - Clarity;
+		Dry.Normal = float3(0.0, 0.0, 1.0);
+		MF_DreamGlassRain(Dry, 1.0, Attrs);
+	}
+}

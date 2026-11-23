@@ -5,10 +5,11 @@ VirtualFunction(Name="MF_DreamGlassRain")
 {
 	Options = {
 		Asset = Path(Plugins.DreamDynamicWorld, "Surface/MaterialFunctions/MF_DreamGlassRain");
-		Description = "DreamSurface: rain on window glass.";
+		Description = "DreamSurface: rain and snow on window glass.";
 	}
 	Inputs = {
 		MaterialAttributes Attributes;
+		float VehicleGlass = 0.0;
 	}
 	Outputs = {
 		MaterialAttributes Result;
@@ -44,6 +45,6 @@ Shader(Name="Surface/Materials/M_DreamGlassDemo", Root="Plugin.DreamDynamicWorld
 		Dry.Specular = 0.5;
 		Dry.Opacity = 1.0 - Clarity;
 		Dry.Normal = float3(0.0, 0.0, 1.0);
-		MF_DreamGlassRain(Dry, Attrs);
+		MF_DreamGlassRain(Dry, 0.0, Attrs);
 	}
 }

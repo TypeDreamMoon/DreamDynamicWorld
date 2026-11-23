@@ -25,6 +25,7 @@ public:
 		Temperature,
 		Wetness,
 		SnowCover,
+		FreezingRain,
 		NumBuiltIn
 	};
 

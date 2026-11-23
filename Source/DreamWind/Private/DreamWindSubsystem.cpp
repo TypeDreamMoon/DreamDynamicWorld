@@ -8,6 +8,9 @@
 #include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
 #include "DreamWindViewExtension.h"
+#include "DreamWindTerrainField.h"
+#include "DreamWindTerrainGrid.h"
+#include "DataDrivenShaderPlatformInfo.h"
 
 #include "Components/WindDirectionalSourceComponent.h"
 #include "DrawDebugHelpers.h"
@@ -74,6 +77,12 @@ namespace DreamWind
 	static int32 GCVarDebugColor = 0;
 	static FAutoConsoleVariableRef CVarDebugColor(TEXT("DreamWind.DebugDraw.Color"), GCVarDebugColor,
 		TEXT("Arrow field colouring: 0 = speed ramp (blue -> green -> yellow -> red up to MaxSpeed), 1 = direction hue like M_DreamWindDebug (+X red, +Y green, -X cyan) with brightness = speed, 2 = gust factor (blue = lull, white = nominal, red = strong gust)."), ECVF_Default);
+	static int32 GCVarOcclusion = -1;
+	static FAutoConsoleVariableRef CVarOcclusion(TEXT("DreamWind.Occlusion"), GCVarOcclusion,
+		TEXT("Override the terrain map's wind shadow: -1 = project setting (Occlusion Strength), 0 = off (every consumer skips its upwind march), 1 = on at the project's strength."), ECVF_Default);
+	static int32 GCVarRuntimeTerrain = -1;
+	static FAutoConsoleVariableRef CVarRuntimeTerrain(TEXT("DreamWind.RuntimeTerrain"), GCVarRuntimeTerrain,
+		TEXT("Override the runtime terrain wind map: -1 = project setting, 0 = off (the level's baked map and its upwind march), 1 = on."), ECVF_Default);
 	static float GCVarTimeScale = -1.0f;
 	static FAutoConsoleVariableRef CVarTimeScale(TEXT("DreamWind.TimeScale"), GCVarTimeScale,
 		TEXT("Override the wind time scale: <0 = the value set through the API (default 1), 0 freezes the wind."), ECVF_Default);
@@ -353,6 +362,12 @@ void UDreamWindSubsystem::Deinitialize()
 		VolumeRendererFar->EnqueueReset();
 		VolumeRendererFar.Reset();
 	}
+	// (Its captures and render commands hold only resources the render thread keeps alive; flush before letting go.)
+	if (TerrainField.IsValid())
+	{
+		FlushRenderingCommands();
+		TerrainField.Reset();
+	}
 
 	if (EngineWindComponent)
 	{
@@ -420,12 +435,30 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	GatherSources();
 	BuildFrameData(DeltaTime);
 
+	// The runtime terrain map's CPU grid: wherever there is collision (a dedicated server too), not only where it renders.
+	const bool bRuntimeTerrain = (DreamWind::GCVarRuntimeTerrain >= 0 ? DreamWind::GCVarRuntimeTerrain != 0 : Settings->bRuntimeTerrain) && Settings->bTerrainEnabled;
+	if (bRuntimeTerrain)
+	{
+		if (!TerrainGrid.IsValid())
+		{
+			TerrainGrid = MakeShared<FDreamWindTerrainGrid, ESPMode::ThreadSafe>();
+		}
+		TerrainGrid->Update(*World, FindCameraLocation(), GetGlobalWindDirection());
+		FrameData.TerrainGrid = TerrainGrid->GetSnapshot();
+	}
+	else
+	{
+		TerrainGrid.Reset();
+		FrameData.TerrainGrid.Reset();
+	}
+
 	const bool bCanRender = FApp::CanEverRender() && World->Scene != nullptr && !IsRunningDedicatedServer();
 	if (bCanRender)
 	{
 		ResolveAssets();
 		UpdateEngineWindSource();
 		UpdateTerrainTexture();
+		UpdateRuntimeTerrain();
 		UpdateVolume(WindDelta);
 		UpdateMaterialParameterCollection();
 	}
@@ -584,7 +617,8 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 		const FVector2D Size = TerrainCpu->Bounds.GetSize();
 		FrameData.T0 = FVector4f(float(TerrainCpu->Bounds.Min.X), float(TerrainCpu->Bounds.Min.Y), 1.0f / float(FMath::Max(Size.X, 1.0)), 1.0f / float(FMath::Max(Size.Y, 1.0)));
 		FrameData.T1 = FVector4f(1.0f, Settings->TerrainSteerScale, Settings->TerrainSpeedScale, TerrainCpu->TexelSize());
-		FrameData.T2 = FVector4f(Settings->OcclusionStrength, Settings->OcclusionRange, Settings->OcclusionSlope, TerrainCpu->HeightBase);
+		const float Occlusion = DreamWind::GCVarOcclusion == 0 ? 0.0f : Settings->OcclusionStrength;
+		FrameData.T2 = FVector4f(Occlusion, Settings->OcclusionRange, Settings->OcclusionSlope, TerrainCpu->HeightBase);
 	}
 	else
 	{
@@ -635,6 +669,28 @@ void UDreamWindSubsystem::ReportViewOrigin(const FVector& ViewOrigin, bool bIsGa
 	LatestViewOrigin = ViewOrigin;
 	bHasViewOrigin = true;
 	bHasGameViewOrigin |= bIsGameView;
+}
+
+uint32 UDreamWindSubsystem::RequestDistanceFieldProbe(UTextureRenderTarget2D* Target, FVector Center, float Size)
+{
+	FTextureRenderTargetResource* Resource = Target ? Target->GameThread_GetRenderTargetResource() : nullptr;
+	if (!Resource || !ViewExtension.IsValid() || !FApp::CanEverRender())
+	{
+		return 0;
+	}
+	DreamWind::DistanceField::FProbeRequest Request;
+	Request.Target = Resource;
+	Request.Resolution = FIntPoint(Target->SizeX, Target->SizeY);
+	Request.Center = Center;
+	Request.Size = FMath::Max(Size, 1.0f);
+	ViewExtension->QueueDistanceProbe(Request);
+	// (One probe at a time: a second request before the first is written replaces it.)
+	return ViewExtension->GetDistanceProbeCount() + 1;
+}
+
+uint32 UDreamWindSubsystem::GetDistanceProbeCount() const
+{
+	return ViewExtension.IsValid() ? ViewExtension->GetDistanceProbeCount() : 0;
 }
 
 void UDreamWindSubsystem::OverrideVolumeCenter(FVector Center, bool bEnable)
@@ -776,6 +832,69 @@ void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Near, ToLinearColor(ToHlsl(FrameData.L1Near)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Far, ToLinearColor(ToHlsl(FrameData.L1Far)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Params, ToLinearColor(ToHlsl(FrameData.L1Params)));
+}
+
+void UDreamWindSubsystem::UpdateRuntimeTerrain()
+{
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	UWorld* World = GetWorld();
+	FrameData.L1Near = FVector4f::Zero();
+	FrameData.L1Far = FVector4f::Zero();
+	FrameData.L1Params = FVector4f::Zero();
+	// The maps are shared by every world: computed only by the one that owns them (afresh when they come back to it).
+	bool bRedrawAll = false;
+	const bool bWanted = DreamWind::GCVarRuntimeTerrain >= 0 ? DreamWind::GCVarRuntimeTerrain != 0 : Settings->bRuntimeTerrain;
+	const bool bRun = bWanted && Settings->bTerrainEnabled && World && FApp::CanEverRender() && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM5
+		&& RuntimeTerrainWriter.Acquire(World, bRedrawAll);
+	if (!bRun)
+	{
+		if (TerrainField.IsValid())
+		{
+			TerrainField->Stop();
+		}
+		return;
+	}
+	if (!TerrainField.IsValid())
+	{
+		TerrainField = MakeShared<FDreamWindTerrainField>();
+	}
+	TerrainField->Update(*World, FindCameraLocation(), GetGlobalWindDirection(), bRedrawAll);
+	FrameData.L1Near = TerrainField->GetNearLevel();
+	FrameData.L1Far = TerrainField->GetFarLevel();
+	FrameData.L1Params = TerrainField->GetParams();
+	if (DreamWind::GCVarOcclusion == 0)
+	{
+		FrameData.L1Params.X = 0.0f;
+	}
+	FrameData.L1NearDerived = TerrainField->GetNearDerived();
+	FrameData.L1FarDerived = TerrainField->GetFarDerived();
+	FrameData.L1NearHeight = TerrainField->GetNearHeight();
+	FrameData.L1FarHeight = TerrainField->GetFarHeight();
+}
+
+void UDreamWindSubsystem::MarkObstaclesDirty(FBox Bounds)
+{
+	if (TerrainField.IsValid())
+	{
+		TerrainField->MarkDirty(Bounds);
+	}
+	if (TerrainGrid.IsValid())
+	{
+		TerrainGrid->MarkDirty(Bounds);
+	}
+}
+
+uint32 UDreamWindSubsystem::GetTerrainCaptureCount() const
+{
+	return TerrainField.IsValid() ? TerrainField->GetCaptureCount() : 0;
+}
+
+uint32 UDreamWindSubsystem::GetTerrainDeriveCount() const
+{
+	return TerrainField.IsValid() ? TerrainField->GetDeriveCount() : 0;
 }
 
 void UDreamWindSubsystem::EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer)
@@ -862,6 +981,8 @@ bool UDreamWindSubsystem::UpdateVolumeLevel(float WindDelta, UTextureRenderTarge
 	Args.Frame = FrameData;
 	Args.TargetResource = Resource;
 	Args.TerrainResource = (TerrainTexture && FrameData.T1.X > 0.5f) ? TerrainTexture->GameThread_GetRenderTargetResource() : nullptr;
+	Args.L1NearResource = FrameData.L1NearDerived.IsValid() ? FrameData.L1NearDerived->GameThread_GetRenderTargetResource() : nullptr;
+	Args.L1FarResource = FrameData.L1FarDerived.IsValid() ? FrameData.L1FarDerived->GameThread_GetRenderTargetResource() : nullptr;
 	Args.Resolution = Settings->VolumeResolution;
 	Args.PrevCenter = FVector3f(InOutPrevCenter);
 	Args.NewCenter = FVector3f(Center);
@@ -992,6 +1113,11 @@ void UDreamWindSubsystem::SetTerrainMap(UDreamWindTerrainMap* Map)
 DreamWind::Hlsl::FDreamWindSample UDreamWindSubsystem::ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const
 {
 	using namespace DreamWind::Hlsl;
+	// The runtime map's CPU grid where it reaches, the level's baked map beyond it.
+	if (FrameData.TerrainGrid.IsValid() && FrameData.TerrainGrid->Weight(Pos.x, Pos.y) > 0.0f)
+	{
+		return FrameData.TerrainGrid->Apply(S, Pos);
+	}
 	if (!FrameData.TerrainCpu.IsValid() || FrameData.T1.X <= 0.0f)
 	{
 		return S;

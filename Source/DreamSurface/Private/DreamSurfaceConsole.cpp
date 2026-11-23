@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceMaps.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSubsystem.h"
@@ -10,6 +11,7 @@
 #include "HAL/IConsoleManager.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "UObject/UObjectIterator.h"
 #include "Misc/Paths.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
@@ -61,10 +63,21 @@ namespace DreamSurface::Console
 			}
 			const FDreamSurfaceState& S = Surface->GetViewState();
 			const FDreamSurfaceMaps* Maps = Surface->GetMaps();
-			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
-				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust,
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f frozen %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
+				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater,
 				Maps ? Maps->GetNearCenter().X : 0.0, Maps ? Maps->GetNearCenter().Y : 0.0, Maps ? Maps->GetNearExtent() : 0.0f,
 				Maps ? Maps->GetDrawCount() : 0u, Maps ? Maps->GetIntegrateCount() : 0u);
+			for (TObjectIterator<UDreamSurfaceDripLineComponent> It; It; ++It)
+			{
+				if (It->GetWorld() == World && It->IsRegistered())
+				{
+					FVector Start, End;
+					It->GetLine(Start, End);
+					UE_LOG(LogDreamSurface, Display, TEXT("Drip line %s: strength %.2f, %.1f drops/s, effect %s, %d particles, floors %.0f / %.0f, from (%.0f, %.0f, %.0f) to (%.0f, %.0f, %.0f)"),
+						*It->GetOwner()->GetActorNameOrLabel(), It->GetDripStrength(), It->GetDropRate(), It->HasEffect() ? TEXT("on") : TEXT("off"),
+						It->GetParticleCount(), It->GetFloors().X, It->GetFloors().Y, Start.X, Start.Y, Start.Z, End.X, End.Y, End.Z);
+				}
+			}
 		}));
 
 	static FAutoConsoleCommandWithWorldAndArgs RemapCommand(
@@ -117,7 +130,7 @@ namespace DreamSurface::Console
 
 	static FAutoConsoleCommandWithWorldAndArgs SaveMapsCommand(
 		TEXT("DreamSurface.SaveMaps"),
-		TEXT("DreamSurface.SaveMaps [name]: save the near map (wet red, water green, snow blue) and its dust and cover (dust red, cover green) as PNGs under Saved/DreamSurface."),
+		TEXT("DreamSurface.SaveMaps [name]: save the near map (wet red, water green, snow blue) and its dust and cover (dust red, cover green) and the cold (ice red, frost green, rime blue) as PNGs under Saved/DreamSurface."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			UDreamSurfaceSubsystem* Surface = Find(World);
@@ -133,5 +146,7 @@ namespace DreamSurface::Console
 			// The cover map's own colour: how fully covered (green); the state's dust beside it would need the other map.
 			SaveMap(Maps->GetCoverMap(), Dir / (Name + TEXT("_Cover.png")), [](const FLinearColor& C) { return FColor(0, Byte(C.G), C.R > -1.0e8f ? 64 : 0, 255); });
 			SaveMap(Maps->GetNearMap(), Dir / (Name + TEXT("_Dust.png")), [](const FLinearColor& C) { return FColor(Byte(C.A), Byte(C.A), Byte(C.A), 255); });
+			// The cold beside it: ice red, frost green, rime blue.
+			SaveMap(Maps->GetNearIceMap(), Dir / (Name + TEXT("_Ice.png")), [](const FLinearColor& C) { return FColor(Byte(C.R), Byte(C.G), Byte(C.B), 255); });
 		}));
 }

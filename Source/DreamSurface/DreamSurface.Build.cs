@@ -32,6 +32,7 @@ public class DreamSurface : ModuleRules
 			"RenderCore",
 			"RHI",
 			"Renderer",
+			"Niagara",
 		});
 	}
 }

@@ -580,4 +580,122 @@ DW_FN FDreamWindSample DW_ApplyOcclusion(FDreamWindSample S, float Shadow, FDrea
 	return S;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The runtime terrain wind map (L1, computed around the camera instead of baked). Two levels, each a
+// square ring buffer over the world (wrap addressing: a world position's texel is its cell index modulo
+// the map's size, so following the camera never moves what is already there):
+//   derived texel = (speed multiplier, steer.x, steer.y, wind shadow height in cm)
+//   height texel  = the top surface's height in cm (the roofs; not needed for the wind itself)
+// The wind shadow height S of a texel is the highest any upwind obstacle's wedge reaches over it:
+// max over r >= 0 of (H(x - WindDir * r) - Slope * r), the texel's own height included (r = 0), so a point
+// below S is in the lee of something (or inside it). The speed multiplier and steering come from the far
+// level (the terrain's large shapes); the shadow from the near level inside its window, the far beyond.
+// A level's mode: 0 off, 1 runtime ring buffer, 2 a baked map (clamped, centred on xy) for where nothing
+// is computed (mobile, low settings).
+// ---------------------------------------------------------------------------------------------
+
+struct FDreamWindL1Level
+{
+	float2 Center;     // world XY of the window's middle (ring buffer) or of the baked map
+	float  InvExtent;  // 1 / the window's (map's) width, 1/cm
+	float  Mode;       // 0 off, 1 ring buffer, 2 baked
+};
+
+struct FDreamWindL1Params
+{
+	float ShadowStrength;  // 0 = obstacles do not shelter, 1 = a full lee behind them
+	float FadeBand;        // cm over which a point goes from the open into the lee
+	float SteerScale;      // multiplies the steering
+	float SpeedScale;      // 0 = ignore the speed multiplier, 1 = apply it fully
+};
+
+DW_FN FDreamWindL1Level DW_UnpackL1Level(float4 L)
+{
+	FDreamWindL1Level Level;
+	Level.Center    = float2(L.x, L.y);
+	Level.InvExtent = L.z;
+	Level.Mode      = L.w;
+	return Level;
+}
+
+DW_FN FDreamWindL1Params DW_UnpackL1Params(float4 L)
+{
+	FDreamWindL1Params P;
+	P.ShadowStrength = L.x;
+	P.FadeBand       = L.y;
+	P.SteerScale     = L.z;
+	P.SpeedScale     = L.w;
+	return P;
+}
+
+/** Texture UV of a world position in a level: wrapped (ring buffer) or clamped into the baked map. */
+DW_FN float2 DW_L1UV(float3 WorldPos, FDreamWindL1Level Level)
+{
+	if (Level.Mode > 1.5f)
+	{
+		return float2((WorldPos.x - Level.Center.x) * Level.InvExtent + 0.5f, (WorldPos.y - Level.Center.y) * Level.InvExtent + 0.5f);
+	}
+	return float2(WorldPos.x * Level.InvExtent, WorldPos.y * Level.InvExtent);
+}
+
+/** 1 well inside a level's window, fading to 0 over its outer eighth; 0 when the level is off. */
+DW_FN float DW_L1Weight(float3 WorldPos, FDreamWindL1Level Level)
+{
+	if (Level.Mode < 0.5f)
+	{
+		return 0.0f;
+	}
+	float dx = abs(WorldPos.x - Level.Center.x) * Level.InvExtent * 2.0f;
+	float dy = abs(WorldPos.y - Level.Center.y) * Level.InvExtent * 2.0f;
+	float edge = max(dx, dy);
+	return saturate((1.0f - edge) * 8.0f);
+}
+
+/** How much of the wind a point at height Z keeps under a wind shadow height S (1 open .. 1 - strength in the lee). */
+DW_FN float DW_L1Open(float ShadowHeight, float Z, FDreamWindL1Params P)
+{
+	float lee = saturate((ShadowHeight - Z) / max(P.FadeBand, 1.0f));
+	return 1.0f - lee * saturate(P.ShadowStrength);
+}
+
+/**
+ * Everything L1 does to an analytic sample: the far texel's speed multiplier and steering (weighted by the far
+ * level's coverage), then the wind shadow of the near texel inside the near window, the far one beyond it.
+ */
+DW_FN FDreamWindSample DW_ApplyL1(FDreamWindSample S, float3 WorldPos, float4 NearTexel, float NearWeight, float4 FarTexel, float FarWeight, FDreamWindL1Params P)
+{
+	if (FarWeight > 0.0f)
+	{
+		float speedMul = lerp(1.0f, max(FarTexel.x, 0.0f), saturate(P.SpeedScale) * FarWeight);
+		float2 steer = float2(FarTexel.y, FarTexel.z) * (P.SteerScale * FarWeight);
+		float2 v2 = float2(S.Velocity.x, S.Velocity.y);
+		float sp = length(v2);
+		if (sp > 0.001f)
+		{
+			float2 d = v2 * (1.0f / sp) + steer;
+			float dl = length(d);
+			if (dl > 0.001f)
+			{
+				v2 = d * (sp / dl);
+			}
+		}
+		S.Velocity = float3(v2.x * speedMul, v2.y * speedMul, S.Velocity.z * speedMul);
+	}
+	float open = 1.0f;
+	if (NearWeight > 0.0f || FarWeight > 0.0f)
+	{
+		float openFar = FarWeight > 0.0f ? lerp(1.0f, DW_L1Open(FarTexel.w, WorldPos.z, P), FarWeight) : 1.0f;
+		float openNear = DW_L1Open(NearTexel.w, WorldPos.z, P);
+		open = lerp(openFar, openNear, NearWeight);
+	}
+	S.Velocity = S.Velocity * open;
+	return S;
+}
+
+/** One step of the wind shadow's sweep: a texel's S against the S of the texel Dist cm upwind, lowered by the wedge. */
+DW_FN float DW_L1ShadowStep(float Here, float Upwind, float Dist, float Slope)
+{
+	return max(Here, Upwind - Slope * Dist);
+}
+
 #endif // DREAMWIND_SHARED_H

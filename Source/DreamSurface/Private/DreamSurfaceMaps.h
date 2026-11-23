@@ -33,6 +33,8 @@ public:
 
 	UTextureRenderTarget2D* GetNearMap() const { return Near.Target; }
 	UTextureRenderTarget2D* GetFarMap() const { return Far.Target; }
+	UTextureRenderTarget2D* GetNearIceMap() const { return Near.IceTarget; }
+	UTextureRenderTarget2D* GetFarIceMap() const { return Far.IceTarget; }
 	UTextureRenderTarget2D* GetCoverMap() const { return Cover; }
 	UTextureRenderTarget2D* GetMaskMap() const { return Mask; }
 	UTextureRenderTarget2D* GetTrailMap() const { return Trails; }
@@ -53,6 +55,8 @@ private:
 	struct FMap
 	{
 		TObjectPtr<UTextureRenderTarget2D> Target;
+		/** The ice, frost, rime and frozen water beside it. */
+		TObjectPtr<UTextureRenderTarget2D> IceTarget;
 		FVector2D Center = FVector2D(1.0e30, 1.0e30);
 		float Extent = 0.0f;
 		int64 Step = TNumericLimits<int64>::Min();

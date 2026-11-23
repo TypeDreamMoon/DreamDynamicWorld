@@ -23,6 +23,8 @@ Function float4 DreamWind_Sample(
 	in float4 T0, in float4 T1, in float4 T2,
 	in VolumeTexture Volume, in VolumeTexture VolumeFar,
 	in Texture2D Terrain,
+	in Texture2D L1NearMap, in Texture2D L1FarMap,
+	in float4 L1Near, in float4 L1Far, in float4 L1Params,
 	in float HighQuality,
 	in float UseVolume)
 {
@@ -38,10 +40,22 @@ Function float4 DreamWind_Sample(
 		S = DW_SampleAnalyticCheap(P, WorldPos);
 	}
 
-	// terrain modulation (L1): a baked map over the level, no-op outside it or when off
+	// terrain (L1): the runtime map around the camera when it runs (one texel per level: speed-up, steering and the
+	// wind shadow height), else the level's baked map with its upwind march
+	FDreamWindL1Level LN = DW_UnpackL1Level(L1Near);
+	FDreamWindL1Level LF = DW_UnpackL1Level(L1Far);
 	FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
 	float2 TUV = DW_TerrainUV(WorldPos, TP);
 	float Inside = DW_TerrainInside(TUV, TP);
+	if (LN.Mode > 0.5f || LF.Mode > 0.5f)
+	{
+		float WN = DW_L1Weight(WorldPos, LN);
+		float WF = DW_L1Weight(WorldPos, LF);
+		float4 TN = WN > 0.0f ? L1NearMap.SampleLevel(L1NearMapSampler, DW_L1UV(WorldPos, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		float4 TF = WF > 0.0f ? L1FarMap.SampleLevel(L1FarMapSampler, DW_L1UV(WorldPos, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		S = DW_ApplyL1(S, WorldPos, TN, WN, TF, WF, DW_UnpackL1Params(L1Params));
+		Inside = 0.0f;
+	}
 	if (Inside > 0.0f)
 	{
 		S = DW_ApplyTerrain(S, Terrain.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP, Inside);
@@ -105,6 +119,11 @@ ShaderFunction(Name="Wind/MaterialFunctions/MF_DreamWindSample", Root="Plugin.Dr
 		const VolumeTexture WindVolume    = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolume");
 		const VolumeTexture WindVolumeFar = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindVolumeFar");
 		const Texture2D     WindTerrain   = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrain");
+		const Texture2D     WindL1NearMap = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrainNear");
+		const Texture2D     WindL1FarMap  = Path(Plugin.DreamDynamicWorld, "Wind/RT_DreamWindTerrainFar");
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Near") L1Near;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Far") L1Far;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_WindL1Params") L1Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P0") P0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P1") P1;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P2") P2;
@@ -131,7 +150,7 @@ ShaderFunction(Name="Wind/MaterialFunctions/MF_DreamWindSample", Root="Plugin.Dr
 	Graph = {
 		float HighQuality = UE.StaticSwitchParameter(Name = "Wind High Quality", True = 1.0, False = 0.0, Default = false, Group = "DreamWind");
 		float UseVolume   = UE.StaticSwitchParameter(Name = "Wind Volume",       True = 1.0, False = 0.0, Default = true,  Group = "DreamWind");
-		float4 R = DreamWind_Sample(WorldPosition, P0, P1, P2, V0, V1, V2, V3, T0, T1, T2, WindVolume, WindVolumeFar, WindTerrain, HighQuality, UseVolume);
+		float4 R = DreamWind_Sample(WorldPosition, P0, P1, P2, V0, V1, V2, V3, T0, T1, T2, WindVolume, WindVolumeFar, WindTerrain, WindL1NearMap, WindL1FarMap, L1Near, L1Far, L1Params, HighQuality, UseVolume);
 
 		Velocity  = R.xyz;
 		Gust      = R.w;
