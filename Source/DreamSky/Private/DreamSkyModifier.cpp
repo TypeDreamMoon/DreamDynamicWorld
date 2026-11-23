@@ -129,6 +129,11 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 		K.CloudCoverageKept *= 1.0f - Alpha;
 		K.CloudCoverageAdded = Toward(K.CloudCoverageAdded, Target);
 	}
+	if (bOverride_DiskScale)
+	{
+		K.SunDiskScale = Toward(K.SunDiskScale, FMath::Max(DiskScale.X, 0.05f));
+		K.MoonDiskScale = Toward(K.MoonDiskScale, FMath::Max(DiskScale.Y, 0.05f));
+	}
 	if (bOverride_CloudClearing)
 	{
 		K.SunClearing = Toward(K.SunClearing, FMath::Clamp(CloudClearing.X, 0.0f, 1.0f));

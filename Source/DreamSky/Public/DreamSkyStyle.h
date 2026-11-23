@@ -897,6 +897,14 @@ public:
 	float SunHaloExponent = 6.0f;
 
 	/**
+	 * How large the sun's disk is drawn, times SunDiskSize, over its elevation: larger near the horizon (the moon
+	 * illusion, drawn). Only the disk as seen -- its glow, an eclipse's corona and the lens flare with it; the light's
+	 * source angle, and so the shadows' softness, stays as it is.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sun", meta = (XAxisName = "Sun elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve SunDiskScale;
+
+	/**
 	 * Share of the sun disk the sky light sees when it captures the dome. A full disk in the captured light
 	 * makes a hot spot every rough surface reflects; the sun's light comes from the directional light anyway.
 	 */
@@ -923,6 +931,11 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "1", UIMax = "128"))
 	float MoonHaloExponent = 24.0f;
+
+	/** How large the moon's disk is drawn, times MoonDiskSize, over its elevation: larger near the horizon. Only the disk
+	 *  as seen -- its glow, its corona and a lunar eclipse's shadow on it with it; the light's source angle stays. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Moon elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve MoonDiskScale;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Sun elevation", YAxisName = "Colour"))
 	FRuntimeCurveLinearColor MoonLightColor;

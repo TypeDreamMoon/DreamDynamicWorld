@@ -95,6 +95,9 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(MoonLightColor, { { -90.0f, C(0.55f, 0.65f, 1.0f) }, { 0.0f, C(0.60f, 0.65f, 0.95f) } });
 	SetKeys(MoonIlluminance, { { -12.0f, 1.2f }, { -6.0f, 0.5f }, { -2.0f, 0.0f } });
 	SetKeys(StarIntensity, { { -12.0f, 1.0f }, { -6.0f, 0.3f }, { -2.0f, 0.0f } });
+	// The disks drawn larger near the horizon (the moon illusion): by half again on it, as they were from 20 degrees up.
+	SetKeys(SunDiskScale, { { -4.0f, 1.5f }, { 0.0f, 1.5f }, { 3.0f, 1.38f }, { 8.0f, 1.18f }, { 20.0f, 1.0f }, { 90.0f, 1.0f } });
+	SetKeys(MoonDiskScale, { { -4.0f, 1.45f }, { 0.0f, 1.45f }, { 4.0f, 1.32f }, { 12.0f, 1.12f }, { 25.0f, 1.0f }, { 90.0f, 1.0f } });
 	// The clouds clearing round the light: plain with it low (the evening's sun showing through), almost none overhead.
 	SetKeys(CloudClearing.SunStrength, { { -4.0f, 0.0f }, { 0.0f, 0.55f }, { 6.0f, 0.55f }, { 15.0f, 0.3f }, { 30.0f, 0.05f }, { 45.0f, 0.0f } });
 	SetKeys(CloudClearing.MoonStrength, { { -4.0f, 0.0f }, { 0.0f, 0.4f }, { 10.0f, 0.35f }, { 30.0f, 0.15f }, { 60.0f, 0.05f } });
@@ -152,6 +155,8 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.MoonClearing = CloudClearing.bEnabled ? FMath::Clamp(Eval(CloudClearing.MoonStrength, Celestial.MoonElevation), 0.0f, 1.0f) : 0.0f;
 	Look.ClearingRadius = FMath::Max(CloudClearing.Radius, 1.0f);
 	Look.ClearingExponent = FMath::Max(CloudClearing.Exponent, 0.5f);
+	Look.SunDiskScale = FMath::Max(Eval(SunDiskScale, Celestial.SunElevation, 1.0f), 0.05f);
+	Look.MoonDiskScale = FMath::Max(Eval(MoonDiskScale, Celestial.MoonElevation, 1.0f), 0.05f);
 	Look.Meteors = 1.0f;
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);

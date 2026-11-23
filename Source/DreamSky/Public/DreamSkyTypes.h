@@ -650,6 +650,10 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MoonClearing = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float ClearingRadius = 14.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float ClearingExponent = 2.0f;
+	/** How large the sun's and the moon's disks are drawn, times their sizes (the style's SunDiskScale / MoonDiskScale at
+	 *  their elevations, a modifier's). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float SunDiskScale = 1.0f;
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float MoonDiskScale = 1.0f;
 	/** Weather fog or dust over the dome: rgb = the height fog's colour, a = how much of the sky it hides (0..1). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor Haze = FLinearColor(0.5f, 0.5f, 0.5f, 0.0f);
 	/** How present the aurora is, 0..1 (where the world lies, or a modifier's); the night's darkness goes on when it is drawn. */

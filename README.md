@@ -331,6 +331,13 @@ is the air's own light, so the style's `Rainbow` is on by default; `Intensity` s
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
 
+**The sun and the moon larger near the horizon.** The disks are drawn larger as they near the horizon -- the moon
+illusion, drawn: the style's `SunDiskScale` and `MoonDiskScale` are curves over each one's elevation, times
+`SunDiskSize` / `MoonDiskSize` (by default half again on the horizon, as they are from some 20 degrees up), the same at
+any latitude and season. Only the disk as seen grows: its glow with it (its exponent over the scale squared), an
+eclipse's corona and a lunar eclipse's shadow on the moon, the moon's corona and the lens flare; the lights' source
+angle, and so the shadows' softness, stays. A sky modifier's *Disk Scale* turns both toward its own.
+
 **Clouds clearing round the sun and the moon.** With the sun low the clouds round it thin out, its disk and the glow
 about it showing through, and the moon's likewise: each ray's cloud is eaten back from its edges and its volume
 thinned as near the light as `CloudClearing.Radius` (14 degrees) and `Exponent` (2, a soft bell) say, so the clouds
