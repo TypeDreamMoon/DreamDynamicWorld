@@ -1055,7 +1055,17 @@ couple of degrees above freezing the ground freezes, and once the sun is on it i
 - **frost** — hoarfrost grows under a clear, still sky (*Frost Hours*; a fifth as fast under cloud, none in a wind or
   while something falls) and goes within the half hour once the sun is on it;
 - **rime** — a freezing fog (the weather's fog channel) builds it on everything, some three times as fast in a full
-  wind (*Rime Hours*).
+  wind (*Rime Hours*), and in the materials most on the faces turned into the wind (its feathers grow upwind; a lee
+  face keeps little).
+
+**The wind where it lies** (*Wind Drift*, on). The weather's wind is the open's; where a surface lies the wind's runtime
+terrain map knows how much of it gets there (`UDreamWindSubsystem::GetTerrainWindFactor`: its speed-up times what its
+wind shadow leaves, 1 in the open). Behind a wall or a rise the falling snow and dust come down in the lee — up to two
+and a half times as much in a full lee —, a ridge where the wind blows harder keeps less and has a cold, dry cover blown
+off it; a lee also dries slower, frosts sooner and rimes less. The open is as it was. The surface maps read the GPU's
+terrain map (its near level's speed-up, both levels' shadow), the CPU's queries its CPU grid, so they agree; at the
+wind's low quality level (no runtime terrain map) the maps take the weather's wind everywhere. The lees are the terrain
+map's as it stands, for the whole memory: they move as the wind turns. `DreamWind.TerrainFactor x y` prints it.
 
 **Hail.** Hailstones heap up as fast as they land: a full hailstorm whitens the ground within minutes (*Hail Settle
 Hours*, 0.08), even on warm summer ground. They melt with the ground above freezing — a full cover in half an hour at
@@ -1102,7 +1112,8 @@ precipitation, snow ratio, temperature, dust, wind, fog, freezing rain, hail and
 moving storm leaves its snow along its way, not 48 hours of it wherever it is now), then the shared formula — so a
 map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`, `DreamSurface.Gpu.MovingZone` for a
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
-cut out, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
+cut out, `DreamSurface.WindDrift` for the lee's snow and dust, a ridge blown clean, the open unchanged, a lee drying
+slower and riming less, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
 jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump),
 and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
