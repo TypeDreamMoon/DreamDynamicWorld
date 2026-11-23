@@ -433,7 +433,8 @@ namespace DreamWorld::Setup
 			{
 				Preset = NewObject<UDreamWeatherPreset>(CreatePackage(*PackageName), Spec.Name, RF_Public | RF_Standalone);
 			}
-			Preset->DisplayName = FText::FromString(Spec.Display);
+			// (Localizable: the localization gather takes it from the asset, keyed by the preset's name.)
+			Preset->DisplayName = FText::AsLocalizable_Advanced(TEXT("DreamWeatherPresets"), Spec.Name, Spec.Display);
 			Preset->Channels.Reset();
 			for (const TPair<FGameplayTag, float>& Channel : Spec.Channels)
 			{

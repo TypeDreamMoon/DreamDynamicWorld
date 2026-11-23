@@ -142,6 +142,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	UDreamWeatherPreset* GetCurrentWeather() const;
 
+	/** The current weather's name for a player (its preset's DisplayName, localized; the asset's name if it has none). */
+	UFUNCTION(BlueprintPure, Category = "Dream Weather")
+	FText GetCurrentWeatherDisplayName() const;
+
 	/** The scheduled weather from now on, every StepHours game hours for Hours game hours. */
 	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
 	TArray<FDreamWeatherForecastEntry> GetForecast(float Hours = 24.0f, float StepHours = 3.0f) const;

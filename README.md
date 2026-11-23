@@ -641,6 +641,21 @@ three quarters at high, as authored above -- and keep that size while the game r
 at the next load (resizing would drop the wetness and snow they have gathered, a visible jump); `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
 each group's levels set.
 
+### Calendar and events
+
+The realistic sky can stand at a built-in city (`FDreamCelestialSettings::City`: Tokyo, Beijing, London, New York,
+Sydney and some thirty more, `UDreamWorldCalendar::GetCityPresets`) -- its latitude, longitude, standard time and
+daylight saving written into the clock's settings as the config is applied -- or at the place typed in. Daylight
+saving (`DaylightSaving`: Europe, North America, south-eastern Australia, New Zealand) puts the clock an hour forward
+while its rule says, the clock telling local time as a wall clock does (`UDreamWorldCalendar::IsDaylightSaving`). A
+custom calendar (`UDreamCalendarAsset`: its months' names and days, its week, its era, the year it counts from; the
+clock config's `Calendar`) tells the dates -- `UDreamWorldSubsystem::GetCalendarDate` gives the year, month, day,
+weekday, their names and the time -- while the sun and the seasons still go by the Gregorian year underneath. Besides
+the hour, the date, sunrise and sunset, the clock fires `OnMinuteChanged` each game minute (once a frame at most) and
+`OnTimeEvent` for each time registered with `RegisterTimeEvent` (a name and an hour, every day) as it passes it. A
+weather's name for a player is its preset's `DisplayName`, localizable (the built-in presets' under the namespace
+`DreamWeatherPresets`); `UDreamWeatherSubsystem::GetCurrentWeatherDisplayName` gives the current one's.
+
 ### Weather radar
 
 `UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north

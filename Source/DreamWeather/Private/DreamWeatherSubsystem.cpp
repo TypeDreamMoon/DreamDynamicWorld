@@ -490,6 +490,16 @@ float UDreamWeatherSubsystem::GetTemperatureAt(FVector Position) const
 	return SampleWeather(Position).Temperature;
 }
 
+FText UDreamWeatherSubsystem::GetCurrentWeatherDisplayName() const
+{
+	const UDreamWeatherPreset* Preset = GetCurrentWeather();
+	if (!Preset)
+	{
+		return FText::GetEmpty();
+	}
+	return Preset->DisplayName.IsEmpty() ? FText::FromName(Preset->GetFName()) : Preset->DisplayName;
+}
+
 UDreamWeatherPreset* UDreamWeatherSubsystem::GetCurrentWeather() const
 {
 	const UDreamWeatherSelector* Selector = GetSelector();
