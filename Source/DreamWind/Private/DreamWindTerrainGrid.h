@@ -28,6 +28,15 @@ public:
 	/** Sweep a box's cells again (a building moved). */
 	void MarkDirty(const FBox& Bounds);
 
+	/**
+	 * Tests: put these heights (row-major over the window from InWindowMin, cm; NotSwept / Unknown allowed) in place of
+	 * the sweeps' and derive for this wind direction at once.
+	 */
+	void SetHeightsForTest(const FIntPoint& InWindowMin, const TArray<float>& WindowHeights, const FVector& WindDir);
+
+	int32 GetSize() const { return Size; }
+	float GetCellSize() const { return CellSize; }
+
 	/** Sweeps issued and results received so far (tests). */
 	uint32 GetSweepCount() const { return SweepCount; }
 	uint32 GetResultCount() const { return ResultCount; }

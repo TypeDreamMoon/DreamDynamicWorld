@@ -350,6 +350,31 @@ void FDreamWindTerrainGrid::Derive(const FVector2D& WindDir2)
 	Snapshot = Out;
 }
 
+void FDreamWindTerrainGrid::SetHeightsForTest(const FIntPoint& InWindowMin, const TArray<float>& WindowHeights, const FVector& WindDir)
+{
+	if (WindowHeights.Num() != Size * Size)
+	{
+		return;
+	}
+	Heights.SetNumUninitialized(Size * Size);
+	SlotCell.SetNumUninitialized(Size * Size);
+	WindowMin = InWindowMin;
+	bValid = true;
+	for (int32 Y = 0; Y < Size; ++Y)
+	{
+		for (int32 X = 0; X < Size; ++X)
+		{
+			const FIntPoint C = WindowMin + FIntPoint(X, Y);
+			Heights[RingIndex(C)] = WindowHeights[Y * Size + X];
+			SlotCell[RingIndex(C)] = C;
+		}
+	}
+	const FVector2D Dir2 = FVector2D(WindDir.X, WindDir.Y).GetSafeNormal();
+	Derive(Dir2.IsNearlyZero() ? FVector2D(1.0, 0.0) : Dir2);
+	DerivedWindDir = Dir2;
+	bChanged = false;
+}
+
 void FDreamWindTerrainGrid::Update(UWorld& World, const FVector& ViewLocation, const FVector& WindDir)
 {
 	if (Heights.Num() != Size * Size)
