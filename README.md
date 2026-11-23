@@ -1872,6 +1872,10 @@ as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a wa
 with a blue zenith, the haze along the ground: its closed-form transmittance, blue, building up with distance, bright
 toward a low sun); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables and aerial perspective volume to the
 CPU's integrals, and that the tables are rebuilt only when the air changes.
+`DreamSurface.Flood` holds a flood to the CPU's state only (under the water, on the bank, beside the pond, the wet mark
+drying, the silt staying). The surface maps' flood has no test of its own: they take the ground's height from the wind's
+runtime terrain map, which the test world does not build, so where they flood is checked on the showcase instead -- the
+forced tour's `PondReceded` shot and `DreamSurface.SaveMaps`' flood map after a flood.
 
 ## Verification (2026-08-18)
 
