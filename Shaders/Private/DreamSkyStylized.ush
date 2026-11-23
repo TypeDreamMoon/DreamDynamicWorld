@@ -67,7 +67,9 @@ float3 DSky_SunHalo(float3 V, float3 SunDir, float3 HaloColor, float HaloExp)
 	float Halo = pow(DSky_SunCloseness(V, SunDir), max(HaloExp, 1.0));
 	float2 Vh = V.xy;
 	float2 Sh = SunDir.xy;
-	float Side = (length(Vh) > 1e-4 && length(Sh) > 1e-4) ? dot(normalize(Vh), normalize(Sh)) * 0.5 + 0.5 : 0.5;
+	// (Kept to 0..1: right away from the sun the rounding took the cosine a hair under -1, and its cube's pow came out NaN
+	// -- a dotted black line straight up the sky from the horizon opposite the sun.)
+	float Side = (length(Vh) > 1e-4 && length(Sh) > 1e-4) ? saturate(dot(normalize(Vh), normalize(Sh)) * 0.5 + 0.5) : 0.5;
 	float NearHorizon = 1.0 - saturate(abs(V.z) * 3.0);
 	return HaloColor * (Halo + 0.35 * pow(Side, 3.0) * NearHorizon);
 }
