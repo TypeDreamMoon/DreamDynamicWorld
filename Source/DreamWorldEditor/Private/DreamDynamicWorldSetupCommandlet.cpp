@@ -378,6 +378,10 @@ namespace DreamWorld::Setup
 			{ TEXT("WP_Snow"), TEXT("Snow"), { { Coverage, 0.9f }, { Dark, 0.2f }, { Precip, 0.5f }, { Snow, 1.0f }, { Wind, 0.3f }, { Fog, 0.3f }, { Temperature, -12.0f }, { SnowCover, 1.0f } } },
 			{ TEXT("WP_Fog"), TEXT("Fog"), { { Coverage, 0.6f }, { Dark, 0.1f }, { Fog, 0.9f }, { Wind, 0.05f }, { Temperature, -2.0f }, { Wet, 0.3f } } },
 			{ TEXT("WP_Dust"), TEXT("Dust Storm"), { { Coverage, 0.35f }, { Dust, 0.9f }, { Wind, 0.85f }, { Temperature, 4.0f } } },
+			// A clear, still, cold night: frost on the ground and black ice where it was wet (the surfaces' cold).
+			{ TEXT("WP_Frost"), TEXT("Frost"), { { Coverage, 0.05f }, { Wind, 0.05f }, { Temperature, -2.0f } } },
+			// A freezing fog in a breeze: rime builds on everything.
+			{ TEXT("WP_FreezingFog"), TEXT("Freezing Fog"), { { Coverage, 0.7f }, { Dark, 0.1f }, { Fog, 0.95f }, { Wind, 0.5f }, { Temperature, -14.0f } } },
 		};
 		TMap<FString, UDreamWeatherPreset*> Out;
 		for (const FPresetSpec& Spec : Specs)

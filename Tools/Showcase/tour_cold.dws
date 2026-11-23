@@ -1,0 +1,71 @@
+ShowFlag.EyeAdaptation 0
+DreamWorld.Pause 1
+DreamWorld.DayLength 0.5
+time 16
+DreamWeather.Set WP_Rain 0
+DreamWorld.Pause 0
+wait 110
+DreamWeather.Set WP_Frost 0
+wait 445
+DreamWorld.Pause 1
+time 6.9
+settle 20
+wait 120
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Frost_Wide
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Frost_Toon
+move 700 -150 45
+aim -18 25
+wait 3
+settle 8
+shot SHOW_Frost_Ground
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_Frost_Pond
+move 200 1300 250
+aim -8 69
+wait 3
+settle 8
+shot SHOW_Frost_Grove
+DreamWorld.Pause 0
+wait 110
+DreamWorld.Pause 1
+time 10.8
+settle 20
+wait 60
+move 200 -300 320
+aim -10 18
+wait 3
+settle 8
+shot SHOW_Thaw_Wide
+move 700 -150 45
+aim -18 25
+wait 3
+settle 8
+shot SHOW_Thaw_Ground
+DreamWeather.Set WP_FreezingFog 0
+DreamWorld.Pause 0
+wait 112
+DreamWorld.Pause 1
+time 13.8
+settle 20
+wait 120
+move 1000 300 170
+aim -12 30
+wait 3
+settle 8
+shot SHOW_Rime_Toon
+move 700 -150 45
+aim -18 25
+wait 3
+settle 8
+shot SHOW_Rime_Ground
