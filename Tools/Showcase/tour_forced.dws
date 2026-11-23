@@ -258,8 +258,9 @@ settle 20
 wait 30
 shot SHOW_PondRain_Pond
 DreamWeather.Set WP_Clear 0
+# (a day is 900 frames here: the rain from 11.5 h to 17.5 h, the pond after it at 10 h the next morning, its ring 3 h after the water went down at 13 h)
 DreamWorld.Pause 0
-wait 900
+wait 619
 DreamWorld.Pause 1
 DreamWater.Bodies
 settle 20
