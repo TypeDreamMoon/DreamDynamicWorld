@@ -144,6 +144,7 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.StarIntensity = FMath::Max(0.0f, Eval(StarIntensity, E));
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
+	Look.HighCover = FMath::Clamp(CloudHighCover, 0.0f, 1.0f);
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);
 	Look.HorizonExponent = HorizonExponent;
@@ -170,6 +171,29 @@ float UDreamSkyStyle::GlowNight(float SunElevation)
 {
 	// (A city's lights come on as the sun sets and stand out by the end of the civil twilight.)
 	return 1.0f - FMath::SmoothStep(-6.0f, 2.0f, SunElevation);
+}
+
+FVector2f UDreamSkyStyle::EvaluateHaloPresence(float HighCover) const
+{
+	if (!Halos.bEnabled)
+	{
+		return FVector2f::ZeroVector;
+	}
+	auto Over = [HighCover](float From, float Full) { return FMath::SmoothStep(From, FMath::Max(Full, From + 1.0e-3f), HighCover); };
+	return FVector2f(Over(Halos.HighCoverFrom, Halos.HighCoverFull), Over(Halos.CoronaCoverFrom, Halos.CoronaCoverFull));
+}
+
+float UDreamSkyStyle::SunDogAzimuth(float LightElevation, float RefractiveIndex)
+{
+	// (Plate crystals floating flat turn a light this high as a 60 degree prism of the effective index
+	// sqrt(n^2 - sin^2 h) / cos h: the least deviation 2 asin(n' / 2) - 60, in azimuth.)
+	const float H = FMath::DegreesToRadians(FMath::Clamp(LightElevation, -10.0f, 89.0f));
+	const float Effective = FMath::Sqrt(FMath::Max(RefractiveIndex * RefractiveIndex - FMath::Square(FMath::Sin(H)), 0.0f)) / FMath::Cos(H);
+	if (Effective * 0.5f >= 1.0f)
+	{
+		return -1.0f;
+	}
+	return FMath::RadiansToDegrees(2.0f * FMath::Asin(Effective * 0.5f)) - 60.0f;
 }
 
 float UDreamSkyStyle::AuroraNight(float SunElevation)

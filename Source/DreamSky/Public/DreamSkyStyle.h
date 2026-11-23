@@ -493,6 +493,56 @@ struct DREAMSKY_API FDreamSkyRainbow
 	float FullDistance = 250.0f;
 };
 
+/**
+ * The ice halos and the corona: under a sheet of high ice cloud (cirrostratus) a 22 degree ring round the sun or the moon
+ * and the sun dogs either side of it at its height; in thin cloud round the moon the corona's coloured rings. Drawn on
+ * the dome, in the light the high cloud is lit by (the style's CloudLitColor), as the real ones look whatever the look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyHalos
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos")
+	bool bEnabled = true;
+
+	/** How much high cloud (CloudHighCover) the halos begin to show at, and show in full at: a sheet of ice cloud makes them. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float HighCoverFrom = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float HighCoverFull = 0.8f;
+
+	/** The 22 degree ring's brightness, of the lit high cloud's. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "2"))
+	float Intensity = 0.35f;
+
+	/** The ring's radius (degrees: its red inner edge) and how wide it fades outward (degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "10", UIMax = "30"))
+	float Radius = 22.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0.2", UIMax = "6"))
+	float Width = 1.6f;
+
+	/** The sun dogs' brightness, of the lit high cloud's (they fade out as the sun climbs past some 50 degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "3"))
+	float SunDogs = 0.9f;
+
+	/** How milky the sheet makes the sky round the halos, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float Milkiness = 0.12f;
+
+	/** The moon's corona in thin cloud: its brightness (of the lit cloud's), how much high cloud it begins and shows
+	 *  fully at, and its first red ring's radius (degrees; smaller droplets, larger rings; at least two and a half times
+	 *  the drawn moon's radius, MoonDiskSize, or the moon would hide it). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", UIMax = "4"))
+	float Corona = 1.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoronaCoverFrom = 0.4f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0", ClampMax = "1"))
+	float CoronaCoverFull = 0.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ClampMin = "0.5", UIMax = "8"))
+	float CoronaRadius = 2.5f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -509,6 +559,13 @@ public:
 
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
+
+	/** How far the halos and the corona show for this much high cloud (CloudHighCover), 0 .. 1 each. */
+	FVector2f EvaluateHaloPresence(float HighCover) const;
+
+	/** How far (degrees of azimuth) a sun dog stands from a light this high (degrees) for ice of this refractive index
+	 *  (1.31 the yellow), the plate crystals' least deviation; negative when there is none (the light over some 60). */
+	static float SunDogAzimuth(float LightElevation, float RefractiveIndex = 1.31f);
 
 	/** How much of the night's own glow and a city's light shows at a sun elevation (degrees), 0..1: from sunset on. */
 	static float GlowNight(float SunElevation);
@@ -709,6 +766,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rainbow", meta = (ShowOnlyInnerProperties))
 	FDreamSkyRainbow Rainbow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ShowOnlyInnerProperties))
+	FDreamSkyHalos Halos;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

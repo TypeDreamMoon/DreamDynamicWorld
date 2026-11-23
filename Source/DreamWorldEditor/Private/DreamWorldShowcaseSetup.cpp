@@ -67,6 +67,17 @@ namespace DreamWorld::ShowcaseSetup
 		return Asset;
 	}
 
+	/** A sheet of high ice cloud: the halo and the sun dogs round a low sun. */
+	UDreamSkyModifier* EnsureHalo()
+	{
+		UDreamSkyModifier* Halo = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseHaloPackage);
+		Halo->Settings.bOverride_HighCloudCover = true;
+		Halo->Settings.HighCloudCover = 0.9f;
+		Halo->FadeInSeconds = 6.0f;
+		Halo->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Halo) ? Halo : nullptr;
+	}
+
 	/** The night's aurora: a sky modifier that lights it fully (the sky shows it only once it is dark). */
 	UDreamSkyModifier* EnsureAurora()
 	{
@@ -599,7 +610,7 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, ULevelSequence* Dusk)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -632,6 +643,17 @@ namespace DreamWorld::ShowcaseSetup
 			Night.Condition.EndHour = 5.0f;
 			Night.Condition.FadeHours = 1.0f;
 			Night.BlendSeconds = 4.0f;
+		}
+		if (Halo)
+		{
+			// (The clear morning, 8 to 9: the sun low in the south-east.)
+			FDreamSkyConditionalModifier& Sheet = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Sheet.Modifier = Halo;
+			Sheet.Condition.bHours = true;
+			Sheet.Condition.StartHour = 8.0f;
+			Sheet.Condition.EndHour = 9.0f;
+			Sheet.Condition.FadeHours = 0.25f;
+			Sheet.BlendSeconds = 4.0f;
 		}
 		Sky->SetActorLabel(TEXT("DreamSky"));
 
@@ -723,9 +745,10 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 		return false;
 	}
 	UDreamSkyModifier* Aurora = ShowcaseSetup::EnsureAurora();
+	UDreamSkyModifier* Halo = ShowcaseSetup::EnsureHalo();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Dusk);
+	bool bOk = Aurora && Halo && Dusk;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, nullptr);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Dusk);
 	return bOk;
 }

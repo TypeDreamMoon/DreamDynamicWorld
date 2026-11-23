@@ -1110,6 +1110,87 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	return float4(Color * Alpha, Alpha);
 }
 
+// The Bessel function J1 (the corona's diffraction): its series near the middle, its far form beyond.
+float DSky_BesselJ1(float X)
+{
+	X = abs(X);
+	if (X > 9.0)
+	{
+		return sqrt(2.0 / (3.14159265 * X)) * cos(X - 2.35619449);
+	}
+	float H = 0.5 * X;
+	float Term = H;
+	float Sum = H;
+	[unroll]
+	for (int k = 1; k < 14; ++k)
+	{
+		Term *= -H * H / (float(k) * float(k + 1));
+		Sum += Term;
+	}
+	return Sum;
+}
+
+// The ice halos and the corona round the light (LightDir: the sun by day, the moon by night), in the high cloud's light
+// (Lit): Halo = the 22 degree ring's brightness, the sun dogs', the corona's (each as far as the high cloud makes them),
+// the sheet's milkiness; Halo2 = the ring's radius, its width, the corona's first red ring, the moon's drawn radius
+// (degrees). Veil: the high
+// cloud's cover here (the halos are brightest in its veils). The ring has a sharp red inner edge, its colours running
+// out to a whitish fade; the dogs stand either side at the light's height, red toward it with a white tail outward,
+// moving out as it climbs; the corona's rings (the moon's, in thin cloud) are the droplets' diffraction.
+float3 DSky_Halos(float3 V, float3 LightDir, float3 Moon, float3 Lit, float4 Halo, float4 Halo2, float Veil, float Closing)
+{
+	float Shows = (1.0 - Closing) * smoothstep(-0.03, 0.02, LightDir.z);
+	if (Shows <= 0.0 || dot(Halo.xyz, float3(1, 1, 1)) <= 0.0)
+	{
+		return float3(0, 0, 0);
+	}
+	const float3 Dispersion = float3(-0.35, 0.0, 0.45);   // (red, green, blue: the inner edge red)
+	const float3 Index = float3(1.307, 1.311, 1.317);
+	float Angle = degrees(acos(clamp(dot(V, LightDir), -1.0, 1.0)));
+	float3 Light = float3(0, 0, 0);
+	// The 22 degree ring.
+	if (Halo.x > 0.0)
+	{
+		float3 Edge = Halo2.x + Dispersion;
+		float3 Ring = smoothstep(Edge - 0.3, Edge + 0.15, Angle) * exp(-max(Angle - Edge, 0.0) / Halo2.y);
+		Light += Halo.x * Ring * lerp(0.55, 1.0, Veil);
+	}
+	// The sun dogs, at the light's height, either side.
+	float H = asin(clamp(LightDir.z, -1.0, 1.0));
+	if (Halo.y > 0.0 && H < radians(60.0) && dot(V.xy, V.xy) > 1.0e-6 && dot(LightDir.xy, LightDir.xy) > 1.0e-6)
+	{
+		float Up = degrees(asin(clamp(V.z, -1.0, 1.0)) - H);
+		float Around = degrees(acos(clamp(dot(normalize(V.xy), normalize(LightDir.xy)), -1.0, 1.0)));
+		float3 Effective = sqrt(max(Index * Index - sin(H) * sin(H), 0.0)) / cos(H);
+		float3 Offset = degrees(2.0 * asin(saturate(Effective * 0.5))) - 60.0;
+		float3 X = Around - Offset;   // (negative toward the light)
+		float3 Dog = exp(-Up * Up / (2.0 * 0.9 * 0.9)) * lerp(exp(-X * X / (2.0 * 0.35 * 0.35)), exp(-X / 1.2) * 0.85 + 0.15 * exp(-X / 4.0), step(0.0, X));
+		Light += Halo.y * Dog * (1.0 - smoothstep(radians(40.0), radians(58.0), H)) * lerp(0.6, 1.0, Veil);
+	}
+	// (By the moon's light the eye sees little colour: the night's halo and dogs mostly white; the corona, bright by the
+	// moon, keeps its colours.)
+	bool bMoon = dot(LightDir, Moon) > 0.9999;
+	if (bMoon)
+	{
+		Light = lerp(Light, dot(Light, float3(0.2126, 0.7152, 0.0722)), 0.6);
+	}
+	// The moon's corona.
+	if (Halo.z > 0.0 && bMoon)
+	{
+		const float3 Wavelength = float3(0.65, 0.55, 0.45);
+		// (Its first ring at least two and a half times the drawn moon's radius: a moon drawn larger than the real one
+		// would hide the real corona's rings.)
+		float FirstRing = max(Halo2.z, 2.5 * Halo2.w);
+		float3 X = 5.14 * Angle / (FirstRing * Wavelength / Wavelength.r);
+		float3 Airy = float3(DSky_BesselJ1(X.r), DSky_BesselJ1(X.g), DSky_BesselJ1(X.b));
+		float3 Amplitude = abs(2.0 * Airy / max(X, 1.0e-3));
+		// (Drops of many sizes blur the rings and soften the glow's peak: the amplitude to the 0.7, not its square, fading
+		// out by the third ring.)
+		Light += Halo.z * pow(Amplitude, 0.7) * exp(-Angle / (1.5 * FirstRing)) * lerp(0.5, 1.0, Veil);
+	}
+	return Light * Lit * Shows;
+}
+
 // Rain hanging under distant clouds: grey curtains from the cloud base down into the horizon, wherever the weather
 // map has rain under a closed cover some way off along V (looked for from 8 to 45 km; the nearest raining one hangs
 // its curtain). Broad curtains in azimuth, finely streaked, thinning as they fall and veiled by the air like
@@ -1224,7 +1305,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1300,6 +1381,15 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
+	// The ice halos in a sheet of high cloud, the corona in thin cloud round the moon: the sheet milks the sky a little,
+	// the halos are in its light (behind the high cloud's veils, which they brighten).
+	if (any(Halo4 > 0.0))
+	{
+		float Closing = smoothstep(0.7, 0.95, Cloud0.x);
+		float Veil = saturate(High.a / 0.2);
+		Sky = lerp(Sky, CloudLit.rgb * 0.85, Halo4.w * (1.0 - Closing) * smoothstep(0.0, 0.12, V.z));
+		Sky += DSky_Halos(V, LightDir, Moon, CloudLit.rgb, Halo4, Halo2, Veil, Closing);
+	}
 
 	Sky = Sky * (1.0 - High.a) + High.rgb;
 	Sky = Sky * (1.0 - Shafts.a) + Shafts.rgb;

@@ -731,4 +731,47 @@ bool FDreamSkyToonTonesTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyHalosTest, "DreamSky.Night.Halos", DreamSky::NightTests::Flags)
+bool FDreamSkyHalosTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The sun dogs: 22 degrees out with the sun on the horizon, further as it climbs, none past some 60 degrees.
+	TestNearlyEqual(TEXT("on the horizon: 22 degrees"), UDreamSkyStyle::SunDogAzimuth(0.0f), 21.84f, 0.05f);
+	TestNearlyEqual(TEXT("at 30 degrees: further out"), UDreamSkyStyle::SunDogAzimuth(30.0f), 28.7f, 0.3f);
+	TestTrue(TEXT("red nearer the sun than blue"), UDreamSkyStyle::SunDogAzimuth(10.0f, 1.307f) < UDreamSkyStyle::SunDogAzimuth(10.0f, 1.317f));
+	TestTrue(TEXT("none with the sun at 65"), UDreamSkyStyle::SunDogAzimuth(65.0f) < 0.0f);
+
+	// Where they show: a sheet of high cloud makes the halos, thinner cloud the corona; the default thin cirrus neither.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	TestTrue(TEXT("the default high cloud: no halos, no corona"), Style->EvaluateHaloPresence(Style->CloudHighCover).Equals(FVector2f::ZeroVector, 1e-6f));
+	TestTrue(TEXT("a sheet: both in full"), Style->EvaluateHaloPresence(0.9f).Equals(FVector2f(1.0f, 1.0f), 1e-6f));
+	const FVector2f Half = Style->EvaluateHaloPresence(0.55f);
+	TestTrue(FString::Printf(TEXT("thinner: the corona before the halos (%s)"), *Half.ToString()), Half.Y > Half.X && Half.X > 0.0f);
+	Style->Halos.bEnabled = false;
+	TestTrue(TEXT("off: none"), Style->EvaluateHaloPresence(0.9f).Equals(FVector2f::ZeroVector, 1e-6f));
+
+	// What the dome reads: the style's brightness times how far they show.
+	FNightWorld W(FDateTime(2026, 6, 21, 10, 0, 0), 35.0, 139.7, 9.0f);
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	UDreamSkyStyle* Live = W.Sky->GetEffectiveStyle();
+	TestTrue(TEXT("the default sky: nothing"), W.Parameter(MPC_Halo).Equals(FLinearColor::Transparent, 1e-6f));
+	Live->CloudHighCover = 0.9f;
+	W.Clock->Tick(0.016f);
+	const FLinearColor H = W.Parameter(MPC_Halo);
+	TestNearlyEqual(TEXT("a sheet of high cloud: the ring"), H.R, Live->Halos.Intensity, 1e-5f);
+	TestNearlyEqual(TEXT("the dogs"), H.G, Live->Halos.SunDogs, 1e-5f);
+	TestNearlyEqual(TEXT("the corona"), H.B, Live->Halos.Corona, 1e-5f);
+	TestNearlyEqual(TEXT("the ring's radius"), W.Parameter(MPC_Halo2).R, Live->Halos.Radius, 1e-5f);
+	Live->Halos.bEnabled = false;
+	W.Clock->Tick(0.016f);
+	TestTrue(TEXT("turned off: nothing"), W.Parameter(MPC_Halo).Equals(FLinearColor::Transparent, 1e-6f));
+	return true;
+}
+
 #endif

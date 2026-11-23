@@ -192,6 +192,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float CloudDarkness = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_HighCloudCover = false;
+	/** The thin high cloud's cover the sky turns toward, 0..1 (a sheet of it, over the style's ice halo threshold, shows the halos). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_HighCloudCover", ClampMin = "0", ClampMax = "1"))
+	float HighCloudCover = 0.9f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_CloudLitTint = false;
 	/** Multiplies the clouds' lit colour. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudLitTint", HideAlphaChannel))

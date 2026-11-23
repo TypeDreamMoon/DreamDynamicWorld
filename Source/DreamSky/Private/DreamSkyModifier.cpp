@@ -127,6 +127,7 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 		K.CloudCoverageKept *= 1.0f - Alpha;
 		K.CloudCoverageAdded = Toward(K.CloudCoverageAdded, Target);
 	}
+	if (bOverride_HighCloudCover) { K.HighCover = Toward(K.HighCover, FMath::Clamp(HighCloudCover, 0.0f, 1.0f)); }
 	if (bOverride_CloudDarkness)
 	{
 		const float Target = FMath::Clamp(CloudDarkness, 0.0f, 1.0f);

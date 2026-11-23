@@ -313,6 +313,19 @@ is the air's own light, so the style's `Rainbow` is on by default; `Intensity` s
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
 
+**Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
+sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
+sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light
+climbs (22 degrees on the horizon, 29 at 30 degrees up) and gone past some 55 degrees; the sheet milks the sky a little
+round them (`Milkiness`). In thinner cloud the moon has a corona, its bluish-white glow ringed in brown-red and blue,
+the droplets' diffraction (`CoronaRadius`, the first red ring, 2.5 degrees, or two and a half times the drawn moon's
+radius if that is larger). They are in the light the high cloud is lit
+by, brightest in its veils, the same under every look. The style's `Halos` sets when they show by the high cloud's cover
+(`HighCoverFrom` 0.45 to `HighCoverFull` 0.8 for the halos, `CoronaCoverFrom` 0.4 to `CoronaCoverFull` 0.7 for the
+corona: the style's own thin cirrus, 0.35, shows neither) and how bright (`Intensity`, `SunDogs`, `Corona`); a sky
+modifier's *High Cloud Cover* brings a sheet over (the showcase's clear morning has one from 8 to 9). A closing
+overcast hides them.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

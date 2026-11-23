@@ -754,7 +754,16 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		DreamSky::CloudFormation(Clock.GetWorldSeconds(), Style.CloudFormationSpeed), 0.0f));
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
-	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Style.CloudHighCover, Style.CloudHighAltitude));
+	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The ice halos under a sheet of high cloud, the corona in thinner cloud (the dome hides both under a closing overcast).
+	{
+		const FDreamSkyHalos& H = Style.Halos;
+		const FVector2f Shows = Style.EvaluateHaloPresence(Look.HighCover);
+		Clock.SetVectorParameter(MPC_Halo, FLinearColor(FMath::Max(H.Intensity, 0.0f) * Shows.X, FMath::Max(H.SunDogs, 0.0f) * Shows.X,
+			FMath::Max(H.Corona, 0.0f) * Shows.Y, FMath::Clamp(H.Milkiness, 0.0f, 1.0f) * Shows.X));
+		Clock.SetVectorParameter(MPC_Halo2, FLinearColor(FMath::Clamp(H.Radius, 10.0f, 40.0f), FMath::Max(H.Width, 0.2f), FMath::Max(H.CoronaRadius, 0.5f),
+			FMath::Max(Style.MoonDiskSize, 0.0f)));
+	}
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));
 	// w: 1 while the sky cloud renderer draws the clouds (the dome's sky light capture then shows its panorama), 0 while
