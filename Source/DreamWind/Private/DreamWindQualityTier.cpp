@@ -44,6 +44,7 @@ FDreamWindQualityTier FDreamWindQualityTier::Resolve(const UDreamWindSettings& S
 	{
 	case 0:
 		T.bRuntimeTerrain = false;
+		T.bBakedShadow = false;
 		T.bVolume = false;
 		T.bFar = false;
 		break;

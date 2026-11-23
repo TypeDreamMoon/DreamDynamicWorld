@@ -119,6 +119,10 @@ struct DREAMWIND_API FDreamWindFrameData
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
 	FVector4f T2 = FVector4f::Zero();
+	/** The GPU's consumers (materials, Niagara) march the baked map's wind shadow: not at the low quality level. */
+	bool bGpuBakedShadow = true;
+	/** T2 as the GPU's consumers take it. */
+	FVector4f GpuT2() const { return FVector4f(bGpuBakedShadow ? T2.X : 0.0f, T2.Y, T2.Z, T2.W); }
 	/** Live sources this frame, strongest first, already envelope-scaled. */
 	TArray<DreamWind::Hlsl::FDreamWindSourceData> Sources;
 	/** The moving bodies' records (bodies, wakes, downwash), nearest the camera first: for the fluid only, not the CPU sample. */

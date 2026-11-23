@@ -722,6 +722,7 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 		FrameData.T2 = FVector4f::Zero();
 	}
 	FrameData.TerrainCpu = bTerrain ? TerrainCpu : nullptr;
+	FrameData.bGpuBakedShadow = Tier.bBakedShadow;
 	FrameData.TerrainTexture = nullptr;
 	FrameData.FrameNumber = GFrameCounter;
 }
@@ -981,7 +982,7 @@ void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 	Shared->SetVectorParameter(DreamWind::Names::MPC_V3, ToLinearColor(ToHlsl(FrameData.V3)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
-	Shared->SetVectorParameter(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.GpuT2())));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Near, ToLinearColor(ToHlsl(FrameData.L1Near)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Far, ToLinearColor(ToHlsl(FrameData.L1Far)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Params, ToLinearColor(ToHlsl(FrameData.L1Params)));

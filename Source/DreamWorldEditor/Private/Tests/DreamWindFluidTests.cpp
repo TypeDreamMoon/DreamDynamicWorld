@@ -701,7 +701,7 @@ bool FDreamWindQualityTiersTest::RunTest(const FString& Parameters)
 	const FDreamWindQualityTier High = FDreamWindQualityTier::Resolve(S, 2);
 	const FDreamWindQualityTier Epic = FDreamWindQualityTier::Resolve(S, 3);
 	const FDreamWindQualityTier Cinematic = FDreamWindQualityTier::Resolve(S, 4);
-	TestTrue(TEXT("low: the analytic wind and the baked map only"), !Low.bVolume && !Low.bRuntimeTerrain);
+	TestTrue(TEXT("low: the analytic wind and the baked map only, without its shadow march on the GPU"), !Low.bVolume && !Low.bRuntimeTerrain && !Low.bBakedShadow && High.bBakedShadow);
 	TestTrue(TEXT("medium: the runtime terrain map, one grid at the far level's cells, no far level"),
 		Medium.bVolume && Medium.bRuntimeTerrain && !Medium.bFar && Medium.NearCell == High.FarCell && Medium.NearResolution.Z == High.NearResolution.Z / 2);
 	TestTrue(TEXT("high: the settings"), High.NearResolution == S.VolumeResolution && High.NearCell == S.VolumeVoxelSize

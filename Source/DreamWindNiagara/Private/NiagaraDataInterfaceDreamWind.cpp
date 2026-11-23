@@ -255,7 +255,7 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->V3 = GT->Frame.V3;
 	RT->T0 = GT->Frame.T0;
 	RT->T1 = GT->Frame.T1;
-	RT->T2 = GT->Frame.T2;
+	RT->T2 = GT->Frame.GpuT2();
 	RT->L1Near = GT->Frame.L1Near;
 	RT->L1Far = GT->Frame.L1Far;
 	RT->L1Params = GT->Frame.L1Params;
