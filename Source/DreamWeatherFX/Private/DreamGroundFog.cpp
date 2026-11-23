@@ -2,7 +2,11 @@
 
 #include "DreamGroundFog.h"
 
+#include "DreamSky.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Engine/Texture2D.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -45,6 +49,11 @@ namespace DreamWeatherFX::GroundFog
 	static const FName FogLayersName(TEXT("FogLayers"));
 	static const FName FogNoiseName(TEXT("FogNoise"));
 	static const FName FogLookName(TEXT("FogLook"));
+	static const FName FogShadowName(TEXT("FogShadow"));
+	static const FName CloudShadowMapName(TEXT("CloudShadowMap"));
+	static const FName CloudShadowName(TEXT("CloudShadow"));
+	// A layer's alpha where nothing shadows it (far below anything).
+	constexpr float Unshadowed = -60000.0f;
 }
 
 UDreamGroundFogComponent::UDreamGroundFogComponent(const FObjectInitializer& ObjectInitializer)
@@ -109,6 +118,8 @@ void UDreamGroundFogComponent::UploadLayer(int32 Cells, const TArray<FFloat16Col
 		LayerMap->SRGB = false;
 		LayerMap->NeverStream = true;
 	}
+	LayerTexels = Texels;
+	LayerCells = Cells;
 	FTexture2DMipMap& Mip = LayerMap->GetPlatformData()->Mips[0];
 	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	FMemory::Memcpy(Data, Texels.GetData(), Texels.Num() * sizeof(FFloat16Color));
@@ -145,7 +156,7 @@ void UDreamGroundFogComponent::SetLayer(const FVector& Origin, const FVector2D& 
 	{
 		const bool bGround = Heights[i] != NoGround;
 		const float Hollow = Hollows.IsValidIndex(i) ? Hollows[i] : 0.0f;
-		Texels[i] = FFloat16Color(FLinearColor(float((bGround ? Heights[i] : Lowest) - Origin.Z), bGround ? Hollow : 0.0f, bGround ? 1.0f : 0.0f, 0.0f));
+		Texels[i] = FFloat16Color(FLinearColor(float((bGround ? Heights[i] : Lowest) - Origin.Z), bGround ? Hollow : 0.0f, bGround ? 1.0f : 0.0f, DreamWeatherFX::GroundFog::Unshadowed));
 	}
 	UploadLayer(N, Texels);
 }
@@ -155,8 +166,50 @@ void UDreamGroundFogComponent::SetFlatLayer(const FVector& Origin, const FVector
 	LayerOrigin = Origin;
 	LayerArea = FVector2D(FMath::Max(Area.X, 1.0), FMath::Max(Area.Y, 1.0));
 	TArray<FFloat16Color> Texels;
-	Texels.Add(FFloat16Color(FLinearColor(0.0f, 0.0f, 1.0f, 0.0f)));
+	Texels.Add(FFloat16Color(FLinearColor(0.0f, 0.0f, 1.0f, DreamWeatherFX::GroundFog::Unshadowed)));
 	UploadLayer(1, Texels);
+}
+
+void UDreamGroundFogComponent::SetShadowTops(TConstArrayView<float> Tops)
+{
+	if (LayerCells <= 0 || Tops.Num() != LayerTexels.Num())
+	{
+		return;
+	}
+	TArray<FFloat16Color> Texels = LayerTexels;
+	for (int32 i = 0; i < Texels.Num(); ++i)
+	{
+		Texels[i].A = FFloat16(FMath::Clamp(float(Tops[i] - LayerOrigin.Z), DreamWeatherFX::GroundFog::Unshadowed, 60000.0f));
+	}
+	UploadLayer(LayerCells, Texels);
+}
+
+void UDreamGroundFogComponent::UpdateCloudShadow()
+{
+	using namespace DreamWeatherFX::GroundFog;
+	// The sky cloud renderer's shadow on the ground, when it draws the clouds (looked for again every few seconds).
+	UWorld* World = GetWorld();
+	if (!Sky.IsValid() && World && World->GetTimeSeconds() >= NextSkySearch)
+	{
+		NextSkySearch = World->GetTimeSeconds() + 3.0;
+		for (TActorIterator<ADreamSky> It(World); It; ++It)
+		{
+			Sky = *It;
+			break;
+		}
+	}
+	UTextureRenderTarget2D* Target = Sky.IsValid() && Sky->DrawsClouds() ? Sky->GetCloudShadowTarget() : nullptr;
+	if (!Target)
+	{
+		FogMaterial->SetVectorParameterValue(CloudShadowName, FLinearColor(0.0f, 0.0f, 1.0e-6f, 0.0f));
+		return;
+	}
+	if (FogMaterial->K2_GetTextureParameterValue(CloudShadowMapName) != Target)
+	{
+		FogMaterial->SetTextureParameterValue(CloudShadowMapName, Target);
+	}
+	const FVector4f& Placement = Sky->GetCloudShadowPlacement();
+	FogMaterial->SetVectorParameterValue(CloudShadowName, FLinearColor(Placement.X, Placement.Y, 0.5f / FMath::Max(Placement.Z, 1.0f), Placement.W));
 }
 
 void UDreamGroundFogComponent::SetFog(const FDreamGroundFogParams& InParams)
@@ -191,5 +244,7 @@ void UDreamGroundFogComponent::SetFog(const FDreamGroundFogParams& InParams)
 	FogMaterial->SetVectorParameterValue(FogLayersName, FLinearColor(Params.MistThickness, Params.PoolExtinction, Params.MistExtinction, float(CVarDebug.GetValueOnGameThread())));
 	FogMaterial->SetVectorParameterValue(FogNoiseName, FLinearColor(Params.NoiseSize, Params.NoiseAmount, Params.Churn, FMath::Max(Params.NoiseSize * 3.0f, 2000.0f)));
 	FogMaterial->SetVectorParameterValue(FogLookName, FLinearColor(Params.SunStrength, Params.AmbientStrength, float(Samples()), FMath::Max(Params.NoiseSize * 0.02f, 10.0f)));
+	FogMaterial->SetVectorParameterValue(FogShadowName, FLinearColor(FMath::Max(Params.ShadowSoftness, 1.0f), 0.0f, 0.0f, 0.0f));
+	UpdateCloudShadow();
 	SetVisibility(true);
 }

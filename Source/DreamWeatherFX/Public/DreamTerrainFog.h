@@ -270,6 +270,8 @@ private:
 	void Apply(float RealSeconds);
 	void UpdateFogLayer();
 	void ApplyVolumetric();
+	void UpdateSunShadow(bool bAlways);
+	FVector ShadowLight = FVector::ZeroVector;
 
 	FDreamTerrainFogState State;
 	FDreamTerrainFogAir Air;

@@ -42,6 +42,7 @@ struct FDGroundFog
 	float NoiseAmount;  // 0 smooth layers .. 1 billows and patches
 	float3 Drift;       // how far the noise has moved (cm)
 	float DetailNear;   // within this distance (cm) a finer octave keeps the fog from going soft close up
+	float ShadowSoft;   // over how much height (cm) the terrain's shadow edge is soft
 };
 
 struct FDGroundFogLight
@@ -50,16 +51,34 @@ struct FDGroundFogLight
 	float3 Sun;         // the light's illuminance, coloured
 	float3 SkyTop;      // the sky's radiance from above, and from below (the ground's bounce)
 	float3 SkyBottom;
+	float4 CloudMap;    // the sky's cloud shadow map: its middle (world cm), 1 / its width, how much of the light it takes
+	float CloudBase;    // the cloud layer's base (world cm)
 };
+
+// How much of the main light reaches X past the clouds: up the light to the cloud layer's base, then the sky's cloud
+// shadow map there (whole past its edge, or when the sky does not draw its clouds).
+float DGF_CloudLight(FDGroundFogLight Lt, float3 X, Texture2D CloudShadow, SamplerState CloudShadowSampler)
+{
+	if (Lt.CloudMap.w <= 0.0)
+	{
+		return 1.0;
+	}
+	float Up = max(Lt.CloudBase - X.z, 0.0) / max(Lt.Dir.z, 0.05);
+	float2 UV = (X.xy + Lt.Dir.xy * Up - Lt.CloudMap.xy) * Lt.CloudMap.z + 0.5;
+	float Inside = saturate(min(min(UV.x, 1.0 - UV.x), min(UV.y, 1.0 - UV.y)) * 10.0);
+	float Through = CloudShadow.SampleLevel(CloudShadowSampler, saturate(UV), 0).r;
+	return lerp(1.0, Through, Lt.CloudMap.w * Inside);
+}
 
 // The fog at X: its extinction (per cm), the fog's top over the ground there (world cm, out) and the sample's height in
 // the fog (0 at the ground .. 1 at its top, out).
 float DGF_Density(FDGroundFog F, float3 X, float Distance, float Mip, Texture2D Layer, SamplerState LayerSampler, Texture3D Noise,
-	SamplerState NoiseSampler, out float Top, out float Height01)
+	SamplerState NoiseSampler, out float Top, out float Height01, out float ShadowTop)
 {
 	float2 UV = (X.xy - F.Origin.xy) / (2.0 * F.Area) + 0.5;
 	float4 L = Layer.SampleLevel(LayerSampler, UV, 0);
 	float Ground = F.Origin.z + L.r;
+	ShadowTop = F.Origin.z + L.a;
 	// Toward the map's rim the layer thins out to nothing (rather than ending in a wall where the box does).
 	float2 Rim = abs(UV - 0.5) * 2.0;
 	float Edge = 1.0 - smoothstep(1.0 - max(F.EdgeFade, 1.0e-3), 1.0, max(Rim.x, Rim.y));
@@ -95,7 +114,8 @@ float DGF_Density(FDGroundFog F, float3 X, float Distance, float Mip, Texture2D 
 // it that it hides). Samples: how many fine steps the segment is cut into (more for a short one, never finer than
 // MinStep); Jitter 0..1 a per-pixel, per-frame offset.
 float4 DGF_Shade(FDGroundFog F, FDGroundFogLight Lt, float3 Camera, float3 Dir, float T0, float T1, float Samples,
-	float MinStep, float Jitter, Texture2D Layer, SamplerState LayerSampler, Texture3D Noise, SamplerState NoiseSampler)
+	float MinStep, float Jitter, Texture2D Layer, SamplerState LayerSampler, Texture3D Noise, SamplerState NoiseSampler,
+	Texture2D CloudShadow, SamplerState CloudShadowSampler)
 {
 	// The fine step: the segment cut into Samples, but no longer than an optical depth of one and a half in the densest
 	// fog (a long ray through a dense layer would step past the thin skin its top is lit in; the march stops once the
@@ -143,8 +163,8 @@ float4 DGF_Shade(FDGroundFog F, FDGroundFogLight Lt, float3 Camera, float3 Dir, 
 	for (int i = 0; i < MaxSamples && DCM_Running(M); ++i)
 	{
 		float3 X = Camera + Dir * M.T;
-		float Top, Height01;
-		float Sigma = DGF_Density(F, X, M.T, NoiseMip, Layer, LayerSampler, Noise, NoiseSampler, Top, Height01);
+		float Top, Height01, ShadowTop;
+		float Sigma = DGF_Density(F, X, M.T, NoiseMip, Layer, LayerSampler, Noise, NoiseSampler, Top, Height01, ShadowTop);
 		FDCloudField Field;
 		Field.Signed = 0.0;
 		Field.Density = Sigma;
@@ -167,7 +187,9 @@ float4 DGF_Shade(FDGroundFog F, FDGroundFogLight Lt, float3 Camera, float3 Dir, 
 			float View = (1.0 - exp(-Sigma * Dt)) / Sigma;
 			float LightT = saturate(exp(-A * Above0) * Along / max(View, 1.0e-6));
 			float TauLight = -log(max(LightT, 1.0e-6));
-			float3 Sun = Lt.Sun * dot(Phase, exp(-Occlusion * TauLight));
+			// The terrain's shadow (the layer's alpha: below that height the light is behind the ground) and the clouds'.
+			float Lit = smoothstep(ShadowTop - F.ShadowSoft, ShadowTop + F.ShadowSoft, X.z) * DGF_CloudLight(Lt, X, CloudShadow, CloudShadowSampler);
+			float3 Sun = Lt.Sun * (Lit * dot(Phase, exp(-Occlusion * TauLight)));
 			// The sky's light and the sunlight diffused down through the fog above: a scattering slab lets through
 			// some 1 / (1 + 0.3 tau) of the light falling on its top (forward-peaked, nearly lossless scattering), so
 			// deep in a thick fog it is dim and grey rather than dark; the sky from below (the ground's bounce) near
@@ -175,7 +197,7 @@ float4 DGF_Shade(FDGroundFog F, FDGroundFogLight Lt, float3 Camera, float3 Dir, 
 			float Diffuse = 1.0 / (1.0 + 0.3 * Sigma * Above);
 			float Up = Height01 * Height01 * (3.0 - 2.0 * Height01);
 			float3 Sky = lerp(Lt.SkyBottom, Lt.SkyTop, 0.35 + 0.65 * Up) * (0.3 + 0.7 * Diffuse)
-				+ Lt.Sun * (LightUp * Diffuse * 0.5 / DCL_PI);
+				+ Lt.Sun * (Lit * LightUp * Diffuse * 0.5 / DCL_PI);
 			DCM_Integrate(M, Sigma, Sigma * LP.Albedo * (Sun + Sky), Dt);
 		}
 		DCM_CheckDone(M, P);

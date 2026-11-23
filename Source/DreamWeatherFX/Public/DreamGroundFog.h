@@ -48,6 +48,8 @@ struct FDreamGroundFogParams
 	float Churn = 8.0f;
 	/** The share of the layer at its rim the fog fades out over. */
 	float EdgeFade = 0.08f;
+	/** Over how much height the terrain's shadow edge is soft, cm. */
+	float ShadowSoftness = 100.0f;
 	/** Multiply the main light and the sky light. */
 	float SunStrength = 1.0f;
 	float AmbientStrength = 1.0f;
@@ -81,6 +83,12 @@ public:
 	/** A flat layer at Origin.z, no hollows (a fog bank: its mist alone). */
 	void SetFlatLayer(const FVector& Origin, const FVector2D& Area);
 
+	/**
+	 * The terrain's shadow: per cell (as SetLayer's), the height (world Z) below which the main light is behind the ground
+	 * (the highest the light's ray toward the cell stands under the terrain on its way). Kept in the layer map's alpha.
+	 */
+	void SetShadowTops(TConstArrayView<float> Tops);
+
 	/** The fog now, and the box round it; hides the component when there is none. */
 	void SetFog(const FDreamGroundFogParams& Params);
 
@@ -96,6 +104,12 @@ public:
 private:
 	void EnsureMaterial();
 	void UploadLayer(int32 Cells, const TArray<FFloat16Color>& Texels);
+	void UpdateCloudShadow();
+
+	TWeakObjectPtr<class ADreamSky> Sky;
+	double NextSkySearch = 0.0;
+	TArray<FFloat16Color> LayerTexels;
+	int32 LayerCells = 0;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> FogMaterial;

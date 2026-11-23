@@ -135,6 +135,75 @@ void ADreamTerrainFog::UpdateFogLayer()
 		Capped[i] = FMath::Min(Hollows[i], PoolDepth);
 	}
 	FogVolume->SetLayer(GetActorLocation(), FVector2D(Extent.X, Extent.Y), FMath::Clamp(Cells, 4, 128), Heights, Capped, DreamWeatherFX::TerrainFogActor::NoGround);
+	UpdateSunShadow(true);
+}
+
+void ADreamTerrainFog::UpdateSunShadow(bool bAlways)
+{
+	using DreamWeatherFX::TerrainFogActor::NoGround;
+	const UWorld* World = GetWorld();
+	const UDreamWorldSubsystem* Clock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+	const int32 N = FMath::Clamp(Cells, 4, 128);
+	if (!FogVolume || !Clock || Heights.Num() != N * N || Lowest == NoGround)
+	{
+		return;
+	}
+	// The light the fog is lit by: the sun, or the moon once the sun is well down.
+	const FDreamCelestialState& Sky = Clock->GetCelestial();
+	const FVector Light = (Sky.SunElevation > -4.0f ? Sky.SunDirection : Sky.MoonDirection).GetSafeNormal();
+	if (!bAlways && Light.Equals(ShadowLight, 0.004))
+	{
+		return;
+	}
+	ShadowLight = Light;
+	// Per cell, the highest a ray toward the light stands under the ground on its way out of the map (a 2.5D shadow
+	// over the cells' heights, one cell a step): the fog below that is in the terrain's shadow.
+	TArray<float> Tops;
+	Tops.Init(-1.0e7f, N * N);
+	const double Flat = FMath::Max(FVector2D(Light.X, Light.Y).Size(), 1.0e-4);
+	const double Rise = Light.Z / Flat * CellSize();   // how far the ray climbs a cell
+	if (Light.Z <= 0.0)
+	{
+		Tops.Init(1.0e7f, N * N);                        // the light is below the horizon: all of it in shadow
+	}
+	else
+	{
+		float Highest = Lowest;
+		for (float H : Heights)
+		{
+			Highest = H != NoGround ? FMath::Max(Highest, H) : Highest;
+		}
+		const double DX = Light.X / Flat, DY = Light.Y / Flat;
+		for (int32 Cell = 0; Cell < N * N; ++Cell)
+		{
+			if (Heights[Cell] == NoGround)
+			{
+				continue;
+			}
+			const double X0 = Cell % N, Y0 = Cell / N;
+			float Top = -1.0e7f;
+			for (int32 K = 1; K < 2 * N; ++K)
+			{
+				// Past where even the highest ground lies under the ray, nothing more can shadow the cell.
+				if (K * Rise > Highest - Heights[Cell])
+				{
+					break;
+				}
+				const int32 X = FMath::RoundToInt(X0 + DX * K), Y = FMath::RoundToInt(Y0 + DY * K);
+				if (X < 0 || Y < 0 || X >= N || Y >= N)
+				{
+					break;
+				}
+				const float H = Heights[Y * N + X];
+				if (H != NoGround)
+				{
+					Top = FMath::Max(Top, float(H - K * Rise));
+				}
+			}
+			Tops[Cell] = Top;
+		}
+	}
+	FogVolume->SetShadowTops(Tops);
 }
 
 void ADreamTerrainFog::ApplyVolumetric()
@@ -175,6 +244,8 @@ void ADreamTerrainFog::ApplyVolumetric()
 	}
 	P.BoxLow = Lowest - 20.0f;
 	P.BoxHigh = High + 20.0f;
+	P.ShadowSoftness = FMath::Max(0.25f * CellSize(), 50.0f);
+	UpdateSunShadow(false);
 	FogVolume->SetFog(P);
 }
 

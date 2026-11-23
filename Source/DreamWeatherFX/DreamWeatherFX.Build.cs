@@ -25,6 +25,7 @@ public class DreamWeatherFX : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"DreamWind",
+			"DreamSky",
 			"Niagara",
 			"NiagaraCore",
 			"GameplayTags",

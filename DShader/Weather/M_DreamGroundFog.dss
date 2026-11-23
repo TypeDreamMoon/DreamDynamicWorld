@@ -32,6 +32,17 @@ uniform float4 FogNoise = float4(1500.0, 0.8, 8.0, 4000.0);
 /// @group Look   @sort 20   @desc Multiplies the main light, the sky light; the samples a ray takes; its shortest step (cm)
 uniform float4 FogLook = float4(1.0, 1.0, 32.0, 20.0);
 
+/// @group Light   @sort 10   @desc Over how much height the terrain's shadow edge is soft (cm, x); the shadow is the layer's alpha
+uniform float4 FogShadow = float4(100.0, 0.0, 0.0, 0.0);
+
+/// The sky cloud renderer's shadow on the ground (the fog component sets it while the sky draws its clouds).
+/// @group Light   @sort 20
+/// @default /Engine/EngineResources/WhiteSquareTexture
+uniform Texture2D CloudShadowMap;
+
+/// @group Light   @sort 30   @desc The cloud shadow map's middle (world cm, xy), 1 / its width (z), how much of the light it takes (w, 0 off)
+uniform float4 CloudShadow = float4(0.0, 0.0, 0.000001, 0.0);
+
 /// The 3D noise the fog is broken up with (the sky's clouds' noise).
 /// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
 static const VolumeTexture CloudNoise;
@@ -41,12 +52,12 @@ static const VolumeTexture CloudNoise;
 float4 DreamGroundFog_Shade(float3 Camera, float3 World, float PixelDepth, float SceneDepth, float Face, float2 Pixel,
 	float Seconds, float4 MainLight, float4 MainLightColor, float4 AmbientSky, float4 AmbientGround, float4 Drift,
 	float4 Origin, float4 Area, float4 State, float4 Layers, float4 NoiseP, float4 LookP,
-	Texture2D LayerMap, VolumeTexture Noise)
+	float4 ShadowP, float4 CloudP, float4 CloudLayer, Texture2D LayerMap, VolumeTexture Noise, Texture2D CloudMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamGroundFog.ush"
 	// The include's revision: the material's shader map is keyed on this code, not on the include, so a change to
 	// DreamGroundFog.ush only reaches the shaders when this number changes with it.
-	const float IncludeRevision = 7.0;
+	const float IncludeRevision = 8.0;
 
 	// Only the back faces draw: the front ones would draw the fog a second time.
 	if (Face > 0.0)
@@ -82,12 +93,15 @@ float4 DreamGroundFog_Shade(float3 Camera, float3 World, float PixelDepth, float
 	F.NoiseAmount = NoiseP.y;
 	F.Drift = float3(Drift.xy, -NoiseP.z * Seconds);
 	F.DetailNear = NoiseP.w;
+	F.ShadowSoft = ShadowP.x;
 
 	FDGroundFogLight Lt;
 	Lt.Dir = normalize(MainLight.xyz);
 	Lt.Sun = MainLightColor.rgb * MainLight.w * LookP.x;
 	Lt.SkyTop = AmbientSky.rgb * LookP.y;
 	Lt.SkyBottom = AmbientGround.rgb * LookP.y;
+	Lt.CloudMap = CloudP;
+	Lt.CloudBase = CloudLayer.x;
 
 	// Debug (DreamWeather.Fog.Debug): 1 the layer under what the ray meets (r ground, g hollow, b ground there), 2 the
 	// fog's opacity alone.
@@ -100,10 +114,12 @@ float4 DreamGroundFog_Shade(float3 Camera, float3 World, float PixelDepth, float
 	float Jitter = DCM_InterleavedGradientNoise(Pixel, View.StateFrameIndex);
 	if (Layers.w > 1.5)
 	{
-		float4 C = DGF_Shade(F, Lt, Camera, Dir, T0, T1, LookP.z, LookP.w, Jitter, LayerMap, LayerMapSampler, Noise, NoiseSampler);
+		float4 C = DGF_Shade(F, Lt, Camera, Dir, T0, T1, LookP.z, LookP.w, Jitter, LayerMap, LayerMapSampler, Noise, NoiseSampler,
+			CloudMap, CloudMapSampler);
 		return float4(C.aaa, 1.0);
 	}
-	return DGF_Shade(F, Lt, Camera, Dir, T0, T1, LookP.z, LookP.w, Jitter, LayerMap, LayerMapSampler, Noise, NoiseSampler);
+	return DGF_Shade(F, Lt, Camera, Dir, T0, T1, LookP.z, LookP.w, Jitter, LayerMap, LayerMapSampler, Noise, NoiseSampler,
+		CloudMap, CloudMapSampler);
 }
 
 export void M_DreamGroundFog(inout material m)
@@ -113,10 +129,11 @@ export void M_DreamGroundFog(inout material m)
 	float4 AmbientSky     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
 	float4 AmbientGround  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientGround");
 	float4 Drift          = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_FogDrift");
+	float4 CloudLayer     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudLayer");
 
 	float4 C = DreamGroundFog_Shade(UE.CameraPositionWS(), UE.WorldPosition().XYZ, UE.PixelDepth(), UE.SceneDepth(), UE.TwoSidedSign(),
 		UE.ScreenPosition().PixelPosition, UE.Time(), MainLight, MainLightColor, AmbientSky, AmbientGround, Drift,
-		MapOrigin, MapArea, FogState, FogLayers, FogNoise, FogLook, LayerMap, CloudNoise);
+		MapOrigin, MapArea, FogState, FogLayers, FogNoise, FogLook, FogShadow, CloudShadow, CloudLayer, LayerMap, CloudNoise, CloudShadowMap);
 	m.EmissiveColor = C.rgb;
 	m.Opacity = C.a;
 }
