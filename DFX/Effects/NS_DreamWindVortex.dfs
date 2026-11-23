@@ -15,14 +15,14 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
 
     Properties = {
         DI<DreamWind> Wind;
-        float  DustRate     = 60.0              [ Group="Dust"; Description="Puffs a second." ];
+        float  DustRate     = 30.0              [ Group="Dust"; Description="Puffs a second." ];
         float  Radius       = 400.0             [ Group="Dust"; Description="cm round the foot the puffs and pieces are lifted from." ];
         float  Height       = 150.0             [ Group="Dust"; Description="cm up from the ground they start within (most near it)." ];
         float  Lifetime     = 6.0               [ Group="Dust"; Description="Seconds a puff lives." ];
-        float  PuffSize     = 160.0             [ Group="Dust"; Description="A puff's size at the start, cm (it grows to three times that)." ];
-        Color  Tint         = (0.62, 0.52, 0.40, 0.55) [ Group="Dust" ];
+        float  PuffSize     = 110.0             [ Group="Dust"; Description="A puff's size at the start, cm (it grows to three times that)." ];
+        Color  Tint         = (0.50, 0.42, 0.32, 0.035)[ Group="Dust" ];
         float  Intensity    = 1.0               [ Group="Dust"; Description="0..1: how strong the whirlwind is now (fades the dust in and out)." ];
-        float  Drag         = 3.0               [ Group="Wind"; Description="1/s, how tightly the dust follows the air." ];
+        float  Drag         = 6.0               [ Group="Wind"; Description="1/s, how tightly the dust follows the air." ];
         float  Settle       = 60.0              [ Group="Wind"; Description="cm/s^2 the dust sinks by." ];
         float  DebrisRate   = 0.0               [ Group="Debris"; Description="Pieces a second." ];
         float  DebrisSize   = 12.0              [ Group="Debris"; Description="A piece's size, cm." ];
@@ -72,8 +72,8 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
             DreamWindForce(Wind = User.Wind, Drag = User.Drag, Strength = 1.0, Lift = 0.0);
             GravityForce(Gravity = hlsl { float3(0.0, 0.0, -User.Settle) });
             SolveForcesAndVelocity();
+            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * User.PuffSize * lerp(0.8, 2.5, Particles.NormalizedAge) };
             SpriteRotationRate(RotationRate = 25.0);
-            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * User.PuffSize * lerp(0.8, 3.0, Particles.NormalizedAge) };
             Color Particles.Color = hlsl {
                 float4(User.Tint.rgb, User.Tint.a * saturate(User.Intensity) * saturate(Particles.NormalizedAge * 5.0) * saturate((1.0 - Particles.NormalizedAge) * 3.0))
             };
@@ -81,7 +81,7 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
 
         SpriteRenderer Puff
         {
-            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamDustPuff";
+            Material   = "Plugin.DreamDynamicWorld:Wind/M_DreamWindVortexDust";
             Alignment  = Unaligned;
             FacingMode = FaceCamera;
             SortMode   = ViewDepth;
@@ -142,7 +142,7 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
 
         SpriteRenderer Piece
         {
-            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamWindDebris";
+            Material   = "Plugin.DreamDynamicWorld:Wind/M_DreamWindVortexDust";
             Alignment  = Unaligned;
             FacingMode = FaceCamera;
             SortMode   = None;
