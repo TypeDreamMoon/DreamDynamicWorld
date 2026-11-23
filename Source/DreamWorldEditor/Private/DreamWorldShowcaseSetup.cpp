@@ -38,6 +38,7 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshOperations.h"
+#include "DreamWeatherRadar.h"
 #include "GameFramework/PlayerStart.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -765,6 +766,16 @@ namespace DreamWorld::ShowcaseSetup
 		}
 
 		World->SpawnActor<APlayerStart>(FVector(600.0, 300.0, 100.0), FRotator(0.0, 10.0, 0.0));
+		// The weather radar on a screen ahead of the start, facing it: the plane's face toward -X, its texture's across to
+		// the viewer's right (+Y), its down down.
+		{
+			const FVector2D At(1500.0, 120.0);
+			const FRotator Facing = FRotationMatrix::MakeFromXZ(FVector(0.0, 1.0, 0.0), FVector(-1.0, 0.0, 0.0)).Rotator();
+			ADreamWeatherRadarDisplay* Radar = World->SpawnActor<ADreamWeatherRadarDisplay>(FVector(At, SurfaceSetup::GroundHeight(At.X, At.Y) + 260.0),
+				Facing);
+			Radar->SetActorScale3D(FVector(2.4, 2.4, 1.0));
+			Radar->SetActorLabel(TEXT("WeatherRadar"));
+		}
 		ACameraActor* Camera = World->SpawnActor<ACameraActor>(FVector(200.0, -300.0, 320.0), FRotator(-10.0, 18.0, 0.0));
 		if (FProperty* AutoActivate = ACameraActor::StaticClass()->FindPropertyByName(TEXT("AutoActivateForPlayer")))
 		{

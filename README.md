@@ -611,6 +611,20 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Weather radar
+
+`UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north
+up: the precipitation in the radar's colour steps (light green, moderate yellow, heavy orange, extreme magenta, each
+from its threshold; snow's own blue as the view's precipitation falls as snow), the cloud cover a faint veil under it,
+range rings and a cross at the middle -- into a texture any UI can show (`GetRadarTexture`, redrawn every
+`RefreshSeconds`), with `UDreamWeatherRadarImage`, a UMG image (the *Dream Weather* palette) that shows it, and
+`ADreamWeatherRadarDisplay`, a screen in the world showing it (the showcase has one ahead of the start). Its look --
+reach, rings, every step's colour and threshold, the veil, the background, the marks -- is `FDreamWeatherRadarLook`
+(`SetLook`). For a game's UI and gameplay: `WorldToRadar` / `RadarToWorld` place a point on the picture and back
+(markers), `SampleRadar` says what it shows at a point and its step, `FindNearestPrecipitation` finds the nearest rain
+within a reach (an approaching shower). The material, `M_DreamWeatherRadar`, can go on any surface: `ApplyTo` sets a
+dynamic instance of it.
+
 ### Storms
 
 **Moving storms.** Any zone can move: *Motion* (`FDreamWeatherZoneMotion`) gives it a drift (km per game hour) or a
