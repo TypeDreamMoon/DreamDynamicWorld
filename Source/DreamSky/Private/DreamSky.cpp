@@ -326,10 +326,11 @@ void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
 	const UExponentialHeightFogComponent* DefaultFog = Defaults->HeightFog;
 	if (HeightFog && DefaultFog)
 	{
-		const float Start = Want(A.bOverride_FogStartDistance, A.FogStartDistance, DefaultFog->StartDistance, HeightFog->StartDistance);
-		if (HeightFog->StartDistance != Start)
+		// (Over what being indoors adds now: ApplyLighting keeps that on top.)
+		const float Start = Want(A.bOverride_FogStartDistance, A.FogStartDistance, DefaultFog->StartDistance, HeightFog->StartDistance - FogStartIndoors);
+		if (HeightFog->StartDistance != Start + FogStartIndoors)
 		{
-			HeightFog->SetStartDistance(Start);
+			HeightFog->SetStartDistance(Start + FogStartIndoors);
 		}
 		const int32 ForcedVolumetric = CVarDreamSkyVolumetricFog.GetValueOnGameThread();
 		const bool bVolumetric = ForcedVolumetric >= 0 ? ForcedVolumetric > 0
@@ -1029,6 +1030,15 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 		}
 		// (Airborne dust takes the cap off: a dust storm hides the far land altogether.)
 		const UDreamWorldSubsystem* WorldClock = UDreamWorldSubsystem::Get(this);
+		// Indoors the fog starts past the room (UDreamSkyStyle::InteriorFogStart), over the start the overrides give it.
+		const FDreamViewOcclusion* Occlusion = WorldClock ? &WorldClock->GetViewOcclusion() : nullptr;
+		const float Indoors = Occlusion && Occlusion->bValid ? FMath::Clamp(Occlusion->Interior, 0.0f, 1.0f) * FMath::Max(InStyle.InteriorFogStart, 0.0f) : 0.0f;
+		if (!FMath::IsNearlyEqual(Indoors, FogStartIndoors, 1.0f))
+		{
+			const float Base = HeightFog->StartDistance - FogStartIndoors;
+			FogStartIndoors = Indoors;
+			HeightFog->SetStartDistance(Base + FogStartIndoors);
+		}
 		const float Dust = WorldClock && WorldClock->GetEnvironment().bActive ? FMath::Clamp(WorldClock->GetEnvironment().Dust, 0.0f, 1.0f) : 0.0f;
 		const float MaxOpacity = FMath::Lerp(InStyle.FogMaxOpacity, 1.0f, Dust);
 		if (!FMath::IsNearlyEqual(HeightFog->FogMaxOpacity, MaxOpacity, 1.0e-3f))

@@ -1,10 +1,12 @@
 // DreamWind: a whirlwind's dust and debris (a dust devil, a tornado), placed at its foot on the ground (ADreamWindVortex).
 //
-// Dust: puffs lifted from a ring round the foot, then carried by the wind field (DreamWindForce): the whirlwind's own
-// source (EDreamWindSourceType::Twister) turns them round its core, lifts them up it and draws the low ones in, so the
-// column is the wind's, not a drawn shape -- it leans and wanders as the wind does, and the fluid's eddies show in it.
-// Debris: small pieces (leaves, grit, for a tornado wood and dirt) thrown round the same way, heavier: they rise less
-// and fall out of the column. The actor sets the rates, sizes and colours from its kind and how strong it is now.
+// Dust: puffs that ride up the column's wall, each on its own turn round the axis and its own climb, the column a
+// little wider at the top and leaning with the wind aloft (Lean, from the actor): a thin turning column of dust from
+// near and far alike. (Not carried by the wind field: away from the view the wind's grids are too coarse for a core a
+// few metres across -- the turn is lost, the rise smeared -- and the puffs drifted off as a plume of blobs.)
+// Debris: small pieces (leaves, grit, for a tornado wood and dirt) thrown round by the wind field (the whirlwind's own
+// source turns them, lifts them and draws them in), heavier: they rise less and fall out of the column. The actor sets
+// the rates, sizes and colours from its kind and how strong it is now.
 System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
@@ -18,8 +20,15 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
         float  DustRate     = 30.0              [ Group="Dust"; Description="Puffs a second." ];
         float  Radius       = 400.0             [ Group="Dust"; Description="cm round the foot the puffs and pieces are lifted from." ];
         float  Height       = 150.0             [ Group="Dust"; Description="cm up from the ground they start within (most near it)." ];
-        float  Lifetime     = 6.0               [ Group="Dust"; Description="Seconds a puff lives." ];
-        float  PuffSize     = 110.0             [ Group="Dust"; Description="A puff's size at the start, cm (it grows to three times that)." ];
+        float  Lifetime     = 6.0               [ Group="Dust"; Description="Seconds a puff lives (it climbs the column in about that)." ];
+        float  PuffSize     = 110.0             [ Group="Dust"; Description="A puff's size at the foot, cm (it grows to twice that at the top)." ];
+        float  ColumnHeight = 4000.0            [ Group="Dust"; Description="cm the dust climbs to (it fades out toward it)." ];
+        float  Rise         = 600.0             [ Group="Dust"; Description="cm/s a puff climbs at (give or take a third)." ];
+        float  Spin         = 3.0               [ Group="Dust"; Description="Radians a second a puff turns round the axis (negative: clockwise from above)." ];
+        float  Flare        = 1.2               [ Group="Dust"; Description="How much wider the column is at the top than at the foot (0: a straight tube)." ];
+        Vector Lean         = (0, 0, 0)         [ Group="Dust"; Description="cm the top of the column stands off its foot (the wind aloft carries it)." ];
+        float  FarFade      = 1.0               [ Group="Dust"; Description="How much of it the distance leaves (the actor's, from its size and the view's distance; up to 2 where the haze would wash it out, 0 past seeing)." ];
+        float  MinPuffSize  = 0.0               [ Group="Dust"; Description="cm a puff is at the least (the actor's: a few pixels at the view's distance, so the far column stays a thread, not nothing)." ];
         Color  Tint         = (0.50, 0.42, 0.32, 0.035)[ Group="Dust" ];
         float  Intensity    = 1.0               [ Group="Dust"; Description="0..1: how strong the whirlwind is now (fades the dust in and out)." ];
         float  Drag         = 6.0               [ Group="Wind"; Description="1/s, how tightly the dust follows the air." ];
@@ -36,25 +45,28 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
             LocalSpace         = false;
             Determinism        = false;
             AllocationMode     = Fixed;
-            PreAllocationCount = 2048;
+            PreAllocationCount = 4096;
             FixedBounds        = box(-20000, -20000, -2000, 20000, 20000, 40000);
         }
 
         EmitterUpdate = {
             EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
-            SpawnRate(SpawnRate = hlsl { User.DustRate * User.Intensity });
+            SpawnRate(SpawnRate = hlsl { User.DustRate * User.Intensity * step(0.001, User.FarFade) });
         }
 
         ParticleSpawn = {
-            // where on the ring (read below, past a module: an assignment block reads the attributes as they stood)
+            // its place on the column: the angle round it, how far out (the wall, a little in and out of the core's
+            // edge), how high it starts (most near the ground) and how fast it climbs (read below, past a module: an
+            // assignment block reads the attributes as they stood)
             float Particles.VortexAngle = hlsl { rand(6.2831853) };
-            float Particles.VortexRing  = hlsl { sqrt(0.05 + 0.95 * rand(1.0)) };
-            float Particles.VortexLift  = hlsl { rand(1.0) * rand(1.0) };
+            float Particles.VortexRing  = hlsl { lerp(0.5, 1.1, rand(1.0)) };
+            float Particles.VortexLift  = hlsl { rand(1.0) * rand(1.0) * User.Height };
+            float Particles.VortexClimb = hlsl { lerp(0.7, 1.3, rand(1.0)) };
             Spawn/Initialization/V2/InitializeParticle(
                 LifetimeMode         = DirectSet,
                 Lifetime             = User.Lifetime,
                 ColorMode            = DirectSet,
-                Color                = User.Tint,
+                Color                = hlsl { float4(User.Tint.rgb, 0.0) },
                 SpriteSizeMode       = RandomUniform,
                 UniformSpriteSizeMin = hlsl { User.PuffSize * 0.7 },
                 UniformSpriteSizeMax = hlsl { User.PuffSize * 1.3 },
@@ -63,19 +75,28 @@ System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
             Position Particles.Position = hlsl {
                 Engine.Owner.Position + float3(cos(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
                                                sin(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
-                                               Particles.VortexLift * User.Height)
+                                               Particles.VortexLift)
             };
         }
 
         ParticleUpdate = {
             ParticleState();
-            DreamWindForce(Wind = User.Wind, Drag = User.Drag, Strength = 1.0, Lift = 0.0);
-            GravityForce(Gravity = hlsl { float3(0.0, 0.0, -User.Settle) });
-            SolveForcesAndVelocity();
-            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * User.PuffSize * lerp(0.8, 2.5, Particles.NormalizedAge) };
+            // Up the wall and round the axis as its age says (the whole column follows its foot as it moves); the ones
+            // nearer the axis turn faster, the top stands off downwind.
+            Position Particles.Position = hlsl {
+                Engine.Owner.Position
+                + float3(cos(Particles.VortexAngle + User.Spin * Particles.Age / Particles.VortexRing),
+                         sin(Particles.VortexAngle + User.Spin * Particles.Age / Particles.VortexRing), 0.0)
+                  * Particles.VortexRing * User.Radius * (1.0 + User.Flare * saturate((Particles.VortexLift + User.Rise * Particles.VortexClimb * Particles.Age) / max(User.ColumnHeight, 1.0)))
+                + float3(User.Lean.x, User.Lean.y, 0.0) * saturate((Particles.VortexLift + User.Rise * Particles.VortexClimb * Particles.Age) / max(User.ColumnHeight, 1.0))
+                + float3(0.0, 0.0, min((Particles.VortexLift + User.Rise * Particles.VortexClimb * Particles.Age), User.ColumnHeight))
+            };
+            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * max(User.MinPuffSize, User.PuffSize * lerp(0.8, 2.0, saturate((Particles.VortexLift + User.Rise * Particles.VortexClimb * Particles.Age) / max(User.ColumnHeight, 1.0)))) };
             SpriteRotationRate(RotationRate = 25.0);
+            // in over its first fifth, out toward the top and at the end of its life, and with the distance
             Color Particles.Color = hlsl {
-                float4(User.Tint.rgb, User.Tint.a * saturate(User.Intensity) * saturate(Particles.NormalizedAge * 5.0) * saturate((1.0 - Particles.NormalizedAge) * 3.0))
+                float4(User.Tint.rgb, User.Tint.a * saturate(User.Intensity) * User.FarFade * saturate(Particles.NormalizedAge * 5.0)
+                    * saturate((1.0 - Particles.NormalizedAge) * 4.0) * saturate((1.0 - saturate((Particles.VortexLift + User.Rise * Particles.VortexClimb * Particles.Age) / max(User.ColumnHeight, 1.0))) * 3.0))
             };
         }
 

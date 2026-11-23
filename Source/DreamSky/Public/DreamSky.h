@@ -306,6 +306,8 @@ private:
 	/** The cubemap the sky light was last given (to know when to set it again). */
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureCube> AppliedSkyLightCubemap;
+	/** What the view being indoors adds to the height fog's start distance now (cm; UDreamSkyStyle::InteriorFogStart). */
+	float FogStartIndoors = 0.0f;
 	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 
 	/** The conditional post processes' components and weights (UpdateConditions), and the conditional modifiers' weights. */

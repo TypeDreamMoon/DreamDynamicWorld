@@ -1379,6 +1379,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "2"))
 	float InteriorDirectionalScale = 1.0f;
 
+	/**
+	 * How much further from the view the height fog starts indoors, cm: the room's own air is clear (a rain's or a fog
+	 * bank's thickened fog would otherwise fill it, and the indoor exposure lift brightens it to a grey haze), the land
+	 * outside the doors and windows keeps its fog. Some 15 m clears an ordinary room.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interior", meta = (ClampMin = "0", UIMax = "5000"))
+	float InteriorFogStart = 1500.0f;
+
 	// ---- Behaviour ----------------------------------------------------------------------------
 
 	/** Seconds the light takes to follow a change while the clock runs (a toon ramp otherwise flickers across its threshold). Jumps snap. */

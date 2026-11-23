@@ -126,15 +126,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
 	bool bClockwise = false;
 
+	/**
+	 * A dust devil only lives on dry, sunlit ground: in rain, on wet or snowy ground, under a heavy overcast or with the
+	 * sun low or down it dies down (over some seconds) and comes back when the weather lets it. Tornadoes ignore it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	bool bFollowWeather = true;
+
 	/** Its dust and debris: puffs and pieces a second at full strength, their sizes and colours. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0"))
-	float DustRate = 30.0f;
+	float DustRate = 220.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "1"))
-	float PuffSize = 110.0f;
+	float PuffSize = 190.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look")
-	FLinearColor DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.3f);
+	FLinearColor DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.10f);
+
+	/** The least a puff of its dust is across as seen from the view, radians (some 4 pixels at 1080p): far off, the
+	 *  column stays a thread until the distance fades it (from 8 to 20 times its height). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0", UIMax = "0.02"))
+	float MinPuffAngle = 0.004f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0"))
 	float DebrisRate = 10.0f;
@@ -159,6 +171,12 @@ public:
 	/** Bring the source, the effect and the register up to date now (it runs every frame on its own). */
 	void Refresh();
 
+	/** How much the weather lets it blow now, 0..1 (1 for a tornado or with bFollowWeather off): Intensity is scaled by it. */
+	float GetWeatherActivity() const { return Activity; }
+
+	/** How much the weather lets a dust devil blow (dry sunlit ground), 0..1, from the weather there and the sun's height. */
+	static float DustDevilWeather(float Precipitation, float Wetness, float SnowCover, float CloudCoverage, float SunElevationDegrees);
+
 	//~ AActor
 	virtual void Tick(float DeltaSeconds) override;
 	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
@@ -176,6 +194,10 @@ private:
 	FDreamVortexPlan Plan;
 	bool bHasPlan = false;
 	int32 VortexId = 0;
+	/** The weather's say (bFollowWeather), eased toward what it allows. */
+	float Activity = 1.0f;
+	bool bActivityPrimed = false;
+	uint32 LastJumpSerial = 0;
 	/** When it formed, for the sky's funnel (its plan's start, or when it first blew). */
 	double BornSeconds = 0.0;
 	bool bBorn = false;

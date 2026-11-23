@@ -1,15 +1,24 @@
 // M_DreamWindVortexDust.dss -- a soft puff of dust a whirlwind lifts, on a camera-facing Niagara sprite (NS_DreamWindVortex).
 //
-// A wide Gaussian with no edge to it, so many overlapping puffs read as drifting haze rather than as balls; lit by the
-// sky like the rain and the snow (ambient plus a share of the main light); the particle colour tints it and its alpha
-// fades it; it fades into geometry over a long distance and away right at the lens.
+// A wide Gaussian with no edge to it, so the overlapping puffs read as one column of dust rather than as balls. Lit by
+// what lights dust near the ground: the sky's light from above and the ground's from below, and a share of the main
+// light; greyed as the sky's grade greys the weather (an overcast's colours are muted, so the dust is too: a sandy tint
+// under a grey sky read as orange); never brighter than the horizon behind it (dust in the air only dims the light it
+// stands in front of). The particle colour tints it and its alpha fades it (the effect fades it out with the distance,
+// as far as the whirlwind's size lets it be seen); it fades into geometry and away right at the lens.
 #pragma material(ShadingModel = Unlit, BlendMode = Translucent, TwoSided = true, bUsedWithNiagaraSprites = true)
 
 /// @group Look @desc How bright the dust is against the light around it
-uniform float Brightness = 1.4;
+uniform float Brightness = 1.2;
 
 /// @group Look @desc Share of the main (sun / moon) light the dust catches
-uniform float MainLightShare = 0.35;
+uniform float MainLightShare = 0.3;
+
+/// @group Look @desc Share of its light from the ground below (the rest from the sky)
+uniform float GroundShare = 0.4;
+
+/// @group Look @desc The brightest it gets, as a share of the horizon's brightness
+uniform float HorizonCap = 0.8;
 
 /// @group Look @desc Distance over which a puff fades into geometry, cm
 uniform float SoftEdge = 250.0;
@@ -26,16 +35,30 @@ float PuffShape(float2 UV)
     return saturate(exp(-R2 * 3.0) - 0.05) / 0.95;
 }
 
+/// @custom
+float3 DustLight(float3 Tint, float3 Sky, float3 Ground, float3 Main, float MainShare, float GroundW, float Bright, float Saturation, float3 Horizon, float Cap)
+{
+    float3 Light = lerp(Sky, Ground, GroundW) + Main * MainShare;
+    float3 C = Tint * Light * Bright;
+    float3 W = float3(0.2126, 0.7152, 0.0722);
+    float L = dot(C, W);
+    C = lerp(float3(L, L, L), C, saturate(Saturation));
+    float Most = dot(Horizon, W) * Cap;
+    return C * min(1.0, Most / max(L, 1.0e-6));
+}
+
 export void M_DreamWindVortexDust(inout material m)
 {
     float2 UV = UE.TexCoord(Index = 0);
     float4 Particle = UE.ParticleColor();
-    float4 Ambient   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
+    float4 Sky       = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
+    float4 Ground    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientGround");
     float4 MainLight = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
     float4 MainColor = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLightColor");
+    float4 Horizon   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyHorizon");
+    float4 Grade     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyGrade0");
 
-    float3 Light = Ambient.rgb + MainColor.rgb * MainLight.w * MainLightShare;
-    m.EmissiveColor = Particle.rgb * Light * Brightness;
+    m.EmissiveColor = DustLight(Particle.rgb, Sky.rgb, Ground.rgb, MainColor.rgb * MainLight.w, MainLightShare, GroundShare, Brightness, Grade.y, Horizon.rgb, HorizonCap);
     float Near = saturate((UE.PixelDepth() - 30.0) / max(NearFade, 1.0));
     m.Opacity = UE.DepthFade(InOpacity = PuffShape(UV) * Particle.a * Near, FadeDistance = SoftEdge);
 }

@@ -476,7 +476,9 @@ door and windows, with little bounced light, is still dark at 1) and raises the 
 2.5): with Lumen the sky light is occluded, so what the doors and windows let in brightens and the corners stay dark.
 Without Lumen nothing bounces in; `bInteriorFill` (off by default) then adds a weak fill that ignores occlusion
 (`InteriorFill` of the outdoor sky light, and as much on the shared ambient gradient). Neither lights a room with
-small windows by itself: place lights in it, as a level would anyway. The sun and moon can be scaled indoors too;
+small windows by itself: place lights in it, as a level would anyway. The height fog starts `InteriorFogStart` (15 m)
+further off indoors, so a rain's or a fog bank's thickened fog does not fill the room (lifted by the exposure, it was a
+grey haze) while the land outside the doors and windows keeps its fog. The sun and moon can be scaled indoors too;
 `DDW_Interior` carries how far the view is indoors to materials. Settings (channel, reach, round length, smoothing)
 in *Project Settings ▸ Dream Dynamic World ▸ View Probe*.
 
@@ -1776,9 +1778,18 @@ deterministic, a dedicated server has none).
   (`Inflow`), up to `Height`; it is added to the wind it stands in (it is carried along) rather than blended toward.
   The fluid takes it on top of its background, and its core near the ground is a sink there, so the pressure draws the
   air round it in along the ground and round the walls near it.
-* **Its dust and debris** (`NS_DreamWindVortex`, `M_DreamWindVortexDust`): puffs lifted from inside its core and
-  pieces thrown round it, both carried by the wind field (`DreamWindForce`), so the column turns, rises, leans and
-  wanders as the wind does.
+* **Its dust** (`NS_DreamWindVortex`, `M_DreamWindVortexDust`) is a thin turning column: puffs ride up its wall, each
+  round the axis at its own pace, the column a little wider at the top and its top downwind with the wind aloft (a
+  tornado's is the cloud of dirt round its foot). They are placed, not carried by the wind field: away from the view
+  the wind's grids are too coarse for a core a few metres across, and carried puffs drifted off as a plume of blobs.
+  The dust is lit by the sky and the ground, greyed as the sky's grade greys the weather and never brighter than the
+  horizon behind it. How far it is seen goes with its size: it thickens a little with the distance (to twice by 8
+  times its height, against the horizon's haze), fades from 8 to 20 times its height, and its puffs keep a few pixels'
+  size (`MinPuffAngle`), so far off it is a faint thread rather than nothing -- a dust devil of a few metres is lost
+  within some hundred metres, a big one is seen kilometres off. **Its debris** is thrown round by the wind field
+  (`DreamWindForce`).
+* **A dust devil needs dry, sunlit ground** (`bFollowWeather`): in rain, on wet or snowy ground, under a heavy overcast
+  or with the sun low or down it dies down over some seconds, and comes back when the weather lets it.
 * **A tornado's funnel** is the sky's: the vortex registers itself with the clock (`UDreamWorldSubsystem::SetVortex`:
   where it stands, how far it reaches, how strong, which way it turns, how fast, its lean with the wind aloft, when it
   formed) and the cloud renderer draws the funnel down from the cloud base. A dust devil is not registered.
@@ -1790,7 +1801,8 @@ deterministic, a dedicated server has none).
   A dust devil only starts in the afternoon (`DustDevilHours`, 11..17). Each lives some minutes (`DustDevilMinutes`,
   `TornadoMinutes`), crosses the area on a straight line through a point within `PassRadius` of the spawner (from
   `PrevailingYaw`, give or take `DirectionVariation`), spins up over its first sixth and dies out over its last quarter.
-* The showcase has a dust devil on the open ground west of the square, and a spawner's tornado in the afternoon's
+* The showcase has a middling dust devil on the open ground west of the square (a core some 8 m across, 100 m high:
+  a faint column still from 300 to 900 m off), and a spawner's tornado in the afternoon's
   storm: it crosses 2.5 km east of the hut from south to north, 18 minutes from 14:03, its whole life in view from
   beside the hut -- forming, touching down, moving on, roping out and breaking (one tornado a day on one line; Setup
   takes the first seed offset whose tornado on the showcase's day is half way through its life at 14.2 h, so every run
