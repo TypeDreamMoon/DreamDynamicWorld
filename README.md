@@ -530,8 +530,11 @@ are saved in the world snapshot; the schedule needs nothing saved.
   volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
   taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
   or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
-  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
-  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+  bank, down to *Clear Weather Share* of it with none. Drawn marched (see *Marched ground fog* below) it is a mist over
+  the box's floor thinning upward over *Height Falloff*, broken into patches some two and a half *Patch Radius* across
+  by a noise drifting on the wind, thinning out toward the box's sides; at the low quality level the patches draw as
+  local fog volumes (with or without the scene's volumetric fog). `DreamWeather.FogBank [density] [clear share]` lists
+  the banks and sets them.
 - **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
   actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
   the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
@@ -561,18 +564,50 @@ wind subsystem's `SampleWindVelocity`), the sun's elevation. Two amounts, 0..1 e
   carried in on a wind within *Advection Wind* (a gale lifts it as low cloud) lays a fog over all the low ground,
   *Advection Depth* over the lowest, at any hour; the sun only thins it.
 
-The fog is drawn with local fog volumes: *Patches* of them laid on the cells under the pooled fog (each *Patch Cells*
-across, keeping its cell while that stays under the fog and fading over to a new one), *Mist Patches* spread over the
-box. A local fog volume is a sphere (the engine makes its scale uniform), so each layer is its height fog, thinning
-from the ground to a seventh at the fog's top, with as much radial fog to soften its sides. The engine draws at most
-32 local fog volumes a view (`r.LocalFogVolume.TileMaxInstanceCount`, up to 256): count the patches of every terrain
-fog and fog bank that can draw at once. A jump of the clock settles the fog (the last twelve hours run through, the
+Traced ground has what stands on it narrower than *Ground Filter* cells either side taken off (trees, posts, props, a
+shelter at 3: a morphological opening of the heights), so the fog lies on the ground under them, not on their tops.
+The fog draws marched (below), *Noise Size* (five cells by default) and *Patchiness* shaping its billows. At the low
+quality level it draws with local fog volumes instead: *Patches* of them laid on the cells under the pooled fog (each
+*Patch Cells* across, keeping its cell while that stays under the fog and fading over to a new one), *Mist Patches*
+spread over the box. A local fog volume is a sphere (the engine makes its scale uniform), so each layer is its height
+fog, thinning from the ground to a seventh at the fog's top, with as much radial fog to soften its sides; the engine
+draws at most 32 of them a view (`r.LocalFogVolume.TileMaxInstanceCount`, up to 256). A jump of the clock settles the
+fog (the last twelve hours run through, the
 weather as it is now). Gameplay can ask `GetFogDepthAt`, `IsInFog`, `GetHollowAt`, `GetGroundHeightAt`; *Force* holds
-a given state (cinematics). `DreamWeather.TerrainFog [radiation [advection] | auto]` lists them and holds or releases
-them. The showcase has a morning mist over the set (pooling in the dip by the pond) and valley fog in the hills to
+a given state (cinematics). `DreamWeather.TerrainFog [radiation [advection] | auto | dump]` lists them and holds or
+releases them (`dump` writes each one's cells, ground and hollow, to `Saved/DreamTerrainFog_<name>.csv`). The showcase has a morning mist over the set (pooling in the dip by the pond) and valley fog in the hills to
 the south-west; the forced tour shoots both just after sunrise after a clear, still night (`TerrainFog`).
-`DreamWeather.FX.TerrainFog.Model` checks when each fog forms, builds and clears; `.Actor` the hollows, the depth and
-patches in a bowl at dawn and their going by mid-morning.
+`DreamWeather.FX.TerrainFog.Model` checks when each fog forms, builds and clears; `.Actor` the hollows, the depth, the
+marched fog's layer and box and the local fog volumes in a bowl at dawn, and their going by mid-morning.
+
+**Marched ground fog.** The terrain fog and the fog bank draw their fog as a participating medium marched over their
+box (`UDreamGroundFogComponent`, `M_DreamGroundFog`, on the clouds' march and light: `DreamCloudMarch.ush`,
+`DreamCloudLight.ush`, the fog's own field in `Shaders/Private/DreamGroundFog.ush`). The owner hands the component a
+small map over the box (one texel a cell: the ground's height, how deep the hollow may fill, where there is ground)
+and each frame the fog's state; the material fills the layer that deep -- the pooled fog dense to near its top and
+thinning over its upper half, the mist over all the ground --, breaks it up with the clouds' 3D noise drifting with the
+wind (`DDW_FogDrift`) and churning slowly (which also lifts and lowers its top, so it lies in billows and patches), and
+thins it out to nothing toward the map's rim. Light: the main light through the fog above each sample -- for a layer
+the depth to its top over the light's sine, averaged over each step in closed form, so the thin skin a low sun lights
+on a thick fog's top is not stepped past --, with the clouds' phase and multiple scattering octaves; the sky above
+(and the ground's bounce below) and the sunlight diffused down through the fog above, some 1 / (1 + 0.3 tau) of it.
+At sunrise the top of a fog sea glows in the low sun and its depths go grey; inside it the sun is a dim disc.
+
+The engine's unit cube is drawn over the box, its back faces only with the depth test off (as the cloud volumes are),
+so the fog shows from outside and from in it, and the scene cuts the march where its depth says; it draws under the
+other translucency (rain, snow). No limit on how many: each is one translucent draw over the part of the screen its box
+covers, the box kept round the fog there is. A ray takes `DreamWeather.Fog.Samples` fine steps (never longer than an
+optical depth of 1.5 in the densest fog; clear air above the fog is skipped; the noise read at a level of detail to the
+step); `DreamWeather.Fog.Volumetric 0` draws the local fog volumes instead. The fog quality level (`sg.ShadowQuality`, or
+`r.DreamWorld.Quality`) sets both: low the local fog volumes, then 16, 24, 32 (epic) and 64 samples. An actor's
+*Density* (and *Mist Density*) times 0.04 is the extinction per metre (1: some 75 m of sight inside it).
+`DreamWeather.Fog.Debug 1` paints the map under what each ray meets (ground in 2 m bands, hollow, ground there), `2` the
+fog's opacity alone.
+
+What it costs (1400 x 788 internal, the showcase's morning mist with the camera in it, so every pixel marches): 0.41,
+0.53, 0.68 and 0.94 ms at 16, 24, 32 and 48 samples; the valley fog seen from the set 0.11 ms; the local fog volumes
+0.06 ms. `M_DreamGroundFog`'s shaders are keyed on its own code, not on the include: a change to `DreamGroundFog.ush`
+bumps *IncludeRevision* in `M_DreamGroundFog.dss` with it, or the old shaders stay in the derived data cache.
 
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
