@@ -1191,6 +1191,131 @@ float3 DSky_Halos(float3 V, float3 LightDir, float3 Moon, float3 Lit, float4 Hal
 	return Light * Lit * Shows;
 }
 
+// Meteors and satellites (real-time Seconds). M: sporadic and shower meteors an hour, the head's brightness, satellites
+// an hour; Radiant: xyz the shower's radiant, w the satellites' brightness; Look: rgb the meteors' colour, a their
+// trails' length. Each second may hold a few meteors, each a short-lived streak along a great circle: the shower's
+// leading away from the radiant, a sporadic one from anywhere; brightest at its head, its trail fading behind it,
+// flaring and dying out. A satellite crosses on a great circle some 550 km up in five minutes or so, as bright as the
+// sun lights it there (the earth's shadow takes it partway across). Pixel: the pixel's footprint, radians.
+float3 DSky_MeteorKey(float Slot, float Index, float Salt)
+{
+	return DSky_Hash33(float3(fmod(Slot, 997.0) + 0.37 * Index, floor(Slot / 997.0) + 13.1 * Salt, 7.3 * Index + 3.1 * Salt));
+}
+
+float3 DSky_Meteors(float3 V, float3 Sun, float3 Camera, float4 M, float4 Radiant, float4 Look, float Seconds, float Pixel)
+{
+	float3 Light = float3(0, 0, 0);
+	if (V.z <= -0.02)
+	{
+		return Light;
+	}
+	float Width = max(Pixel, radians(0.035));
+	// Meteors: four chances a second, the seconds now and before (none lasts longer).
+	float PerSecond = (M.x + M.y) / 3600.0;
+	if (PerSecond > 0.0 && M.z > 0.0)
+	{
+		const int Chances = 4;
+		float Chance = saturate(PerSecond / float(Chances));
+		float Now = floor(Seconds);
+		[unroll]
+		for (int s = 0; s < 2; ++s)
+		{
+			float Slot = Now - float(s);
+			[unroll]
+			for (int j = 0; j < Chances; ++j)
+			{
+				float3 H0 = DSky_MeteorKey(Slot, float(j), 1.0);
+				if (H0.x >= Chance)
+				{
+					continue;
+				}
+				float3 H1 = DSky_MeteorKey(Slot, float(j), 2.0);
+				float3 H2 = DSky_MeteorKey(Slot, float(j), 3.0);
+				float Duration = 0.25 + 0.75 * H1.x;
+				float Age = Seconds - (Slot + H0.y);
+				if (Age < 0.0 || Age > Duration)
+				{
+					continue;
+				}
+				// (Where it is first seen: anywhere well above the horizon.)
+				float Z = lerp(0.12, 0.95, H1.y);
+				float Around = 6.2831853 * H1.z;
+				float3 Start = float3(sqrt(1.0 - Z * Z) * float2(cos(Around), sin(Around)), Z);
+				bool bShower = H0.z < M.y / max(M.x + M.y, 1.0e-6);
+				float3 From = bShower ? normalize(Radiant.xyz) : normalize(H2 - 0.5);
+				float3 Axis = cross(From, Start);
+				if (dot(Axis, Axis) < 1.0e-6)
+				{
+					continue;
+				}
+				Axis = normalize(Axis);
+				float3 Onward = cross(Axis, Start);   // (away from where it comes from)
+				float Length = radians(lerp(5.0, 25.0, H2.z)) * Look.a * (bShower ? 1.0 : 0.6);
+				float Life = Age / Duration;
+				float Head = Length * Life;
+				float Tail = min(Head, 0.4 * Length);
+				float Off = asin(clamp(dot(V, Axis), -1.0, 1.0));
+				float At = atan2(dot(V, Onward), dot(V, Start));
+				float Behind = Head - At;   // (0 at the head, growing back along the trail)
+				float Along = Behind < 0.0 ? exp(-DSky_Square(Behind / Width)) : (Behind <= Tail ? 1.0 - 0.85 * Behind / max(Tail, 1.0e-4) : exp(-DSky_Square((Behind - Tail) / Width)) * 0.15);
+				float Across = exp(-DSky_Square(Off / Width));
+				float Flare = sin(3.14159265 * Life) * (0.6 + 0.4 * sin(31.0 * Age + 6.0 * H2.x)) * lerp(0.4, 1.0, H1.x);
+				Light += Look.rgb * (M.z * Across * Along * Flare);
+			}
+		}
+	}
+	// Satellites: two chances a minute, each crossing for some five minutes; the minutes now and the five before.
+	if (M.w > 0.0 && Radiant.w > 0.0)
+	{
+		float Chance = saturate(M.w / 60.0 / 2.0);
+		float Minute = floor(Seconds / 60.0);
+		float Planet = DSky_PlanetRadius * 1.0e-5;
+		float3 Eye = float3(0.0, 0.0, Planet + max(Camera.z, 0.0) * 1.0e-5);
+		[unroll]
+		for (int s = 0; s < 6; ++s)
+		{
+			[unroll]
+			for (int j = 0; j < 2; ++j)
+			{
+				float Slot = Minute - float(s);
+				float3 H0 = DSky_MeteorKey(Slot, float(j), 5.0);
+				if (H0.x >= Chance)
+				{
+					continue;
+				}
+				float3 H1 = DSky_MeteorKey(Slot, float(j), 6.0);
+				float Duration = 240.0 + 120.0 * H1.x;
+				float Age = Seconds - (Slot + H0.y) * 60.0;
+				if (Age < 0.0 || Age > Duration)
+				{
+					continue;
+				}
+				// (Its track: a great circle over the sky, horizon to horizon, highest at H1.y of the way to the zenith.)
+				float Peak = lerp(0.15, 1.0, H1.y);
+				float Heading = 6.2831853 * H1.z;
+				float3 Across = float3(cos(Heading), sin(Heading), 0.0);
+				float3 Top = normalize(float3(-Across.y, Across.x, 0.0) * sqrt(1.0 - Peak * Peak) + float3(0.0, 0.0, Peak));
+				float Angle = 3.14159265 * (Age / Duration - 0.5);
+				float3 D = normalize(Top * cos(Angle) + Across * sin(Angle));
+				if (D.z <= 0.0)
+				{
+					continue;
+				}
+				// (Lit while the sun's ray to it, 550 km up along D, clears the earth and its lower air.)
+				float Shell = Planet + 550.0;
+				float B = dot(Eye, D);
+				float3 P = Eye + D * (-B + sqrt(max(B * B - dot(Eye, Eye) + Shell * Shell, 0.0)));
+				float AlongSun = dot(P, Sun);
+				float Closest = AlongSun >= 0.0 ? length(P) : length(P - AlongSun * Sun);
+				float Lit = smoothstep(Planet + 10.0, Planet + 60.0, Closest);
+				float Spot = exp(-DSky_Square(acos(clamp(dot(V, D), -1.0, 1.0)) / (0.8 * Width)));
+				Light += float3(1.0, 0.97, 0.92) * (Radiant.w * Lit * Spot * lerp(0.3, 1.0, H1.y) * smoothstep(0.0, 0.08, D.z));
+			}
+		}
+	}
+	return Light;
+}
+
 // Noctilucent clouds: a thin shell N.y km up, seen where the sun still lights it (its ray to them passing more than
 // some 15 km over the ground: the air below screens it), in bands N.z km apart, broken and wavering, with billows
 // NC.a km across them, drifting N.w km/s; silver-blue (NC.rgb) as bright as N.x (the dome's measure, already times how
@@ -1371,7 +1496,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1436,6 +1561,11 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	if (Capture < 0.5 && any(MilkyWay.rgb > 0.0))
 	{
 		Sky += DSky_MilkyWay(V, StarPole, StarEquinox, Galaxy, GalaxySampler, MilkyWay, MilkyWayDust) * (1.0 - MoonCover) * Clear;
+	}
+	// Meteors and satellites, in front of the stars, behind the clouds (the sky light sees none).
+	if (Capture < 0.5 && (Meteors.x + Meteors.y + Meteors.w) > 0.0)
+	{
+		Sky += DSky_Meteors(V, Sun, Camera, Meteors, MeteorRadiant, MeteorLook, Seconds, max(length(fwidth(V)), 1.0e-5)) * Clear;
 	}
 	Sky = lerp(Sky, MoonColor, MoonCover * Clear);
 	float SunShare = lerp(1.0, Extra.z, Capture);

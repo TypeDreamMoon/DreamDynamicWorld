@@ -89,6 +89,17 @@ namespace DreamWorld::ShowcaseSetup
 		return SurfaceSetup::SaveAsset(Shine) ? Shine : nullptr;
 	}
 
+	/** A meteor storm for the night (the date's own shower, or the sporadic ones, ten times over). */
+	UDreamSkyModifier* EnsureMeteors()
+	{
+		UDreamSkyModifier* Storm = FreshAsset<UDreamSkyModifier>(Setup::ShowcaseMeteorsPackage);
+		Storm->Settings.bOverride_Meteors = true;
+		Storm->Settings.Meteors = 10.0f;
+		Storm->FadeInSeconds = 6.0f;
+		Storm->FadeOutSeconds = 6.0f;
+		return SurfaceSetup::SaveAsset(Storm) ? Storm : nullptr;
+	}
+
 	/** The night's aurora: a sky modifier that lights it fully (the sky shows it only once it is dark). */
 	UDreamSkyModifier* EnsureAurora()
 	{
@@ -621,7 +632,7 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
-	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, ULevelSequence* Dusk)
+	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk)
 	{
 		UPackage* Package = SurfaceSetup::FreshPackage(PackagePath);
 		UWorld::InitializationValues Values;
@@ -676,6 +687,17 @@ namespace DreamWorld::ShowcaseSetup
 			Evening.Condition.EndHour = 20.0f;
 			Evening.Condition.FadeHours = 0.25f;
 			Evening.BlendSeconds = 4.0f;
+		}
+		if (Storm)
+		{
+			// (The clear night, 22 to 4.)
+			FDreamSkyConditionalModifier& Night = Sky->ConditionalModifiers.AddDefaulted_GetRef();
+			Night.Modifier = Storm;
+			Night.Condition.bHours = true;
+			Night.Condition.StartHour = 22.0f;
+			Night.Condition.EndHour = 4.0f;
+			Night.Condition.FadeHours = 0.25f;
+			Night.BlendSeconds = 4.0f;
 		}
 		Sky->SetActorLabel(TEXT("DreamSky"));
 
@@ -769,9 +791,10 @@ bool DreamWorld::Setup::BuildShowcaseMaps(UDreamSkyStyle* Style)
 	UDreamSkyModifier* Aurora = ShowcaseSetup::EnsureAurora();
 	UDreamSkyModifier* Halo = ShowcaseSetup::EnsureHalo();
 	UDreamSkyModifier* Shine = ShowcaseSetup::EnsureNoctilucent();
+	UDreamSkyModifier* Storm = ShowcaseSetup::EnsureMeteors();
 	ULevelSequence* Dusk = ShowcaseSetup::EnsureDuskSequence();
-	bool bOk = Aurora && Halo && Shine && Dusk;
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, nullptr);
-	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Dusk);
+	bool bOk = Aurora && Halo && Shine && Storm && Dusk;
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, nullptr);
+	bOk &= ShowcaseSetup::BuildOne(ShowcaseDuskMapPackage, Style, Kit, Aurora, Halo, Shine, Storm, Dusk);
 	return bOk;
 }

@@ -624,6 +624,80 @@ struct DREAMSKY_API FDreamSkyNoctilucent
 	float ArtisticPresence = 0.0f;
 };
 
+/** A yearly meteor shower: when it peaks, where its radiant stands among the stars, how strong it is. */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMeteorShower
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	FName Name;
+
+	/** Its peak, month and day (the same every year, near enough). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "1", ClampMax = "12"))
+	int32 PeakMonth = 8;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "1", ClampMax = "31"))
+	int32 PeakDay = 12;
+
+	/** How many days either side it falls to some 60% of its peak. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0.1", UIMax = "10"))
+	float WidthDays = 2.0f;
+
+	/** The radiant: right ascension and declination, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", ClampMax = "360"))
+	float RightAscension = 48.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "-90", ClampMax = "90"))
+	float Declination = 58.0f;
+
+	/** Its zenithal hourly rate at the peak: meteors an hour under a dark sky with the radiant overhead. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "200"))
+	float ZenithalHourlyRate = 100.0f;
+};
+
+/**
+ * Meteors and satellites in the night sky: sporadic meteors any night, the yearly showers by the date (streaking away
+ * from their radiant), and satellites the sun still lights after dusk crossing in a few minutes and fading into the
+ * earth's shadow. Drawn on the dome, real-time seconds, the same under every look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyMeteors
+{
+	GENERATED_BODY()
+
+	FDreamSkyMeteors();
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	bool bEnabled = true;
+
+	/** Sporadic meteors an hour over the whole sky on a dark night. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "60"))
+	float SporadicPerHour = 8.0f;
+
+	/** Times every rate (the real ones are sparse for a game: a meteor every few minutes at a strong shower's peak). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "20"))
+	float RateScale = 3.0f;
+
+	/** How bright a meteor's head draws, in the dome's own measure, and its colour. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "5"))
+	float Brightness = 1.2f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (HideAlphaChannel))
+	FLinearColor Color = FLinearColor(0.85f, 0.95f, 1.0f, 1.0f);
+
+	/** How long their trails are (1 = some 5 to 25 degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0.2", UIMax = "3"))
+	float TrailLength = 1.0f;
+
+	/** The yearly showers (the seven strongest by default). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors")
+	TArray<FDreamSkyMeteorShower> Showers;
+
+	/** Satellites crossing an hour while the sun still lights them, and how bright (the dome's measure). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "120"))
+	float SatellitesPerHour = 12.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ClampMin = "0", UIMax = "2"))
+	float SatelliteBrightness = 0.25f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -640,6 +714,9 @@ public:
 
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
+
+	/** The strongest meteor shower on a date and how strong it is then (none in the gaps between them). */
+	FDreamSkyShowerActivity EvaluateMeteorShower(const FDateTime& Date) const;
 
 	/** How present noctilucent clouds are where and when the world is: by latitude and the days from midsummer in the
 	 *  realistic mode, as the style says in the artistic one. */
@@ -864,6 +941,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyNoctilucent Noctilucent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ShowOnlyInnerProperties))
+	FDreamSkyMeteors Meteors;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

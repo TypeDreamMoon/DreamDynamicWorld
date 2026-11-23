@@ -840,4 +840,51 @@ bool FDreamSkyNoctilucentTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyMeteorsTest, "DreamSky.Night.Meteors", DreamSky::NightTests::Flags)
+bool FDreamSkyMeteorsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The showers by the date: at their peaks, falling off either side, none between.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	const FDreamSkyShowerActivity Perseids = Style->EvaluateMeteorShower(FDateTime(2026, 8, 12, 12, 0, 0));
+	TestEqual(TEXT("August 12: the Perseids"), Perseids.Name, FName(TEXT("Perseids")));
+	TestTrue(FString::Printf(TEXT("at their peak (%.1f)"), Perseids.ZenithalHourlyRate), Perseids.ZenithalHourlyRate > 90.0f);
+	TestNearlyEqual(TEXT("their radiant in Perseus"), Perseids.Declination, 58.0f, 1e-3f);
+	TestTrue(TEXT("a week after: much weaker"), Style->EvaluateMeteorShower(FDateTime(2026, 8, 19, 12, 0, 0)).ZenithalHourlyRate < 0.2f * Perseids.ZenithalHourlyRate);
+	TestEqual(TEXT("December 14: the Geminids"), Style->EvaluateMeteorShower(FDateTime(2026, 12, 14, 12, 0, 0)).Name, FName(TEXT("Geminids")));
+	TestEqual(TEXT("January 4 (round the year's end): the Quadrantids"), Style->EvaluateMeteorShower(FDateTime(2027, 1, 4, 0, 0, 0)).Name, FName(TEXT("Quadrantids")));
+	const FDreamSkyShowerActivity March = Style->EvaluateMeteorShower(FDateTime(2026, 3, 1));
+	TestTrue(TEXT("early March: none"), March.Name.IsNone() && March.ZenithalHourlyRate == 0.0f);
+
+	// The Perseids' night at 45 N: the radiant up in the north-east, the shower drawn from it, sporadic ones besides.
+	FNightWorld W(FDateTime(2026, 8, 12, 23, 30, 0), 45.0, 10.0, 1.0f);
+	if (!TestTrue(TEXT("world"), W.IsValid()))
+	{
+		return false;
+	}
+	const FLinearColor M = W.Parameter(MPC_Meteors);
+	const FLinearColor Radiant = W.Parameter(MPC_MeteorRadiant);
+	TestEqual(TEXT("the subsystem says the Perseids"), W.SkySubsystem->GetMeteorShower().Name, FName(TEXT("Perseids")));
+	TestTrue(FString::Printf(TEXT("the radiant above the horizon (%.2f)"), Radiant.B), Radiant.B > 0.2f);
+	TestTrue(FString::Printf(TEXT("the shower drawn (%.1f an hour) with sporadic ones (%.1f)"), M.G, M.R), M.G > M.R && M.R > 0.0f);
+	TestNearlyEqual(TEXT("the rate the subsystem gives is the dome's"), W.SkySubsystem->GetMeteorRate(), M.R + M.G, 1e-3f);
+	TestTrue(TEXT("satellites"), M.A > 0.0f);
+	// By day: none.
+	FDreamWorldClockConfig Config;
+	Config.StartTime = FDateTime(2026, 8, 12, 13, 0, 0);
+	Config.bAnimate = false;
+	Config.Celestial = W.Clock->GetCelestialSettings();
+	W.Clock->ApplyClockConfig(Config, true);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("by day: no meteors"), W.SkySubsystem->GetMeteorRate(), 0.0f);
+	W.Sky->GetEffectiveStyle()->Meteors.bEnabled = false;
+	Config.StartTime = FDateTime(2026, 8, 12, 23, 30, 0);
+	W.Clock->ApplyClockConfig(Config, true);
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("turned off: none at night either"), W.Parameter(MPC_Meteors).R + W.Parameter(MPC_Meteors).G + W.Parameter(MPC_Meteors).A, 0.0f);
+	return true;
+}
+
 #endif

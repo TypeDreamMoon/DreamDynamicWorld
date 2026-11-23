@@ -123,6 +123,13 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 17.0f && Entry.Condition.EndHour <= 21.0f;
 		}
 		TestTrue(TEXT("noctilucent clouds for the evening's twilight"), bShine);
+		bool bStorm = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bStorm |= Entry.Modifier && Entry.Modifier->Settings.bOverride_Meteors && Entry.Modifier->Settings.Meteors > 1.0f && Entry.Condition.bHours
+				&& Entry.Condition.StartHour >= 20.0f && Entry.Condition.EndHour <= 6.0f;
+		}
+		TestTrue(TEXT("a meteor storm for the night"), bStorm);
 	}
 
 	// The day's weather in order, a cycle of a day.
