@@ -23,6 +23,10 @@ namespace DreamWind
 		inline const FName MPC_T0(TEXT("DreamWind_T0"));
 		inline const FName MPC_T1(TEXT("DreamWind_T1"));
 		inline const FName MPC_T2(TEXT("DreamWind_T2"));
+		/** The runtime terrain wind map: its near and far level (centre xy, 1 / extent, in use) and its parameters. */
+		inline const FName MPC_L1Near(TEXT("DDW_WindL1Near"));
+		inline const FName MPC_L1Far(TEXT("DDW_WindL1Far"));
+		inline const FName MPC_L1Params(TEXT("DDW_WindL1Params"));
 
 		/** The plugin this module ships in (wind is one of its subsystems). */
 		inline const TCHAR* PluginName = TEXT("DreamDynamicWorld");
