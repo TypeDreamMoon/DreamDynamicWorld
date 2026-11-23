@@ -88,6 +88,15 @@ struct DREAMWIND_API FDreamWindFrameData
 	/** Terrain map render target (null when off) and the CPU copy of the active map. */
 	TWeakObjectPtr<UTextureRenderTarget2D> TerrainTexture;
 	TSharedPtr<const FDreamWindTerrainCpuData, ESPMode::ThreadSafe> TerrainCpu;
+	/** The runtime terrain wind map: DW_UnpackL1Level(L1Near / L1Far) (w = 0 when off), DW_UnpackL1Params(L1Params). */
+	FVector4f L1Near = FVector4f::Zero();
+	FVector4f L1Far = FVector4f::Zero();
+	FVector4f L1Params = FVector4f::Zero();
+	/** Its derived maps (speed multiplier, steering x, y, wind shadow height) and top-surface heights. */
+	TWeakObjectPtr<UTextureRenderTarget2D> L1NearDerived;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1FarDerived;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1NearHeight;
+	TWeakObjectPtr<UTextureRenderTarget2D> L1FarHeight;
 	/** Game-thread frame this data was built on. */
 	uint64 FrameNumber = 0;
 
@@ -267,6 +276,14 @@ public:
 	/** Distance field probes written so far. */
 	uint32 GetDistanceProbeCount() const;
 
+	/** The runtime terrain wind map captures this box again (a building moved, a wall fell); no-op when it is off. */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind|Terrain")
+	void MarkObstaclesDirty(FBox Bounds);
+
+	/** The runtime terrain wind map's captures and derivations so far (tests, stats); 0 when it does not run here. */
+	uint32 GetTerrainCaptureCount() const;
+	uint32 GetTerrainDeriveCount() const;
+
 	/** Force the volume window centre instead of following the camera (cinematics, tests). */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Volume")
 	void OverrideVolumeCenter(FVector Center, bool bEnable);
@@ -376,6 +393,10 @@ private:
 	/** The volumes and the terrain map are shared by every world: this world writes them only while it owns them. */
 	DreamWorld::SharedTargets::FWriter VolumeWriter;
 	DreamWorld::SharedTargets::FWriter TerrainWriter;
+	DreamWorld::SharedTargets::FWriter RuntimeTerrainWriter;
+	/** The runtime terrain wind map (null until it first runs). */
+	TSharedPtr<class FDreamWindTerrainField> TerrainField;
+	void UpdateRuntimeTerrain();
 	FVector LatestViewOrigin = FVector::ZeroVector;
 	bool bHasViewOrigin = false;
 	bool bHasGameViewOrigin = false;

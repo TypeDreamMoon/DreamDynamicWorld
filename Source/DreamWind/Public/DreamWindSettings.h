@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
 #include "DreamWindTypes.h"
+#include "DreamWindTerrainMap.h"
 #include "DreamWindSettings.generated.h"
 
 class UTextureRenderTargetVolume;
@@ -162,6 +163,49 @@ public:
 	/** 2D render target materials read the active terrain map through; the subsystem uploads the map into it. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindTerrain.RT_DreamWindTerrain"));
+
+	/**
+	 * Compute the terrain wind map at run time around the camera (a top-down capture of whatever stands there, World
+	 * Partition and moving buildings included) instead of reading the level's baked map. Off, or where it cannot run
+	 * (mobile, no compute), the baked map stands in.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime")
+	bool bRuntimeTerrain = true;
+
+	/** The near level: its width (cm) and texels a side. 25600 at 256 = 1 m texels over 256 m: buildings, walls, rocks. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "1000", EditCondition = "bRuntimeTerrain"))
+	float RuntimeNearExtent = 25600.0f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "64", ClampMax = "1024", EditCondition = "bRuntimeTerrain"))
+	int32 RuntimeNearResolution = 256;
+
+	/** The far level: 204800 at 256 = 8 m texels over 2 km: ridges and hollows, steering, the lee of hills. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "10000", EditCondition = "bRuntimeTerrain"))
+	float RuntimeFarExtent = 204800.0f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "64", ClampMax = "1024", EditCondition = "bRuntimeTerrain"))
+	int32 RuntimeFarResolution = 256;
+
+	/** How far (cm) the far level's lee reaches behind a hill at most (the near level's is Occlusion Range). */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "0", EditCondition = "bRuntimeTerrain"))
+	float RuntimeFarShadowRange = 50000.0f;
+
+	/** Height (cm) over which a point goes from the open into an obstacle's lee. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "1", EditCondition = "bRuntimeTerrain"))
+	float RuntimeShadowFadeBand = 100.0f;
+
+	/** The capture looks down from this far above the camera (cm); anything taller is cut off at it. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "1000", EditCondition = "bRuntimeTerrain"))
+	float RuntimeCaptureAltitude = 100000.0f;
+
+	/** Each frame one strip of each level is captured again, so moving buildings and streamed-in cells show up: the near
+	 *  level is captured afresh every this many frames (and the far level every twice as many). */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "4", ClampMax = "256", EditCondition = "bRuntimeTerrain"))
+	int32 RuntimeRefreshFrames = 16;
+
+	/** The far level's shapes: how the speed-up over ridges and the steering toward valleys come out of the heights. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (EditCondition = "bRuntimeTerrain"))
+	FDreamWindTerrainBakeSettings RuntimeShape;
 
 	/**
 	 * The runtime terrain wind map's render targets (what the wind computes around the camera instead of baking): per

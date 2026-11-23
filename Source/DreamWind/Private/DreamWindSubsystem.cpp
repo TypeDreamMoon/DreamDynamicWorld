@@ -8,6 +8,8 @@
 #include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
 #include "DreamWindViewExtension.h"
+#include "DreamWindTerrainField.h"
+#include "DataDrivenShaderPlatformInfo.h"
 
 #include "Components/WindDirectionalSourceComponent.h"
 #include "DrawDebugHelpers.h"
@@ -356,6 +358,12 @@ void UDreamWindSubsystem::Deinitialize()
 		VolumeRendererFar->EnqueueReset();
 		VolumeRendererFar.Reset();
 	}
+	// (Its captures and render commands hold only resources the render thread keeps alive; flush before letting go.)
+	if (TerrainField.IsValid())
+	{
+		FlushRenderingCommands();
+		TerrainField.Reset();
+	}
 
 	if (EngineWindComponent)
 	{
@@ -429,6 +437,7 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 		ResolveAssets();
 		UpdateEngineWindSource();
 		UpdateTerrainTexture();
+		UpdateRuntimeTerrain();
 		UpdateVolume(WindDelta);
 		UpdateMaterialParameterCollection();
 	}
@@ -802,6 +811,64 @@ void UDreamWindSubsystem::UpdateMaterialParameterCollection()
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T0, ToLinearColor(ToHlsl(FrameData.T0)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T1, ToLinearColor(ToHlsl(FrameData.T1)));
 	Shared->SetVectorParameter(DreamWind::Names::MPC_T2, ToLinearColor(ToHlsl(FrameData.T2)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Near, ToLinearColor(ToHlsl(FrameData.L1Near)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Far, ToLinearColor(ToHlsl(FrameData.L1Far)));
+	Shared->SetVectorParameter(DreamWind::Names::MPC_L1Params, ToLinearColor(ToHlsl(FrameData.L1Params)));
+}
+
+void UDreamWindSubsystem::UpdateRuntimeTerrain()
+{
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	UWorld* World = GetWorld();
+	FrameData.L1Near = FVector4f::Zero();
+	FrameData.L1Far = FVector4f::Zero();
+	FrameData.L1Params = FVector4f::Zero();
+	// The maps are shared by every world: computed only by the one that owns them (afresh when they come back to it).
+	bool bRedrawAll = false;
+	const bool bRun = Settings->bRuntimeTerrain && Settings->bTerrainEnabled && World && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM5
+		&& RuntimeTerrainWriter.Acquire(World, bRedrawAll);
+	if (!bRun)
+	{
+		if (TerrainField.IsValid())
+		{
+			TerrainField->Stop();
+		}
+		return;
+	}
+	if (!TerrainField.IsValid())
+	{
+		TerrainField = MakeShared<FDreamWindTerrainField>();
+	}
+	TerrainField->Update(*World, FindCameraLocation(), GetGlobalWindDirection(), bRedrawAll);
+	FrameData.L1Near = TerrainField->GetNearLevel();
+	FrameData.L1Far = TerrainField->GetFarLevel();
+	FrameData.L1Params = TerrainField->GetParams();
+	if (DreamWind::GCVarOcclusion == 0)
+	{
+		FrameData.L1Params.X = 0.0f;
+	}
+	FrameData.L1NearDerived = TerrainField->GetNearDerived();
+	FrameData.L1FarDerived = TerrainField->GetFarDerived();
+	FrameData.L1NearHeight = TerrainField->GetNearHeight();
+	FrameData.L1FarHeight = TerrainField->GetFarHeight();
+}
+
+void UDreamWindSubsystem::MarkObstaclesDirty(FBox Bounds)
+{
+	if (TerrainField.IsValid())
+	{
+		TerrainField->MarkDirty(Bounds);
+	}
+}
+
+uint32 UDreamWindSubsystem::GetTerrainCaptureCount() const
+{
+	return TerrainField.IsValid() ? TerrainField->GetCaptureCount() : 0;
+}
+
+uint32 UDreamWindSubsystem::GetTerrainDeriveCount() const
+{
+	return TerrainField.IsValid() ? TerrainField->GetDeriveCount() : 0;
 }
 
 void UDreamWindSubsystem::EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer)
