@@ -448,7 +448,9 @@ the wall; it belongs to the room whose box it stands in or against):
   closed glass window, light and sound only) is carved out of the fluid's walls (as wide as it is open) so the air flows
   through it, and to the CPU it is a short jet: the outdoor wind across it blows in or out. `SetOpenness` /
   `SetVentilate` at run time tell the wind (`UDreamWorldSubsystem::OnPortalChanged`), which looks at the walls there
-  again (`MarkObstaclesDirty`).
+  again (`MarkObstaclesDirty`). `DreamWorld.Portals <openness> [name]` opens and closes them from the console.
+  Measured (`DreamWind.Gpu.FluidPortals`: a 6 m hut in a 9 m/s wind, its doorway upwind, a window across the room):
+  with both open the air along the room's axis moves at 490 cm/s; a pane in the window, it shut, 110 cm/s.
 
 **Sky modifiers** (`UDreamSkyModifier`, a data asset). A change to the sky that comes and goes while the game
 runs: a cave's gloom, a cursed red sky, a dream. Tick what it changes: the sun's and moon's intensity and tint,
@@ -772,7 +774,7 @@ wind (`SampleWind`, forces, gameplay) is the same at every level:
 |---|---|---|---|
 | Low | the level's baked map: speed and steering (its wind shadow, 25 texture reads a vertex, is left to the CPU) | none | none of its own; the frame's baseline |
 | Medium | the runtime map | one fluid grid, 64×64×16 at 4 m (256 m across), 4 pressure iterations, no far grid | 0.09 ms; frame +0.24 ms |
-| High | the runtime map | epic's grids with a quarter fewer pressure iterations near (6), the far grid every third frame | (to be timed) |
+| High | the runtime map | epic's grids with a quarter fewer pressure iterations near (6), the far grid every third frame | 0.19 ms (near 0.12, far 0.08 every third frame, walls, terrain map); the frame not timed apart from epic's |
 | Epic | the runtime map | the settings, as tuned: near 64×64×32 at 1 m (8 iterations, MacCormack, vorticity), far 64×64×32 at 4 m stepped every other frame | 0.24 ms (near 0.13, far 0.08 every other frame, walls 0.01, terrain map); frame +0.41 ms |
 | Cinematic | the runtime map | near 128×128×64 at 50 cm (64 m), 16 iterations; far 96×96×48 at 4 m (384 m), every frame | 0.96 ms (near 0.75, far 0.16); frame +1.13 ms |
 
@@ -1839,7 +1841,8 @@ snapshots), the sun and moon (artistic path; Tokyo's solstice noon, the equinox,
 solar eclipses for the moon's phase), the stars' sidereal time (the epoch, a January evening in both modes, four
 minutes a night, no jump at midnight), the scheduler, the parameter ids, `DreamWorld.Interior.*` (a room's view shut
 and with its door and window open, every change told, the weather kept out inside and not right outside, the wind calm
-inside and blowing in through the open door, not through the glass window) and the view probe (a closed room, a
+inside and blowing in through the open door, not through the glass window; with a renderer
+`DreamWind.Gpu.FluidPortals`, the fluid's draught through a hut) and the view probe (a closed room, a
 porch, the open; rays spread over the round, easing, teleports). `DreamSky.*` checks that a style's
 day is continuous (the main light never jumps, sun and moon never light at once, exposure eases), drives a
 sky actor in a game world (snap on jumps, easing while the clock runs, the night hand-over) and the indoor and
