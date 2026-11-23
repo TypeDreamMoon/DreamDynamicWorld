@@ -12,6 +12,8 @@
 //           (the level's baked heights) - dark, mirror-smooth, flat; faint on soft ground
 //   snow    lies on what faces up first, steep slopes last, thinning out softly over metres; white, matte, flat
 //   dust    settles on what faces up, under the snow: the dust's colour, rough, not metal
+//   cold    on frozen ground the film turns to a glaze of clear ice (darker, glossy), the puddles freeze over (milky,
+//           cracked, flat), and hoarfrost and rime grow as white sparkling crystals; all under the snow
 // MF_DreamSurfaceWeatherTerrain adds the snow's depth; MF_DreamSurfaceWeatherToon shifts colour bands instead.
 // The HLSL is Shaders/Private/DreamSurfaceMaterial.ush.
 
@@ -26,6 +28,16 @@ Function float4 DreamSurface_Shown(
 	// The snow fades over metres where it changes (DSM_SnowSoft).
 	State.z = DSM_SnowSoft(WorldPos, NearPlace, FarPlace, ViewState, NearMap, NearMapSampler, FarMap, FarMapSampler) * Mask.z;
 	return DSM_Covered(State, DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+}
+
+Function float4 DreamSurface_Ice(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewIce, in float4 Params,
+	in Texture2D NearIceMap, in Texture2D FarIceMap, in Texture2D CoverMap, in Texture2D MaskMap)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float4 Ice = DSM_IceState(WorldPos, NearPlace, FarPlace, ViewIce, NearIceMap, NearIceMapSampler, FarIceMap, FarIceMapSampler);
+	return DSM_IceShown(Ice, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
 }
 
 Function float DreamSurface_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
@@ -46,24 +58,26 @@ Function float DreamSurface_Low(in float3 WorldPos, in float4 NearPlace, in Text
 	return DSM_Low(WorldPos, NearPlace, CoverMap, CoverMapSampler);
 }
 
-Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore)
+Function float4 DreamSurface_ColorRough(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
+	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
 	return float4(L.Color, L.Roughness);
 }
 
-Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore)
+Function float4 DreamSurface_NormalMetal(in float3 Color, in float Rough, in float Metal, in float3 Normal, in float4 State, in float3 WorldPos, in float Up, in float Rain, in float Time, in float4 Trail, in float Soft, in float Low, in float PuddleScale, in float4 LookWet, in float4 LookWater, in float4 LookSnow, in float4 LookDust, in float4 LookMore, in float4 Ice, in float4 LookIce, in float4 LookIce2, in float4 LookFrost, in float4 LookCold, in float4 LookCold2, in float3 NormalWS)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	FDreamSurfaceLook L = DSM_Realistic(Color, Rough, Metal, Normal, State, WorldPos, Up, Rain, Time, Trail, Soft, Low, PuddleScale, LookWet, LookWater, LookSnow, LookDust, LookMore);
+	L = DSM_RealisticCold(L, Ice, WorldPos, NormalWS, LookIce, LookIce2, LookFrost, LookCold, LookCold2);
 	return float4(L.Normal, L.Metallic);
 }
 
 ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Plugin.DreamDynamicWorld")
 {
 	Settings = {
-		Description       = "DreamSurface: the weather on a surface (wet, puddles, snow, dust), realistic. Attributes in, attributes out: put it last.";
+		Description       = "DreamSurface: the weather on a surface (wet, puddles, snow, dust, ice and frost), realistic. Attributes in, attributes out: put it last.";
 		ExposeToLibrary   = true;
 		LibraryCategories = "DreamSurface";
 	}
@@ -73,10 +87,13 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		const Texture2D FarMap   = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFar");
 		const Texture2D CoverMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceCover");
 		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
+		const Texture2D NearIceMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearIce");
+		const Texture2D FarIceMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarIce");
 		const Texture2D TrailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceTrails");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewIce") ViewIce;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceTrails") TrailPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
@@ -103,6 +120,20 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 			ScalarParameter DustAmount      = 0.85 [Slider(0, 1); Description="How much of the dust's colour shows where it lies."];
 			ScalarParameter DustRoughness   = 0.95 [Slider(0, 1)];
 		}
+		Group("Weather Look|Cold") {
+			VectorParameter IceTint          = float4(0.92, 0.95, 1.0, 1.0) [Description="The tint a glaze of clear ice (black ice) gives a surface."];
+			ScalarParameter IceRoughness     = 0.06 [Slider(0, 1); Description="A glazed surface's roughness."];
+			ScalarParameter IceValue         = 0.8  [Slider(0, 1); Description="How much of its colour a glazed surface keeps (ice darkens a surface as water does)."];
+			VectorParameter FrozenPuddleColor = float4(0.62, 0.68, 0.74, 1.0) [Description="A frozen puddle's milky ice."];
+			ScalarParameter FrozenPuddleRoughness = 0.15 [Slider(0, 1)];
+			VectorParameter FrostColor       = float4(0.86, 0.89, 0.93, 1.0) [Description="Hoarfrost and rime's colour."];
+			ScalarParameter FrostRoughness   = 0.75 [Slider(0, 1)];
+			ScalarParameter FrostCoverGain   = 1.0  [Slider(0, 3); Description="How readily frost and rime cover: above 1 a thin frost covers sooner."];
+			ScalarParameter FrostGlints      = 0.5  [Slider(0, 2); Description="How far the crystals' glints tilt the normal (how much a frosted surface sparkles)."];
+			ScalarParameter RimeBrightness   = 1.04 [Slider(0.8, 1.3); Description="Rime's colour over the frost's (denser, whiter)."];
+			ScalarParameter FrostAmount      = 0.5  [Slider(0, 1); Description="How far a full frost whitens a surface: a frost lets it show through."];
+			ScalarParameter RimeAmount       = 0.9  [Slider(0, 1); Description="How far a full rime whitens a surface (a crust)."];
+		}
 	}
 
 	Inputs = {
@@ -127,8 +158,15 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeather", Root="Pl
 		float4 LookSnow = float4(SnowColor.rgb, SnowRoughness);
 		float4 LookDust = float4(DustColor.rgb, DustAmount);
 		float4 LookMore = float4(SnowCoverGain, DustRoughness, PrintDarken, 0.0);
-		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore);
-		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore);
+		float4 Ice = DreamSurface_Ice(WP, NearPlace, FarPlace, ViewIce, Params, NearIceMap, FarIceMap, CoverMap, MaskMap);
+		float4 LookIce = float4(IceTint.rgb, IceRoughness);
+		float4 LookIce2 = float4(FrozenPuddleColor.rgb, FrozenPuddleRoughness);
+		float4 LookFrost = float4(FrostColor.rgb, FrostRoughness);
+		float4 LookCold = float4(FrostCoverGain, IceValue, FrostGlints, RimeBrightness);
+		float4 LookCold2 = float4(FrostAmount, RimeAmount, 0.0, 0.0);
+		float3 NormalWS = UE.VertexNormalWS();
+		float4 CR = DreamSurface_ColorRough(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
+		float4 NM = DreamSurface_NormalMetal(Attributes.BaseColor, Attributes.Roughness, Attributes.Metallic, Attributes.Normal, State, WP, Up, Rain, Seconds, Trail, Softness, Low, Params.w, LookWet, LookWater, LookSnow, LookDust, LookMore, Ice, LookIce, LookIce2, LookFrost, LookCold, LookCold2, NormalWS);
 		Result = Attributes;
 		Result.BaseColor = CR.xyz;
 		Result.Roughness = CR.w;

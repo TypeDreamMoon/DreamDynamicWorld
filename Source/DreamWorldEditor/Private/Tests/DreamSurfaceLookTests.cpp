@@ -26,9 +26,14 @@ namespace DreamWorld::SurfaceLookTests
 		{ TEXT("PuddleValue"), 0.35f }, { TEXT("PuddleRoughness"), 0.02f }, { TEXT("RippleStrength"), 0.35f },
 		{ TEXT("SnowRoughness"), 0.6f }, { TEXT("SnowCoverGain"), 1.0f }, { TEXT("PrintDarken"), 0.12f },
 		{ TEXT("DustAmount"), 0.85f }, { TEXT("DustRoughness"), 0.95f },
+		{ TEXT("IceRoughness"), 0.06f }, { TEXT("IceValue"), 0.8f }, { TEXT("FrozenPuddleRoughness"), 0.15f },
+		{ TEXT("FrostRoughness"), 0.75f }, { TEXT("FrostCoverGain"), 1.0f }, { TEXT("FrostGlints"), 0.5f }, { TEXT("RimeBrightness"), 1.04f },
+		{ TEXT("FrostAmount"), 0.5f }, { TEXT("RimeAmount"), 0.9f },
 	};
 	const FVector3 RealisticVectors[] = {
 		{ TEXT("SnowColor"), FLinearColor(0.88f, 0.9f, 0.93f, 1.0f) }, { TEXT("DustColor"), FLinearColor(0.55f, 0.46f, 0.34f, 1.0f) },
+		{ TEXT("IceTint"), FLinearColor(0.92f, 0.95f, 1.0f, 1.0f) }, { TEXT("FrozenPuddleColor"), FLinearColor(0.62f, 0.68f, 0.74f, 1.0f) },
+		{ TEXT("FrostColor"), FLinearColor(0.86f, 0.89f, 0.93f, 1.0f) },
 	};
 
 	/** The toon look's parameters (MF_DreamSurfaceWeatherToon) and their defaults. */
@@ -39,10 +44,16 @@ namespace DreamWorld::SurfaceLookTests
 		{ TEXT("ToonPuddleRoughness"), 0.05f }, { TEXT("ToonPuddleRimWidth"), 0.2f }, { TEXT("ToonRippleBrightness"), 0.18f },
 		{ TEXT("ToonSnowThreshold"), 0.5f }, { TEXT("ToonSnowRoughness"), 0.7f }, { TEXT("ToonPrintThreshold"), 0.5f },
 		{ TEXT("ToonDustThreshold"), 0.4f }, { TEXT("ToonDustAmount"), 0.8f }, { TEXT("ToonDustRoughness"), 0.95f },
+		{ TEXT("ToonIceThreshold"), 0.5f }, { TEXT("ToonIceTintAmount"), 0.35f }, { TEXT("ToonIceRoughnessScale"), 0.25f },
+		{ TEXT("ToonFrozenPuddleThreshold"), 0.5f }, { TEXT("ToonCrackBrightness"), 0.15f }, { TEXT("ToonFrostThreshold"), 0.45f },
+		{ TEXT("ToonFrostRoughness"), 0.8f }, { TEXT("ToonFrostCoverGain"), 1.0f }, { TEXT("ToonGlintBrightness"), 0.25f },
+		{ TEXT("ToonFrostAmount"), 0.5f }, { TEXT("ToonRimeAmount"), 0.9f },
 	};
 	const FVector3 ToonVectors[] = {
 		{ TEXT("ToonPuddleRimColor"), FLinearColor(0.12f, 0.12f, 0.12f, 1.0f) }, { TEXT("ToonSnowColor"), FLinearColor(0.9f, 0.93f, 1.0f, 1.0f) },
 		{ TEXT("ToonDustColor"), FLinearColor(0.6f, 0.5f, 0.36f, 1.0f) },
+		{ TEXT("ToonIceTint"), FLinearColor(0.82f, 0.9f, 1.0f, 1.0f) }, { TEXT("ToonFrozenPuddleColor"), FLinearColor(0.7f, 0.8f, 0.88f, 1.0f) },
+		{ TEXT("ToonFrostColor"), FLinearColor(0.88f, 0.93f, 1.0f, 1.0f) },
 	};
 
 	template <int32 NumScalars, int32 NumVectors>
