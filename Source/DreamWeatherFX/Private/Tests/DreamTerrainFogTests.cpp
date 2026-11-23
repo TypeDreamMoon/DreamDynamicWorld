@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamTerrainFog.h"
+#include "DreamGroundFog.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -8,7 +9,9 @@
 #include "DreamWindSubsystem.h"
 #include "DreamWorldSubsystem.h"
 
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
 #include "UObject/Package.h"
@@ -187,6 +190,37 @@ bool FDreamTerrainFogActorTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("a point low in the bowl is in the fog"), Fog->IsInFog(FVector(0, 0, -60)));
 	TestFalse(TEXT("one well above it is not"), Fog->IsInFog(FVector(0, 0, 400)));
 	TestFalse(TEXT("nor one outside the box"), Fog->IsInFog(FVector(3000, 0, -60)));
+
+	// Drawn marched (the default): the fog volume shows, its layer the grid, its box round the fog.
+	IConsoleVariable* Volumetric = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamWeather.Fog.Volumetric"));
+	const int32 WasVolumetric = Volumetric ? Volumetric->GetInt() : 1;
+	ON_SCOPE_EXIT { if (Volumetric) { Volumetric->Set(WasVolumetric, ECVF_SetByScalability); } };
+	auto SetVolumetric = [Volumetric, Fog](bool bOn)
+	{
+		if (Volumetric)
+		{
+			Volumetric->Set(bOn ? 1 : 0, ECVF_SetByScalability);
+		}
+		Fog->Settle();
+	};
+	SetVolumetric(true);
+	if (TestNotNull(TEXT("the fog volume"), Fog->FogVolume.Get()))
+	{
+		const FDreamGroundFogParams& P = Fog->FogVolume->GetFogParams();
+		AddInfo(FString::Printf(TEXT("marched: radiation %.2f, box %.0f..%.0f cm, pooled fog %.3f/m, mist %.3f/m, noise %.0f cm"),
+			P.Radiation, P.BoxLow, P.BoxHigh, P.PoolExtinction, P.MistExtinction, P.NoiseSize));
+		TestTrue(TEXT("marched: the fog volume draws at dawn"), Fog->FogVolume->IsVisible());
+		TestEqual(TEXT("marched: no local fog volume draws"), Fog->GetVisiblePatchCount(), 0);
+		TestNearlyEqual(TEXT("marched: the fog's state"), P.Radiation, Dawn.Radiation, 1.0e-4f);
+		TestTrue(TEXT("marched: the box reaches from the lowest ground over the fog's top"),
+			P.BoxLow <= Fog->GetGroundHeightAt(FVector(0, 0, 0)) && P.BoxHigh >= Fog->GetGroundHeightAt(FVector(0, 0, 0)) + Middle);
+		TestTrue(TEXT("marched: its layer is the grid"), Fog->FogVolume->GetLayerMap() && Fog->FogVolume->GetLayerMap()->GetSizeX() == 16);
+		TestNotNull(TEXT("marched: its material (compile M_DreamGroundFog)"), Fog->FogVolume->GetFogMaterial());
+	}
+
+	// Drawn with local fog volumes (the low quality level's): on the ground under the fog.
+	SetVolumetric(false);
+	TestFalse(TEXT("volumes: the fog volume does not draw"), Fog->FogVolume && Fog->FogVolume->IsVisible());
 	const int32 DawnPatches = Fog->GetVisiblePatchCount();
 	bool bOnTheFog = DawnPatches > 0;
 	for (int32 i = 0; i < Fog->Patches; ++i)
@@ -209,6 +243,18 @@ bool FDreamTerrainFogActorTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("10:30: sun %.1f deg -> radiation %.2f, %d patches drawing"), Fog->GetAir().SunElevation, Late.Radiation, Fog->GetVisiblePatchCount()));
 	TestTrue(TEXT("gone by mid-morning (the clock's jump settles it)"), Late.Radiation < 0.1f);
 	TestTrue(TEXT("fewer patches"), Fog->GetVisiblePatchCount() < DawnPatches);
+	SetVolumetric(true);
+	TestTrue(TEXT("marched: next to nothing by mid-morning"), !Fog->FogVolume->IsVisible() || Fog->FogVolume->GetFogParams().Radiation < 0.01f);
+
+	// Each terrain fog draws from its own layer (a second one in the same world keeps its own map).
+	ADreamTerrainFog* Other = World->SpawnActor<ADreamTerrainFog>(FVector(5000, 0, 0), FRotator::ZeroRotator, Spawn);
+	Other->Extent = FVector(1000.0, 1000.0, 500.0);
+	Other->Cells = 8;
+	TArray<float> Flat;
+	Flat.Init(300.0f, 64);
+	Other->SetTerrainHeights(Flat);
+	TestTrue(TEXT("two terrain fogs, two layers"), Other->FogVolume && Fog->FogVolume && Other->FogVolume->GetLayerMap() != Fog->FogVolume->GetLayerMap()
+		&& Fog->FogVolume->GetLayerMap() && Fog->FogVolume->GetLayerMap()->GetSizeX() == 16);
 
 	// Held: full fog whatever the air.
 	Fog->bForce = true;
