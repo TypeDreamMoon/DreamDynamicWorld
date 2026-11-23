@@ -617,6 +617,28 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Quality levels
+
+Dream Dynamic World follows the engine's scalability: each group of its features takes the level of the engine group it
+belongs with -- the sky (`sg.EffectsQuality`), the surface maps (`sg.TextureQuality`), the weather's particles
+(`sg.EffectsQuality`), its volumetric fog (`sg.ShadowQuality`) and the wind (`sg.EffectsQuality`) -- or Dream Dynamic
+World's own, `r.DreamWorld.Quality` (0 low .. 4 cinematic, -1 the engine's; `UDreamWorldQuality::SetQualityOverride`
+from a settings menu). When a level changes the world clock sets the console variables its group maps to, at the
+scalability's priority, so anything set by hand (the console, an ini, a device profile) still wins; switching while the
+game runs swaps them in place -- the clouds keep drawing, their history starting afresh, nothing goes blank.
+
+| Level | Clouds | Light shafts | Sky extras (`DreamSky.SkyDetail`) | Particles | Volumetric fog |
+|---|---|---|---|---|---|
+| Low | the flat clouds (`DreamSky.Clouds.Flat 1`) | off | none (no aurora, halos, meteors, noctilucent clouds) | 35% | off |
+| Medium | a third resolution, 96 samples, sun maps in 8 slices | off, 12 samples | aurora and halos; no meteors, satellites or noctilucent clouds | 60% | off |
+| High | half resolution, 128 samples, 6 slices | on, 16 samples | all | 85% | the sky's |
+| Epic | half resolution, 160 samples, 6 slices (as tuned) | on, 24 samples | all | 100% | the sky's |
+| Cinematic | full resolution, 256 samples, the sun maps whole | on, 48 samples | all | 100% | the sky's |
+
+The wind takes its level from `r.DreamWind.Quality` (-1 = as above) and the surface maps theirs from
+`r.DreamSurface.Quality`; `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
+each group's levels set.
+
 ### Weather radar
 
 `UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north

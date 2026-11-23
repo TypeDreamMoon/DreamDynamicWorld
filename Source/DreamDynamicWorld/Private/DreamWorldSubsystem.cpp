@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldQuality.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSettings.h"
@@ -95,6 +96,8 @@ void UDreamWorldSubsystem::Tick(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_DreamWorldTick);
 	const double TickStart = FPlatformTime::Seconds();
+	// (The quality levels: their console variables set again when a level changed, before anything reads them.)
+	UDreamWorldQuality::Apply();
 
 	const double PrevSeconds = WorldSeconds;
 	bool bJumped = bJumpPending;

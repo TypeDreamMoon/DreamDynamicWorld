@@ -8,6 +8,8 @@
 #include "DreamSkySubsystem.h"
 #include "DreamWorldSettings.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldQuality.h"
+#include "HAL/IConsoleManager.h"
 
 #include "Components/DirectionalLightComponent.h"
 #include "Engine/World.h"
@@ -994,6 +996,66 @@ bool FDreamSkyTwilightCloudColoursTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("sun %.0f: the shade low in saturation (%s)"), Elevation, *S.ToString()), S.B < 1.6f * FMath::Min(S.R, S.G));
 		TestTrue(FString::Printf(TEXT("sun %.0f: the lit side too (%s)"), Elevation, *L.ToString()), L.B < 1.45f * FMath::Min(L.R, L.G));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldQualityTest, "DreamSky.Quality", DreamSky::NightTests::Flags)
+bool FDreamWorldQualityTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+	IConsoleManager& Console = IConsoleManager::Get();
+	auto Int = [&Console](const TCHAR* Name) { const IConsoleVariable* V = Console.FindConsoleVariable(Name); return V ? V->GetInt() : -999; };
+	auto Float = [&Console](const TCHAR* Name) { const IConsoleVariable* V = Console.FindConsoleVariable(Name); return V ? V->GetFloat() : -999.0f; };
+	const int32 Saved = UDreamWorldQuality::GetQualityOverride();
+
+	// Every entry of the mapping table names a console variable that is there, with five levels.
+	for (int32 G = 0; G < 5; ++G)
+	{
+		for (const FDreamWorldQualitySetting& Setting : UDreamWorldQuality::QualityTable(EDreamWorldQualityGroup(G)))
+		{
+			TestNotNull(*FString::Printf(TEXT("%s is a console variable"), Setting.Name), Console.FindConsoleVariable(Setting.Name));
+		}
+	}
+	TestNotNull(TEXT("the wind's entry"), Console.FindConsoleVariable(TEXT("r.DreamWind.Quality")));
+
+	// Low: the flat clouds, coarse clouds, no shafts, the sky's extras gone, fewer particles, no volumetric fog.
+	UDreamWorldQuality::SetQualityOverride(0);
+	UDreamWorldQuality::Apply();
+	TestEqual(TEXT("low: every group low"), UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup::Sky) + UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup::Wind), 0);
+	TestEqual(TEXT("low: the flat clouds"), Int(TEXT("DreamSky.Clouds.Flat")), 1);
+	TestEqual(TEXT("low: the clouds at a quarter"), Int(TEXT("DreamSky.CloudRender.Downsample")), 4);
+	TestEqual(TEXT("low: no sky extras"), Int(TEXT("DreamSky.SkyDetail")), 0);
+	TestNearlyEqual(TEXT("low: fewer particles"), Float(TEXT("DreamWeather.ParticleDensity")), 0.35f, 1e-4f);
+	TestEqual(TEXT("low: no volumetric fog"), Int(TEXT("DreamSky.VolumetricFog")), 0);
+	{
+		// The dome is told: no halos, no meteors with the sky's extras gone.
+		FNightWorld W(FDateTime(2026, 8, 12, 23, 30, 0), 45.0, 10.0, 1.0f);
+		if (TestTrue(TEXT("world"), W.IsValid()))
+		{
+			W.Sky->GetEffectiveStyle()->CloudHighCover = 0.9f;
+			W.Clock->Tick(0.016f);
+			TestEqual(TEXT("low: no meteors drawn"), W.Parameter(MPC_Meteors).G, 0.0f);
+			TestEqual(TEXT("low: no halos"), W.Parameter(MPC_Halo).R, 0.0f);
+		}
+	}
+	// A value set by hand outlives the levels.
+	if (IConsoleVariable* Samples = Console.FindConsoleVariable(TEXT("DreamSky.CloudRender.Samples")))
+	{
+		Samples->Set(200, ECVF_SetByConsole);
+		UDreamWorldQuality::SetQualityOverride(1);
+		UDreamWorldQuality::Apply();
+		TestEqual(TEXT("set by hand: kept over the level's"), Int(TEXT("DreamSky.CloudRender.Samples")), 200);
+		TestEqual(TEXT("the rest at medium"), Int(TEXT("DreamSky.CloudRender.Downsample")), 3);
+		Samples->Set(160, ECVF_SetByConsole);
+	}
+	// Cinematic, then back to the engine's levels (epic by default: the tuned values).
+	UDreamWorldQuality::SetQualityOverride(4);
+	UDreamWorldQuality::Apply();
+	TestEqual(TEXT("cinematic: the clouds at full resolution"), Int(TEXT("DreamSky.CloudRender.Downsample")), 1);
+	TestEqual(TEXT("cinematic: the sun maps whole"), Int(TEXT("DreamSky.CloudRender.SunMapSlices")), 1);
+	UDreamWorldQuality::SetQualityOverride(Saved);
+	UDreamWorldQuality::Apply(true);
 	return true;
 }
 

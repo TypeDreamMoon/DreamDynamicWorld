@@ -18,6 +18,8 @@
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
 #include "NiagaraSystem.h"
 
+#include "HAL/IConsoleManager.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DreamWeatherFXSubsystem)
 
 DECLARE_CYCLE_STAT(TEXT("DreamWeather Precipitation"), STAT_DreamWeatherPrecipitation, STATGROUP_Game);
@@ -29,6 +31,10 @@ namespace DreamWeatherFX
 	static const FName Starts(TEXT("User.Starts"));
 	static const FName Normals(TEXT("User.Normals"));
 	static const FName DropRate(TEXT("User.DropRate"));
+	static TAutoConsoleVariable<float> CVarParticleDensity(
+		TEXT("DreamWeather.ParticleDensity"), 1.0f,
+		TEXT("How many of the weather's particles (rain, snow, dust, their splashes) are spawned, of the style's (the quality levels set it)."),
+		ECVF_Scalability);
 	static const FName SplashRate(TEXT("User.SplashRate"));
 	static const FName Anywhere(TEXT("User.Anywhere"));
 	static const FName Presence(TEXT("User.Presence"));
@@ -397,8 +403,10 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 
 	const int32 Count = State.Paths.GetEnds().Num();
 	const float Landed = Count > 0 ? float(State.Paths.CountLanded()) / float(Count) : 0.0f;
-	State.DropRate = Layer.DropsPerSecond * Strength * FMath::Clamp(DropShare, 0.0f, 1.0f);
-	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed;
+	// (As many as the quality's particle density allows.)
+	const float Density = FMath::Max(DreamWeatherFX::CVarParticleDensity.GetValueOnGameThread(), 0.0f);
+	State.DropRate = Layer.DropsPerSecond * Strength * FMath::Clamp(DropShare, 0.0f, 1.0f) * Density;
+	State.SplashRate = Layer.SplashesPerSecond * Strength * Landed * Density;
 
 	Effect = EnsureEffect(Index, Layer, ViewLocation);
 	if (!Effect)
@@ -494,7 +502,7 @@ void UDreamWeatherFXSubsystem::UpdateDebris(UDreamWorldSubsystem& Clock, float S
 	using namespace DreamWeatherFX;
 	const UDreamWeatherFXSettings* S = UDreamWeatherFXSettings::Get();
 	const FLayerState& Blown = States[DustLayer];
-	DebrisRate = S->DebrisPerSecond * FMath::Max(Strength, 0.0f);
+	DebrisRate = S->DebrisPerSecond * FMath::Max(Strength, 0.0f) * FMath::Max(DreamWeatherFX::CVarParticleDensity.GetValueOnGameThread(), 0.0f);
 	if (DebrisRate <= 0.0f && !DebrisEffect)
 	{
 		return;

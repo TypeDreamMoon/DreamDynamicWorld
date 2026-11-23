@@ -40,6 +40,12 @@ static TAutoConsoleVariable<bool> CVarDreamSkyCloudRenderEnable(
 	TEXT(" Shader Model 5, the mobile renderer) they are left out whatever it says."),
 	ECVF_Scalability);
 
+static TAutoConsoleVariable<int32> CVarDreamSkyVolumetricFog(
+	TEXT("DreamSky.VolumetricFog"), -1,
+	TEXT("The sky's height fog's volumetric fog whatever the sky says: 0 off, 1 on; -1 = the sky's (its ambient overrides, the")
+	TEXT(" fog's own). The quality levels set it."),
+	ECVF_Scalability);
+
 static TAutoConsoleVariable<int32> CVarDreamSkySkyLightSource(
 	TEXT("DreamSky.SkyLightSource"), -1,
 	TEXT("The sky light's source whatever the sky says: 0 the dome captured in real time, 1 captured when it changed, 2 a fixed")
@@ -325,7 +331,9 @@ void ADreamSky::ApplyComponentOverrides(bool bRestoreUnticked)
 		{
 			HeightFog->SetStartDistance(Start);
 		}
-		const bool bVolumetric = Want(A.bOverride_VolumetricFog, A.bVolumetricFog, bool(DefaultFog->bEnableVolumetricFog), bool(HeightFog->bEnableVolumetricFog));
+		const int32 ForcedVolumetric = CVarDreamSkyVolumetricFog.GetValueOnGameThread();
+		const bool bVolumetric = ForcedVolumetric >= 0 ? ForcedVolumetric > 0
+			: Want(A.bOverride_VolumetricFog, A.bVolumetricFog, bool(DefaultFog->bEnableVolumetricFog), bool(HeightFog->bEnableVolumetricFog));
 		if (bool(HeightFog->bEnableVolumetricFog) != bVolumetric)
 		{
 			HeightFog->SetVolumetricFog(bVolumetric);
