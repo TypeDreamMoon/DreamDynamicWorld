@@ -113,10 +113,14 @@ namespace DreamSurface::Tests
 			}
 		}
 
-		/** Sets the clock and runs a frame there. */
+		/**
+		 * Sets the clock and runs a frame there, and another: when a step going by has both maps integrate, the far one
+		 * does it a frame after the near one.
+		 */
 		void GoTo(double Seconds)
 		{
 			Clock->SetWorldSeconds(Seconds);
+			Clock->Tick(0.0f);
 			Clock->Tick(0.0f);
 		}
 

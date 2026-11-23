@@ -58,6 +58,10 @@ public:
 		/** The water bodies over each whole step, then the step in progress (FDreamSurfaceMapSteps::Floods). */
 		TArray<FVector4f> Floods;
 		int32 NumFloodBodies = 0;
+		/** The box (min x, y, max x, y) every water body's area lies in over all the blocks of Floods. */
+		FVector4f FloodBounds = FVector4f(1.0e30f, 1.0e30f, -1.0e30f, -1.0e30f);
+		/** Hail in some whole step or zone: false lets the integral leave the hail's part alone where no flood reaches. */
+		bool bHailWork = true;
 	};
 
 	struct FCoverArgs

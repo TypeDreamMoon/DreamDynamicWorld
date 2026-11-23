@@ -54,6 +54,8 @@ StructuredBuffer<float4> Zones;
 StructuredBuffer<float4> ZoneTracks;
 StructuredBuffer<float4> Floods;      // the water bodies over each whole step, then the step in progress: NumFloodBodies records of two float4
 uint NumFloodBodies;
+float4 FloodBounds;     // the box (min x, y, max x, y) every water body's area lies in over the steps: no flood outside it
+uint HailWork;          // 0: no hail in any whole step or zone (the integral leaves the hail's part alone where no flood reaches)
 RWTexture2D<float4> StepStart;
 RWTexture2D<float4> IceStepStart;
 RWTexture2D<float4> HailStepStart;
@@ -233,7 +235,9 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	float2 P = TexelWorld(DispatchThreadId.xy);
 	// (the terrain map as it stands now, for every step of the memory: its lees move only as the wind turns)
 	const float WindFactor = WindFactorAt(P);
-	const float Ground = NumFloodBodies > 0 ? GroundAt(P) : -1.0e7f;
+	// (No water body's area reaches a texel outside FloodBounds in any step: no ground to ask, no flood to step.)
+	const bool bFloodHere = NumFloodBodies > 0 && all(P >= FloodBounds.xy) && all(P <= FloodBounds.zw);
+	const float Ground = bFloodHere ? GroundAt(P) : -1.0e7f;
 	float4 S;
 	float4 S2;
 	float4 S3;
@@ -249,11 +253,18 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			// Every part from the state at the start of the step.
 			float4 Next = DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, StepHours);
 			float4 NextIce = DSF_StepIce(S, S2, D.D0, D.D1, Rates0, Rates3, Rates4, StepHours);
-			S3 = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, StepHours);
+			// (With no hail in any step or zone, and no flood here, the hail's part stays what it started as: none.)
+			[branch] if (HailWork != 0)
+			{
+				S3 = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, StepHours);
+			}
 			// Then a water body's flood over it (DreamWater), as UDreamSurfaceSubsystem::Step has it.
-			const float2 Flood = FloodHere(k, P, Ground);
-			Next = DSF_FloodWater(Next, Flood.x);
-			S3 = DSF_StepFlood(S3, Flood.x, Flood.y, D.D0, StepHours);
+			[branch] if (bFloodHere)
+			{
+				const float2 Flood = FloodHere(k, P, Ground);
+				Next = DSF_FloodWater(Next, Flood.x);
+				S3 = DSF_StepFlood(S3, Flood.x, Flood.y, D.D0, StepHours);
+			}
 			S2 = NextIce;
 			S = Next;
 		}
