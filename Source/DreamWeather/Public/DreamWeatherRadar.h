@@ -27,31 +27,32 @@ struct DREAMWEATHER_API FDreamWeatherRadarLook
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", UIMax = "50"))
 	float RingKm = 10.0f;
 
-	/** The precipitation's steps: each colour from the precipitation (0..1) it begins at. */
+	/** The precipitation's steps: each colour from the precipitation (0..1) it begins at (by default muted: a grey green,
+	 *  a grey yellow, a terracotta, a dull rose -- told apart by their hue and brightness, not glaring). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor LightColor = FLinearColor(0.2f, 0.7f, 0.35f);
+	FLinearColor LightColor = FLinearColor(0.2f, 0.29f, 0.23f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float LightFrom = 0.03f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor ModerateColor = FLinearColor(0.9f, 0.82f, 0.25f);
+	FLinearColor ModerateColor = FLinearColor(0.36f, 0.34f, 0.22f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float ModerateFrom = 0.3f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor HeavyColor = FLinearColor(0.9f, 0.38f, 0.18f);
+	FLinearColor HeavyColor = FLinearColor(0.45f, 0.27f, 0.19f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float HeavyFrom = 0.6f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor ExtremeColor = FLinearColor(0.75f, 0.25f, 0.7f);
+	FLinearColor ExtremeColor = FLinearColor(0.42f, 0.2f, 0.3f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float ExtremeFrom = 0.85f;
 
 	/** Snow's colour (the steps turn to it as far as the view's precipitation falls as snow). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor SnowColor = FLinearColor(0.6f, 0.8f, 1.0f);
+	FLinearColor SnowColor = FLinearColor(0.55f, 0.64f, 0.74f);
 
 	/** The cloud cover's veil under the precipitation, and how opaque at a full cover. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor CloudColor = FLinearColor(0.5f, 0.55f, 0.62f);
+	FLinearColor CloudColor = FLinearColor(0.42f, 0.45f, 0.5f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float CloudOpacity = 0.3f;
 
@@ -63,7 +64,7 @@ struct DREAMWEATHER_API FDreamWeatherRadarLook
 
 	/** The marks (rings, the middle's cross, the range's edge): their colour and opacity. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (HideAlphaChannel))
-	FLinearColor MarksColor = FLinearColor(0.75f, 0.85f, 0.8f);
+	FLinearColor MarksColor = FLinearColor(0.62f, 0.68f, 0.66f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Radar", meta = (ClampMin = "0", ClampMax = "1"))
 	float MarksOpacity = 0.5f;
 

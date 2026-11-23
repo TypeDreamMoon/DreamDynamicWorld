@@ -614,8 +614,9 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 ### Weather radar
 
 `UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north
-up: the precipitation in the radar's colour steps (light green, moderate yellow, heavy orange, extreme magenta, each
-from its threshold; snow's own blue as the view's precipitation falls as snow), the cloud cover a faint veil under it,
+up: the precipitation in the radar's colour steps (by default muted: a grey green, a grey yellow, a terracotta and a
+dull rose, from light to extreme, each from its threshold; snow's own grey blue as the view's precipitation falls as
+snow), the cloud cover a faint veil under it,
 range rings and a cross at the middle -- into a texture any UI can show (`GetRadarTexture`, redrawn every
 `RefreshSeconds`), with `UDreamWeatherRadarImage`, a UMG image (the *Dream Weather* palette) that shows it, and
 `ADreamWeatherRadarDisplay`, a screen in the world showing it (the showcase has one ahead of the start). Its look --
