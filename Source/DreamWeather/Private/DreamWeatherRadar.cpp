@@ -14,6 +14,8 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Rendering/DrawElements.h"
+#include "Widgets/SLeafWidget.h"
 
 namespace DreamWeather::RadarNames
 {
@@ -256,6 +258,46 @@ void UDreamWeatherRadarImage::SynchronizeProperties()
 		}
 		SetBrushResourceObject(Radar->GetRadarTexture());
 	}
+}
+
+namespace DreamWeatherRadarImpl
+{
+	/** The radar image's brush drawn opaque. */
+	class SRadarImage : public SLeafWidget
+	{
+	public:
+		SLATE_BEGIN_ARGS(SRadarImage) {}
+			SLATE_ARGUMENT(TWeakObjectPtr<UDreamWeatherRadarImage>, Owner)
+		SLATE_END_ARGS()
+
+		void Construct(const FArguments& InArgs) { Owner = InArgs._Owner; }
+
+		virtual FVector2D ComputeDesiredSize(float) const override
+		{
+			const UDreamWeatherRadarImage* Image = Owner.Get();
+			return Image ? FVector2D(Image->GetBrush().GetImageSize()) : FVector2D(256.0, 256.0);
+		}
+
+		virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& Geometry, const FSlateRect& Culling, FSlateWindowElementList& Elements, int32 LayerId,
+			const FWidgetStyle& Style, bool bParentEnabled) const override
+		{
+			const UDreamWeatherRadarImage* Image = Owner.Get();
+			if (Image && Image->GetBrush().GetResourceObject())
+			{
+				FSlateDrawElement::MakeBox(Elements, LayerId, Geometry.ToPaintGeometry(), &Image->GetBrush(), ESlateDrawEffect::IgnoreTextureAlpha,
+					Image->GetColorAndOpacity() * Style.GetColorAndOpacityTint());
+			}
+			return LayerId;
+		}
+
+	private:
+		TWeakObjectPtr<UDreamWeatherRadarImage> Owner;
+	};
+}
+
+TSharedRef<SWidget> UDreamWeatherRadarImage::RebuildWidget()
+{
+	return SNew(DreamWeatherRadarImpl::SRadarImage).Owner(this);
 }
 
 #if WITH_EDITOR
