@@ -1,0 +1,155 @@
+// DreamWind: a whirlwind's dust and debris (a dust devil, a tornado), placed at its foot on the ground (ADreamWindVortex).
+//
+// Dust: puffs lifted from a ring round the foot, then carried by the wind field (DreamWindForce): the whirlwind's own
+// source (EDreamWindSourceType::Twister) turns them round its core, lifts them up it and draws the low ones in, so the
+// column is the wind's, not a drawn shape -- it leans and wanders as the wind does, and the fluid's eddies show in it.
+// Debris: small pieces (leaves, grit, for a tornado wood and dirt) thrown round the same way, heavier: they rise less
+// and fall out of the column. The actor sets the rates, sizes and colours from its kind and how strong it is now.
+System(Name="Wind/Effects/NS_DreamWindVortex", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        ModulePaths = ["/DreamDynamicWorld/Wind/Modules", "/DreamDynamicWorld/Weather/Modules"];
+        WarmupTime  = 0.0;
+        FixedBounds = box(-20000, -20000, -2000, 20000, 20000, 40000);
+    }
+
+    Properties = {
+        DI<DreamWind> Wind;
+        float  DustRate     = 60.0              [ Group="Dust"; Description="Puffs a second." ];
+        float  Radius       = 400.0             [ Group="Dust"; Description="cm round the foot the puffs and pieces are lifted from." ];
+        float  Height       = 150.0             [ Group="Dust"; Description="cm up from the ground they start within (most near it)." ];
+        float  Lifetime     = 6.0               [ Group="Dust"; Description="Seconds a puff lives." ];
+        float  PuffSize     = 160.0             [ Group="Dust"; Description="A puff's size at the start, cm (it grows to three times that)." ];
+        Color  Tint         = (0.62, 0.52, 0.40, 0.55) [ Group="Dust" ];
+        float  Intensity    = 1.0               [ Group="Dust"; Description="0..1: how strong the whirlwind is now (fades the dust in and out)." ];
+        float  Drag         = 3.0               [ Group="Wind"; Description="1/s, how tightly the dust follows the air." ];
+        float  Settle       = 60.0              [ Group="Wind"; Description="cm/s^2 the dust sinks by." ];
+        float  DebrisRate   = 0.0               [ Group="Debris"; Description="Pieces a second." ];
+        float  DebrisSize   = 12.0              [ Group="Debris"; Description="A piece's size, cm." ];
+        Color  DebrisColor  = (0.35, 0.27, 0.18, 1.0) [ Group="Debris" ];
+    }
+
+    Emitter Dust
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 2048;
+            FixedBounds        = box(-20000, -20000, -2000, 20000, 20000, 40000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = hlsl { User.DustRate * User.Intensity });
+        }
+
+        ParticleSpawn = {
+            // where on the ring (read below, past a module: an assignment block reads the attributes as they stood)
+            float Particles.VortexAngle = hlsl { rand(6.2831853) };
+            float Particles.VortexRing  = hlsl { sqrt(0.05 + 0.95 * rand(1.0)) };
+            float Particles.VortexLift  = hlsl { rand(1.0) * rand(1.0) };
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = User.Lifetime,
+                ColorMode            = DirectSet,
+                Color                = User.Tint,
+                SpriteSizeMode       = RandomUniform,
+                UniformSpriteSizeMin = hlsl { User.PuffSize * 0.7 },
+                UniformSpriteSizeMax = hlsl { User.PuffSize * 1.3 },
+                SpriteRotationMode   = Random
+            );
+            Position Particles.Position = hlsl {
+                Engine.Owner.Position + float3(cos(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
+                                               sin(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
+                                               Particles.VortexLift * User.Height)
+            };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            DreamWindForce(Wind = User.Wind, Drag = User.Drag, Strength = 1.0, Lift = 0.0);
+            GravityForce(Gravity = hlsl { float3(0.0, 0.0, -User.Settle) });
+            SolveForcesAndVelocity();
+            SpriteRotationRate(RotationRate = 25.0);
+            Vector2 Particles.SpriteSize = hlsl { float2(1.0, 1.0) * User.PuffSize * lerp(0.8, 3.0, Particles.NormalizedAge) };
+            Color Particles.Color = hlsl {
+                float4(User.Tint.rgb, User.Tint.a * saturate(User.Intensity) * saturate(Particles.NormalizedAge * 5.0) * saturate((1.0 - Particles.NormalizedAge) * 3.0))
+            };
+        }
+
+        SpriteRenderer Puff
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamDustPuff";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = ViewDepth;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+
+    Emitter Debris
+    {
+        Settings = {
+            SimTarget          = GPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 2048;
+            FixedBounds        = box(-20000, -20000, -2000, 20000, 20000, 40000);
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = hlsl { User.DebrisRate * User.Intensity });
+        }
+
+        ParticleSpawn = {
+            float Particles.VortexAngle = hlsl { rand(6.2831853) };
+            float Particles.VortexRing  = hlsl { sqrt(0.05 + 0.95 * rand(1.0)) };
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode         = DirectSet,
+                Lifetime             = hlsl { User.Lifetime * 1.5 },
+                ColorMode            = DirectSet,
+                Color                = User.DebrisColor,
+                SpriteSizeMode       = RandomUniform,
+                UniformSpriteSizeMin = hlsl { User.DebrisSize * 0.5 },
+                UniformSpriteSizeMax = hlsl { User.DebrisSize * 1.5 },
+                SpriteRotationMode   = Random
+            );
+            Position Particles.Position = hlsl {
+                Engine.Owner.Position + float3(cos(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
+                                               sin(Particles.VortexAngle) * Particles.VortexRing * User.Radius,
+                                               20.0)
+            };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            // heavier than the dust: it lags the air and falls out of the column
+            DreamWindForce(Wind = User.Wind, Drag = hlsl { User.Drag * 0.5 }, Strength = 1.0, Lift = 0.0);
+            GravityForce(Gravity = hlsl { float3(0.0, 0.0, -600.0) });
+            SolveForcesAndVelocity();
+            SpriteRotationRate(RotationRate = 360.0);
+            Color Particles.Color = hlsl {
+                float4(User.DebrisColor.rgb, User.DebrisColor.a * saturate(User.Intensity) * saturate((1.0 - Particles.NormalizedAge) * 6.0))
+            };
+        }
+
+        SpriteRenderer Piece
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamWindDebris";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize     -> Particles.SpriteSize;
+            Bind SpriteRotation -> Particles.SpriteRotation;
+            Bind Color          -> Particles.Color;
+        }
+    }
+}
