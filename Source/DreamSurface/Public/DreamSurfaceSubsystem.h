@@ -20,7 +20,7 @@ struct FDreamSurfaceMapSteps
 	/**
 	 * Three float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the
 	 * global channels (temperature offset, dust, wind, fog), the air (the view's temperature under a clear sky with no
-	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it).
+	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it, the freezing rain).
 	 */
 	TArray<FVector4f> Steps;
 	/** The step in progress, and how much of it has gone by. */

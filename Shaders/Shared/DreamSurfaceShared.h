@@ -48,10 +48,11 @@
 #endif
 
 // The share of what falls that is snow: the weather's own ratio, and near freezing it turns to snow whatever the
-// weather says (the weather's samples, UDreamWeatherSubsystem::MakeSample, do the same).
-DSF_FN float DSF_SnowRatio(float Channel, float Temperature)
+// weather says, all but the supercooled share of the rain (Freezing, the FreezingRain channel), which stays rain (the
+// weather's samples, UDreamWeatherSubsystem::MakeSample, do the same).
+DSF_FN float DSF_SnowRatio(float Channel, float Temperature, float Freezing)
 {
-	return max(Channel, 1.0f - smoothstep(-1.0f, 2.0f, Temperature));
+	return max(Channel, (1.0f - smoothstep(-1.0f, 2.0f, Temperature)) * (1.0f - saturate(Freezing)));
 }
 
 // How much sunlight reaches the ground for a sun this high (Z of its direction, -1..1) under this much cloud: none
@@ -185,10 +186,11 @@ DSF_FN float DSF_Grip(float4 Grip, float4 Grip2, float4 Cover, float4 Cover2)
 
 // A step's drive in the open from the weather there (what the surface map does per texel; a query's DriveAt gets the
 // same from the weather's sample): Weather = (cloud coverage, -, precipitation after the cloud gate, snow ratio
-// channel), Air = (temperature, wind, dust, the sun's Z), Fog = the fog channel there.
-DSF_FN float4 DSF_OpenD0(float4 Weather, float4 Air)
+// channel), Air = (temperature, wind, dust, the sun's Z), Freezing = the FreezingRain channel there, Fog = the fog
+// channel there.
+DSF_FN float4 DSF_OpenD0(float4 Weather, float4 Air, float Freezing)
 {
-	float Ratio = DSF_SnowRatio(Weather.w, Air.x);
+	float Ratio = DSF_SnowRatio(Weather.w, Air.x, Freezing);
 	return float4(Weather.z * (1.0f - Ratio), Weather.z * Ratio, Air.x, Air.y);
 }
 

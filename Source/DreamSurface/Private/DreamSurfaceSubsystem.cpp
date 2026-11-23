@@ -155,7 +155,7 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	using namespace DreamSurface::Private;
 	const FVector4f Here(W.CloudCoverage, W.CloudDarkness, W.Precipitation, W.Values.Get(FDreamWeatherChannels::SnowRatio));
 	const FVector4f Air(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
-	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air));
+	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::FreezingRain));
 	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::Fog));
 	// ...then the cover: under a roof nothing lands, the air is stiller, the sun and the sky are off and less dust gets in.
 	const float Exposure = bOpenSky ? 1.0f : W.Exposure;
@@ -403,7 +403,7 @@ void UDreamSurfaceSubsystem::MapStepRecord(int64 StepIndex, FVector4f& OutWeathe
 	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), T);
 	const float ClearSky = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 0.0f, T);
 	const float Overcast = Weather->GetBaseTemperatureAt(ViewAnchor, 0.0f, 1.0f, T);
-	OutAir = FVector4f(ClearSky, float(Sky.SunDirection.Z), ClearSky - Overcast, 0.0f);
+	OutAir = FVector4f(ClearSky, float(Sky.SunDirection.Z), ClearSky - Overcast, Global.Get(C::FreezingRain));
 }
 
 void UDreamSurfaceSubsystem::BuildMapSteps(int64 StepIndex)

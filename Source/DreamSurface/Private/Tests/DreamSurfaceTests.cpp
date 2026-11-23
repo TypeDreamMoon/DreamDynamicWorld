@@ -317,6 +317,33 @@ bool FDreamSurfaceColdTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceFreezingRainTest, "DreamSurface.FreezingRain", DreamSurface::Tests::Flags)
+bool FDreamSurfaceFreezingRainTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	// Rain with the air some degrees below freezing: ordinary rain falls as snow and lies; freezing rain stays rain and
+	// glazes the ground, wetting nothing.
+	auto After = [this](bool bFreezing)
+	{
+		UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+		Fixed->Preset = MakePreset(TEXT("SurfFreezingRain"), { { Channel_CloudCoverage, 1.0f }, { Channel_Precipitation, 0.6f },
+			{ Channel_FreezingRain, bFreezing ? 1.0f : 0.0f }, { Channel_Temperature, -30.0f } });
+		FSurfaceWorld W(Fixed);
+		W.GoTo(At(12.0));
+		const FDreamSurfaceState S = W.Surface ? W.Surface->SampleSurface(FVector(0, 0, 0)) : FDreamSurfaceState();
+		AddInfo(FString::Printf(TEXT("%s, air %.1f C: %s"), bFreezing ? TEXT("freezing rain") : TEXT("ordinary rain"),
+			W.Weather ? W.Weather->SampleWeather(FVector(0, 0, 0)).Temperature : 0.0f, *Describe(S)));
+		return S;
+	};
+	const FDreamSurfaceState Ordinary = After(false);
+	const FDreamSurfaceState Freezing = After(true);
+	TestTrue(TEXT("ordinary rain below freezing falls as snow and lies"), Ordinary.Snow > 0.3f && Ordinary.Ice < 0.05f);
+	TestTrue(TEXT("freezing rain glazes the ground"), Freezing.Ice > 0.8f);
+	TestTrue(TEXT("and lays no snow"), Freezing.Snow < 0.01f);
+	TestTrue(TEXT("nor wets it"), Freezing.Wetness < 0.05f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceColdNightTest, "DreamSurface.ColdNight", DreamSurface::Tests::Flags)
 bool FDreamSurfaceColdNightTest::RunTest(const FString& Parameters)
 {
@@ -1308,6 +1335,15 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 	Fog->Zone->Channels.Add(Channel_CloudCoverage, 0.9f);
 	// Cloud keeps a night milder (less of the daily swing): well below the clear night's air, so freezing.
 	Fog->Zone->Channels.Add(Channel_Temperature, Offset - 10.0f);
+	// And a freezing rain 40 m west: its supercooled share reaches the maps per texel as the query has it.
+	ADreamWeatherZone* Glaze = W.World->SpawnActor<ADreamWeatherZone>(FVector(-4000, 0, 0), FRotator::ZeroRotator, Params);
+	Glaze->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Glaze->Zone->Extent = FVector2D(1500, 1500);
+	Glaze->Zone->BlendDistance = 600.0f;
+	Glaze->Zone->Channels.Add(Channel_CloudCoverage, 1.0f);
+	Glaze->Zone->Channels.Add(Channel_Precipitation, 0.6f);
+	Glaze->Zone->Channels.Add(Channel_FreezingRain, 1.0f);
+	Glaze->Zone->Channels.Add(Channel_Temperature, Offset - 10.0f);
 
 	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
 	W.GoTo(At(Day - 6.0));
@@ -1335,6 +1371,8 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 		const FDreamSurfaceState FarHere = Read(false, FVector2D(0, 0), TEXT("far at the view"));
 		Read(true, FVector2D(4000, 0), TEXT("near in the freezing fog"));
 		Read(true, FVector2D(5800, 0), TEXT("near at the fog's edge"));
+		Read(true, FVector2D(-4000, 0), TEXT("near in the freezing rain"));
+		Read(true, FVector2D(-5800, 0), TEXT("near at the freezing rain's edge"));
 		TestTrue(FString::Printf(TEXT("%s: near and far agree on the cold at the view"), When), NearHere.ToIceVector().Equals(FarHere.ToIceVector(), 0.1f));
 	};
 
@@ -1342,6 +1380,8 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 	CheckMaps(TEXT("at 3:00"));
 	TestTrue(TEXT("frost at the view"), W.Surface->SampleSurface(FVector(0, 0, 0)).Frost > 0.5f);
 	TestTrue(TEXT("rime in the freezing fog"), W.Surface->SampleSurface(FVector(4000, 0, 0)).Rime > 0.5f);
+	const FDreamSurfaceState Glazed = W.Surface->SampleSurface(FVector(-4000, 0, 0));
+	TestTrue(TEXT("a glaze, not snow, in the freezing rain"), Glazed.Ice > 0.5f && Glazed.Snow < 0.01f);
 	// Into the morning's thaw, values between the ends; then a jump.
 	W.RunTo(At(Day + 9.5));
 	CheckMaps(TEXT("at 9:30"));
