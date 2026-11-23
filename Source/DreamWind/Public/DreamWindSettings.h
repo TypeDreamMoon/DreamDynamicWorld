@@ -199,6 +199,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.3", ClampMax = "1", EditCondition = "bFluid"))
 	float FluidWallThickness = 0.45f;
 
+	/**
+	 * Read the fluid back at a few points for SampleWindVisual (sound and the camera by default, force components that
+	 * ask for it): up to 16 a frame, answers two or three frames late. Off: SampleWindVisual is the plain CPU sample.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (EditCondition = "bFluid"))
+	bool bFluidProbes = true;
+
 	/** Moving bodies the fluid takes each frame (UDreamWindMoverComponent), the nearest to the camera. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "256", EditCondition = "bFluid"))
 	int32 MaxMovers = 32;

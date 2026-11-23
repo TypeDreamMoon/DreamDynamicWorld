@@ -43,7 +43,9 @@ bool UDreamWindCameraModifier::ModifyCamera(float DeltaTime, FMinimalViewInfo& I
 	float Target = 0.0f;
 	if (Wind)
 	{
-		const FDreamWindSampleResult Sample = Wind->SampleWind(InOutPOV.Location);
+		// as felt at the camera: with the wind fluid's blasts and eddies (a few frames late; the CPU sample without it)
+		static const FName CameraProbe(TEXT("DreamWind.Camera"));
+		const FDreamWindSampleResult Sample = Wind->SampleWindVisual(CameraProbe, InOutPOV.Location);
 		const FDreamViewOcclusion& Occlusion = Clock ? Clock->GetViewOcclusion() : FDreamViewOcclusion();
 		// The wind sample already carries the gust in its speed; the multiplier sharpens the bursts.
 		Target = IntensityFor(Sample.Speed / FMath::Max(Sample.Gust, 0.1f), Sample.Gust, Occlusion.bValid ? Occlusion.Interior : 0.0f);

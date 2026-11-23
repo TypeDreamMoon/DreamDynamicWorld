@@ -9,6 +9,7 @@
 #include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
 #include "DreamWindFluid.h"
+#include "DreamWindProbes.h"
 #include "DreamWindDistanceField.h"
 #include "DreamWindViewExtension.h"
 #include "DreamWindTerrainField.h"
@@ -390,11 +391,13 @@ void UDreamWindSubsystem::Deinitialize()
 		DreamWind::DistanceField::Request(false);
 		bFluidDistanceFieldRequested = false;
 	}
-	// (Its captures and render commands hold only resources the render thread keeps alive; flush before letting go.)
-	if (TerrainField.IsValid())
+	// (Its captures and render commands hold only resources the render thread keeps alive; flush before letting go.
+	// The probes' readbacks likewise.)
+	if (TerrainField.IsValid() || Probes.IsValid())
 	{
 		FlushRenderingCommands();
 		TerrainField.Reset();
+		Probes.Reset();
 	}
 
 	if (EngineWindComponent)
@@ -1161,8 +1164,35 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 	Args.bDistanceField = bWantDistanceField;
 	Args.bShowDivergence = DreamWind::GCVarFluidShowDivergence != 0;
 	Args.bReset = bFluidHistoryDirty || bRedrawAll;
+	if (Args.bReset && Probes.IsValid())
+	{
+		Probes->Clear();
+	}
 	Fluid->EnqueueStep(MoveTemp(Args));
 	bFluidHistoryDirty = false;
+
+	// The points asked of SampleWindVisual since the last step, read from this step's volumes (answers a few frames on).
+	if (Settings->bFluidProbes && ProbeAsks.Num() > 0)
+	{
+		if (!Probes.IsValid())
+		{
+			Probes = MakeShared<FDreamWindFluidProbes, ESPMode::ThreadSafe>();
+		}
+		FDreamWindFluidProbes::FRequest Request;
+		for (const TPair<FName, FVector>& Ask : ProbeAsks)
+		{
+			Request.Keys.Add(Ask.Key);
+			Request.Points.Add(FVector4f(FVector3f(Ask.Value), 0.0f));
+		}
+		Request.Near = NearResource;
+		Request.Far = FarResource;
+		Request.V0 = FrameData.V0;
+		Request.V1 = FVector4f(FrameData.V1.X, FrameData.V1.Y, FrameData.V1.Z, 1.0f);
+		Request.V2 = FrameData.V2;
+		Request.V3 = FVector4f(FrameData.V3.X, FrameData.V3.Y, FrameData.V3.Z, FarResource ? 1.0f : 0.0f);
+		Probes->Enqueue(MoveTemp(Request));
+	}
+	ProbeAsks.Reset();
 
 	bFluidActive = true;
 	FrameData.V1.W = 1.0f;
@@ -1669,6 +1699,40 @@ FVector UDreamWindSubsystem::GetGlobalWindDirection() const
 
 FDreamWindSampleResult UDreamWindSubsystem::SampleWind(FVector WorldPosition, EDreamWindQuality Quality) const
 {
+	return SampleWindImpl(WorldPosition, Quality, true);
+}
+
+FDreamWindSampleResult UDreamWindSubsystem::SampleWindVisual(FName Key, FVector WorldPosition, EDreamWindQuality Quality) const
+{
+	FDreamWindSampleResult Plain = SampleWindImpl(WorldPosition, Quality, true);
+	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
+	if (!bFluidActive || !Settings->bFluidProbes || Key.IsNone())
+	{
+		return Plain;
+	}
+	if (ProbeAsks.Num() < FDreamWindFluidProbes::MaxProbes || ProbeAsks.Contains(Key))
+	{
+		ProbeAsks.Add(Key, WorldPosition);
+	}
+	FVector4f Answer;
+	if (!Probes.IsValid() || !Probes->Get(Key, Answer))
+	{
+		return Plain;
+	}
+	// The background the deviation is measured against (the sources are in the deviation), plus the deviation; toward
+	// the plain sample where the volumes fade out.
+	FDreamWindSampleResult Visual = SampleWindImpl(WorldPosition, Quality, false);
+	Visual.Velocity = FMath::Lerp(Plain.Velocity, Visual.Velocity + FVector(Answer.X, Answer.Y, Answer.Z), double(FMath::Clamp(Answer.W, 0.0f, 1.0f)));
+	Visual.Speed = float(Visual.Velocity.Size());
+	if (Visual.Speed > KINDA_SMALL_NUMBER)
+	{
+		Visual.Direction = Visual.Velocity / Visual.Speed;
+	}
+	return Visual;
+}
+
+FDreamWindSampleResult UDreamWindSubsystem::SampleWindImpl(FVector WorldPosition, EDreamWindQuality Quality, bool bSources) const
+{
 	SCOPE_CYCLE_COUNTER(STAT_DreamWindSample);
 	using namespace DreamWind::Hlsl;
 
@@ -1684,9 +1748,12 @@ FDreamWindSampleResult UDreamWindSubsystem::SampleWind(FVector WorldPosition, ED
 	const FDreamWindSample S = ApplyTerrain((Quality == EDreamWindQuality::Full) ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos), Pos);
 
 	float3 V = S.Velocity;
-	for (const FDreamWindSourceData& Source : FrameData.Sources)
+	if (bSources)
 	{
-		V = DW_ApplySource(V, Source, Pos, 1.0f);
+		for (const FDreamWindSourceData& Source : FrameData.Sources)
+		{
+			V = DW_ApplySource(V, Source, Pos, 1.0f);
+		}
 	}
 
 	Result.Velocity = ToVector(V);

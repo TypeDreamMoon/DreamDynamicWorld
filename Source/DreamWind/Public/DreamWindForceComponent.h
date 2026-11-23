@@ -43,6 +43,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind Force")
 	bool bTestBlocking = false;
 
+	/**
+	 * Push with the wind as the eye sees it (SampleWindVisual: the wind fluid's eddies and blasts, read back a few frames
+	 * late; one point per body, 16 a frame for the whole world): papers and cloth strips that follow the eddies on screen.
+	 * Late and not the same on every machine, so off for anything gameplay or networking depends on.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind Force")
+	bool bUseVisualWind = false;
+
 	/** How far upwind, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind Force", meta = (EditCondition = "bTestBlocking", ClampMin = "10"))
 	float BlockingDistance = 500.0f;

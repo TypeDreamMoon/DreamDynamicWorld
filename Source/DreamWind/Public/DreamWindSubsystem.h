@@ -254,6 +254,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DreamWind")
 	FVector SampleWindVelocity(FVector WorldPosition) const;
 
+	/**
+	 * The wind as the eye sees it, for sound, the camera and decorative physics: the CPU sample with the wind fluid's
+	 * eddies, wakes and blasts at the point, read back from the GPU two or three frames late. Key names the asker (one
+	 * point each; up to 16 a frame). The plain CPU sample until an answer arrives, without the fluid, and on a server.
+	 * Late and not the same on every machine: never for gameplay that has to agree.
+	 */
+	UFUNCTION(BlueprintPure, Category = "DreamWind")
+	FDreamWindSampleResult SampleWindVisual(FName Key, FVector WorldPosition, EDreamWindQuality Quality = EDreamWindQuality::Cheap) const;
+
 	// ---- Sources / impulses (L3) -----------------------------------------------------------------
 
 	/**
@@ -431,6 +440,11 @@ private:
 	TArray<TWeakObjectPtr<UDreamWindSourceComponent>> SourceComponents;
 	TArray<TWeakObjectPtr<class UDreamWindMoverComponent>> MoverComponents;
 	void GatherMovers();
+	/** The CPU sample, with or without the sources (the fluid's deviation already carries them). */
+	FDreamWindSampleResult SampleWindImpl(FVector WorldPosition, EDreamWindQuality Quality, bool bSources) const;
+	/** The fluid's probes for SampleWindVisual: this frame's asks (one point per key), read in the next fluid step. */
+	TSharedPtr<class FDreamWindFluidProbes, ESPMode::ThreadSafe> Probes;
+	mutable TMap<FName, FVector> ProbeAsks;
 
 	FDreamWindFrameData FrameData;
 

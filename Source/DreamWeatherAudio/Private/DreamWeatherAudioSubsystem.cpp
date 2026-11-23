@@ -224,7 +224,9 @@ void UDreamWeatherAudioSubsystem::GatherInputs(UDreamWorldSubsystem& Clock, cons
 	UWorld* World = GetWorld();
 	if (const UDreamWindSubsystem* Wind = UDreamWindSubsystem::Get(World))
 	{
-		const FDreamWindSampleResult Sample = Wind->SampleWind(ListenerLocation);
+		// as heard: with the wind fluid's eddies and blasts at the listener (a few frames late; the CPU sample without it)
+		static const FName ListenerProbe(TEXT("DreamWeather.Listener"));
+		const FDreamWindSampleResult Sample = Wind->SampleWindVisual(ListenerProbe, ListenerLocation);
 		In.WindSpeed = Sample.Speed;
 		In.WindGust = Sample.Gust;
 	}
