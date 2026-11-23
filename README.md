@@ -951,6 +951,12 @@ and the odd twig — starts along the same paths (`NS_DreamWindLeaves`, its Debr
 wind field carries it. How much debris and its colour follow the season (`DebrisSeasonAmount`, `DebrisSpring` …
 `DebrisWinter`: autumn leaves, a bare winter). Nothing blows in indoors.
 
+**A dust storm's sky** (the style's *Weather* group): the air turns the dust's hue (`DustColor`; the fog, the horizon and
+the zenith, the sun's light and the ambient, with the physical sky as with the style's own gradient) and thickens
+(`DustFogScale`, and the fog's `FogMaxOpacity` goes to 1 with the dust, so the far land is gone), the dome and the
+clouds go behind the dust (`DustSkyHaze`, by the dust's square root: at `WP_Dust` the clouds are faint shapes) and the
+sun dims to a pale disc (`DustSunDimming`). At night it is the same dust in the dark: no brighter than the night.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
@@ -1612,6 +1618,12 @@ brightness — put it on a big plane).
 Strength, Lift)` in Particle Update before *Solve Forces and Velocity*; or call
 `Wind.SampleWind(Particles.Position, Velocity, Gust)` in your own module. `NS_DreamWindLeaves` (GPU)
 and `NS_DreamWindDebug` (CPU arrow grid) are the references.
+* **Setting a system's parameters from C++** (`UNiagaraComponent::SetVariableFloat`, `SetVariableLinearColor`, ...):
+  the name is the full one, `User.` and all (`TEXT("User.Intensity")`); without it the call finds nothing and is
+  silently ignored.
+* **A particle material reads the particle's colour with *Particle Color*** (`UE.ParticleColor()` in DreamShader), not
+  *Vertex Color*: on a Niagara sprite the vertex colour carries none of it (it reads white and opaque), so a tint and
+  an alpha fade written in the system would never show. Every weather and wind particle material here does.
 
 **Gameplay.**
 ```cpp

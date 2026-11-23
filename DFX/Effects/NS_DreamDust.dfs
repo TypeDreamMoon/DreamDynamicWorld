@@ -28,7 +28,7 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
         float  PuffShare    = 0.03               [ Group="Look"; Description="Puffs per mote." ];
         float  PuffSize     = 700.0              [ Group="Look"; Description="Puff size, cm." ];
         Color  Tint         = (0.78, 0.64, 0.46, 0.7)  [ Group="Look" ];
-        Color  PuffTint     = (0.72, 0.60, 0.44, 0.05) [ Group="Look" ];
+        Color  PuffTint     = (0.72, 0.60, 0.44, 0.12) [ Group="Look" ];
     }
 
     Emitter Motes

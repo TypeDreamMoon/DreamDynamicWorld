@@ -812,6 +812,9 @@ public:
 	 * the sun light is left whole and the overcast's dimming goes to Lighting.SunOvercastScale instead. */
 	void ApplyWeather(const FDreamWorldEnvironment& Environment, FDreamSkyLighting& Lighting, FDreamSkyLook& Look, bool bCloudsShadowTheSun = false) const;
 
+	/** A colour taken Amount (0..1) of the way to DustColor's hue at its own brightness (what airborne dust does to it). */
+	FLinearColor DustTinted(const FLinearColor& Color, float Amount) const;
+
 	/** What being indoors does to the lighting (FDreamViewOcclusion from the view probe). */
 	void ApplyInterior(const FDreamViewOcclusion& Occlusion, FDreamSkyLighting& Lighting) const;
 
@@ -1239,6 +1242,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fog", meta = (ClampMin = "0.001", UIMax = "2"))
 	float FogHeightFalloff = 0.2f;
 
+	/** (Airborne dust takes it to 1 with the dust: a dust storm hides the far land altogether.) */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fog", meta = (ClampMin = "0", ClampMax = "1"))
 	float FogMaxOpacity = 0.85f;
 
@@ -1305,9 +1309,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
 	float FogSkyHaze = 1.0f;
 
-	/** The same for a dust storm. */
+	/** The same for a dust storm: a full one leaves the clouds and the sun as faint shapes in the dust. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather", meta = (ClampMin = "0", ClampMax = "1"))
-	float DustSkyHaze = 0.7f;
+	float DustSkyHaze = 1.0f;
 
 	/** The colour of airborne dust: a dust storm tints the fog, the sky and the sunlight toward it. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weather")

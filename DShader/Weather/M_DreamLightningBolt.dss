@@ -29,7 +29,7 @@ float2 BoltProfile(float2 UV, float Core)
 export void M_DreamLightningBolt(inout material m)
 {
     float2 UV = UE.TexCoord(Index = 0);
-    float4 Particle = UE.VertexColor();
+    float4 Particle = UE.ParticleColor();   // (not VertexColor: a Niagara sprite carries none, it reads white and opaque)
     float2 P = BoltProfile(UV, CoreWidth);
     float3 Core = float3(1.0, 1.0, 1.0) * P.x * CoreBrightness;
     float3 Glow = Particle.rgb * P.y * GlowBrightness;

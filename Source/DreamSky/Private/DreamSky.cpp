@@ -1027,9 +1027,13 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 		{
 			HeightFog->SetFogHeightFalloff(InStyle.FogHeightFalloff);
 		}
-		if (HeightFog->FogMaxOpacity != InStyle.FogMaxOpacity)
+		// (Airborne dust takes the cap off: a dust storm hides the far land altogether.)
+		const UDreamWorldSubsystem* WorldClock = UDreamWorldSubsystem::Get(this);
+		const float Dust = WorldClock && WorldClock->GetEnvironment().bActive ? FMath::Clamp(WorldClock->GetEnvironment().Dust, 0.0f, 1.0f) : 0.0f;
+		const float MaxOpacity = FMath::Lerp(InStyle.FogMaxOpacity, 1.0f, Dust);
+		if (!FMath::IsNearlyEqual(HeightFog->FogMaxOpacity, MaxOpacity, 1.0e-3f))
 		{
-			HeightFog->SetFogMaxOpacity(InStyle.FogMaxOpacity);
+			HeightFog->SetFogMaxOpacity(MaxOpacity);
 		}
 	}
 

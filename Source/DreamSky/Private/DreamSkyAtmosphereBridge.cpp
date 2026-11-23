@@ -175,8 +175,12 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 		const float Night = 1.0f - FMath::SmoothStep(1.0e-6f, 1.0e-5f, Have / Want);
 		Grade.GradientBlend = FMath::Max(Grade.GradientBlend, Night);
 		const float B = Grade.GradientBlend;
-		const FLinearColor ZenithGraded = Opaque(Grade.Apply(Zenith, 1.0f));
-		const FLinearColor HorizonGraded = Opaque(Grade.Apply(Horizon, 0.05f));
+		// Airborne dust turns the air's own colours to its hue as the style's sky (UDreamSkyStyle::ApplyWeather): the grade's
+		// dust tint only multiplies them, and a blue sky times a sandy tint is a grey-green, not a dust storm.
+		const float Dust = Environment.bActive ? FMath::Clamp(Environment.Dust, 0.0f, 1.0f) : 0.0f;
+		const FLinearColor HorizonAir = Opaque(Grade.Apply(Horizon, 0.05f));
+		const FLinearColor ZenithGraded = Style.DustTinted(Opaque(Grade.Apply(Zenith, 1.0f)), 0.5f * Dust);
+		const FLinearColor HorizonGraded = Style.DustTinted(HorizonAir, 0.8f * Dust);
 		const FLinearColor GroundGraded = Opaque(Grade.Apply(Ground, 0.0f));
 
 		// The dome's zenith and horizon (the sky light's capture watches them; the clouds' sky reads them).
@@ -193,7 +197,7 @@ void DreamSky::AtmosphereBridge::Apply(UDreamWorldSubsystem& Clock, ADreamSky& S
 
 		// The fog takes the horizon's colour; its density keeps only the weather's part when the aerial perspective carries
 		// the air itself (the style's clear-weather haze would otherwise fog the distance twice).
-		L.FogColor = Blend(HorizonGraded * Style.FogBrightness, L.FogColor, B);
+		L.FogColor = Blend(Style.DustTinted(HorizonAir * Style.FogBrightness, Dust), L.FogColor, B);
 		Look.Haze = FLinearColor(L.FogColor.R, L.FogColor.G, L.FogColor.B, Look.Haze.A);
 		if (UDreamAtmosphereSettings::Get()->bAerialPerspective)
 		{
