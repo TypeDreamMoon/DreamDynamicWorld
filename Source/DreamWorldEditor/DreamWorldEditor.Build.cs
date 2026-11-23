@@ -28,6 +28,11 @@ public class DreamWorldEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"UnrealEd",
+			"AssetTools",
+			"UMG",
+			"RenderCore",
+			"InputCore",
+			"DeveloperSettings",
 			"Projects",
 			"Slate",
 			"SlateCore",
