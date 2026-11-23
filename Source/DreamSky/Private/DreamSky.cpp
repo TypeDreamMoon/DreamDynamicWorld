@@ -703,14 +703,20 @@ void ADreamSky::ApplySkyLightSource(const FDreamSkyLighting& L, bool bSnap)
 		AppliedSkyLightCubemap = Cube;
 		SkyLight->RecaptureSky();
 	}
-	// Tinted: the sky's ambient light from above as a captured dome gives it -- its colour mostly the zenith's (most of
-	// the dome; the horizon toward a low sun is a narrow warm band), the brightest channel to 1; as bright as the zenith's
-	// and the horizon's together -- fixed: the sky light's intensity as the style gives it, white.
+	// Tinted: the hue a captured dome lights with -- the dome's own sky over the upper hemisphere, nearly all of it the
+	// zenith's hue: the horizon the dome draws is the bright band toward the sun, ten times the zenith at dusk, which in
+	// the light from the whole dome is a narrow strip (hues mixed, each by its luminance, not the light itself) -- the
+	// brightest channel to 1; as bright as the sky's ambient light from above (the zenith's and the horizon's together);
+	// fixed: the sky light's intensity as the style gives it, white.
 	FLinearColor Color = FLinearColor::White;
 	float Intensity = L.SkyLightIntensity * FMath::Max(SkyLightCubemapScale, 0.0f);
 	if (Source == EDreamSkyLightSource::TintedCubemap)
 	{
-		const FLinearColor Hue = L.AmbientSky * 0.7f + L.AmbientEquator * 0.3f;
+		const UDreamSkySubsystem* Sky = GetWorld() ? GetWorld()->GetSubsystem<UDreamSkySubsystem>() : nullptr;
+		const FLinearColor Zenith = Sky ? Sky->GetLook().Zenith : L.AmbientSky;
+		const FLinearColor Horizon = Sky ? Sky->GetLook().Horizon : L.AmbientEquator;
+		auto HueOf = [](const FLinearColor& C) { return C * (1.0f / FMath::Max(C.GetLuminance(), 1.0e-6f)); };
+		const FLinearColor Hue = HueOf(Zenith) * 0.85f + HueOf(Horizon) * 0.15f;
 		const float Peak = FMath::Max3(Hue.R, Hue.G, FMath::Max(Hue.B, 1.0e-6f));
 		Color = FLinearColor(Hue.R / Peak, Hue.G / Peak, Hue.B / Peak, 1.0f);
 		const float Bright = ((L.AmbientSky + L.AmbientEquator) * 0.5f).GetLuminance();
