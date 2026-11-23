@@ -24,6 +24,7 @@
 
 const FName UNiagaraDataInterfaceDreamWind::SampleWindName(TEXT("SampleWind"));
 const FName UNiagaraDataInterfaceDreamWind::GetGlobalWindName(TEXT("GetGlobalWind"));
+const FName UNiagaraDataInterfaceDreamWind::SampleWindDeviationName(TEXT("SampleWindDeviation"));
 
 static const TCHAR* GDreamWindDITemplateShaderFile = TEXT("/Plugin/DreamDynamicWorld/Private/NiagaraDataInterfaceDreamWindTemplate.ush");
 
@@ -61,6 +62,8 @@ struct FNDIDreamWindInstanceData_RT
 	TWeakObjectPtr<UTexture> TerrainTexture;
 	TWeakObjectPtr<UTexture> L1NearTexture;
 	TWeakObjectPtr<UTexture> L1FarTexture;
+	TWeakObjectPtr<UTexture> L1NearHeightTexture;
+	TWeakObjectPtr<UTexture> L1FarHeightTexture;
 
 	// per graph-builder transient state
 	FRDGBufferSRVRef TransientSourcesSRV = nullptr;
@@ -69,6 +72,8 @@ struct FNDIDreamWindInstanceData_RT
 	FRDGTextureRef TransientTerrainTexture = nullptr;
 	FRDGTextureRef TransientL1NearTexture = nullptr;
 	FRDGTextureRef TransientL1FarTexture = nullptr;
+	FRDGTextureRef TransientL1NearHeightTexture = nullptr;
+	FRDGTextureRef TransientL1FarHeightTexture = nullptr;
 
 	void ResetTransients()
 	{
@@ -78,6 +83,8 @@ struct FNDIDreamWindInstanceData_RT
 		TransientTerrainTexture = nullptr;
 		TransientL1NearTexture = nullptr;
 		TransientL1FarTexture = nullptr;
+		TransientL1NearHeightTexture = nullptr;
+		TransientL1FarHeightTexture = nullptr;
 	}
 };
 
@@ -254,6 +261,8 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->L1Params = GT->Frame.L1Params;
 	RT->L1NearTexture = GT->Frame.L1NearDerived.Get();
 	RT->L1FarTexture = GT->Frame.L1FarDerived.Get();
+	RT->L1NearHeightTexture = GT->Frame.L1NearHeight.Get();
+	RT->L1FarHeightTexture = GT->Frame.L1FarHeight.Get();
 	RT->Sources.Reserve(GT->Frame.Sources.Num() * DW_SOURCE_FLOAT4S);
 	for (const FDreamWindSourceData& S : GT->Frame.Sources)
 	{
@@ -300,6 +309,19 @@ void UNiagaraDataInterfaceDreamWind::GetFunctionsInternal(TArray<FNiagaraFunctio
 		Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("Direction")));
 		Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetFloatDef(), TEXT("Speed")));
 	}
+	{
+		FNiagaraFunctionSignature& Sig = OutFunctions.AddDefaulted_GetRef();
+		Sig.Name = SampleWindDeviationName;
+		Sig.bMemberFunction = true;
+		Sig.bRequiresContext = false;
+		Sig.bSupportsCPU = true;
+		Sig.bSupportsGPU = true;
+		Sig.SetDescription(LOCTEXT("SampleWindDeviationDesc", "The wind fluid's deviation from the background wind at a position (cm/s; the dynamic volume alone, 0 on CPU sims or without it), and the top surface under it from the terrain maps (cm; -1e30 where none knows)."));
+		Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition(GetClass()), TEXT("Wind")));
+		Sig.AddInput(FNiagaraVariable(FNiagaraTypeDefinition::GetPositionDef(), TEXT("Position")));
+		Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetVec3Def(), TEXT("Deviation")));
+		Sig.AddOutput(FNiagaraVariable(FNiagaraTypeDefinition::GetFloatDef(), TEXT("TopHeight")));
+	}
 }
 #endif
 
@@ -312,6 +334,10 @@ void UNiagaraDataInterfaceDreamWind::GetVMExternalFunction(const FVMExternalFunc
 	else if (BindingInfo.Name == GetGlobalWindName)
 	{
 		OutFunc = FVMExternalFunction::CreateLambda([this](FVectorVMExternalFunctionContext& Context) { this->VMGetGlobalWind(Context); });
+	}
+	else if (BindingInfo.Name == SampleWindDeviationName)
+	{
+		OutFunc = FVMExternalFunction::CreateLambda([this](FVectorVMExternalFunctionContext& Context) { this->VMSampleWindDeviation(Context); });
 	}
 }
 
@@ -382,6 +408,34 @@ void UNiagaraDataInterfaceDreamWind::VMGetGlobalWind(FVectorVMExternalFunctionCo
 	}
 }
 
+void UNiagaraDataInterfaceDreamWind::VMSampleWindDeviation(FVectorVMExternalFunctionContext& Context)
+{
+	// The CPU has no fluid (it does not read the GPU back): no deviation; the top surface from the runtime map's CPU
+	// grid where it reaches, the baked map beyond.
+	VectorVM::FUserPtrHandler<FNDIDreamWindInstanceData_GT> InstData(Context);
+	FNDIInputParam<FNiagaraPosition> InPosition(Context);
+	FNDIOutputParam<FVector3f> OutDeviation(Context);
+	FNDIOutputParam<float> OutTop(Context);
+	const FDreamWindTerrainGridData* Grid = InstData->Frame.TerrainGrid.Get();
+	const FDreamWindTerrainCpuData* Terrain = InstData->Frame.TerrainCpu.Get();
+	for (int32 i = 0; i < Context.GetNumInstances(); ++i)
+	{
+		const FVector WorldPos = InstData->LWCConverter.ConvertSimulationPositionToWorld(InPosition.GetAndAdvance());
+		float Top = -1.0e30f;
+		const float GridTop = Grid ? Grid->HeightAt(WorldPos.X, WorldPos.Y) : FDreamWindTerrainGridData::NotSwept;
+		if (GridTop > FDreamWindTerrainGridData::Unknown * 0.5f)
+		{
+			Top = GridTop;
+		}
+		else if (Terrain && Terrain->IsInside(WorldPos.X, WorldPos.Y))
+		{
+			Top = Terrain->HeightAt(WorldPos.X, WorldPos.Y, 0) + Terrain->HeightBase;
+		}
+		OutDeviation.SetAndAdvance(FVector3f::ZeroVector);
+		OutTop.SetAndAdvance(Top);
+	}
+}
+
 // -------------------------------------------------------------------------------------------------
 // GPU
 // -------------------------------------------------------------------------------------------------
@@ -404,7 +458,7 @@ bool UNiagaraDataInterfaceDreamWind::AppendCompileHash(FNiagaraCompileHashVisito
 
 bool UNiagaraDataInterfaceDreamWind::GetFunctionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, const FNiagaraDataInterfaceGeneratedFunction& FunctionInfo, int FunctionInstanceIndex, FString& OutHLSL)
 {
-	return FunctionInfo.DefinitionName == SampleWindName || FunctionInfo.DefinitionName == GetGlobalWindName;
+	return FunctionInfo.DefinitionName == SampleWindName || FunctionInfo.DefinitionName == GetGlobalWindName || FunctionInfo.DefinitionName == SampleWindDeviationName;
 }
 
 void UNiagaraDataInterfaceDreamWind::GetParameterDefinitionHLSL(const FNiagaraDataInterfaceGPUParamInfo& ParamInfo, FString& OutHLSL)
@@ -452,6 +506,8 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 		SP->L1Near = SP->L1Far = SP->L1Params = FVector4f::Zero();
 		SP->L1NearMap = BlackTexture;
 		SP->L1FarMap = BlackTexture;
+		SP->L1NearHeight = BlackTexture;
+		SP->L1FarHeight = BlackTexture;
 		SP->L1Sampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 		return;
 	}
@@ -526,10 +582,23 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	{
 		L1FarRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->L1FarTexture, Data->TransientL1FarTexture, TEXT("DreamWind.NDIL1Far"), ETextureDimension::Texture2D);
 	}
+	// (its heights with the level: the top surface SampleWindDeviation reports)
+	FRDGTextureRef L1NearHeightRDG = nullptr;
+	FRDGTextureRef L1FarHeightRDG = nullptr;
+	if (L1NearRDG && Context.IsResourceBound(&SP->L1NearHeight))
+	{
+		L1NearHeightRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->L1NearHeightTexture, Data->TransientL1NearHeightTexture, TEXT("DreamWind.NDIL1NearHeight"), ETextureDimension::Texture2D);
+	}
+	if (L1FarRDG && Context.IsResourceBound(&SP->L1FarHeight))
+	{
+		L1FarHeightRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->L1FarHeightTexture, Data->TransientL1FarHeightTexture, TEXT("DreamWind.NDIL1FarHeight"), ETextureDimension::Texture2D);
+	}
 	SP->L1Near = L1NearRDG ? Data->L1Near : FVector4f::Zero();
 	SP->L1Far = L1FarRDG ? Data->L1Far : FVector4f::Zero();
 	SP->L1NearMap = L1NearRDG ? L1NearRDG : BlackTexture;
 	SP->L1FarMap = L1FarRDG ? L1FarRDG : BlackTexture;
+	SP->L1NearHeight = L1NearHeightRDG ? L1NearHeightRDG : BlackTexture;
+	SP->L1FarHeight = L1FarHeightRDG ? L1FarHeightRDG : BlackTexture;
 }
 
 #undef LOCTEXT_NAMESPACE
