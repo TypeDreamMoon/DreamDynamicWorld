@@ -137,6 +137,47 @@ bool FDreamWeatherRegistryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherHailSleetTest, "DreamWeather.Channels.HailAndSleet", DreamWeather::Tests::Flags)
+bool FDreamWeatherHailSleetTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	TestEqual(TEXT("hail at its fixed index"), FDreamWeatherChannels::IndexOf(DreamWeather::Tags::Channel_Hail), int32(FDreamWeatherChannels::Hail));
+	TestEqual(TEXT("sleet at its fixed index"), FDreamWeatherChannels::IndexOf(DreamWeather::Tags::Channel_Sleet), int32(FDreamWeatherChannels::Sleet));
+	TestEqual(TEXT("none by default"), FDreamWeatherChannels::Defaults().Get(FDreamWeatherChannels::Hail) + FDreamWeatherChannels::Defaults().Get(FDreamWeatherChannels::Sleet), 0.0f);
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetWorldSeconds(Hours(12.0));
+	W.Clock->Tick(0.0f);
+	// The precipitation's kinds: hail its share first, the sleet's of what is left, the rest rain and snow.
+	auto At = [&](float Hail, float Sleet, float Temperature)
+	{
+		FDreamWeatherValues V = W.Weather->GetGlobalValues();
+		V.Values[FDreamWeatherChannels::Precipitation] = 0.8f;
+		V.Values[FDreamWeatherChannels::CloudCoverage] = 1.0f;
+		V.Values[FDreamWeatherChannels::Temperature] = Temperature;
+		V.Values[FDreamWeatherChannels::Hail] = Hail;
+		V.Values[FDreamWeatherChannels::Sleet] = Sleet;
+		return W.Weather->SampleWeatherAt(FVector::ZeroVector, V, W.Clock->GetWorldSeconds());
+	};
+	const FDreamWeatherSample Storm = At(0.5f, 0.0f, 10.0f);
+	TestNearlyEqual(TEXT("half of it hail"), Storm.Hail, 0.5f * Storm.Precipitation, 1.0e-4f);
+	TestNearlyEqual(TEXT("the rest rain on a warm day (hail at any temperature)"), Storm.Rain, 0.5f * Storm.Precipitation, 1.0e-3f);
+	TestTrue(TEXT("tagged as hail"), Storm.Tags.HasTag(DreamWeather::Tags::State_Hail));
+	const FDreamWeatherSample Mixed = At(0.5f, 0.5f, 10.0f);
+	TestNearlyEqual(TEXT("sleet takes its share of what the hail leaves"), Mixed.Sleet, 0.25f * Mixed.Precipitation, 1.0e-4f);
+	TestNearlyEqual(TEXT("all of it accounted for"), Mixed.Hail + Mixed.Sleet + Mixed.Rain + Mixed.Snow, Mixed.Precipitation, 1.0e-4f);
+	const FDreamWeatherSample Sleet = At(0.0f, 1.0f, 1.0f);
+	TestNearlyEqual(TEXT("all sleet: no rain, no snow"), Sleet.Rain + Sleet.Snow, 0.0f, 1.0e-4f);
+	TestTrue(TEXT("tagged as sleet"), Sleet.Tags.HasTag(DreamWeather::Tags::State_Sleet));
+	TestNearlyEqual(TEXT("landing in the open as it falls"), Sleet.SleetHere, Sleet.Sleet * Sleet.Exposure, 1.0e-5f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherFreezingRainTest, "DreamWeather.Channels.FreezingRain", DreamWeather::Tests::Flags)
 bool FDreamWeatherFreezingRainTest::RunTest(const FString& Parameters)
 {

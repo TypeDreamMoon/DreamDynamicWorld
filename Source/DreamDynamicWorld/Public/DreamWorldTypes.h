@@ -15,6 +15,21 @@ enum class EDreamCelestialMode : uint8
 	Realistic,
 };
 
+/** A daylight saving rule: when the clocks go an hour forward. */
+UENUM(BlueprintType)
+enum class EDreamDaylightSaving : uint8
+{
+	None,
+	/** The European Union and the United Kingdom: the last Sunday of March to the last Sunday of October. */
+	Europe,
+	/** The United States and Canada: the second Sunday of March to the first Sunday of November. */
+	NorthAmerica,
+	/** South-eastern Australia: the first Sunday of October to the first Sunday of April. */
+	SouthernAustralia,
+	/** New Zealand: the last Sunday of September to the first Sunday of April. */
+	NewZealand,
+};
+
 /** Where the sun and the moon are, for every day of the world. */
 USTRUCT(BlueprintType)
 struct DREAMDYNAMICWORLD_API FDreamCelestialSettings
@@ -58,6 +73,15 @@ struct DREAMDYNAMICWORLD_API FDreamCelestialSettings
 	/** Realistic: hours the world's clock is ahead of UTC. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Celestial|Realistic", meta = (ClampMin = "-14", ClampMax = "14", EditCondition = "Mode == EDreamCelestialMode::Realistic"))
 	float UtcOffsetHours = 9.0f;
+
+	/** Daylight saving: an hour more on the clock while the rule says (the clock tells local time, as a wall clock does). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Celestial|Realistic", meta = (EditCondition = "Mode == EDreamCelestialMode::Realistic"))
+	EDreamDaylightSaving DaylightSaving = EDreamDaylightSaving::None;
+
+	/** A built-in city (UDreamWorldCalendar::GetCityPresets): its latitude, longitude, time and daylight saving in place
+	 *  of the fields above. None: the fields above. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Celestial|Realistic", meta = (GetOptions = "DreamDynamicWorld.DreamWorldCalendar.GetCityNames", EditCondition = "Mode == EDreamCelestialMode::Realistic"))
+	FName City;
 };
 
 /** Where the sun and the moon are at one moment. Directions point from the ground TO the body. */
@@ -127,6 +151,10 @@ struct DREAMDYNAMICWORLD_API FDreamWorldClockConfig
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clock")
 	FDreamCelestialSettings Celestial;
+
+	/** A custom calendar to tell the dates by (GetCalendarDate, the date events); none: the Gregorian. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clock")
+	TObjectPtr<class UDreamCalendarAsset> Calendar;
 };
 
 /**

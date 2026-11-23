@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldQuality.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSettings.h"
@@ -95,6 +96,8 @@ void UDreamWorldSubsystem::Tick(float DeltaTime)
 {
 	SCOPE_CYCLE_COUNTER(STAT_DreamWorldTick);
 	const double TickStart = FPlatformTime::Seconds();
+	// (The quality levels: their console variables set again when a level changed, before anything reads them.)
+	UDreamWorldQuality::Apply();
 
 	const double PrevSeconds = WorldSeconds;
 	bool bJumped = bJumpPending;
@@ -177,6 +180,20 @@ void UDreamWorldSubsystem::FireClockEvents(double PrevSeconds, bool bJumped)
 	{
 		OnDateChanged.Broadcast(ToDateTime(WorldSeconds));
 	}
+	if (int64(FMath::FloorToDouble(WorldSeconds / 60.0)) != int64(FMath::FloorToDouble(LastEventSeconds / 60.0)))
+	{
+		const double Hours = HoursOfDay(WorldSeconds);
+		OnMinuteChanged.Broadcast(int32(Hours), int32((Hours - FMath::FloorToDouble(Hours)) * 60.0));
+	}
+	// (Each registered time the clock passed since the last frame: a day's crossing of it counted from midnight.)
+	for (const TPair<FName, float>& Event : TimeEvents)
+	{
+		const double At = double(Event.Value) * 3600.0;
+		if (FMath::FloorToDouble((WorldSeconds - At) / 86400.0) > FMath::FloorToDouble((LastEventSeconds - At) / 86400.0))
+		{
+			OnTimeEvent.Broadcast(Event.Key, Event.Value);
+		}
+	}
 	if (LastSunElevation <= 0.0f && Celestial.SunElevation > 0.0f)
 	{
 		OnSunrise.Broadcast();
@@ -208,6 +225,8 @@ void UDreamWorldSubsystem::ApplyClockConfig(const FDreamWorldClockConfig& Config
 {
 	Clock = Config;
 	Clock.DayLengthMinutes = FMath::Max(Clock.DayLengthMinutes, 0.1f);
+	// (A picked city's place, time and daylight saving written into the settings everything reads.)
+	UDreamWorldCalendar::ApplyCity(Clock.Celestial);
 	if (bResetTime)
 	{
 		bTransitionActive = false;
@@ -215,6 +234,21 @@ void UDreamWorldSubsystem::ApplyClockConfig(const FDreamWorldClockConfig& Config
 	}
 	NoteJump();
 	UpdateCelestial();
+}
+
+void UDreamWorldSubsystem::RegisterTimeEvent(FName Name, float Hour)
+{
+	TimeEvents.Add(Name, FMath::Fmod(FMath::Max(Hour, 0.0f), 24.0f));
+}
+
+void UDreamWorldSubsystem::UnregisterTimeEvent(FName Name)
+{
+	TimeEvents.Remove(Name);
+}
+
+FDreamCalendarDate UDreamWorldSubsystem::GetCalendarDate() const
+{
+	return Clock.Calendar ? Clock.Calendar->ToDate(WorldSeconds) : UDreamWorldCalendar::GregorianDate(WorldSeconds);
 }
 
 FDateTime UDreamWorldSubsystem::GetDateTime() const

@@ -28,6 +28,8 @@ enum class EDreamWeatherVoice : uint8
 	Snow,
 	/** Blowing dust and sand. */
 	Dust,
+	/** Hail rattling down, louder on a roof over the listener (empty slot: the rain on a roof's sound). */
+	Hail,
 	Num UMETA(Hidden)
 };
 ENUM_RANGE_BY_COUNT(EDreamWeatherVoice, EDreamWeatherVoice::Num);
@@ -82,6 +84,10 @@ struct DREAMWEATHERAUDIO_API FDreamWeatherSounds
 
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Snow and dust")
 	FDreamWeatherSoundSlot Dust;
+
+	/** Hail; left empty, the rain on a roof's sound stands in (pellets drumming). */
+	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Hail")
+	FDreamWeatherSoundSlot Hail;
 
 	/** Thunder from a strike closer than the settings' near distance (one-shots, one drawn per strike). */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadWrite, Category = "Thunder")
@@ -182,6 +188,8 @@ struct DREAMWEATHERAUDIO_API FDreamWeatherAudioInputs
 	/** Rain, snow and dust falling in the open at the listener, 0..1. */
 	float Rain = 0.0f;
 	float Snow = 0.0f;
+	/** Hail falling at the listener, 0..1. */
+	float Hail = 0.0f;
 	float Dust = 0.0f;
 	/** Wind speed at the listener (cm/s) and the gusts' speed multiplier there (1 = no gust). */
 	float WindSpeed = 0.0f;

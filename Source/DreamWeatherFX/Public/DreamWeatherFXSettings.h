@@ -45,6 +45,13 @@ struct DREAMWEATHERFX_API FDreamPrecipitationLayer
 	/** The most the drops slant: sideways speed at most this times the fall speed (1 = 45 degrees). */
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation", meta = (ClampMin = "0", UIMax = "4"))
 	float MaxSlant = 0.8f;
+
+	/**
+	 * How much of the wind's deviation each drop takes (User.WindResponse; rain and freezing rain 1, sleet some 0.5, hail
+	 * 0.05): the wind field's per-particle deviation goes by it.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Precipitation", meta = (ClampMin = "0", UIMax = "2"))
+	float WindResponse = 1.0f;
 };
 
 /**
@@ -81,6 +88,14 @@ public:
 
 	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
 	FDreamPrecipitationLayer Snow;
+
+	/** Hail: pellets falling fast and hardly blown, bouncing where they land (NS_DreamHail). */
+	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
+	FDreamPrecipitationLayer Hail;
+
+	/** Sleet: wet snow and ice pellets, slower than rain, blown about half as much as snow (NS_DreamSleet). */
+	UPROPERTY(Config, EditAnywhere, Category = "Precipitation")
+	FDreamPrecipitationLayer Sleet;
 
 	/**
 	 * Dust and sand blown along the ground: its paths run nearly flat downwind (FallSpeed is how fast motes settle,

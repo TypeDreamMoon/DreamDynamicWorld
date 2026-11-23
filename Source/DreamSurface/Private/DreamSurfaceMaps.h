@@ -64,7 +64,8 @@ private:
 		bool bLive = false;
 	};
 
-	bool Resolve();
+	/** bGameWorld: a game's world (the surface maps sized for the quality level, r.DreamSurface.Quality, once, here). */
+	bool Resolve(bool bGameWorld);
 	/** Nothing in the maps is this world's any more (another world drew them): integrate and draw everything afresh. */
 	void ForgetDrawn();
 	void DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, UDreamSurfaceSubsystem& Surface, UDreamWeatherSubsystem& Weather, double Now);

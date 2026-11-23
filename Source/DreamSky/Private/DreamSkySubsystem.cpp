@@ -25,6 +25,12 @@ static TAutoConsoleVariable<int32> CVarDreamSkyStarField(
 	TEXT("The dome's stars whatever the style says: 0 the stylized scatter, 1 the catalogue's; -1 = the style's StarField."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarDreamSkySkyDetail(
+	TEXT("DreamSky.SkyDetail"), 2,
+	TEXT("How much of the night's and the high sky's detail the dome draws (the quality levels set it): 2 all of it; 1 no meteors,")
+	TEXT(" satellites or noctilucent clouds; 0 none of those, nor the aurora or the ice halos."),
+	ECVF_Scalability);
+
 static TAutoConsoleVariable<float> CVarDreamSkyMeteors(
 	TEXT("DreamSky.Meteors"), -1.0f,
 	TEXT("Scales the meteors' and satellites' rates whatever the style says (its Meteors.RateScale for the meteors, 1 for the")
@@ -732,7 +738,8 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const FDreamCelestialSettings& Settings = Clock.GetCelestialSettings();
 		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
 		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
-		const float Strength = FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
+		const float Strength = (CVarDreamSkySkyDetail.GetValueOnGameThread() >= 1 ? 1.0f : 0.0f)
+			* FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
 			* (Style.Aurora.bStylizedTones && bStylizedClouds ? -1.0f : 1.0f);
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
@@ -805,11 +812,12 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const FVector Radiant = (FMath::Cos(Dec) * (FMath::Cos(Ra) * X + FMath::Sin(Ra) * Y) + FMath::Sin(Dec) * Pole).GetSafeNormal();
 		const float Dark = MS.bEnabled ? UDreamSkyStyle::AuroraNight(Applied.SunElevation) * (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) : 0.0f;
 		const float Forced = CVarDreamSkyMeteors.GetValueOnGameThread();
-		const float Scale = (Forced >= 0.0f ? Forced : FMath::Max(MS.RateScale, 0.0f)) * FMath::Max(Look.Meteors, 0.0f) * Dark;
+		const float Detail = CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2 ? 1.0f : 0.0f;
+		const float Scale = (Forced >= 0.0f ? Forced : FMath::Max(MS.RateScale, 0.0f)) * FMath::Max(Look.Meteors, 0.0f) * Dark * Detail;
 		const float Sporadic = FMath::Max(MS.SporadicPerHour, 0.0f) * Scale;
 		const float Shower = MeteorShower.ZenithalHourlyRate * FMath::Max(float(Radiant.Z), 0.0f) * Scale;
 		MeteorRate = Sporadic + Shower;
-		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) : 0.0f;
+		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) * Detail : 0.0f;
 		Clock.SetVectorParameter(MPC_Meteors, FLinearColor(Sporadic, Shower, FMath::Max(MS.Brightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f), Satellites));
 		Clock.SetVectorParameter(MPC_MeteorRadiant, FLinearColor(float(Radiant.X), float(Radiant.Y), float(Radiant.Z), FMath::Max(MS.SatelliteBrightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f)));
 		Clock.SetVectorParameter(MPC_MeteorLook, With(MS.Color, FMath::Max(MS.TrailLength, 0.2f)));
@@ -817,7 +825,8 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	// Noctilucent clouds, as present as the world (or a modifier) says, in the deep twilight.
 	{
 		const FDreamSkyNoctilucent& N = Style.Noctilucent;
-		const float Strength = N.bEnabled ? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) : 0.0f;
+		const float Strength = N.bEnabled && CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2
+			? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) : 0.0f;
 		Clock.SetVectorParameter(MPC_Noctilucent, FLinearColor(Strength, FMath::Clamp(N.Altitude, 40.0f, 150.0f), FMath::Max(N.BandSpacing, 1.0f), FMath::Max(N.Drift, 0.0f)));
 		Clock.SetVectorParameter(MPC_NoctilucentColor, With(N.Color, FMath::Max(N.BillowSpacing, 0.5f)));
 	}
@@ -830,7 +839,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	// The ice halos under a sheet of high cloud, the corona in thinner cloud (the dome hides both under a closing overcast).
 	{
 		const FDreamSkyHalos& H = Style.Halos;
-		const FVector2f Shows = Style.EvaluateHaloPresence(Look.HighCover);
+		const FVector2f Shows = Style.EvaluateHaloPresence(Look.HighCover) * (CVarDreamSkySkyDetail.GetValueOnGameThread() >= 1 ? 1.0f : 0.0f);
 		Clock.SetVectorParameter(MPC_Halo, FLinearColor(FMath::Max(H.Intensity, 0.0f) * Shows.X, FMath::Max(H.SunDogs, 0.0f) * Shows.X,
 			FMath::Max(H.Corona, 0.0f) * Shows.Y, FMath::Clamp(H.Milkiness, 0.0f, 1.0f) * Shows.X));
 		Clock.SetVectorParameter(MPC_Halo2, FLinearColor(FMath::Clamp(H.Radius, 10.0f, 40.0f), FMath::Max(H.Width, 0.2f), FMath::Max(H.CoronaRadius, 0.5f),

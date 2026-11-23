@@ -79,7 +79,7 @@ float4 Parameters[31];
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
 // materials' parameters, the sky's overrides over them; the toon tones and their ramps (FDreamSkyToonClouds, baked), which
 // the stylized include's toon painting reads (DSKY_TOON_*).
-float4 LookParameters[162];
+float4 LookParameters[163];
 
 // A toon ramp (0 the tone by the light, 1 an underside's by its glow) at X, between its 256 samples (two to a vector,
 // from LookParameters[18]).
@@ -108,6 +108,7 @@ float DSkyR_ToonRamp(float X, int Channel)
 #define DSKY_TOON_ADV4 LookParameters[150]
 #define DSKY_TOON_ADV5 LookParameters[151]
 #define DSKY_TOON_ADV6 LookParameters[152]
+#define DSKY_TOON_MOONHUE LookParameters[162].x
 
 #include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 #include "/Plugin/DreamDynamicWorld/Private/DreamCloudMarch.ush"
@@ -385,6 +386,12 @@ void DSkyR_Sky(float3 V, out float3 Halo, out float3 Tone, out float3 SkyBehind)
 		P_SkyGrade3, P_AtmosphereSun, P_AtmosphereMoon, SkyTable, SkyTableSampler, Halo, Share);
 	float3 Mean = max(0.5 * (P_Zenith.rgb + P_Horizon.rgb), 1.0e-4);
 	Tone = clamp(Base / Mean, 0.25, 4.0);
+	// (Its hue kept within a third of its brightness of neutral: in the deep twilight the warm horizon in the mean and the
+	// blue overhead made it a deep blue, which painted the clouds a glowing blue; by day it is well within.)
+	float ToneLuma = dot(Tone, float3(0.2126, 0.7152, 0.0722));
+	float3 ToneChroma = Tone - ToneLuma;
+	float Spread = max(max(abs(ToneChroma.r), abs(ToneChroma.g)), abs(ToneChroma.b));
+	Tone = ToneLuma + ToneChroma * min(1.0, 0.35 * ToneLuma / max(Spread, 1.0e-4));
 	float3 HazeHalo = Halo;
 	float3 Haze = V.z >= 0.0 ? Base : DSky_SkyBackdrop(DSky_HazeDirection(V), Sun, Moon, P_Zenith, P_Horizon, P_Ground, P_SunHalo,
 		P_SkyGrade0, P_SkyGrade1, P_SkyGrade2, P_SkyGrade3, P_AtmosphereSun, P_AtmosphereMoon, SkyTable, SkyTableSampler, HazeHalo, Share);

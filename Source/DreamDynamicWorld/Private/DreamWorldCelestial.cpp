@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldCelestial.h"
+#include "DreamWorldCalendar.h"
 
 namespace DreamWorld::Celestial
 {
@@ -216,8 +217,11 @@ namespace DreamWorld::Celestial
 		return 0.5 * (1.0 - FMath::Cos(2.0 * UE_DOUBLE_PI * Phase));
 	}
 
-	FDreamCelestialState Evaluate(const FDreamCelestialSettings& S, double WorldSeconds)
+	FDreamCelestialState Evaluate(const FDreamCelestialSettings& InSettings, double WorldSeconds)
 	{
+		// (The city's place and time if one is picked, and an hour more on the clock under daylight saving.)
+		const FDreamCelestialSettings S = InSettings.Mode == EDreamCelestialMode::Realistic
+			? UDreamWorldCalendar::Resolve(InSettings, ToDateTime(WorldSeconds)) : InSettings;
 		const FBasis B = MakeBasis(S.NorthYaw);
 		const double Hours = HoursOfDay(WorldSeconds);
 		// FDateTime counts days from 0001-01-01; its Julian day treats the clock as UTC.

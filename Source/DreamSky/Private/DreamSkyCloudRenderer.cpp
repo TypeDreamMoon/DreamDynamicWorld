@@ -572,7 +572,7 @@ void FDreamSkyCloudViewExtension::FillAtmosphere(DreamSkyCloudRender::FCommonPar
 
 void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookParameters& L, FVector4f Out[NumLookParameters])
 {
-	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 5, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
+	static_assert(NumLookParameters == 18 + FDreamSkyToonBaked::RampSize / 2 + 7 + 4 + 5 + 1, "the toon ramps, two samples a vector, after the 18 looks' vectors; the toon's finer settings; the painted look's; the colour scales");
 	// DreamSkyCloudRender.usf's LP_* (extinctions per cm).
 	Out[0] = FVector4f(L.Extinction * 0.01f, L.Albedo, L.Glow, L.BaseGlow);
 	Out[1] = FVector4f(L.ScatterForward, L.ScatterBackward, L.ScatterBlend, L.MultiScatter);
@@ -617,6 +617,7 @@ void FDreamSkyCloudViewExtension::PackLookParameters(const FDreamSkyCloudLookPar
 	Out[159] = FVector4f(L.PaintedCloudLitScale.R, L.PaintedCloudLitScale.G, L.PaintedCloudLitScale.B, 0.0f);
 	Out[160] = FVector4f(L.PaintedCloudShadeScale.R, L.PaintedCloudShadeScale.G, L.PaintedCloudShadeScale.B, 0.0f);
 	Out[161] = L.CloudToStyle;
+	Out[162] = FVector4f(L.MoonlightCloudSaturation, 0.0f, 0.0f, 0.0f);
 }
 
 FDreamSkyCloudViewExtension::FDreamSkyCloudViewExtension(const FAutoRegister& AutoRegister, UWorld* InWorld, UDreamSkySubsystem* InSubsystem)

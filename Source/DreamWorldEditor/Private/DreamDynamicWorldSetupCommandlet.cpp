@@ -401,7 +401,7 @@ namespace DreamWorld::Setup
 		using namespace DreamWeather::Tags;
 		const FGameplayTag Coverage = Channel_CloudCoverage, Dark = Channel_CloudDarkness, Precip = Channel_Precipitation, Snow = Channel_SnowRatio,
 			Fog = Channel_Fog, Dust = Channel_Dust, Wind = Channel_Wind, Lightning = Channel_Lightning, Temperature = Channel_Temperature, Wet = Channel_Wetness,
-			SnowCover = Channel_SnowCover, Freezing = Channel_FreezingRain;
+			SnowCover = Channel_SnowCover, Freezing = Channel_FreezingRain, HailShare = Channel_Hail, SleetShare = Channel_Sleet;
 		const TArray<FPresetSpec> Specs = {
 			{ TEXT("WP_Clear"), TEXT("Clear"), { { Coverage, 0.15f }, { Wind, 0.2f }, { Temperature, 1.0f } } },
 			{ TEXT("WP_Cloudy"), TEXT("Cloudy"), { { Coverage, 0.55f }, { Dark, 0.05f }, { Wind, 0.35f } } },
@@ -415,6 +415,10 @@ namespace DreamWorld::Setup
 			{ TEXT("WP_Frost"), TEXT("Frost"), { { Coverage, 0.05f }, { Wind, 0.05f }, { Temperature, -2.0f } } },
 			// Freezing rain: supercooled rain falling with the air below freezing; it glazes what it lands on.
 			{ TEXT("WP_FreezingRain"), TEXT("Freezing Rain"), { { Coverage, 1.0f }, { Dark, 0.35f }, { Precip, 0.55f }, { Freezing, 1.0f }, { Wind, 0.3f }, { Fog, 0.2f }, { Temperature, -8.0f }, { Wet, 1.0f } } },
+			// A hailstorm: a summer thunderstorm's hail, short and hard, under a dark sky.
+			{ TEXT("WP_Hail"), TEXT("Hail"), { { Coverage, 1.0f }, { Dark, 0.75f }, { Precip, 0.75f }, { HailShare, 0.85f }, { Lightning, 0.4f }, { Wind, 0.55f }, { Wet, 0.9f } } },
+			// Sleet: wet snow and ice pellets with the air just above freezing.
+			{ TEXT("WP_Sleet"), TEXT("Sleet"), { { Coverage, 1.0f }, { Dark, 0.3f }, { Precip, 0.6f }, { SleetShare, 1.0f }, { Wind, 0.4f }, { Fog, 0.15f }, { Temperature, -9.0f }, { Wet, 1.0f } } },
 			// A freezing fog in a breeze: rime builds on everything.
 			{ TEXT("WP_FreezingFog"), TEXT("Freezing Fog"), { { Coverage, 0.7f }, { Dark, 0.1f }, { Fog, 0.95f }, { Wind, 0.5f }, { Temperature, -14.0f } } },
 		};
@@ -433,7 +437,8 @@ namespace DreamWorld::Setup
 			{
 				Preset = NewObject<UDreamWeatherPreset>(CreatePackage(*PackageName), Spec.Name, RF_Public | RF_Standalone);
 			}
-			Preset->DisplayName = FText::FromString(Spec.Display);
+			// (Localizable: the localization gather takes it from the asset, keyed by the preset's name.)
+			Preset->DisplayName = FText::AsLocalizable_Advanced(TEXT("DreamWeatherPresets"), Spec.Name, Spec.Display);
 			Preset->Channels.Reset();
 			for (const TPair<FGameplayTag, float>& Channel : Spec.Channels)
 			{

@@ -313,7 +313,7 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	if (TestNotNull(TEXT("DreamSky.CloudRender.Enable"), Enable))
 	{
 		const int32 Saved = Enable->GetInt();
-		Enable->Set(0, ECVF_SetByCode);
+		Enable->Set(0, ECVF_SetByScalability);
 		W.Clock->Tick(0.016f);
 		TestFalse(TEXT("DreamSky.CloudRender.Enable 0: the renderer draws no clouds"), W.Sky->DrawsClouds());
 		TestFalse(TEXT("the dome's sky light capture takes no panorama"), DomeLeavesCloudsOut());
@@ -325,13 +325,13 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 		IConsoleVariable* Flat = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds.Flat"));
 		if (TestNotNull(TEXT("DreamSky.Clouds.Flat"), Flat))
 		{
-			Flat->Set(0, ECVF_SetByCode);
+			Flat->Set(0, ECVF_SetByScalability);
 			W.Clock->Tick(0.016f);
 			TestFalse(TEXT("flat clouds off: none"), W.Sky->DrawsFlatClouds());
 			TestTrue(TEXT("the sun takes no cloud shadow"), W.Sky->SunLight->LightFunctionMaterial == nullptr);
-			Flat->Set(-1, ECVF_SetByCode);
+			Flat->Set(-1, ECVF_SetByScalability);
 		}
-		Enable->Set(Saved, ECVF_SetByCode);
+		Enable->Set(Saved, ECVF_SetByScalability);
 		W.Clock->Tick(0.016f);
 		TestTrue(TEXT("on again: the clouds as before"), W.Sky->DrawsClouds() == FApp::CanEverRender());
 		TestTrue(TEXT("and the flat clouds only where the renderer does not draw"), W.Sky->DrawsFlatClouds() == !W.Sky->DrawsClouds());
@@ -339,7 +339,7 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 	// DreamSky.Clouds.Flat 1: the flat clouds instead of the renderer (a low quality), what the dome is told.
 	if (IConsoleVariable* Flat = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds.Flat")))
 	{
-		Flat->Set(1, ECVF_SetByCode);
+		Flat->Set(1, ECVF_SetByScalability);
 		W.Clock->Tick(0.016f);
 		TestFalse(TEXT("Flat 1: the renderer does not draw"), W.Sky->DrawsClouds());
 		TestTrue(TEXT("the flat clouds do"), W.Sky->DrawsFlatClouds());
@@ -358,7 +358,7 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("the dome draws none"), Value.R, 0.0f);
 		}
 		W.Sky->GetEffectiveStyle()->FlatClouds.bEnabled = true;
-		Flat->Set(-1, ECVF_SetByCode);
+		Flat->Set(-1, ECVF_SetByScalability);
 		W.Clock->Tick(0.016f);
 	}
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the

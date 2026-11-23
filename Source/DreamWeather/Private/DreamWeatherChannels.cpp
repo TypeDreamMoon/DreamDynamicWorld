@@ -44,6 +44,8 @@ TArray<FDreamWeatherChannelDef> FDreamWeatherChannels::MakeBuiltIn()
 	Out.Add(Make(Channel_Wetness, 0.0f, 0.0f, 1.0f, 20.0f, -10.0f));
 	Out.Add(Make(Channel_SnowCover, 0.0f, 0.0f, 1.0f, 60.0f, -20.0f));
 	Out.Add(Make(Channel_FreezingRain, 0.0f, 0.0f, 1.0f, 10.0f, 0.0f));
+	Out.Add(Make(Channel_Hail, 0.0f, 0.0f, 1.0f, 10.0f, 0.0f));
+	Out.Add(Make(Channel_Sleet, 0.0f, 0.0f, 1.0f, 10.0f, 0.0f));
 	check(Out.Num() == NumBuiltIn);
 	return Out;
 }

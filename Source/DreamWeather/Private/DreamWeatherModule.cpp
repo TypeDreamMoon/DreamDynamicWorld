@@ -19,6 +19,8 @@ namespace DreamWeather::Tags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_Wetness, "Dream.Weather.Channel.Wetness", "How wet surfaces become, 0..1.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_SnowCover, "Dream.Weather.Channel.SnowCover", "How much snow settles, 0..1.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_FreezingRain, "Dream.Weather.Channel.FreezingRain", "The share of the rain that is supercooled, 0..1: it stays rain below freezing (it is not turned to snow) and freezes where it lands on frozen ground.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_Hail, "Dream.Weather.Channel.Hail", "The share of the precipitation that falls as hail, 0..1 (at any temperature: a summer storm hails).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_Sleet, "Dream.Weather.Channel.Sleet", "The share of the precipitation that falls as sleet, 0..1: wet snow and ice pellets, between the rain and the snow.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Clear, "Dream.Weather.State.Clear", "Little or no cloud.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Cloudy, "Dream.Weather.State.Cloudy", "Broken cloud.");
@@ -27,6 +29,8 @@ namespace DreamWeather::Tags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Rain_Heavy, "Dream.Weather.State.Rain.Heavy", "It is raining hard.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Snow, "Dream.Weather.State.Snow", "It is snowing.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Snow_Heavy, "Dream.Weather.State.Snow.Heavy", "It is snowing hard.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Hail, "Dream.Weather.State.Hail", "It is hailing.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Sleet, "Dream.Weather.State.Sleet", "Sleet is falling.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Storm, "Dream.Weather.State.Storm", "A thunderstorm.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Fog, "Dream.Weather.State.Fog", "Fog.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dust, "Dream.Weather.State.Dust", "Dust or sand in the air.");

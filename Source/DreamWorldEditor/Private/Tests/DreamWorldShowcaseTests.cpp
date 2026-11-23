@@ -10,6 +10,7 @@
 #include "DreamSkyStyle.h"
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamWeather.h"
+#include "DreamWeatherRadar.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -131,6 +132,8 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("a meteor storm for the night"), bStorm);
 	}
+
+	TestEqual(TEXT("a weather radar screen"), ActorsOf<ADreamWeatherRadarDisplay>(World).Num(), 1);
 
 	// The day's weather in order, a cycle of a day.
 	const TArray<ADreamWeather*> Weathers = ActorsOf<ADreamWeather>(World);

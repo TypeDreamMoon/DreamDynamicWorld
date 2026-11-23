@@ -102,14 +102,15 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(CloudClearing.SunStrength, { { -4.0f, 0.0f }, { 0.0f, 0.55f }, { 6.0f, 0.55f }, { 15.0f, 0.3f }, { 30.0f, 0.05f }, { 45.0f, 0.0f } });
 	SetKeys(CloudClearing.MoonStrength, { { -4.0f, 0.0f }, { 0.0f, 0.4f }, { 10.0f, 0.35f }, { 30.0f, 0.15f }, { 60.0f, 0.05f } });
 
-	// Sunlit cloud tops are about as bright as a white surface in the sun; their shaded sides take the sky's blue.
+	// Sunlit cloud tops are about as bright as a white surface in the sun; their shaded sides take the sky's blue. In the
+	// deep twilight and the night a low-saturation grey-blue (as bright as before; a saturated blue read as glowing).
 	SetKeys(CloudLitColor, {
-		{ -12.0f, C(0.060f, 0.070f, 0.110f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
+		{ -12.0f, C(0.064f, 0.071f, 0.088f) }, { -4.0f, C(0.320f, 0.230f, 0.280f) }, { 0.0f, C(1.500f, 0.800f, 0.500f) },
 		{ 5.0f, C(1.800f, 1.400f, 1.080f) }, { 15.0f, C(2.000f, 1.950f, 1.880f) }, { 60.0f, C(2.200f, 2.200f, 2.150f) } });
 	// Painted cloud shade is a pale sky-tinted blue-grey by day (the shade about 0.85 of the lit side's brightness
 	// on screen), a lavender blue toward sunset (about half): the complement of the warm light, never a neutral grey.
 	SetKeys(CloudShadowColor, {
-		{ -12.0f, C(0.030f, 0.036f, 0.065f) }, { -4.0f, C(0.090f, 0.075f, 0.140f) }, { 0.0f, C(0.300f, 0.230f, 0.420f) },
+		{ -12.0f, C(0.033f, 0.0365f, 0.050f) }, { -4.0f, C(0.092f, 0.078f, 0.115f) }, { 0.0f, C(0.300f, 0.230f, 0.420f) },
 		{ 5.0f, C(0.560f, 0.520f, 0.780f) }, { 10.0f, C(0.950f, 0.960f, 1.250f) }, { 15.0f, C(1.300f, 1.420f, 1.660f) },
 		{ 60.0f, C(1.400f, 1.520f, 1.780f) } });
 

@@ -617,6 +617,80 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Precipitation types
+
+What falls is the Precipitation channel split into kinds: the Hail channel's share first (at any temperature -- a
+summer storm hails), the Sleet channel's share of what is left, the rest rain and snow by the snow ratio (snow near
+freezing whatever the weather says, all but the FreezingRain channel's supercooled share of the rain). The sample
+carries each (`Rain`, `Snow`, `Hail`, `Sleet`, and what lands on the point, `...Here`) and the state tags
+(`Dream.Weather.State.Hail`, `.Sleet`); the presets `WP_Hail`, `WP_Sleet` and `WP_FreezingRain` make each.
+
+| Type | Channel | Particles (`UDreamWeatherFXSettings`) | Fall speed | `WindResponse` | Sound |
+|---|---|---|---|---|---|
+| Rain | Precipitation, the rest | `NS_DreamRain`: streaks, splashes | 900 cm/s | 1 | rain light, heavy, on roofs, on leaves |
+| Freezing rain | FreezingRain (of the rain) | as rain | as rain | 1 (as rain) | as rain |
+| Snow | SnowRatio (of the rest) | `NS_DreamSnow`: swaying flakes | 130 cm/s | 1 | snow |
+| Sleet | Sleet | `NS_DreamSleet`: short wet streaks, slush splashes | 450 cm/s | 0.5 | half as rain, half as snow |
+| Hail | Hail | `NS_DreamHail`: pellets, bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
+
+Each layer's `WindResponse` goes to its effect (`User.WindResponse`): how much of the wind field's per-particle
+deviation its particles take. Hail and sleet count as precipitation on the surfaces for now (their own layer, hail
+lying for a while, is the surfaces' to add).
+
+### Quality levels
+
+Dream Dynamic World follows the engine's scalability: each group of its features takes the level of the engine group it
+belongs with -- the sky (`sg.EffectsQuality`), the surface maps (`sg.TextureQuality`), the weather's particles
+(`sg.EffectsQuality`), its volumetric fog (`sg.ShadowQuality`) and the wind (`sg.EffectsQuality`) -- or Dream Dynamic
+World's own, `r.DreamWorld.Quality` (0 low .. 4 cinematic, -1 the engine's; `UDreamWorldQuality::SetQualityOverride`
+from a settings menu). When a level changes the world clock sets the console variables its group maps to, at the
+scalability's priority, so anything set by hand (the console, an ini, a device profile) still wins; switching while the
+game runs swaps them in place -- the clouds keep drawing, their history starting afresh, nothing goes blank.
+
+| Level | Clouds | Light shafts | Sky extras (`DreamSky.SkyDetail`) | Particles | Volumetric fog |
+|---|---|---|---|---|---|
+| Low | the flat clouds (`DreamSky.Clouds.Flat 1`) | off | none (no aurora, halos, meteors, noctilucent clouds) | 35% | off |
+| Medium | a third resolution, 96 samples, sun maps in 8 slices | off, 12 samples | aurora and halos; no meteors, satellites or noctilucent clouds | 60% | off |
+| High | half resolution, 128 samples, 6 slices | on, 16 samples | all | 85% | the sky's |
+| Epic | half resolution, 160 samples, 6 slices (as tuned) | on, 24 samples | all | 100% | the sky's |
+| Cinematic | full resolution, 256 samples, the sun maps whole | on, 48 samples | all | 100% | the sky's |
+
+The wind takes its level from `r.DreamWind.Quality` (-1 = as above). The surface maps take theirs from
+`r.DreamSurface.Quality` (-1 = as above) as the world starts -- their state maps at half their size at low and medium,
+three quarters at high, as authored above -- and keep that size while the game runs: a level changed then takes effect
+at the next load (resizing would drop the wetness and snow they have gathered, a visible jump); `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
+each group's levels set.
+
+### Calendar and events
+
+The realistic sky can stand at a built-in city (`FDreamCelestialSettings::City`: Tokyo, Beijing, London, New York,
+Sydney and some thirty more, `UDreamWorldCalendar::GetCityPresets`) -- its latitude, longitude, standard time and
+daylight saving written into the clock's settings as the config is applied -- or at the place typed in. Daylight
+saving (`DaylightSaving`: Europe, North America, south-eastern Australia, New Zealand) puts the clock an hour forward
+while its rule says, the clock telling local time as a wall clock does (`UDreamWorldCalendar::IsDaylightSaving`). A
+custom calendar (`UDreamCalendarAsset`: its months' names and days, its week, its era, the year it counts from; the
+clock config's `Calendar`) tells the dates -- `UDreamWorldSubsystem::GetCalendarDate` gives the year, month, day,
+weekday, their names and the time -- while the sun and the seasons still go by the Gregorian year underneath. Besides
+the hour, the date, sunrise and sunset, the clock fires `OnMinuteChanged` each game minute (once a frame at most) and
+`OnTimeEvent` for each time registered with `RegisterTimeEvent` (a name and an hour, every day) as it passes it. A
+weather's name for a player is its preset's `DisplayName`, localizable (the built-in presets' under the namespace
+`DreamWeatherPresets`); `UDreamWeatherSubsystem::GetCurrentWeatherDisplayName` gives the current one's.
+
+### Weather radar
+
+`UDreamWeatherRadar` draws the weather map as a weather radar round the view (or a middle `SetCenter` holds), north
+up: the precipitation in the radar's colour steps (by default muted: a grey green, a grey yellow, a terracotta and a
+dull rose, from light to extreme, each from its threshold; snow's own grey blue as the view's precipitation falls as
+snow), the cloud cover a faint veil under it,
+range rings and a cross at the middle -- into a texture any UI can show (`GetRadarTexture`, redrawn every
+`RefreshSeconds`), with `UDreamWeatherRadarImage`, a UMG image (the *Dream Weather* palette) that shows it, and
+`ADreamWeatherRadarDisplay`, a screen in the world showing it (the showcase has one ahead of the start). Its look --
+reach, rings, every step's colour and threshold, the veil, the background, the marks -- is `FDreamWeatherRadarLook`
+(`SetLook`). For a game's UI and gameplay: `WorldToRadar` / `RadarToWorld` place a point on the picture and back
+(markers), `SampleRadar` says what it shows at a point and its step, `FindNearestPrecipitation` finds the nearest rain
+within a reach (an approaching shower). The material, `M_DreamWeatherRadar`, can go on any surface: `ApplyTo` sets a
+dynamic instance of it.
+
 ### Storms
 
 **Moving storms.** Any zone can move: *Motion* (`FDreamWeatherZoneMotion`) gives it a drift (km per game hour) or a
