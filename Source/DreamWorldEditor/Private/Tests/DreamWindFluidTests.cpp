@@ -216,19 +216,23 @@ namespace DreamWindFluidTests
 		const float Open = V.Velocity(OpenPoint).Size();
 		const float Inside = V.Wall(HouseCenter);
 
-		// behind each downwind corner, the strongest spin within a few metres (off the walls)
+		// behind each downwind corner, the strongest spin within a few metres (off the walls), signed as the spin there is
+		// on the whole: a fine grid resolves small counter-spinning eddies inside the shear layer, the layer's own sense
+		// is what tells the corners apart
 		auto StrongestSpin = [&V, Z](double X0, double X1, double Y0, double Y1)
 		{
 			float Best = 0.0f;
+			double Sum = 0.0;
 			for (double X = X0; X <= X1; X += 100.0)
 			{
 				for (double Y = FMath::Min(Y0, Y1); Y <= FMath::Max(Y0, Y1); Y += 100.0)
 				{
 					const float Spin = V.VorticityZ(FVector(X, Y, Z));
-					Best = FMath::Abs(Spin) > FMath::Abs(Best) ? Spin : Best;
+					Best = FMath::Max(Best, FMath::Abs(Spin));
+					Sum += Spin;
 				}
 			}
-			return Best;
+			return Sum < 0.0 ? -Best : Best;
 		};
 		const float Left = StrongestSpin(Back + 50.0, Back + 450.0, Side - 250.0, Side + 150.0);
 		const float Right = StrongestSpin(Back + 50.0, Back + 450.0, -Side + 250.0, -Side - 150.0);
