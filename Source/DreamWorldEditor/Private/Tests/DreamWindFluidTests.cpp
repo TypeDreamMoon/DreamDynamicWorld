@@ -10,11 +10,15 @@
 #include "DreamWindQualityTier.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindTestMap.h"
+#include "DreamWorldInterior.h"
 
 #include "Editor.h"
 #include "Editor/EditorPerformanceSettings.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "LevelEditorViewport.h"
 #include "Misc/App.h"
@@ -1107,6 +1111,227 @@ bool FDreamWindFluidPIETest::RunTest(const FString& Parameters)
 	Then([]()
 	{
 		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(FVector::ZeroVector, false);
+		}
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	return true;
+}
+
+// ---- A room's openings in the fluid --------------------------------------------------------------------------------
+// A hut of thin walls in the steady wind, its doorway upwind, a window across the room downwind, both portals that let
+// the air through: the air blows in at the door and out of the window. With a pane in the window (and the window
+// portal shut) the room is a dead end: little moves in it.
+
+namespace DreamWindFluidTests
+{
+	struct FHut
+	{
+		TArray<TWeakObjectPtr<AActor>> Actors;
+		TWeakObjectPtr<AActor> Pane;
+		TWeakObjectPtr<UDreamPortalComponent> Window;
+	};
+
+	AStaticMeshActor* SpawnBlock(UWorld* World, const FVector& Center, const FVector& Size)
+	{
+		UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		AStaticMeshActor* Block = World->SpawnActor<AStaticMeshActor>(Center, FRotator::ZeroRotator, Spawn);
+		if (Block)
+		{
+			Block->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Block->GetStaticMeshComponent()->SetStaticMesh(Cube);
+			Block->SetActorScale3D(Size / 100.0);
+		}
+		return Block;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindFluidPortalTest, "DreamWind.Gpu.FluidPortals", DreamWindFluidTests::Flags)
+bool FDreamWindFluidPortalTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWindFluidTests;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	if (!FPackageName::DoesPackageExist(DreamWorld::Setup::WindTestMapPackage))
+	{
+		AddError(TEXT("The wind field test level is missing: run Setup -WindFieldTestMap."));
+		return false;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	SetCVar(TEXT("DreamWind.Fluid"), 1);
+	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
+	SetCVar(TEXT("DreamWind.RuntimeTerrain"), 0);
+	SetCVar(TEXT("DreamWind.Occlusion"), 0);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
+	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
+	WaitFrames(10);
+
+	// 6 x 6 x 3 m inside, 20 cm walls, a 20 cm roof; a 1.6 x 2.2 m doorway in the -X wall, a 1.6 x 1.2 m window (sill at
+	// 0.8 m) in the +X wall; both on the room's axis, in the open west of the walker's loop.
+	const FVector Hut(-2600.0, 400.0, 0.0);
+	const double Half = 300.0, Wall = 20.0, Height = 300.0, Gap = 160.0, DoorHeight = 220.0, Sill = 80.0, Head = 200.0;
+	TSharedRef<FHut> H = MakeShared<FHut>();
+	Then([this, H, Hut, Half, Wall, Height, Gap, DoorHeight, Sill, Head]()
+	{
+		UWorld* World = EditorWorld();
+		const double Side = (2.0 * Half + 2.0 * Wall - Gap) * 0.5;
+		auto Block = [World, H](const FVector& C, const FVector& S) { H->Actors.Add(SpawnBlock(World, C, S)); };
+		// the side walls (+Y, -Y) and the roof
+		Block(Hut + FVector(0.0, Half + Wall * 0.5, Height * 0.5), FVector(2.0 * Half + 2.0 * Wall, Wall, Height));
+		Block(Hut + FVector(0.0, -Half - Wall * 0.5, Height * 0.5), FVector(2.0 * Half + 2.0 * Wall, Wall, Height));
+		Block(Hut + FVector(0.0, 0.0, Height + Wall * 0.5), FVector(2.0 * Half + 2.0 * Wall, 2.0 * Half + 2.0 * Wall, Wall));
+		// the -X wall round the doorway
+		for (const double Sign : { -1.0, 1.0 })
+		{
+			Block(Hut + FVector(-Half - Wall * 0.5, Sign * (Gap * 0.5 + Side * 0.5), Height * 0.5), FVector(Wall, Side, Height));
+			Block(Hut + FVector(Half + Wall * 0.5, Sign * (Gap * 0.5 + Side * 0.5), Height * 0.5), FVector(Wall, Side, Height));
+		}
+		Block(Hut + FVector(-Half - Wall * 0.5, 0.0, (DoorHeight + Height) * 0.5), FVector(Wall, Gap, Height - DoorHeight));
+		// the +X wall under and over the window
+		Block(Hut + FVector(Half + Wall * 0.5, 0.0, Sill * 0.5), FVector(Wall, Gap, Sill));
+		Block(Hut + FVector(Half + Wall * 0.5, 0.0, (Head + Height) * 0.5), FVector(Wall, Gap, Height - Head));
+
+		// the room and its two openings
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		if (ADreamInterior* Room = World->SpawnActor<ADreamInterior>(Hut + FVector(0.0, 0.0, Height * 0.5), FRotator::ZeroRotator, Spawn))
+		{
+			Room->Interior->Extent = FVector(Half, Half, Height * 0.5);
+			H->Actors.Add(Room);
+		}
+		if (ADreamPortal* Door = World->SpawnActor<ADreamPortal>(Hut + FVector(-Half - Wall * 0.5, 0.0, DoorHeight * 0.5), FRotator(0.0, 180.0, 0.0), Spawn))
+		{
+			Door->Portal->SetVentilate(true);
+			Door->Portal->Width = Gap;
+			Door->Portal->Height = DoorHeight;
+			Door->Portal->Depth = Wall + 40.0;
+			H->Actors.Add(Door);
+		}
+		if (ADreamPortal* Window = World->SpawnActor<ADreamPortal>(Hut + FVector(Half + Wall * 0.5, 0.0, (Sill + Head) * 0.5), FRotator::ZeroRotator, Spawn))
+		{
+			Window->Portal->Width = Gap;
+			Window->Portal->Height = Head - Sill;
+			Window->Portal->Depth = Wall + 40.0;
+			H->Window = Window->Portal;
+			H->Actors.Add(Window);
+		}
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective())
+			{
+				C->SetRealtime(true);
+				C->SetViewLocation(Hut + FVector(-2000.0, 0.0, 1500.0));
+				C->SetViewRotation(FRotator(-35.0, 0.0, 0.0));
+				C->Invalidate();
+			}
+		}
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(Hut + FVector(0.0, 0.0, 200.0), true);
+			FDreamWindGlobalWind Steady = W->GetGlobalWind();
+			Steady.Direction = DreamWorld::Setup::WindTest::WindDirection;
+			Steady.Speed = DreamWorld::Setup::WindTest::WindSpeed;
+			Steady.GustStrength = 0.0f;
+			Steady.TurbulenceStrength = 0.0f;
+			W->SetGlobalWind(Steady, 0.0f);
+		}
+		GShaderCompilingManager->FinishAllCompilation();
+	});
+	WaitFrames(400);
+
+	// The air along the room's axis at 1.5 m, from just inside the door to just inside the window: the background (the
+	// steady wind: no terrain map, no shadow) plus the fluid's deviation, averaged over six reads.
+	auto Through = [Hut, Half](const FVolume& V, int32& OutWalls)
+	{
+		double Sum = 0.0;
+		int32 Count = 0;
+		OutWalls = 0;
+		for (double X = -Half + 50.0; X <= Half - 50.0; X += 50.0)
+		{
+			const FVector P = Hut + FVector(X, 0.0, 150.0);
+			const int32 I = V.IndexOf(P);
+			if (I == INDEX_NONE)
+			{
+				continue;
+			}
+			if (V.Walls[I] > 0.5f)
+			{
+				++OutWalls;
+				continue;
+			}
+			Sum += DreamWorld::Setup::WindTest::WindSpeed + V.Deviation[I].X / float(V.Reads);
+			++Count;
+		}
+		return Count > 0 ? float(Sum / Count) : 0.0f;
+	};
+	TSharedRef<FVolume> Open = MakeShared<FVolume>();
+	for (int32 i = 0; i < 6; ++i)
+	{
+		Then([Open]() { Open->Read(); });
+		WaitFrames(30);
+	}
+	TSharedRef<float> OpenFlow = MakeShared<float>(0.0f);
+	Then([this, Open, Through, OpenFlow, Hut]()
+	{
+		int32 Walls = 0;
+		*OpenFlow = Through(*Open, Walls);
+		AddInfo(FString::Printf(TEXT("door and window open: the air along the room's axis %.0f cm/s (the open %.0f), %d wall cells on it; door cell w %.2f"),
+			*OpenFlow, DreamWorld::Setup::WindTest::WindSpeed, Walls, Open->Wall(Hut + FVector(-310.0, 0.0, 110.0))));
+		TestTrue(TEXT("the open doorway and window are air in the fluid"), Open->Wall(Hut + FVector(-310.0, 0.0, 110.0)) < 0.5f && Open->Wall(Hut + FVector(310.0, 0.0, 140.0)) < 0.5f);
+		TestTrue(TEXT("the air blows through the room, door to window"), *OpenFlow > 0.25f * DreamWorld::Setup::WindTest::WindSpeed);
+	});
+
+	// A pane in the window, the window shut: a dead end.
+	Then([H, Hut, Half, Wall, Gap, Sill, Head]()
+	{
+		H->Pane = SpawnBlock(EditorWorld(), Hut + FVector(Half + Wall * 0.5, 0.0, (Sill + Head) * 0.5), FVector(10.0, Gap, Head - Sill));
+		if (H->Window.IsValid())
+		{
+			H->Window->SetOpenness(0.0f);
+		}
+	});
+	WaitFrames(400);
+	TSharedRef<FVolume> Shut = MakeShared<FVolume>();
+	for (int32 i = 0; i < 6; ++i)
+	{
+		Then([Shut]() { Shut->Read(); });
+		WaitFrames(30);
+	}
+	Then([this, Shut, Through, OpenFlow]()
+	{
+		int32 Walls = 0;
+		const float ShutFlow = Through(*Shut, Walls);
+		AddInfo(FString::Printf(TEXT("the window shut: the air along the room's axis %.0f cm/s (with it open %.0f)"), ShutFlow, *OpenFlow));
+		TestTrue(TEXT("with the window shut the room is still"), ShutFlow < 0.5f * *OpenFlow);
+	});
+
+	Then([H]()
+	{
+		for (const TWeakObjectPtr<AActor>& A : H->Actors)
+		{
+			if (A.IsValid())
+			{
+				A->Destroy();
+			}
+		}
+		if (H->Pane.IsValid())
+		{
+			H->Pane->Destroy();
+		}
+		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
+		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
+		SetCVar(TEXT("DreamWind.Occlusion"), -1);
 		SetCVar(TEXT("r.DreamWind.Quality"), -1);
 		if (UDreamWindSubsystem* W = Wind())
 		{
