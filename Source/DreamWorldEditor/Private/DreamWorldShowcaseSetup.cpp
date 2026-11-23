@@ -862,6 +862,7 @@ namespace DreamWorld::ShowcaseSetup
 		{
 			Mist->Extent = FVector(3800.0, 3800.0, 600.0);
 			Mist->Cells = 48;
+			Mist->GroundFilter = 3;   // the shelter, the board and the props off the ground the mist lies on
 			Mist->Humidity = 0.92f;
 			Mist->PoolDepth = 400.0f;
 			Mist->MistThickness = 200.0f;
