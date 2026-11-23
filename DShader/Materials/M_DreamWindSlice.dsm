@@ -50,6 +50,20 @@ Function float3 DreamWind_Slice(
 	FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
 	float2 TUV = DW_TerrainUV(WorldPos, TP);
 	float Inside = DW_TerrainInside(TUV, TP);
+	// The whole wind takes the runtime terrain map where it runs, as MF_DreamWindSample does (mode 1 stays the baked map).
+	{
+		FDreamWindL1Level RN = DW_UnpackL1Level(L1Near);
+		FDreamWindL1Level RF = DW_UnpackL1Level(L1Far);
+		if (Mode < 0.5f && (RN.Mode > 0.5f || RF.Mode > 0.5f))
+		{
+			float RWN = DW_L1Weight(WorldPos, RN);
+			float RWF = DW_L1Weight(WorldPos, RF);
+			float4 RTN = RWN > 0.0f ? L1NearMap.SampleLevel(L1NearMapSampler, DW_L1UV(WorldPos, RN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+			float4 RTF = RWF > 0.0f ? L1FarMap.SampleLevel(L1FarMapSampler, DW_L1UV(WorldPos, RF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+			S = DW_ApplyL1(S, WorldPos, RTN, RWN, RTF, RWF, DW_UnpackL1Params(L1Params));
+			Inside = 0.0f;
+		}
+	}
 	if (Inside > 0.0f)
 	{
 		float4 Texel = Terrain.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0);
