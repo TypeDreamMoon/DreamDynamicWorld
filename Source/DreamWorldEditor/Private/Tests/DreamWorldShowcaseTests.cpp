@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldShowcaseSetup.h"
+#include "DreamWeatherFog.h"
 #include "DreamSurfaceInteraction.h"
 #include "DreamSurfaceWalker.h"
 #include "DreamSurfaceSetup.h"
@@ -160,6 +161,8 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one lamp in the hut"), Lamps, 1);
 	TestTrue(TEXT("roofs the rain knows (hut, porch)"), CountTagged(World, FDreamWeatherFallPaths::RoofTag) >= 2);
 	TestEqual(TEXT("a porch roof capture box"), ActorsOf<ADreamSurfaceRoofCapture>(World).Num(), 1);
+	TestEqual(TEXT("a fog bank"), ActorsOf<ADreamFogBank>(World).Num(), 1);
+	TestEqual(TEXT("wind fog"), ActorsOf<ADreamWindFog>(World).Num(), 1);
 	const TArray<ADreamSurfaceWalker*> Walkers = ActorsOf<ADreamSurfaceWalker>(World);
 	if (TestEqual(TEXT("a walker"), Walkers.Num(), 1))
 	{

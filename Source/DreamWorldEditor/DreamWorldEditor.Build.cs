@@ -37,6 +37,7 @@ public class DreamWorldEditor : ModuleRules
 			"DreamWindEditor",
 			"DreamCloud",
 			"DreamSurface",
+			"DreamWeatherFX",
 			"MeshDescription",
 			"StaticMeshDescription",
 			"LevelSequence",
