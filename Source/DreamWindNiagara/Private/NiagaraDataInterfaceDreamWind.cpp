@@ -536,11 +536,11 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	FRDGTextureRef VolumeFarRDG = nullptr;
 	if (bSampleVolume)
 	{
-		if (Data->V1.W > 0.5f && Context.IsResourceBound(&SP->VolumeTexture))
+		if (Data->V1.W > 0.0f && Context.IsResourceBound(&SP->VolumeTexture))
 		{
 			VolumeRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->VolumeTexture, Data->TransientVolumeTexture, TEXT("DreamWind.NDIVolume"), ETextureDimension::Texture3D);
 		}
-		if (Data->V3.W > 0.5f && Context.IsResourceBound(&SP->VolumeFarTexture))
+		if (Data->V3.W > 0.0f && Context.IsResourceBound(&SP->VolumeFarTexture))
 		{
 			VolumeFarRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->VolumeFarTexture, Data->TransientVolumeFarTexture, TEXT("DreamWind.NDIVolumeFar"), ETextureDimension::Texture3D);
 		}

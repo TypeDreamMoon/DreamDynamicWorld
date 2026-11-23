@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamWindTypes.h"
+#include "DreamWindQualityTier.h"
 #include "DreamWindHlslShim.h"
 #include "DreamWorldSharedTargets.h"
 #include "Math/Float16Color.h"
@@ -365,7 +366,13 @@ public:
 
 	/** True when this world drives the shared volume render target this frame. */
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
-	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
+	bool IsVolumeActive() const { return FrameData.V1.W > 0.0f; }
+
+	/** How much of the volume consumers take this frame, 0..1 (it fades over half a second when the quality level changes its grids). */
+	float GetVolumeFade() const { return FrameData.V1.W; }
+
+	/** What the wind field runs at (the quality level's tier; a new level's grids take over once the volume has faded out). */
+	const FDreamWindQualityTier& GetQualityTier() const { return Tier; }
 
 	/** True when the volumes are solved as a fluid this frame (else the residual volume, or nothing). */
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
@@ -396,6 +403,8 @@ private:
 	};
 
 	void AdvanceGlobalWind(float DeltaTime);
+	/** Follows the quality level: a tier with the same grids at once, other grids once the volume has faded out. */
+	void UpdateQualityTier(float DeltaTime);
 	void GatherSources();
 	void BuildFrameData(float DeltaTime);
 	void UpdateEngineWindSource();
@@ -411,7 +420,7 @@ private:
 	/** Applies the terrain map (if any) to an analytic sample on the CPU. */
 	DreamWind::Hlsl::FDreamWindSample ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const;
 	bool UpdateVolumeLevel(float WindDelta, UTextureRenderTargetVolume* Texture, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer,
-		float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty);
+		const FIntVector& Resolution, float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty);
 	static void EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer);
 	FVector SnapToVoxels(const FVector& Center, float VoxelSize) const;
 	void UpdateDebugDisplay();
@@ -475,6 +484,12 @@ private:
 	bool bFluidActive = false;
 	bool bFluidHistoryDirty = true;
 	bool bFluidDistanceFieldRequested = false;
+	/** The tier the volumes are laid out for, and how much of them consumers take (0..1, over half a second). */
+	FDreamWindQualityTier Tier;
+	bool bTierValid = false;
+	float VolumeFade = 1.0f;
+	/** Whether the far level steps this frame (it holds its window between its steps). */
+	bool bFarStepThisFrame = true;
 
 	// terrain
 	UPROPERTY(Transient)

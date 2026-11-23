@@ -145,6 +145,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "64", EditCondition = "bFluid"))
 	int32 FluidFarPressureIterations = 4;
 
+	/**
+	 * The far level steps every this many frames, each step as long (it changes slowly at 4 m and is read only beyond the
+	 * near level: half its cost for nothing that shows). The epic and cinematic quality levels step it every frame.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "4", EditCondition = "bFluid"))
+	int32 FluidFarStepInterval = 2;
+
 	/** Over-relaxation of the pressure iterations (1 = plain Gauss-Seidel; up to 1.9 converges faster). */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "1.9", EditCondition = "bFluid"))
 	float FluidPressureRelaxation = 1.5f;

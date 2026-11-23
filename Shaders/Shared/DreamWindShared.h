@@ -55,7 +55,7 @@ struct FDreamWindVolumeParams
 	float3 Center;     // world-space centre of the window
 	float  FadeFrac;   // fraction of the half-extent over which the volume fades out at the border
 	float3 InvExtent;  // 1 / (voxels * voxel size) per axis
-	float  Enabled;    // 0 or 1
+	float  Enabled;    // 0 off .. 1 (a fade while the quality level changes the grids: consumers take this much of the volume)
 };
 
 DW_FN FDreamWindParams DW_UnpackParams(float4 P0, float4 P1, float4 P2)

@@ -353,6 +353,7 @@ void UDreamWindSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	}
 
 	// A first frame of data so samples taken before the first tick already see the default wind.
+	UpdateQualityTier(0.0f);
 	GatherSources();
 	BuildFrameData(0.0f);
 }
@@ -464,6 +465,7 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	WindTime += WindDelta;
 
 	AdvanceGlobalWind(DeltaTime);
+	UpdateQualityTier(DeltaTime);
 	GatherSources();
 	BuildFrameData(DeltaTime);
 	GatherMovers();
@@ -506,6 +508,42 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	}
 
 	++TickCounter;
+}
+
+void UDreamWindSubsystem::UpdateQualityTier(float DeltaTime)
+{
+	const FDreamWindQualityTier Wanted = FDreamWindQualityTier::Resolve(*UDreamWindSettings::Get(), FDreamWindQualityTier::CurrentLevel());
+	if (!bTierValid)
+	{
+		Tier = Wanted;
+		bTierValid = true;
+		VolumeFade = 1.0f;
+		return;
+	}
+	// The same grids: the new level at once (iterations, how often the far level steps), the volume fading in if it was
+	// out. Other grids: the volume fades out over half a second first, then the new ones start (afresh: as the consumers
+	// had the wind without them) and fade in -- nothing jumps when the level changes at run time.
+	const bool bSame = Wanted.SameLayout(Tier);
+	const float Rate = FMath::Max(DeltaTime, 0.0f) / 0.5f;
+	if (bSame || !Tier.bVolume || VolumeFade <= 0.0f)
+	{
+		if (!bSame)
+		{
+			UE_LOG(LogDreamWind, Log, TEXT("Wind quality %d -> %d: near %dx%dx%d at %.0f cm%s."), Tier.Level, Wanted.Level, Wanted.NearResolution.X, Wanted.NearResolution.Y,
+				Wanted.NearResolution.Z, Wanted.NearCell, Wanted.bVolume ? (Wanted.bFar ? TEXT(", far level on") : TEXT(", no far level")) : TEXT(" (no volume)"));
+			bFluidHistoryDirty = true;
+			bVolumeHistoryDirty = true;
+			bVolumeHistoryDirtyFar = true;
+			bFluidFloorValid = false;
+			VolumeFade = 0.0f;
+		}
+		Tier = Wanted;
+		VolumeFade = FMath::Min(VolumeFade + Rate, 1.0f);
+	}
+	else
+	{
+		VolumeFade = FMath::Max(VolumeFade - Rate, 0.0f);
+	}
 }
 
 void UDreamWindSubsystem::AdvanceGlobalWind(float DeltaTime)
@@ -628,18 +666,26 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 	// Volume windows for this frame. Whether they are actually driven is decided in UpdateVolume,
 	// which flips V1.w / V3.w back to 0 when this world does not own the render targets.
 	const FVector RawCenter = ChooseVolumeCenter();
-	const FIntVector Res = Settings->VolumeResolution;
-	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
-	const float VoxelFar = Voxel * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
-	if (DreamWind::IsFluidWanted(Settings) && DreamWind::IsVolumeEnabledBySettings(Settings))
+	const FIntVector Res = Tier.NearResolution;
+	const FIntVector ResFar = Tier.FarResolution;
+	const float Voxel = Tier.NearCell;
+	const float VoxelFar = Tier.FarCell;
+	// The far level steps every FarInterval frames and keeps its window in between (its volume is where it was solved).
+	bFarStepThisFrame = Tier.FarInterval <= 1 || bFluidHistoryDirty || (TickCounter % uint64(Tier.FarInterval)) == 0;
+	const bool bFluid = DreamWind::IsFluidWanted(Settings) && DreamWind::IsVolumeEnabledBySettings(Settings) && Tier.bVolume;
+	if (bFluid)
 	{
 		// The fluid's grids sit on the ground (the air that shows is near it) in whole cells of the world.
 		if (!bFluidFloorValid)
 		{
 			FluidFloorZ = FluidFloorZFar = -1.0e30;
+			bFarStepThisFrame = true;
 		}
 		VolumeCenter = ChooseFluidCenter(RawCenter, Res, Voxel, FluidFloorZ);
-		VolumeCenterFar = ChooseFluidCenter(RawCenter, Res, VoxelFar, FluidFloorZFar);
+		if (bFarStepThisFrame)
+		{
+			VolumeCenterFar = ChooseFluidCenter(RawCenter, ResFar, VoxelFar, FluidFloorZFar);
+		}
 		bFluidFloorValid = true;
 	}
 	else
@@ -647,9 +693,10 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 		VolumeCenter = SnapToVoxels(RawCenter, Voxel);
 		VolumeCenterFar = SnapToVoxels(RawCenter, VoxelFar);
 		bFluidFloorValid = false;
+		bFarStepThisFrame = true;
 	}
 	const FVector3f Extent(float(Res.X) * Voxel, float(Res.Y) * Voxel, float(Res.Z) * Voxel);
-	const FVector3f ExtentFar(float(Res.X) * VoxelFar, float(Res.Y) * VoxelFar, float(Res.Z) * VoxelFar);
+	const FVector3f ExtentFar(float(ResFar.X) * VoxelFar, float(ResFar.Y) * VoxelFar, float(ResFar.Z) * VoxelFar);
 	FrameData.V0 = FVector4f(float(VolumeCenter.X), float(VolumeCenter.Y), float(VolumeCenter.Z), Settings->VolumeBorderFade);
 	FrameData.V1 = FVector4f(1.0f / Extent.X, 1.0f / Extent.Y, 1.0f / Extent.Z, 0.0f);
 	FrameData.V2 = FVector4f(float(VolumeCenterFar.X), float(VolumeCenterFar.Y), float(VolumeCenterFar.Z), Settings->VolumeBorderFade);
@@ -950,7 +997,7 @@ void UDreamWindSubsystem::UpdateRuntimeTerrain()
 	// The maps are shared by every world: computed only by the one that owns them (afresh when they come back to it).
 	bool bRedrawAll = false;
 	const bool bWanted = DreamWind::GCVarRuntimeTerrain >= 0 ? DreamWind::GCVarRuntimeTerrain != 0 : Settings->bRuntimeTerrain;
-	const bool bRun = bWanted && Settings->bTerrainEnabled && World && FApp::CanEverRender() && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM5
+	const bool bRun = bWanted && Tier.bRuntimeTerrain && Settings->bTerrainEnabled && World && FApp::CanEverRender() && GMaxRHIFeatureLevel >= ERHIFeatureLevel::SM5
 		&& RuntimeTerrainWriter.Acquire(World, bRedrawAll);
 	if (!bRun)
 	{
@@ -1040,9 +1087,13 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 			bFluidDistanceFieldRequested = false;
 		}
 	};
-	if (!DreamWind::IsVolumeEnabledBySettings(Settings) || !VolumeTexture || !VolumeRenderer.IsValid())
+	if (!DreamWind::IsVolumeEnabledBySettings(Settings) || !Tier.bVolume || !VolumeTexture || !VolumeRenderer.IsValid())
 	{
 		ReleaseDistanceField();
+		if (bWasFluid && Fluid.IsValid())
+		{
+			Fluid->EnqueueReset();   // (its grids' memory back; it starts afresh when it runs again)
+		}
 		return;
 	}
 
@@ -1060,10 +1111,10 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 		bVolumeHistoryDirtyFar = true;
 		bFluidHistoryDirty = true;
 	}
-	EnsureVolumeTextureMatches(VolumeTexture, Settings->VolumeResolution, VolumeRenderer);
-	if (Settings->bVolumeFarLevel && VolumeFarTexture && VolumeRendererFar.IsValid())
+	EnsureVolumeTextureMatches(VolumeTexture, Tier.NearResolution, VolumeRenderer);
+	if (Tier.bFar && VolumeFarTexture && VolumeRendererFar.IsValid())
 	{
-		EnsureVolumeTextureMatches(VolumeFarTexture, Settings->VolumeResolution, VolumeRendererFar);
+		EnsureVolumeTextureMatches(VolumeFarTexture, Tier.FarResolution, VolumeRendererFar);
 	}
 
 	if (DreamWind::IsFluidWanted(Settings))
@@ -1082,18 +1133,16 @@ void UDreamWindSubsystem::UpdateVolume(float WindDelta)
 	}
 	ReleaseDistanceField();
 
-	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
-	if (UpdateVolumeLevel(WindDelta, VolumeTexture, VolumeRenderer, Voxel, VolumeCenter, PrevVolumeCenter, bVolumeHistoryDirty))
+	if (UpdateVolumeLevel(WindDelta, VolumeTexture, VolumeRenderer, Tier.NearResolution, Tier.NearCell, VolumeCenter, PrevVolumeCenter, bVolumeHistoryDirty))
 	{
-		FrameData.V1.W = 1.0f;
+		FrameData.V1.W = VolumeFade;
 		FrameData.VolumeTexture = VolumeTexture;
 	}
-	if (Settings->bVolumeFarLevel && VolumeFarTexture && VolumeRendererFar.IsValid())
+	if (Tier.bFar && VolumeFarTexture && VolumeRendererFar.IsValid())
 	{
-		const float VoxelFar = Voxel * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
-		if (UpdateVolumeLevel(WindDelta, VolumeFarTexture, VolumeRendererFar, VoxelFar, VolumeCenterFar, PrevVolumeCenterFar, bVolumeHistoryDirtyFar))
+		if (UpdateVolumeLevel(WindDelta, VolumeFarTexture, VolumeRendererFar, Tier.FarResolution, Tier.FarCell, VolumeCenterFar, PrevVolumeCenterFar, bVolumeHistoryDirtyFar))
 		{
-			FrameData.V3.W = 1.0f;
+			FrameData.V3.W = VolumeFade;
 			FrameData.VolumeFarTexture = VolumeFarTexture;
 		}
 	}
@@ -1126,10 +1175,10 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 		bFluidDistanceFieldRequested = bWantDistanceField;
 	}
 
-	const FIntVector Res = Settings->VolumeResolution;
-	const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
-	const float VoxelFar = Voxel * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
-	auto Level = [&Res](FTextureRenderTargetResource* Resource, float CellSize, const FVector& Center, const FVector4f& V0, const FVector4f& V1, int32 Iterations, float Vorticity)
+	// One frame's time, kept to a usable range (a hitch runs the fluid a little slow; paused: nothing moves, the grids still follow).
+	const float DeltaTime = WindDelta > 0.0f ? FMath::Clamp(WindDelta, 1.0f / 120.0f, 1.0f / 20.0f) : 0.0f;
+	auto Level = [Settings](FTextureRenderTargetResource* Resource, const FIntVector& Res, float CellSize, const FVector& Center, const FVector4f& V0, const FVector4f& V1,
+		int32 Iterations, float Vorticity, float Step)
 	{
 		FDreamWindFluid::FLevelArgs L;
 		L.bEnabled = Resource != nullptr;
@@ -1141,26 +1190,28 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 		L.V1 = V1;
 		L.PressureIterations = Iterations;
 		L.Vorticity = Vorticity;
+		L.DeltaTime = Step;
+		// (per step toward the cells beside: a checkerboard shrinks by exp(-dt / damping) a step)
+		L.Smoothing = Settings->FluidCheckerboardDamping > 0.0f ? 0.5f * (1.0f - FMath::Exp(-Step / Settings->FluidCheckerboardDamping)) : 0.0f;
+		L.WallThickness = Settings->FluidWallThickness;
 		return L;
 	};
-	FTextureRenderTargetResource* FarResource = (Settings->bVolumeFarLevel && VolumeFarTexture) ? VolumeFarTexture->GameThread_GetRenderTargetResource() : nullptr;
+	FTextureRenderTargetResource* FarResource = (Tier.bFar && VolumeFarTexture) ? VolumeFarTexture->GameThread_GetRenderTargetResource() : nullptr;
 
 	FDreamWindFluid::FStepArgs Args;
 	Args.Frame = FrameData;
 	Args.Background = DreamWind::Background::Gather(FrameData);
-	Args.Near = Level(NearResource, Voxel, VolumeCenter, FrameData.V0, FrameData.V1, FMath::Max(Settings->FluidPressureIterations, 1), Settings->FluidVorticity);
-	Args.Near.bMacCormack = Settings->bFluidMacCormack;
-	Args.Far = Level(FarResource, VoxelFar, VolumeCenterFar, FrameData.V2, FrameData.V3, FMath::Max(Settings->FluidFarPressureIterations, 0), 0.0f);
-	// One frame's time, kept to a usable range (a hitch runs the fluid a little slow; paused: nothing moves, the grids still follow).
-	Args.DeltaTime = WindDelta > 0.0f ? FMath::Clamp(WindDelta, 1.0f / 120.0f, 1.0f / 20.0f) : 0.0f;
+	Args.Near = Level(NearResource, Tier.NearResolution, Tier.NearCell, VolumeCenter, FrameData.V0, FrameData.V1, Tier.NearIterations, Tier.Vorticity, DeltaTime);
+	Args.Near.bMacCormack = Tier.bMacCormack;
+	Args.Far = Level(FarResource, Tier.FarResolution, Tier.FarCell, VolumeCenterFar, FrameData.V2, FrameData.V3, Tier.FarIterations, 0.0f, DeltaTime * float(FMath::Max(Tier.FarInterval, 1)));
+	Args.Far.bStep = bFarStepThisFrame;
+	// The far level's walls as thick in cm as a 1 m grid's (its coarse cells would otherwise swell every wall by metres).
+	Args.Far.WallThickness = Settings->FluidWallThickness * FMath::Max(Tier.NearCell, FMath::Max(Settings->VolumeVoxelSize, 1.0f)) / FMath::Max(Tier.FarCell, 1.0f);
 	Args.Relaxation = Settings->FluidPressureRelaxation;
-	// (per step toward the cells beside: a checkerboard shrinks by exp(-dt / damping) a step)
-	Args.Smoothing = Settings->FluidCheckerboardDamping > 0.0f ? 0.5f * (1.0f - FMath::Exp(-Args.DeltaTime / Settings->FluidCheckerboardDamping)) : 0.0f;
 	Args.NudgeTime = Settings->FluidNudgeTime;
 	Args.SpongeTime = Settings->FluidSpongeTime;
 	Args.SpongeCells = Settings->FluidSpongeCells;
 	Args.MaxSpeed = Settings->FluidMaxSpeed;
-	Args.WallThickness = Settings->FluidWallThickness;
 	Args.bDistanceField = bWantDistanceField;
 	Args.bShowDivergence = DreamWind::GCVarFluidShowDivergence != 0;
 	Args.bReset = bFluidHistoryDirty || bRedrawAll;
@@ -1170,6 +1221,8 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 	}
 	Fluid->EnqueueStep(MoveTemp(Args));
 	bFluidHistoryDirty = false;
+	FrameData.V1.W = VolumeFade;
+	FrameData.V3.W = FarResource ? VolumeFade : 0.0f;
 
 	// The points asked of SampleWindVisual since the last step, read from this step's volumes (answers a few frames on).
 	if (Settings->bFluidProbes && ProbeAsks.Num() > 0)
@@ -1187,19 +1240,17 @@ bool UDreamWindSubsystem::UpdateFluid(float WindDelta, bool bRedrawAll)
 		Request.Near = NearResource;
 		Request.Far = FarResource;
 		Request.V0 = FrameData.V0;
-		Request.V1 = FVector4f(FrameData.V1.X, FrameData.V1.Y, FrameData.V1.Z, 1.0f);
+		Request.V1 = FrameData.V1;
 		Request.V2 = FrameData.V2;
-		Request.V3 = FVector4f(FrameData.V3.X, FrameData.V3.Y, FrameData.V3.Z, FarResource ? 1.0f : 0.0f);
+		Request.V3 = FrameData.V3;
 		Probes->Enqueue(MoveTemp(Request));
 	}
 	ProbeAsks.Reset();
 
 	bFluidActive = true;
-	FrameData.V1.W = 1.0f;
 	FrameData.VolumeTexture = VolumeTexture;
 	if (FarResource)
 	{
-		FrameData.V3.W = 1.0f;
 		FrameData.VolumeFarTexture = VolumeFarTexture;
 	}
 	return true;
@@ -1260,7 +1311,7 @@ bool UDreamWindSubsystem::ReadVolume(bool bFar, TArray<FFloat16Color>& OutTexels
 {
 	OutTexels.Reset();
 	UTextureRenderTargetVolume* Texture = bFar ? VolumeFarTexture.Get() : VolumeTexture.Get();
-	const bool bActive = bFar ? FrameData.V3.W > 0.5f : FrameData.V1.W > 0.5f;
+	const bool bActive = bFar ? FrameData.V3.W > 0.0f : FrameData.V1.W > 0.0f;
 	FTextureRenderTargetResource* Resource = Texture ? Texture->GameThread_GetRenderTargetResource() : nullptr;
 	if (!bActive || !Resource)
 	{
@@ -1285,7 +1336,7 @@ bool UDreamWindSubsystem::ReadVolume(bool bFar, TArray<FFloat16Color>& OutTexels
 }
 
 bool UDreamWindSubsystem::UpdateVolumeLevel(float WindDelta, UTextureRenderTargetVolume* Texture, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer,
-	float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty)
+	const FIntVector& Resolution, float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty)
 {
 	const UDreamWindSettings* Settings = UDreamWindSettings::Get();
 	FTextureRenderTargetResource* Resource = Texture->GameThread_GetRenderTargetResource();
@@ -1298,7 +1349,7 @@ bool UDreamWindSubsystem::UpdateVolumeLevel(float WindDelta, UTextureRenderTarge
 	Args.Frame = FrameData;
 	Args.TargetResource = Resource;
 	Args.Background = DreamWind::Background::Gather(FrameData);
-	Args.Resolution = Settings->VolumeResolution;
+	Args.Resolution = Resolution;
 	Args.PrevCenter = FVector3f(InOutPrevCenter);
 	Args.NewCenter = FVector3f(Center);
 	Args.VoxelSize = VoxelSize;
@@ -1324,7 +1375,7 @@ void UDreamWindSubsystem::UpdateDebugDisplay()
 	GEngine->AddOnScreenDebugMessage(Key, 0.0f, FColor::Cyan,
 		FString::Printf(TEXT("DreamWind  dir(%.2f %.2f %.2f) speed %.0f cm/s  gust %.2f  turb %.2f  t=%.1fs  sources %d  volume %s @ (%.0f %.0f %.0f)"),
 			Dir.X, Dir.Y, Dir.Z, CurrentWind.Speed, CurrentWind.GustStrength, CurrentWind.TurbulenceStrength, WindTime,
-			FrameData.Sources.Num(), FrameData.V1.W > 0.5f ? (FrameData.V3.W > 0.5f ? TEXT("near+far") : TEXT("near")) : TEXT("off"), VolumeCenter.X, VolumeCenter.Y, VolumeCenter.Z));
+			FrameData.Sources.Num(), FrameData.V1.W > 0.0f ? (FrameData.V3.W > 0.0f ? TEXT("near+far") : TEXT("near")) : TEXT("off"), VolumeCenter.X, VolumeCenter.Y, VolumeCenter.Z));
 }
 
 void UDreamWindSubsystem::UpdateTerrainTexture()
@@ -1457,17 +1508,17 @@ void UDreamWindSubsystem::DrawDebug()
 	const FVector Dir = DreamWind::SafeDirection(CurrentWind.Direction);
 
 	// volume window
-	if (FrameData.V1.W > 0.5f)
+	if (FrameData.V1.W > 0.0f)
 	{
-		const FIntVector Res = Settings->VolumeResolution;
-		const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f);
+		const FIntVector Res = Tier.NearResolution;
+		const float Voxel = Tier.NearCell;
 		const FVector HalfExtent(Res.X * Voxel * 0.5, Res.Y * Voxel * 0.5, Res.Z * Voxel * 0.5);
 		DrawDebugBox(World, VolumeCenter, HalfExtent, FColor(80, 200, 255), false, -1.0f, 0, 2.0f);
 	}
-	if (FrameData.V3.W > 0.5f)
+	if (FrameData.V3.W > 0.0f)
 	{
-		const FIntVector Res = Settings->VolumeResolution;
-		const float Voxel = FMath::Max(Settings->VolumeVoxelSize, 1.0f) * FMath::Max(Settings->VolumeFarVoxelScale, 1.0f);
+		const FIntVector Res = Tier.FarResolution;
+		const float Voxel = Tier.FarCell;
 		const FVector HalfExtent(Res.X * Voxel * 0.5, Res.Y * Voxel * 0.5, Res.Z * Voxel * 0.5);
 		DrawDebugBox(World, VolumeCenterFar, HalfExtent, FColor(40, 120, 200), false, -1.0f, 0, 1.0f);
 	}
