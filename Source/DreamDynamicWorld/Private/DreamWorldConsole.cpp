@@ -10,6 +10,7 @@
 #include "DreamWorldInterior.h"
 
 #include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -478,6 +479,34 @@ namespace DreamWorld::Console
 				}
 				return false;
 			}
+			if (Verb == TEXT("fov"))
+			{
+				// fov <degrees>: the view's field of view (a camera's own, or the player's); 'fov 0' gives it back. (An
+				// engine command would reach no player's view from here, nor a camera the view looks through.)
+				APlayerController* PC = W.GetFirstPlayerController();
+				AActor* ViewTarget = PC ? PC->GetViewTarget() : nullptr;
+				const float Degrees = float(Num(1, 0));
+				if (ACameraActor* Camera = Cast<ACameraActor>(ViewTarget))
+				{
+					Camera->GetCameraComponent()->SetFieldOfView(Degrees > 0.0f ? Degrees : 90.0f);
+				}
+				else if (PC && PC->PlayerCameraManager)
+				{
+					if (Degrees > 0.0f)
+					{
+						PC->PlayerCameraManager->SetFOV(Degrees);
+					}
+					else
+					{
+						PC->PlayerCameraManager->UnlockFOV();
+					}
+				}
+				else
+				{
+					UE_LOG(LogDreamWorld, Warning, TEXT("Script: no view to set the field of view of"));
+				}
+				return false;
+			}
 			if (Verb == TEXT("fly"))
 			{
 				// fly <m/s> [heading deg, the view's yaw when left out] [climb m/s]
@@ -562,6 +591,7 @@ namespace DreamWorld::Console
 		TEXT("DreamWorld.Script <file> [Settle=30]: run a script, one line at a time (relative paths from the project). Lines: a console command;")
 		TEXT(" 'wait <frames>'; 'settle [frames]' (until no shader compiles, then that many frames); 'time <hours>' (stops the clock there);")
 		TEXT(" 'aim <pitch> [yaw]'; 'move <x> <y> [z]' and 'rise <dz>' (cm, the view); 'home' (back where the view was before the script moved it); 'fly <m/s> [heading deg] [climb m/s]' (keeps moving the view, 'fly 0' stops);")
+		TEXT(" 'fov <degrees>' (the view's field of view, 'fov 0' gives it back);")
 		TEXT(" 'shot <name>' (Saved/Screenshots/<platform>/DreamWorld/<name>.png); 'frames <name> <count>' (that many consecutive frames, <name>_fNNNN.png);")
 		TEXT(" 'mark <label>' (a log line, to find what follows); 'quit'. '#' starts a comment."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
