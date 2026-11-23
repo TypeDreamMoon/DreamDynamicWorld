@@ -1385,6 +1385,17 @@ deterministic, a dedicated server has none).
   distance field, so a ground made of a plane mesh is invisible to the fluid (the air runs under it to the grid's
   floor): give the ground thickness (a landscape, a slab).
 * Wall cells hand consumers what the air beside them does (grass on the ground, leaves on a wall sit in them).
+* **What stirs it.** The sources (`UDreamWindSourceComponent`, the impulses) blend the air toward their velocity as
+  before, except radial ones: in the fluid a radial source is an **expansion** — air appearing in its sphere, pushed out
+  by the pressure, so a blast goes round walls and curls back behind them (the CPU sample keeps the radial burst).
+  `AddExplosion(Position, Radius, Strength, Duration)` is one: `Strength` cm/s out through the sphere's surface.
+  **Moving bodies** — `UDreamWindMoverComponent` on anything that moves (visual only: the CPU sample does not see them;
+  the nearest `MaxMovers`, 32, to the camera count): a *Capsule* (a character, a vehicle; standing along the component's
+  Z, centred on it) whose air moves with it (`bObstacle`: standing in the wind it has a lee) and that drags a wake
+  `WakeLength` widths behind it at `Push` of its speed (0.5 a character, 1 a vehicle); a *Rotor* whose downwash
+  (`RotorThrust` cm/s along −Z, `RotorReach` down) spreads over the ground in a ring. The velocity is how the component
+  moved since last frame. Each record reaches only the 8×8×8-cell tiles under its footprint; one smaller than a cell is
+  spread over one and weakened as much.
 * The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
 * Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
   near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
@@ -1421,6 +1432,8 @@ tests), `DreamWind.TimeScale`, and the debug view:
 * `DreamWind.Fluid 0|1|-1` the fluid (0: the residual volume), `DreamWind.Fluid.DistanceField 0|1|-1` its walls from the
   global distance field (0: the terrain maps' heights), `DreamWind.Fluid.Stats` reads the volumes back and logs the
   largest and mean deviation, the walls and any NaN.
+* `DreamWind.Explode x y z [radius] [strength] [duration]` an explosion there; `DreamWind.Rotor x y z [radius] [thrust]
+  [reach] | off` a hovering rotor's downwash; `DreamWind.SetWind speed [gust] [turbulence] [yaw]` the global wind at once.
 * **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
   tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
   reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
@@ -1460,7 +1473,8 @@ usable in your own levels; none of the runtime depends on them.
 for measuring and comparing the wind field itself: flat ground with 40 000 blades of wind grass, a 10 x 8 x 6 m house, a
 24 m wall across the wind off to its side (in the fluid a wall's wake runs tens of metres: nothing stands right behind
 it but the hill, 40 m on), an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
-4 s, a 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is in
+4 s (an expansion in the fluid), a walker going round over the grass with a body in the fluid (its wake parts the
+grass), a 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is in
 `DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on it
 (the volume update, the wind shadow, the runtime terrain map, the fluid's grids and walls, the distance field's update,
 the volume's material reads, the grass).
@@ -1564,7 +1578,10 @@ upwind, the CPU grid agrees, and the lee follows the house when it moves, found 
 `DreamWind.Gpu.Fluid` (in a steady wind, averaged over six reads: the air turns back in the house's lee, blows faster
 past its sides than in the open, spins opposite ways behind its two downwind corners, turns back in the L's pocket and
 not in the open, stays still in the house's walls, with the walls from the distance field — twice, 300 frames apart —
-and from the heights; and the residual divergence) and `DreamWind.Gpu.DistanceFieldProbe`.
+and from the heights; and the residual divergence), `DreamWind.Gpu.FluidDisturbances` (in a calm: a body walking at
+3 m/s leaves a wake behind and little before or beside it; an explosion before the long wall bursts out on the open
+side and barely behind the wall; a rotor's downwash goes down under it and out over the ground all round) and
+`DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
