@@ -174,6 +174,7 @@ FDreamSkyLighting UDreamSkySubsystem::BlendLighting(const FDreamSkyLighting& Fro
 	Out.MainLightColor = To.bMainLightIsMoon ? Out.MoonColor : Out.SunColor;
 	Out.MainLightIlluminance = FMath::Max(Out.SunIlluminance, Out.MoonIlluminance);
 	Out.SunOvercastScale = Mix(From.SunOvercastScale, To.SunOvercastScale);
+	Out.MoonShadow = Mix(From.MoonShadow, To.MoonShadow);
 	Out.AmbientSky = MixC(From.AmbientSky, To.AmbientSky);
 	Out.AmbientEquator = MixC(From.AmbientEquator, To.AmbientEquator);
 	Out.AmbientGround = MixC(From.AmbientGround, To.AmbientGround);

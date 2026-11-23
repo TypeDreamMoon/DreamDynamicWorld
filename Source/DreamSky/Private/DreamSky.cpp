@@ -990,7 +990,26 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 {
 	using namespace DreamSky::Actor;
 	ApplyDirectional(SunLight, L.SunLightDirection, L.SunColor, L.SunIlluminance, InStyle.LightRotationThreshold, true, bSnap);
-	ApplyDirectional(MoonLight, L.MoonLightDirection, L.MoonColor, L.MoonIlluminance, InStyle.LightRotationThreshold, InStyle.bMoonCastsShadows, bSnap);
+	// The moon's shadows blur and fade as its light comes from all over the sky instead -- a closing cover, a dust storm
+	// -- and go once none of it comes straight: a wider source (the virtual shadow maps blur by it), less of a shadow
+	// (the shadow maps fade by it), none cast at all.
+	const float Straight = FMath::Clamp(L.MoonShadow, 0.0f, 1.0f);
+	ApplyDirectional(MoonLight, L.MoonLightDirection, L.MoonColor, L.MoonIlluminance, InStyle.LightRotationThreshold,
+		InStyle.bMoonCastsShadows && Straight > 0.02f, bSnap);
+	if (MoonLight)
+	{
+		const UDirectionalLightComponent* Default = GetDefault<ADreamSky>()->MoonLight;
+		const float Base = LightOverrides.bOverride_MoonSourceAngle ? LightOverrides.MoonSourceAngle : (Default ? Default->LightSourceAngle : 0.5357f);
+		const float Angle = FMath::Lerp(FMath::Max(InStyle.MoonDiffuseSourceAngle, Base), Base, Straight);
+		if (!FMath::IsNearlyEqual(MoonLight->LightSourceAngle, Angle, bSnap ? 1.0e-3f : 0.1f))
+		{
+			MoonLight->SetLightSourceAngle(Angle);
+		}
+		if (!FMath::IsNearlyEqual(MoonLight->ShadowAmount, Straight, bSnap ? 1.0e-4f : 0.01f))
+		{
+			MoonLight->SetShadowAmount(Straight);
+		}
+	}
 	// A flash is instant: no thresholds. Between flashes the light stays black (not rendered).
 	ApplyDirectional(LightningLight, L.LightningDirection, L.LightningColor, L.LightningIlluminance, 0.0f, InStyle.bLightningCastsShadows, true);
 

@@ -558,6 +558,11 @@ struct DREAMSKY_API FDreamSkyLighting
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	float SunOvercastScale = 1.0f;
 
+	/** How much of a shadow the moon light casts, 1 a full one .. 0 none: under a closing cover or in a dust storm its
+	 *  light comes from all over the sky, not from the moon (UDreamSkyStyle::NightSkyThrough, the cover). */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky")
+	float MoonShadow = 1.0f;
+
 	/** Toward the sun / the moon light as the directional lights point (the moon light may stand in when the moon is down). */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky")
 	FVector SunLightDirection = FVector::UpVector;

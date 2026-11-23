@@ -970,6 +970,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
 	float MoonEarthshine = 0.06f;
 
+	/** How wide the moon light's source grows (degrees) as its light comes from all over the sky instead of from the moon
+	 *  -- a closing cover, a dust storm (FDreamSkyLighting::MoonShadow) -- so its shadows blur, and go once none of it
+	 *  comes straight. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "45", Units = "Degrees"))
+	float MoonDiffuseSourceAngle = 20.0f;
+
+
 	/** How much of the moonlight's hue (MoonLightColor) the toon clouds' moonlit side takes, 0 .. 1: by moonlight the eye
 	 *  sees little colour (low, a grey-blue; 1, the moonlight's blue as it is). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))

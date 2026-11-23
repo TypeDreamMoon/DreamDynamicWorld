@@ -427,6 +427,14 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	// (Dust by its square root: a storm's dust hides the sky well before the storm is at its height.)
 	const float Haze = FMath::Clamp(FogSkyHaze * Fog + DustSkyHaze * FMath::Sqrt(Dust), 0.0f, 1.0f);
 	Look.Haze = FLinearColor(L.FogColor.R, L.FogColor.G, L.FogColor.B, Haze);
+	// The moon's light through the haze and the cover: as much of it as the night sky lets through comes straight from
+	// the moon; the rest the haze spreads over the whole sky -- dimmer, down to MoonThroughHaze of it as the moon's disk
+	// is, and its shadows fade with what still comes straight, gone under a closed cover (a storm's night, a dust storm's).
+	const float MoonAir = NightSkyThrough(Haze, Fog, 0.0f);
+	const float MoonLeft = FMath::Lerp(FMath::Clamp(MoonThroughHaze, 0.0f, 1.0f), 1.0f, MoonAir);
+	L.MoonIlluminance *= MoonLeft;
+	L.MainLightIlluminance *= L.bMainLightIsMoon ? MoonLeft : 1.0f;
+	L.MoonShadow = MoonAir * (1.0f - Overcast);
 	// The lift keeps a grey day from going murky; a storm's darkness is meant to show, so it fades out with it.
 	L.ExposureEV100 -= OvercastExposureLift * Overcast * (1.0f - Dark);
 	L.ExposureEV100 -= FogExposureLift * FMath::Clamp(Env.Fog, 0.0f, 1.0f) + DustExposureLift * FMath::Clamp(Env.Dust, 0.0f, 1.0f);
