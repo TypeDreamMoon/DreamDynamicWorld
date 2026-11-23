@@ -355,10 +355,11 @@ float3 DSkyR_UnderLight(float Height)
 	return P_LightPollution.rgb * P_NightGlow.a * FromBase * FromBase;
 }
 
-// The stretch of the ray through the funnels' reach (empty, T1 <= T0, where it passes none): where the ray passes within a
-// funnel's widest reach of its axis between its root and up in the cloud over the base. In: T0, T1 a stretch already
-// found, widened by the funnels'.
-void DSkyR_WidenByFunnels(float3 V, FDSkyCloudField F, float MaxT, inout float T0, inout float T1)
+// The stretch of the ray through the funnels' reach (empty, T1 <= T0, where it passes none): where the ray passes
+// within ReachRadii of a funnel's radii at the base from its axis, between its root and TopOver (of the root's height
+// under the base) up in the cloud. In: T0, T1 a stretch already found, widened by the funnels'.
+void DSkyR_WidenByFunnels(float3 V, FDSkyCloudField F, float MaxT, float ReachRadii, float TopOver, inout float T0,
+	inout float T1)
 {
 	[unroll]
 	for (int i = 0; i < 4; ++i)
@@ -370,7 +371,7 @@ void DSkyR_WidenByFunnels(float3 V, FDSkyCloudField F, float MaxT, inout float T
 			continue;
 		}
 		float2 Centre = A.xy + B.zw * 0.5;
-		float Reach = A.z * 2.9 + 0.5 * length(B.zw);
+		float Reach = A.z * ReachRadii + 0.5 * length(B.zw);
 		float2 O = CameraWorld.xy - Centre;
 		float a = dot(V.xy, V.xy);
 		float b = dot(O, V.xy);
@@ -394,7 +395,7 @@ void DSkyR_WidenByFunnels(float3 V, FDSkyCloudField F, float MaxT, inout float T
 		}
 		// Between the root's height and a little over the base.
 		float Bottom = B.y - 1000.0;
-		float Top = F.Base + 1.2 * max(F.Base - B.y, 1000.0);
+		float Top = F.Base + (TopOver - 1.0) * max(F.Base - B.y, 1000.0);
 		if (abs(V.z) > 1.0e-6)
 		{
 			float TA = (Bottom - CameraWorld.z) / V.z;
@@ -425,18 +426,20 @@ void DSkyR_WidenByFunnels(float3 V, FDSkyCloudField F, float MaxT, inout float T
 	}
 }
 
+// The stretch of the ray through the funnels' columns themselves, up to where they flare into the base (not the base
+// lowered and darkened round them, nor the flare).
 void DSkyR_FunnelSpan(float3 V, FDSkyCloudField F, float MaxT, out float T0, out float T1)
 {
 	T0 = 0.0;
 	T1 = 0.0;
-	DSkyR_WidenByFunnels(V, F, MaxT, T0, T1);
+	DSkyR_WidenByFunnels(V, F, MaxT, 2.0, 0.75, T0, T1);
 }
 
 // The stretch of the ray to march: DSky_LayerSpan's through the layer, widened to every funnel's below the base.
 void DSkyR_CloudSpan(float3 V, FDSkyCloudField F, float MaxT, out float T0, out float T1)
 {
 	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, MaxT, T0, T1);
-	DSkyR_WidenByFunnels(V, F, MaxT, T0, T1);
+	DSkyR_WidenByFunnels(V, F, MaxT, DSky_FunnelReach, DSky_FunnelTop, T0, T1);
 }
 
 float DSkyR_Distance(FDSkyCloudSample C, float T, FDCloudMarchParams P, float SkipJitter, float2 World2)
@@ -835,18 +838,22 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		{
 			float3 At = V * T;
 			float3 World = CameraWorld + At;
-			// (A funnel, a narrow column, as dense to the eye as a cloud kilometres deep: not thinned near the view.)
-			float FunnelBoost = DSky_FunnelBoost(World, World.z + dot(World.xy, World.xy) / (2.0 * DSky_PlanetRadius), F.Base);
-			float FunnelHere = saturate(FunnelBoost - 1.0);
+			// (A funnel, a narrow column, opaque at any width: its own extinction; not thinned near the view.)
+			float FunnelHere;
+			float FunnelSigma = DSky_FunnelSigma(World, World.z + dot(World.xy, World.xy) / (2.0 * DSky_PlanetRadius), F.Base,
+				FunnelHere);
+			FunnelHere = max(FunnelHere, C.Funnel);
 			float CoverBefore = M.Transmittance;
 #if DSKY_LOOK == 2
 			// Opaque inside, with a thin soft skin: the extinction rises as the cube of the way through it, so a ray that only
 			// grazes a cloud's edge sees it partly. A deck goes by its density, which thins toward its cracks, over a wider
 			// skin; near the view the skin narrows to a quarter.
-			float Fill = lerp(C.Solid, C.Volume, C.Deck);
+			// (A funnel by its density too, so its top thins out softly into the base: by its shape's skin it stood a cap in
+			// it.)
+			float Fill = lerp(C.Solid, C.Volume, max(C.Deck, C.Funnel));
 			float Near = lerp(0.25, 1.0, saturate(T / 1500000.0));
 			float Skin = saturate((Fill - 0.02) / max(LP_EdgeSoftness * Near * lerp(1.0, 3.0, C.Deck), 0.005));
-			float SigmaT = Skin * Skin * Skin * LP_PaintExtinction * FunnelBoost;
+			float SigmaT = max(Skin * Skin * Skin * LP_PaintExtinction, FunnelSigma);
 			if (SigmaT <= 0.0)
 			{
 				DCM_CheckDone(M, P);
@@ -861,7 +868,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			// the stars must not show through it, and the moonlit cloud must not fade to a haze).
 			float Core = smoothstep(0.08, 0.3, C.Volume) * (1.0 - Day);
 			float SigmaT = (DSkyR_Extinction(C) + 2.0 * Core * LP_Extinction * (1.0 + C.Dark)) * lerp(1.0, LP_ViewThinning, Body);
-			SigmaT *= FunnelBoost;
+			SigmaT = max(SigmaT, FunnelSigma);
 #endif
 			// Toward the sun: the first 900 m in three taps (the billows round the sample; the map's texels, 500 m by some
 			// 400 m, are too coarse there: read at the sample, a sunlit face took the dark inside's depth and the tower came
@@ -946,14 +953,15 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			float FromBase = 1.0 - saturate(C.Height);
 			Paint = max(Paint, Shade * LookParameters[17].y * lerp(1.0, PA3.y, FromBase * FromBase * FromBase) * (1.0 - PA3.z * Storm));
 			Paint += DSkyR_UnderLight(C.Height);
-			// (A funnel is darker than the cloud over it: rain, dust and the storm's shade.)
-			Paint *= 1.0 - 0.3 * FunnelHere;
+			// (A funnel, its wall cloud and its dust in the shade tone, darker than the cloud over them -- rain, dust and the
+			// storm's shade -- the side toward the light a little lighter, the foot darkest.)
+			Paint = lerp(Paint, Shade * lerp(0.34, 0.52, saturate(Key)) * lerp(0.85, 1.0, saturate(C.Height)), max(C.Funnel, FunnelHere));
 			DCM_Integrate(M, SigmaT, SigmaT * L.Albedo * Paint * LP_PaintGain, Dt);
 #else
 			float3 Sun = SunColor * DSkyR_AirTransmittance(World.z, LightDir.z) * DCL_SunScatter(Tau, Cos, L) * EarthLit;
 			// A storm's cloud absorbs (rain and graupel), its lit top less so; a deck a little.
 			float Storm = P_CloudLayer.z * C.Dark * lerp(1.0, 0.35, C.Height);
-			float Albedo = L.Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * C.Deck) * (1.0 - 0.45 * FunnelHere);
+			float Albedo = L.Albedo * (1.0 - 0.75 * Storm) * (1.0 - 0.2 * C.Deck);
 			// The glow: the sky light on the cloud, the style's shade colour in the tint at its top, BaseGlow of it at its base
 			// (the sky above hidden by the cloud); an overcast deck seen from below in thicker and thinner patches.
 			float FromBase = 1.0 - saturate(C.Height);
@@ -965,6 +973,15 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 				Shade01 *= 1.0 + (Patch - 0.5) * 2.0 * LP_DeckMottle * C.Deck;
 			}
 			float3 Glow = P_CloudShadow.rgb * LP_ShadeTint * LP_Glow * Shade01 * (1.0 - 0.8 * Storm) + DSkyR_UnderLight(C.Height);
+			// A funnel, its wall cloud and its dust: a grey to dark grey column under the storm's shade, lit by the sky as a
+			// cloud's base is (whatever its height), darkest low down; the light catches only the side toward it, a little.
+			// (By where the column is, its extinction's smooth inside, as well as by the sample's weight, which depends on where
+			// the jittered sample lands: by that alone the jitter's grid showed on it.)
+			float Dark = max(C.Funnel, FunnelHere);
+			Sun *= lerp(1.0, 0.18, Dark);
+			float3 BaseGlow = P_CloudShadow.rgb * LP_ShadeTint * LP_Glow * LP_BaseGlow * (1.0 - 0.8 * Storm);
+			// (The storm's base round it as dark: a cloud's base is already lit by BaseGlow of the sky.)
+			Glow = lerp(Glow, BaseGlow * lerp(0.75, 1.0, saturate(C.Height)), Dark) * lerp(1.0, 0.6, Dark);
 			DCM_Integrate(M, SigmaT, SigmaT * (Albedo * Sun + Glow), Dt);
 #endif
 			FunnelCover += (CoverBefore - M.Transmittance) * FunnelHere;
@@ -1353,9 +1370,10 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	// so nothing trails behind them.
 	float Motion = length(PrevRay - (float2(Ray) + 0.5));
 	float Weight = HistoryWeight + (1.0 - HistoryWeight) * 0.7 * (1.0 - smoothstep(0.25, 1.5, Motion));
-	// Where the clouds a ray found are a funnel's (their depth within its reach) the history weighs little: a funnel turns,
-	// moves and grows within seconds, and at the still view's weight its rope took twenty seconds to show. (Not on the
-	// clouds round it: lowered there, the jitter's hatching showed on them.)
+	// Where the clouds a ray found are a funnel's (their depth within its column) the history weighs little: a funnel
+	// turns, moves and grows within seconds, and at the still view's weight its rope took twenty seconds to show. (Not on
+	// the clouds round it, nor the base lowered round its top, nor its top flared into it: lowered there, the jitter's
+	// hatching showed on them.)
 	{
 		FDSkyCloudField F = DSkyR_Field();
 		float FunnelT0;
@@ -1363,7 +1381,7 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 		DSkyR_FunnelSpan(V, F, DSkyR_MaxDist, FunnelT0, FunnelT1);
 		if (FunnelT1 > FunnelT0 && Depth > 0.0 && Depth > FunnelT0 - 20000.0 && Depth < FunnelT1 + 20000.0)
 		{
-			Weight = min(Weight, 0.7);
+			Weight = min(Weight, 0.85);
 		}
 	}
 	// Kept within what this frame shows round the ray, so a cloud that moved or changed leaves no ghost.

@@ -348,21 +348,39 @@ overhead); a sky modifier's *Cloud Clearing* turns all four toward its own. `Dre
 whatever the style says (0 to compare; -1 = the style's).
 
 **Funnel clouds.** A tornado's funnel hangs from the cloud base, drawn by the sky cloud renderer into the clouds' own
-shape (`DSky_Funnels`), so the toon, realistic and painted looks each draw it their way: a column narrowing from its
-radius at the base to a rope at the ground, as far down as the tornado's strength takes it (0.5 half way, 1 on the
-ground, a whirl of dust at its foot), widening on up into the cloud over the base, leaning with the wind aloft,
-wavering a little, striated by streaks that turn with it, twisted with height, dark as a storm's base. Whatever makes a
+shape (`DSky_Funnels`), so the toon, realistic and painted looks each draw it their way. Round it the cloud base
+itself sinks (`DSky_FunnelSink`: the clouds' shape read that much higher) -- the **wall cloud**, some three funnel
+radii across, a quarter of the way to the ground, its sides sloping gently and torn a little at their edge, and the
+storm's **rain-free base**, four times as wide, a little -- so the wall cloud is the base's own underside, rising into
+it with no top of its own; both are darkened smoothly by where they are (the wall cloud the more the lower it hangs,
+as dark as the base round it where it meets it), from the underside well up into the cloud. The **funnel** grows out
+of the wall cloud, narrowing toward the ground as far down as the tornado's strength takes it (0.5 half way, 1 on the
+ground), with its own profile (from its size: a wide cone tapering all the way, or a rope widening only near the base),
+three lobes twisting with height and turning with it, broad streaks up its wall, leaning with the wind aloft and
+wavering a little; at its top it flares out and thins softly into the base, as dark as the wall cloud there. Once it
+touches down a low tumbling ring of **dust** stands at its foot. The funnel and its dust are dark: grey to dark grey
+under the storm's shade, the foot darkest, the side toward the light only a little lighter -- the realistic look
+lights them by the sky as a cloud's base is, the painted look in its shade tone, the toon in its undersides' deep
+shade -- and not veiled as far clouds (the rain still hides one far off). Whatever makes a
 whirlwind registers it with the world clock, `UDreamWorldSubsystem::SetVortex` (an `FDreamWorldVortex`: where it stands
 on the ground, the funnel's radius at the base, its strength, spin, wall speed, lean and when it formed; `bFunnel` false
 for a dust devil, which has none), updates it every frame and removes it (`RemoveVortex`); the four nearest the view are
 drawn (`DreamSkyFunnels.h` packs them into `DDW_Funnel0..3`, `DDW_FunnelShape0..3`). How far a funnel has turned is
 reckoned from when it formed, in real seconds at the clock's rate, so a jump in time, a loaded snapshot or a second
 picture of the same moment shows it the same. The march reaches down to every funnel below the base and steps finely
-near its column, the realistic look sees the narrow column as dense as a cloud kilometres deep, and the history weighs
-little where it is (it turns and moves within seconds). `DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX]
+near its column and through its flared top, the realistic and painted looks give the column its own extinction (some
+six optical depths across, however narrow), and the history weighs less on the column (it turns and moves within
+seconds), not on the base round it. `DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX]
 [LeanY] [Speed]` registers one by hand (Id 0 a new one), `DreamWorld.Vortex.Remove Id` removes it;
 `Tools/Showcase/tour_funnel.dws` (`-Parts funnel`) shows one forming, touching down, moving off and dissipating. Only
 the cloud renderer draws them (not the dome alone).
+
+*Known limitations of the funnels.* Realistic, seen from a few kilometres, the wall cloud and the funnel's top are a
+dark wedge hanging under the base line: its top is where the lighter base in front hides it, not an outline of its
+own. Realistic, close by, the far lit cloud base just behind a funnel's top can show a few fine vertical streaks (the
+rays through the top's fine steps have fewer samples left for the cloud beyond). Toon, the wall cloud is a paler
+lowered cloud body (the toon surface lit from the side), not much darker than the base. Painted, close by, the
+funnel's flared top still shows a faint cap edge.
 
 **Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
 sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
