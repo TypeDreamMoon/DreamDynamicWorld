@@ -181,7 +181,9 @@ void AdvectCS(uint3 Id : SV_DispatchThreadID)
 	const int3 PC = C + Shift;
 	const bool bOld = PrevValid > 0.5f && InGrid(PC);
 	const float Theta = (bOld && KeepWalls > 0.5f) ? ThetaPrev.Load(int4(PC, 0)) : -1.0f;
-	float3 Dc = 0.0f;
+	// Afresh (the world got the volumes back, the camera jumped, the grid changed): the air starts as the consumers had it
+	// without the fluid -- in the terrain maps' shadow -- so nothing jumps; the walls take over from there.
+	float3 Dc = Shadowed - Bc;
 	if (PrevValid > 0.5f)
 	{
 		// where did the air that is here now come from?
