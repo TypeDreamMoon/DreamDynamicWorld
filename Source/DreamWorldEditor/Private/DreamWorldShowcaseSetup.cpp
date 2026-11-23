@@ -1115,10 +1115,12 @@ namespace DreamWorld::ShowcaseSetup
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
 		AddHailField(*World, FVector(-900.0, 2300.0, 0.0));
 		// A dust devil turning on the open ground west of the square: its dust, its pull on the grass, the leaves and the
-		// rain are the wind's. The tornado is a spawner's, in the afternoon's storm, 2.5 km east.
+		// rain are the wind's. A middling one (a core some 8 m across, 100 m high), so it still reads as a faint column
+		// from the far side of the plain. The tornado is a spawner's, in the afternoon's storm, 2.5 km east.
 		if (ADreamWindVortex* Devil = World->SpawnActor<ADreamWindVortex>(FVector(-2200.0, -2000.0, 0.0), FRotator::ZeroRotator))
 		{
-			Devil->SetKind(EDreamVortexKind::DustDevil);
+			Devil->SetKind(EDreamVortexKind::DustDevil, 1.6f);
+			Devil->Height = 10000.0f;
 			Devil->SetActorLabel(TEXT("DustDevil"));
 		}
 		AddTornadoSpawner(*World, Sky->Clock.Seed);

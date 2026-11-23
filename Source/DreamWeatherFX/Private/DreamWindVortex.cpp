@@ -224,7 +224,19 @@ void ADreamWindVortex::Refresh()
 		// The dust's column: a dust devil's the whole of it, a tornado's the cloud of dirt round its foot (the sky draws
 		// its funnel); the puffs climb it in a few seconds and turn round it at a share of the core's own turn.
 		const float Column = bTornado ? Height * 0.12f : Height;
-		const float Rise = bTornado ? 1200.0f : 650.0f;
+		// (a tall column climbed in some 7 s at most, so its puffs stay within the effect's budget)
+		const float Rise = bTornado ? 1200.0f : FMath::Max(650.0f, Column / 7.0f);
+		// How far it can be seen goes with its size: it starts to fade at 8 times its height and is gone at 20 times (a
+		// dust devil of a few metres is lost within some hundred metres, a big one is seen kilometres off); its puffs keep
+		// a few pixels' size however far, so what is left of it is a thread, not nothing. Before that its dust thickens
+		// a little with the distance (to twice by 8 heights): a thin column far off against the bright horizon haze would
+		// wash out long before it is lost.
+		const UDreamWorldSubsystem* View = UDreamWorldSubsystem::Get(this);
+		const double Distance = View && View->HasViewLocation() ? FVector::Dist(View->GetViewLocation(), GetActorLocation()) : 0.0;
+		const float Seen = FMath::Max(Height, 100.0f);
+		const float FarFade = (1.0f + FMath::SmoothStep(2.0f * Seen, 8.0f * Seen, float(Distance)))
+			* (1.0f - FMath::SmoothStep(8.0f * Seen, 20.0f * Seen, float(Distance)));
+		const float MinPuffSize = float(Distance) * MinPuffAngle;
 		const float Spin = 0.6f * TangentialSpeed / FMath::Max(CoreRadius, 10.0f) * (bClockwise ? -1.0f : 1.0f);
 		// Its top stands off downwind, about as far as the wind aloft carries the air while it rises up it.
 		FVector Lean = FVector::ZeroVector;
@@ -243,6 +255,8 @@ void ADreamWindVortex::Refresh()
 		Effect->SetVariableFloat(TEXT("User.Spin"), Spin);
 		Effect->SetVariableFloat(TEXT("User.Flare"), bTornado ? 0.6f : 1.2f);
 		Effect->SetVariableVec3(TEXT("User.Lean"), Lean);
+		Effect->SetVariableFloat(TEXT("User.FarFade"), FarFade);
+		Effect->SetVariableFloat(TEXT("User.MinPuffSize"), MinPuffSize);
 		Effect->SetVariableFloat(TEXT("User.Lifetime"), Column / Rise * 1.1f);
 		Effect->SetVariableFloat(TEXT("User.Drag"), 6.0f);
 		Effect->SetVariableFloat(TEXT("User.PuffSize"), PuffSize);

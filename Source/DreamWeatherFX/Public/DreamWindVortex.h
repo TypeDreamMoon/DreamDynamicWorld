@@ -143,6 +143,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look")
 	FLinearColor DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.10f);
 
+	/** The least a puff of its dust is across as seen from the view, radians (some 4 pixels at 1080p): far off, the
+	 *  column stays a thread until the distance fades it (from 8 to 20 times its height). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0", UIMax = "0.02"))
+	float MinPuffAngle = 0.004f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0"))
 	float DebrisRate = 10.0f;
 

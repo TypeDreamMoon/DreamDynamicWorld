@@ -4,8 +4,8 @@
 // what lights dust near the ground: the sky's light from above and the ground's from below, and a share of the main
 // light; greyed as the sky's grade greys the weather (an overcast's colours are muted, so the dust is too: a sandy tint
 // under a grey sky read as orange); never brighter than the horizon behind it (dust in the air only dims the light it
-// stands in front of). The particle colour tints it and its alpha fades it; it fades into geometry, away right at the
-// lens, and out with the distance (a whirlwind far off is a faint thread on the horizon, not a bright smudge).
+// stands in front of). The particle colour tints it and its alpha fades it (the effect fades it out with the distance,
+// as far as the whirlwind's size lets it be seen); it fades into geometry and away right at the lens.
 #pragma material(ShadingModel = Unlit, BlendMode = Translucent, TwoSided = true, bUsedWithNiagaraSprites = true)
 
 /// @group Look @desc How bright the dust is against the light around it
@@ -25,12 +25,6 @@ uniform float SoftEdge = 250.0;
 
 /// @group Look @desc Distance from the camera within which a puff fades away, cm
 uniform float NearFade = 300.0;
-
-/// @group Look @desc Distance at which it starts to fade out, cm
-uniform float FarFadeStart = 40000.0;
-
-/// @group Look @desc Distance over which it fades out from there, cm
-uniform float FarFadeLength = 80000.0;
 
 /// @custom
 float PuffShape(float2 UV)
@@ -65,8 +59,6 @@ export void M_DreamWindVortexDust(inout material m)
     float4 Grade     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_SkyGrade0");
 
     m.EmissiveColor = DustLight(Particle.rgb, Sky.rgb, Ground.rgb, MainColor.rgb * MainLight.w, MainLightShare, GroundShare, Brightness, Grade.y, Horizon.rgb, HorizonCap);
-    float Depth = UE.PixelDepth();
-    float Near = saturate((Depth - 30.0) / max(NearFade, 1.0));
-    float Far = 1.0 - saturate((Depth - FarFadeStart) / max(FarFadeLength, 1.0));
-    m.Opacity = UE.DepthFade(InOpacity = PuffShape(UV) * Particle.a * Near * Far, FadeDistance = SoftEdge);
+    float Near = saturate((UE.PixelDepth() - 30.0) / max(NearFade, 1.0));
+    m.Opacity = UE.DepthFade(InOpacity = PuffShape(UV) * Particle.a * Near, FadeDistance = SoftEdge);
 }
