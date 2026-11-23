@@ -980,9 +980,7 @@ bool UDreamWindSubsystem::UpdateVolumeLevel(float WindDelta, UTextureRenderTarge
 	FDreamWindVolumeRenderer::FUpdateArgs Args;
 	Args.Frame = FrameData;
 	Args.TargetResource = Resource;
-	Args.TerrainResource = (TerrainTexture && FrameData.T1.X > 0.5f) ? TerrainTexture->GameThread_GetRenderTargetResource() : nullptr;
-	Args.L1NearResource = FrameData.L1NearDerived.IsValid() ? FrameData.L1NearDerived->GameThread_GetRenderTargetResource() : nullptr;
-	Args.L1FarResource = FrameData.L1FarDerived.IsValid() ? FrameData.L1FarDerived->GameThread_GetRenderTargetResource() : nullptr;
+	Args.Background = DreamWind::Background::Gather(FrameData);
 	Args.Resolution = Settings->VolumeResolution;
 	Args.PrevCenter = FVector3f(InOutPrevCenter);
 	Args.NewCenter = FVector3f(Center);

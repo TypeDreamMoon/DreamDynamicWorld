@@ -1,0 +1,156 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The background wind the dynamic volume works against: the analytic wind (cheap) shaped by the terrain map, the runtime
+// one where it runs (one texel per level), the baked one with its upwind march otherwise. Parameters: FDreamWindBackgroundParameters.
+
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+
+float4 P0;
+float4 P1;
+float4 P2;
+float4 T0;
+float4 T1;
+float4 T2;
+Texture2D<float4> TerrainTexture;
+SamplerState TerrainSampler;
+float4 L1Near;
+float4 L1Far;
+float4 L1Params;
+Texture2D<float4> L1NearMap;
+Texture2D<float4> L1FarMap;
+Texture2D<float> L1NearHeight;
+Texture2D<float> L1FarHeight;
+SamplerState L1Sampler;
+
+FDreamWindSample DW_Background(float3 WorldPos)
+{
+	const FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
+	FDreamWindSample S = DW_SampleAnalyticCheap(P, WorldPos);
+	const FDreamWindL1Level LN = DW_UnpackL1Level(L1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level(L1Far);
+	if (LN.Mode > 0.5f || LF.Mode > 0.5f)
+	{
+		const float WN = DW_L1Weight(WorldPos, LN);
+		const float WF = DW_L1Weight(WorldPos, LF);
+		const float4 TN = WN > 0.0f ? L1NearMap.SampleLevel(L1Sampler, DW_L1UV(WorldPos, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		const float4 TF = WF > 0.0f ? L1FarMap.SampleLevel(L1Sampler, DW_L1UV(WorldPos, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		return DW_ApplyL1(S, WorldPos, TN, WN, TF, WF, DW_UnpackL1Params(L1Params));
+	}
+	const FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
+	const float2 TUV = DW_TerrainUV(WorldPos, TP);
+	const float Inside = DW_TerrainInside(TUV, TP);
+	if (Inside <= 0.0f)
+	{
+		return S;
+	}
+	const float4 Texel = TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0);
+	S = DW_ApplyTerrain(S, Texel, TP, Inside);
+	// the baked map's wind shadow: the sample's own texel, then upwind taps through its heights
+	if (DW_OcclusionActive(TP, length(float2(S.Velocity.x, S.Velocity.y))))
+	{
+		float Shadow = DW_OcclusionSelf(DW_TerrainHeight(Texel, TP), WorldPos.z);
+		const float2 UpDir = -normalize(float2(S.Velocity.x, S.Velocity.y));
+		[unroll]
+		for (int k = 1; k <= DW_OCCLUSION_TAPS; ++k)
+		{
+			const int Level = DW_OcclusionTapLevel(k, TP);
+			const float TapDist = DW_OcclusionTapDistance(k, TP);
+			const float2 TapXY = DW_OcclusionXYAt(WorldPos, UpDir, TapDist);
+			const float2 TapUV = DW_TerrainUV(float3(TapXY.x, TapXY.y, WorldPos.z), TP);
+			if (DW_TerrainInside(TapUV, TP) <= 0.0f)
+			{
+				break;
+			}
+			const float MidDist = DW_OcclusionMidDistance(k, TP);
+			const float2 MidXY = DW_OcclusionXYAt(WorldPos, UpDir, MidDist);
+			const float2 MidUV = DW_TerrainUV(float3(MidXY.x, MidXY.y, WorldPos.z), TP);
+			Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(MidUV, Level, TP), 0), TP), WorldPos.z, MidDist, TP);
+			Shadow = DW_OcclusionAccumulate(Shadow, DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TapUV, Level, TP), 0), TP), WorldPos.z, TapDist, TP);
+		}
+		S = DW_ApplyOcclusion(S, Shadow, TP);
+	}
+	return S;
+}
+
+/**
+ * The background split for the fluid: Unshadowed is the wind with the terrain maps' speed-up and steering but without
+ * their wind shadow (the fluid makes its own lee from its walls and pulls toward this), Shadowed what consumers evaluate
+ * (DW_Background), which the fluid's output deviation is measured against.
+ */
+void DW_BackgroundSplit(float3 WorldPos, out float3 Unshadowed, out float3 Shadowed)
+{
+	const FDreamWindParams P = DW_UnpackParams(P0, P1, P2);
+	FDreamWindSample S = DW_SampleAnalyticCheap(P, WorldPos);
+	const FDreamWindL1Level LN = DW_UnpackL1Level(L1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level(L1Far);
+	if (LN.Mode > 0.5f || LF.Mode > 0.5f)
+	{
+		const float WN = DW_L1Weight(WorldPos, LN);
+		const float WF = DW_L1Weight(WorldPos, LF);
+		const float4 TN = WN > 0.0f ? L1NearMap.SampleLevel(L1Sampler, DW_L1UV(WorldPos, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		const float4 TF = WF > 0.0f ? L1FarMap.SampleLevel(L1Sampler, DW_L1UV(WorldPos, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		FDreamWindL1Params LP = DW_UnpackL1Params(L1Params);
+		Shadowed = DW_ApplyL1(S, WorldPos, TN, WN, TF, WF, LP).Velocity;
+		LP.ShadowStrength = 0.0f;
+		Unshadowed = DW_ApplyL1(S, WorldPos, TN, WN, TF, WF, LP).Velocity;
+		return;
+	}
+	const FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
+	const float2 TUV = DW_TerrainUV(WorldPos, TP);
+	const float Inside = DW_TerrainInside(TUV, TP);
+	if (Inside > 0.0f)
+	{
+		S = DW_ApplyTerrain(S, TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(TUV, 0, TP), 0), TP, Inside);
+	}
+	Unshadowed = S.Velocity;
+	Shadowed = DW_Background(WorldPos).Velocity;
+}
+
+/** One runtime level's height at a point (cm): the texel holding its cell, read as it is (heights do not blend across a wall's edge). */
+float DW_BackgroundL1Height(Texture2D<float> Heights, float3 WorldPos, FDreamWindL1Level L)
+{
+	uint Width, Height;
+	Heights.GetDimensions(Width, Height);
+	const float2 UV = frac(DW_L1UV(WorldPos, L));
+	const int2 Texel = min(int2(UV * float2(Width, Height)), int2(Width, Height) - 1);
+	return Heights.Load(int3(Texel, 0));
+}
+
+/**
+ * The level's highest top surface over a square Footprint cm wide round a point (cm), from the terrain maps; -1e30 where
+ * none knows. The runtime levels' texels lie on the same whole-cell lattice as the fluid's grids (1 m in 1 m, a 4 m cell
+ * inside one 8 m texel), so the texel holding the point is the square's. The baked map's are not: its max-height level
+ * with texels at most half the square, read at four points a quarter in, so a wall thinner than the square still counts
+ * and nothing swells by more than a quarter of it.
+ */
+float DW_BackgroundGround(float3 WorldPos, float Footprint)
+{
+	const FDreamWindL1Level LN = DW_UnpackL1Level(L1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level(L1Far);
+	if (LN.Mode > 0.5f && DW_L1Weight(WorldPos, LN) > 0.0f)
+	{
+		return DW_BackgroundL1Height(L1NearHeight, WorldPos, LN);
+	}
+	if (LF.Mode > 0.5f && DW_L1Weight(WorldPos, LF) > 0.0f)
+	{
+		return DW_BackgroundL1Height(L1FarHeight, WorldPos, LF);
+	}
+	const FDreamWindTerrainParams TP = DW_UnpackTerrain(T0, T1, T2);
+	if (DW_TerrainInside(DW_TerrainUV(WorldPos, TP), TP) > 0.0f)
+	{
+		const float2 Corners[4] = { float2(-0.25f, -0.25f), float2(0.25f, -0.25f), float2(-0.25f, 0.25f), float2(0.25f, 0.25f) };
+		const int Level = clamp(int(floor(log2(max(0.5f * Footprint / max(TP.TexelSize, 1.0f), 1.0f)))), 0, DW_TERRAIN_MAX_LEVEL);
+		uint Width, Height;
+		TerrainTexture.GetDimensions(Width, Height);
+		float Top = -1.0e30f;
+		[unroll]
+		for (int i = 0; i < 4; ++i)
+		{
+			const float2 UV = DW_TerrainUV(WorldPos + float3(Corners[i] * Footprint, 0.0f), TP);
+			const int2 Texel = min(int2(DW_TerrainAtlasTexelUV(UV, Level, TP) * float2(Width, Height)), int2(Width, Height) - 1);
+			Top = max(Top, DW_TerrainHeight(TerrainTexture.Load(int3(Texel, 0)), TP));
+		}
+		return Top;
+	}
+	return -1.0e30f;
+}
