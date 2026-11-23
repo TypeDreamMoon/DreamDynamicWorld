@@ -7,6 +7,7 @@
 #include "DreamDynamicWorldModule.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldInterior.h"
 
 #include "Camera/CameraActor.h"
 #include "Camera/PlayerCameraManager.h"
@@ -83,6 +84,31 @@ namespace DreamWorld::Console
 			if (UDreamWorldSubsystem* Clock = Find(World); Clock && Args.Num() > 0)
 			{
 				Clock->SetDayLengthMinutes(FCString::Atof(*Args[0]));
+			}
+		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs PortalsCommand(
+		TEXT("DreamWorld.Portals"),
+		TEXT("DreamWorld.Portals <openness 0..1> [name]: open or close the doors and windows (UDreamPortalComponent) whose actor's name or label holds the name (all of them without one), and list them."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamWorldSubsystem* Clock = Find(World);
+			if (!Clock || Args.Num() < 1)
+			{
+				return;
+			}
+			const float Openness = FCString::Atof(*Args[0]);
+			for (const UDreamPortalComponent* Const : Clock->GetPortals())
+			{
+				UDreamPortalComponent* Portal = const_cast<UDreamPortalComponent*>(Const);
+				const AActor* Owner = Portal->GetOwner();
+				const FString Name = Owner ? Owner->GetActorNameOrLabel() : Portal->GetName();
+				if (Args.Num() < 2 || Name.Contains(Args[1]))
+				{
+					Portal->SetOpenness(Openness);
+				}
+				UE_LOG(LogDreamWorld, Display, TEXT("Portal %s: openness %.2f, ventilating %s, %.0f x %.0f cm"), *Name, Portal->Openness,
+					Portal->bVentilate ? TEXT("yes") : TEXT("no"), Portal->Width, Portal->Height);
 			}
 		}));
 
