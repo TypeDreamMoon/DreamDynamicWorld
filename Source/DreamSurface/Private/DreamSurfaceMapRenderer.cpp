@@ -42,6 +42,8 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER(FVector4f, Rates0)
 		SHADER_PARAMETER(FVector4f, Rates1)
 		SHADER_PARAMETER(FVector4f, Rates2)
+		SHADER_PARAMETER(FVector4f, Rates3)
+		SHADER_PARAMETER(FVector4f, Rates4)
 		SHADER_PARAMETER(uint32, NumSteps)
 		SHADER_PARAMETER(float, StepHours)
 		SHADER_PARAMETER(FVector4f, PartialWeather)
@@ -58,7 +60,9 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Zones)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, ZoneTracks)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, StepStart)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, IceStepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMap)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutIce)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
@@ -142,29 +146,42 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	using namespace DreamSurface::Render;
 	check(IsInRenderingThread());
 	FRHITexture* TargetRHI = Args.Target ? Args.Target->GetRenderTargetTexture() : nullptr;
-	if (!TargetRHI || !EnumHasAnyFlags(TargetRHI->GetFlags(), TexCreate_UAV))
+	FRHITexture* IceRHI = Args.IceTarget ? Args.IceTarget->GetRenderTargetTexture() : nullptr;
+	if (!TargetRHI || !EnumHasAnyFlags(TargetRHI->GetFlags(), TexCreate_UAV) || !IceRHI || !EnumHasAnyFlags(IceRHI->GetFlags(), TexCreate_UAV))
 	{
 		return;
 	}
 	const FIntVector Size = TargetRHI->GetSizeXYZ();
 	const FIntPoint Resolution(Size.X, Size.Y);
-
-	// The step start, a texture of the map's size; a new one (first use, a resize) has to be integrated.
-	bool bIntegrate = Args.bIntegrate;
-	TRefCountPtr<IPooledRenderTarget>& StepStart = StepStarts.FindOrAdd(Slot);
-	if (!StepStart.IsValid() || StepStart->GetDesc().Extent != Resolution)
+	if (IceRHI->GetSizeXYZ() != Size)
 	{
-		const FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(Resolution, PF_A32B32G32R32F, FClearValueBinding::Black,
-			TexCreate_None, TexCreate_ShaderResource | TexCreate_UAV, false);
-		GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, StepStart, TEXT("DreamSurface.StepStart"));
-		bIntegrate = true;
+		return;
 	}
 
+	// The step start, two textures of the map's size; a new one (first use, a resize) has to be integrated.
+	bool bIntegrate = Args.bIntegrate;
+	auto EnsureStart = [&GraphBuilder, &Resolution, &bIntegrate](TRefCountPtr<IPooledRenderTarget>& Start, const TCHAR* Name)
+	{
+		if (!Start.IsValid() || Start->GetDesc().Extent != Resolution)
+		{
+			const FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(Resolution, PF_A32B32G32R32F, FClearValueBinding::Black,
+				TexCreate_None, TexCreate_ShaderResource | TexCreate_UAV, false);
+			GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, Start, Name);
+			bIntegrate = true;
+		}
+	};
+	TRefCountPtr<IPooledRenderTarget>& StepStart = StepStarts.FindOrAdd(Slot);
+	TRefCountPtr<IPooledRenderTarget>& IceStepStart = IceStepStarts.FindOrAdd(Slot);
+	EnsureStart(StepStart, TEXT("DreamSurface.StepStart"));
+	EnsureStart(IceStepStart, TEXT("DreamSurface.IceStepStart"));
+
 	FRDGTextureRef Target = RegisterExternalTexture(GraphBuilder, TargetRHI, TEXT("DreamSurface.Map"));
+	FRDGTextureRef IceTarget = RegisterExternalTexture(GraphBuilder, IceRHI, TEXT("DreamSurface.IceMap"));
 	FRDGTextureRef Start = GraphBuilder.RegisterExternalTexture(StepStart, TEXT("DreamSurface.StepStart"));
+	FRDGTextureRef IceStart = GraphBuilder.RegisterExternalTexture(IceStepStart, TEXT("DreamSurface.IceStepStart"));
 
 	const TArray<FVector4f> NoStep = { FVector4f::Zero(), FVector4f::Zero(), FVector4f(15.0f, -1.0f, 0.0f, 0.0f) };
-	const TArray<FVector4f> NoZone = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(-1.0f, -1.0f, -1.0f, 0.0f), FVector4f(-1.0e4f) };
+	const TArray<FVector4f> NoZone = { FVector4f(0.0f, 0.0f, 1.0f, 0.0f), FVector4f(1.0f, 1.0f, 1.0f, 0.0f), FVector4f(-1.0f, -1.0f, -1.0f, 0.0f), FVector4f(-1.0e4f), FVector4f(-1.0e4f) };
 	FRDGBufferRef StepBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Steps"), NonEmpty(Args.Steps, NoStep));
 	FRDGBufferRef ZoneBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Zones"), NonEmpty(Args.Zones, NoZone));
 	const TArray<FVector4f> NoTrack = { FVector4f::Zero() };
@@ -174,6 +191,8 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->Rates0 = Args.Rates[0];
 	Params->Rates1 = Args.Rates[1];
 	Params->Rates2 = Args.Rates[2];
+	Params->Rates3 = Args.Rates[3];
+	Params->Rates4 = Args.Rates[4];
 	Params->NumSteps = uint32(Args.Steps.Num() / 3);
 	Params->StepHours = Args.StepHours;
 	Params->PartialWeather = Args.PartialWeather;
@@ -183,20 +202,23 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->PrecipitationGate = Args.PrecipitationGate;
 	Params->MapCenter = Args.Center;
 	Params->MapExtent = Args.Extent;
-	Params->NumZones = uint32(FMath::Clamp(Args.NumZones, 0, Args.Zones.Num() / 4));
+	Params->NumZones = uint32(FMath::Clamp(Args.NumZones, 0, Args.Zones.Num() / 5));
 	Params->bIntegrate = bIntegrate ? 1u : 0u;
 	Params->Resolution = Resolution;
 	Params->Steps = GraphBuilder.CreateSRV(StepBuffer);
 	Params->Zones = GraphBuilder.CreateSRV(ZoneBuffer);
 	Params->ZoneTracks = GraphBuilder.CreateSRV(TrackBuffer);
 	Params->StepStart = GraphBuilder.CreateUAV(Start);
+	Params->IceStepStart = GraphBuilder.CreateUAV(IceStart);
 	Params->OutMap = GraphBuilder.CreateUAV(Target);
+	Params->OutIce = GraphBuilder.CreateUAV(IceTarget);
 
 	TShaderMapRef<FDreamSurfaceStateCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 	FComputeShaderUtils::AddPass(GraphBuilder,
 		RDG_EVENT_NAME("DreamSurfaceMap %dx%d%s", Resolution.X, Resolution.Y, bIntegrate ? TEXT(", integrate") : TEXT("")),
 		Shader, Params, FComputeShaderUtils::GetGroupCount(Resolution, ThreadGroupSize));
 	GraphBuilder.SetTextureAccessFinal(Target, ERHIAccess::SRVMask);
+	GraphBuilder.SetTextureAccessFinal(IceTarget, ERHIAccess::SRVMask);
 	DrawCount.fetch_add(1);
 	if (bIntegrate)
 	{

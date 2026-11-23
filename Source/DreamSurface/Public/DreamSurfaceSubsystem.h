@@ -19,7 +19,7 @@ struct FDreamSurfaceMapSteps
 	int64 Step = TNumericLimits<int64>::Min();
 	/**
 	 * Three float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the
-	 * global channels (temperature offset, dust, wind, -), the air (the view's temperature under a clear sky with no
+	 * global channels (temperature offset, dust, wind, fog), the air (the view's temperature under a clear sky with no
 	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it).
 	 */
 	TArray<FVector4f> Steps;
@@ -31,7 +31,8 @@ struct FDreamSurfaceMapSteps
 };
 
 /**
- * What the weather has left on the surfaces of a world: wet, standing water, snow, dust.
+ * What the weather has left on the surfaces of a world: wet, standing water, snow, dust, and what the cold makes of them
+ * (ice, frost, rime, frozen puddles).
  *
  * A surface's state is the weather integrated over its past (Project Settings > Dream Surface > Memory Hours), in
  * steps of the weather's own timeline: the same moment gives the same state, whenever and however often it is asked,
@@ -62,7 +63,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")
 	bool IsActive() const;
 
-	/** What the weather has left on a surface at this point now: wet, water, snow, dust. CPU, any time. */
+	/** What the weather has left on a surface at this point now: wet, water, snow, dust, ice, frost, rime. CPU, any time. */
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")
 	FDreamSurfaceState SampleSurface(FVector Position) const;
 
@@ -100,10 +101,17 @@ public:
 
 	/**
 	 * What a contact at a point finds (a footstep, a wheel): the state there, how much of a puddle it stands in (as the
-	 * materials draw it), the snow's depth, and which of them dominates.
+	 * materials draw it), the snow's depth, how much grip is left, and which of them dominates.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")
 	FDreamSurfaceContact SampleContact(FVector Location, FVector Normal) const;
+
+	/**
+	 * How much grip a surface facing up at this point has left now, a multiplier on its own: 1 as dry .. some 0.1 on black
+	 * ice (Project Settings > Dream Surface > Grip). For a tyre, a foot, a sliding crate: SampleContact gives it too.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	float GetGripAt(FVector Location) const;
 
 	/**
 	 * Press a print into the snow and the dust and stir the puddles here (a footstep, a blast: Radius in cm, Strength
