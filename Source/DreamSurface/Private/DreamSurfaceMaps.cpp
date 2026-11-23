@@ -255,10 +255,13 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 {
 	using namespace DreamSurface::Names;
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
-	const FDreamSurfaceState& View = Surface.GetViewState();
-	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
-	Clock.SetVectorParameter(MPC_SurfaceViewIce, FLinearColor(View.Ice, View.Frost, View.Rime, View.FrozenWater));
-	Clock.SetVectorParameter(MPC_SurfaceViewHail, FLinearColor(View.Hail, 0.0f, 0.0f, 0.0f));
+	// Beyond both maps the land takes the region's state: the weather with no zone, no lee and no water body over it, as
+	// the far map has it away from the zones (the view's own state would carry a zone or a flood at the camera out to
+	// the horizon).
+	const FDreamSurfaceState& Region = Surface.GetRegionState();
+	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(Region.ToVector()));
+	Clock.SetVectorParameter(MPC_SurfaceViewIce, FLinearColor(Region.ToIceVector()));
+	Clock.SetVectorParameter(MPC_SurfaceViewHail, FLinearColor(Region.ToHailVector()));
 	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, S->PuddleScale));
 
 	UWorld* World = Surface.GetWorld();

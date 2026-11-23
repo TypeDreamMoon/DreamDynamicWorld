@@ -544,6 +544,17 @@ FDreamWeatherSample UDreamWeatherSubsystem::SampleWeatherAt(FVector Position, co
 	return MakeSample(Position, Values, WorldSeconds);
 }
 
+FDreamWeatherSample UDreamWeatherSubsystem::SampleRegionalWeatherAt(FVector Position, const FDreamWeatherValues& Global, double WorldSeconds) const
+{
+	FDreamWeatherValues Values = Global;
+	if (Values.Values.Num() != FDreamWeatherChannels::Num())
+	{
+		Values = FDreamWeatherChannels::Defaults();
+	}
+	FDreamWeatherChannels::ApplyCloudGates(Values);
+	return MakeSample(Position, Values, WorldSeconds);
+}
+
 float UDreamWeatherSubsystem::GetChannelAt(FVector Position, FGameplayTag Channel) const
 {
 	const int32 Index = FDreamWeatherChannels::IndexOf(Channel);

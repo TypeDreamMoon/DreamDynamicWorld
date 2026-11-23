@@ -1197,7 +1197,8 @@ map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
 cut out, `DreamSurface.WindDrift` for the lee's snow and dust, a ridge blown clean, the open unchanged, a lee drying
 slower and riming less, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
-jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump),
+jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump,
+`DreamSurface.RegionState` for a cold zone round the camera that snows on the view's state and not on the region's),
 and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
@@ -1206,8 +1207,11 @@ surface below it. What differs from a query: under partial cover (the windward e
 the reduced weather while a material scales the open state; the map takes the hour's temperature at the view's height
 (with each texel's own cloud cover, which takes some of the daily swing off, and its zones' offset), not at each
 texel's height; and like the weather map it takes Override zones only, without their height limits. The maps are
-placed by `DDW_SurfaceNear / Far` in the shared collection, beyond both the view's state stands (`DDW_SurfaceView`,
-`DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`). GPU cost: some 0.03 ms a frame (both maps
+placed by `DDW_SurfaceNear / Far` in the shared collection; beyond both the land takes the **region's** state
+(`DDW_SurfaceView`, `DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`; `GetRegionState`): the weather with no zone, no wind
+lee and no water body over it, integrated at the view beside its own state (`GetViewState`) -- what the far map holds
+away from the zones, so the far land meets it without a seam, and a zone or a flood round the camera does not reach
+the horizon. GPU cost: some 0.03 ms a frame (both maps
 and the cover), 0.2 ms for an integration.
 
 **Materials.** One node at the end of a material's attributes (Material Attributes in and out):

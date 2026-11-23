@@ -75,6 +75,7 @@ void UDreamSurfaceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		StoppedHandle = Weather->OnWeatherStopped.AddWeakLambda(this, [this]()
 		{
 			ViewState = FDreamSurfaceState();
+			RegionState = FDreamSurfaceState();
 			ViewStep = TNumericLimits<int64>::Min();
 			if (Maps)
 			{
@@ -157,8 +158,9 @@ float UDreamSurfaceSubsystem::WindFactorAt(const FVector& Position) const
 	return Wind ? Wind->GetTerrainWindFactor(Position) : 1.0f;
 }
 
-FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky) const
+FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky, bool bRegion) const
 {
+	bOpenSky |= bRegion;
 	FDreamSurfaceDrive Drive;
 	const UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get();
 	const UDreamWorldSubsystem* Clock = ClockSubsystem.Get();
@@ -167,7 +169,8 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 		return Drive;
 	}
 	const int64 StepIndex = FMath::FloorToInt64(WorldSeconds / StepSeconds());
-	const FDreamWeatherSample W = Weather->SampleWeatherAt(Position, GlobalAtStep(StepIndex), WorldSeconds);
+	const FDreamWeatherSample W = bRegion ? Weather->SampleRegionalWeatherAt(Position, GlobalAtStep(StepIndex), WorldSeconds)
+		: Weather->SampleWeatherAt(Position, GlobalAtStep(StepIndex), WorldSeconds);
 	const FDreamCelestialState Sky = DreamWorld::Celestial::Evaluate(Clock->GetCelestialSettings(), WorldSeconds);
 	// The open-sky drive is the one the surface map computes per texel (DSF_OpenD0 / D1)...
 	using namespace DreamSurface::Private;
@@ -179,7 +182,7 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::Fog));
 	DreamWind::Hlsl::float4 D2 = DreamWind::Hlsl::DSF_OpenD2(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
 	// ...with the wind where it lies (the runtime terrain map's lees and ridges, as the surface map has them)...
-	const float WindFactor = WindFactorAt(Position);
+	const float WindFactor = bRegion ? 1.0f : WindFactorAt(Position);
 	D2 = DreamWind::Hlsl::DSF_LocalD2(D2, D0, WindFactor);
 	D0 = DreamWind::Hlsl::DSF_LocalD0(D0, WindFactor);
 	// ...then the cover: under a roof nothing lands, the air is stiller, the sun and the sky are off and less dust gets in.
@@ -195,8 +198,9 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	Drive.Hail = D2.x * Exposure;
 	Drive.Lee = D2.y;
 	Drive.Exposed = D2.z;
-	// A water body's water over the point at that step (the deepest of those whose area it is in).
-	const TArray<FVector4f>& Water = WaterAtStep(StepIndex);
+	// A water body's water over the point at that step (the deepest of those whose area it is in; none for the region).
+	static const TArray<FVector4f> NoWater;
+	const TArray<FVector4f>& Water = bRegion ? NoWater : WaterAtStep(StepIndex);
 	for (int32 i = 0; i + 1 < Water.Num(); i += 2)
 	{
 		const FVector4f& A = Water[i];
@@ -243,7 +247,7 @@ const TArray<FVector4f>& UDreamSurfaceSubsystem::WaterAtStep(int64 StepIndex) co
 	return WaterNowCache;
 }
 
-FDreamSurfaceState UDreamSurfaceSubsystem::IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky) const
+FDreamSurfaceState UDreamSurfaceSubsystem::IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky, bool bRegion) const
 {
 	const FDreamSurfaceRates& Rates = UDreamSurfaceSettings::Get()->Rates;
 	const double Seconds = StepSeconds();
@@ -251,7 +255,7 @@ FDreamSurfaceState UDreamSurfaceSubsystem::IntegrateSteps(const FVector& Positio
 	FDreamSurfaceState S = Start;
 	for (int64 k = FirstStep; k < EndStep; ++k)
 	{
-		S = Step(S, DriveAt(Position, double(k) * Seconds, bOpenSky), Rates, Hours);
+		S = Step(S, DriveAt(Position, double(k) * Seconds, bOpenSky, bRegion), Rates, Hours);
 	}
 	return S;
 }
@@ -454,6 +458,7 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 	if (!IsActive())
 	{
 		ViewState = FDreamSurfaceState();
+		RegionState = FDreamSurfaceState();
 		ViewStep = TNumericLimits<int64>::Min();
 		if (Maps)
 		{
@@ -475,10 +480,12 @@ void UDreamSurfaceSubsystem::OnWeatherFrame(UDreamWorldSubsystem& Clock, UDreamW
 		ViewAnchor = At;
 		ViewStep = StepIndex;
 		ViewStepStart = IntegrateSteps(At, StepIndex - MemorySteps(), StepIndex, FDreamSurfaceState(), true);
+		RegionStepStart = IntegrateSteps(At, StepIndex - MemorySteps(), StepIndex, FDreamSurfaceState(), true, true);
 		BuildMapSteps(StepIndex);
 	}
 	const float Partial = float((Now - double(StepIndex) * Seconds) / 3600.0);
 	ViewState = Step(ViewStepStart, DriveAt(ViewAnchor, double(StepIndex) * Seconds, true), UDreamSurfaceSettings::Get()->Rates, Partial);
+	RegionState = Step(RegionStepStart, DriveAt(ViewAnchor, double(StepIndex) * Seconds, true, true), UDreamSurfaceSettings::Get()->Rates, Partial);
 	MapSteps.PartialHours = Partial;
 
 	if (Maps)

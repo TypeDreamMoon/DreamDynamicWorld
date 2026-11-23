@@ -83,6 +83,9 @@ namespace DreamSurface::Console
 				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater, S.Hail, S.Flooded, S.Silt,
 				Maps ? Maps->GetNearCenter().X : 0.0, Maps ? Maps->GetNearCenter().Y : 0.0, Maps ? Maps->GetNearExtent() : 0.0f,
 				Maps ? Maps->GetDrawCount() : 0u, Maps ? Maps->GetIntegrateCount() : 0u);
+			const FDreamSurfaceState& R = Surface->GetRegionState();
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface: region (beyond the maps) wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f hail %.3f; far map %.0f cm"),
+				R.Wetness, R.Water, R.Snow, R.Dust, R.Ice, R.Frost, R.Rime, R.Hail, Maps ? Maps->GetFarExtent() : 0.0f);
 			for (TObjectIterator<UDreamSurfaceDripLineComponent> It; It; ++It)
 			{
 				if (It->GetWorld() == World && It->IsRegistered())

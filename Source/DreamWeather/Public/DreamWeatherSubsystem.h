@@ -112,6 +112,12 @@ public:
 	 */
 	FDreamWeatherSample SampleWeatherAt(FVector Position, const FDreamWeatherValues& Global, double WorldSeconds) const;
 
+	/**
+	 * The region's weather at a point: SampleWeatherAt without the influences (no zone, no cloud painting) -- the
+	 * weather where none of them reaches, as a place far out beyond the weather map has it.
+	 */
+	FDreamWeatherSample SampleRegionalWeatherAt(FVector Position, const FDreamWeatherValues& Global, double WorldSeconds) const;
+
 	/** One channel at a point. */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	float GetChannelAt(FVector Position, FGameplayTag Channel) const;
