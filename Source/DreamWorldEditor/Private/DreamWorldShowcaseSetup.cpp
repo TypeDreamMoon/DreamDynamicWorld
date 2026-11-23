@@ -9,6 +9,7 @@
 #include "DreamSurfaceMask.h"
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSetup.h"
+#include "DreamSurfaceVehicleGlass.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamWeatherModule.h"
@@ -33,6 +34,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
+#include "Materials/MaterialInstanceConstant.h"
 #include "EngineUtils.h"
 #include "MeshDescription.h"
 #include "PhysicsEngine/BodySetup.h"
@@ -349,6 +351,8 @@ namespace DreamWorld::ShowcaseSetup
 		UMaterialInterface* Leaves = nullptr;
 		UStaticMesh* Pond = nullptr;
 		UStaticMesh* FarLand = nullptr;
+		UStaticMesh* Plane = nullptr;
+		UMaterialInterface* VehicleGlass = nullptr;
 
 		bool Load()
 		{
@@ -375,8 +379,35 @@ namespace DreamWorld::ShowcaseSetup
 			Leaves = SurfaceSetup::EnsureInstance(TEXT("MI_DreamSurfaceLeaves"), Demo, FLinearColor(0.2f, 0.27f, 0.16f), 0.75f, 0.0f);
 			Pond = EnsurePond();
 			FarLand = EnsureFarLand();
+			Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+			VehicleGlass = EnsureVehicleGlass();
 			return Cube && Cylinder && Sphere && Cone && Ground && Figure && Terrain && Water && Glass && Stone && Paving && Metal && Wood
-				&& ToonRed && ToonBlue && ToonYellow && Leaves && Pond && FarLand;
+				&& ToonRed && ToonBlue && ToonYellow && Leaves && Pond && FarLand && Plane && VehicleGlass;
+		}
+
+		/**
+		 * The demo cars' windscreen glass: M_DreamVehicleGlassDemo with two wipers on the windscreen (AddCar's: the pane
+		 * 85 cm up its slope and 150 cm across, the mesh's x down the slope, y across).
+		 */
+		static UMaterialInterface* EnsureVehicleGlass()
+		{
+			UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Surface/Materials/M_DreamVehicleGlassDemo.M_DreamVehicleGlassDemo"));
+			if (!Parent)
+			{
+				UE_LOG(LogDreamWorld, Error, TEXT("M_DreamVehicleGlassDemo is missing (compile the DreamSurface demo materials first)."));
+				return nullptr;
+			}
+			const TCHAR* Name = TEXT("MI_DreamVehicleGlassDemo");
+			UPackage* Package = SurfaceSetup::FreshPackage(TEXT("/DreamDynamicWorld/Surface/Materials/MI_DreamVehicleGlassDemo"));
+			UMaterialInstanceConstant* Instance = NewObject<UMaterialInstanceConstant>(Package, Name, RF_Public | RF_Standalone);
+			Instance->SetParentEditorOnly(Parent);
+			// Pivots by the windscreen's lower edge (x down the slope), the blades lying along it to the left when parked.
+			Instance->SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("WiperPivot")), FLinearColor(38.0f, -48.0f, 0.0f, 62.0f));
+			Instance->SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("WiperPivot2")), FLinearColor(38.0f, 12.0f, 0.0f, 62.0f));
+			Instance->SetVectorParameterValueEditorOnly(FMaterialParameterInfo(TEXT("WiperAngles")), FLinearColor(6.0f, 118.0f, 0.0f, 0.0f));
+			Instance->PostEditChange();
+			FAssetRegistryModule::AssetCreated(Instance);
+			return SurfaceSetup::SaveAsset(Instance) ? Instance : nullptr;
 		}
 	};
 
@@ -518,6 +549,52 @@ namespace DreamWorld::ShowcaseSetup
 	}
 
 	/** Wooden crates of 15-25 kg the wind slides and tips. */
+	/**
+	 * A small car (boxes, wheels, a windscreen and a rear window of vehicle glass) with a DreamSurface Vehicle Glass
+	 * component: ExtraVelocity shows it as if it drove (cm/s, forward), the wipers running or parked.
+	 */
+	void AddCar(UWorld& World, const FShowcaseKit& Kit, const FVector& At, float Yaw, const FVector& ExtraVelocity, bool bWipers, const TCHAR* Label)
+	{
+		AActor* Car = World.SpawnActor<AActor>(At, FRotator(0.0, Yaw, 0.0));
+		USceneComponent* Root = NewObject<USceneComponent>(Car, TEXT("Root"));
+		Car->SetRootComponent(Root);
+		Car->AddInstanceComponent(Root);
+		Root->RegisterComponent();
+		Root->SetWorldLocationAndRotation(At, FRotator(0.0, Yaw, 0.0));
+		auto Part = [&](UStaticMesh* Mesh, UMaterialInterface* Material, const FVector& Location, const FVector& Scale, const FRotator& Rotation, const TCHAR* Name)
+		{
+			UStaticMeshComponent* Component = NewObject<UStaticMeshComponent>(Car, Name);
+			Component->SetupAttachment(Root);
+			Component->SetStaticMesh(Mesh);
+			Component->SetMaterial(0, Material);
+			Component->SetRelativeLocationAndRotation(Location, Rotation);
+			Component->SetRelativeScale3D(Scale);
+			Car->AddInstanceComponent(Component);
+			Component->RegisterComponent();
+			return Component;
+		};
+		Part(Kit.Cube, Kit.Metal, FVector(0.0, 0.0, 55.0), FVector(4.2, 1.8, 0.7), FRotator::ZeroRotator, TEXT("Body"));
+		// The cabin dark behind its glass.
+		Part(Kit.Cube, Kit.Stone, FVector(-40.0, 0.0, 111.0), FVector(2.3, 1.6, 0.42), FRotator::ZeroRotator, TEXT("Cabin"));
+		for (int32 i = 0; i < 4; ++i)
+		{
+			const FVector Wheel((i < 2 ? 1.0 : -1.0) * 130.0, (i % 2 ? 1.0 : -1.0) * 88.0, 33.0);
+			Part(Kit.Cylinder, Kit.Stone, Wheel, FVector(0.66, 0.66, 0.22), FRotator(0.0, 0.0, 90.0), TEXT("Wheel"));
+		}
+		// The windscreen raked 30 degrees from the level, its x down the slope; the rear window steeper.
+		UStaticMeshComponent* Screen = Part(Kit.Plane, Kit.VehicleGlass, FVector(112.0, 0.0, 112.0), FVector(0.85, 1.5, 1.0), FRotator(-30.0, 0.0, 0.0), TEXT("Windscreen"));
+		UStaticMeshComponent* Rear = Part(Kit.Plane, Kit.VehicleGlass, FVector(-176.0, 0.0, 112.0), FVector(0.55, 1.4, 1.0), FRotator(37.0, 0.0, 0.0), TEXT("RearWindow"));
+		Screen->ComponentTags.Add(TEXT("DreamGlass"));
+		Rear->ComponentTags.Add(TEXT("DreamGlass"));
+		UDreamSurfaceVehicleGlassComponent* Glass = NewObject<UDreamSurfaceVehicleGlassComponent>(Car, TEXT("VehicleGlass"));
+		Glass->ExtraVelocity = ExtraVelocity;
+		Glass->bWipers = bWipers;
+		Car->AddInstanceComponent(Glass);
+		Glass->RegisterComponent();
+		Glass->UpdateGlass();
+		Car->SetActorLabel(Label);
+	}
+
 	void AddCrates(UWorld& World, const FShowcaseKit& Kit, const FVector2D& At)
 	{
 		for (int32 i = 0; i < 5; ++i)
@@ -670,6 +747,10 @@ namespace DreamWorld::ShowcaseSetup
 		AddGrove(*World, Kit, FVector2D(500.0, 2100.0));
 		AddCampfire(*World, Kit, FVector(2050.0, -450.0, -3.0));
 		AddCrates(*World, Kit, FVector2D(1600.0, -800.0));
+		// Two cars south of the set, side by side facing north: one parked (the snow lies on its windscreen, the drops sit), one shown as if it drove at
+		// 60 km/h with its wipers running.
+		AddCar(*World, Kit, FVector(200.0, -1000.0, SurfaceSetup::GroundHeight(200.0, -1000.0)), 90.0f, FVector::ZeroVector, false, TEXT("ParkedCar"));
+		AddCar(*World, Kit, FVector(-200.0, -1000.0, SurfaceSetup::GroundHeight(-200.0, -1000.0)), 90.0f, FVector(1670.0, 0.0, 0.0), true, TEXT("DrivingCar"));
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
 		AddStorm(*World);
 

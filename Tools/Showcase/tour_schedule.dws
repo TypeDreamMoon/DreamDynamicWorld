@@ -38,6 +38,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Clear_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Clear_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Clear_CarGlass
 time 10.2
 settle 20
 wait 120
@@ -76,6 +86,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Cloudy_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Cloudy_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Cloudy_CarGlass
 time 12.3
 settle 20
 wait 120
@@ -114,6 +134,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Rain_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Rain_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Rain_CarGlass
 time 14.2
 settle 20
 wait 120
@@ -152,6 +182,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Storm_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Storm_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Storm_CarGlass
 time 16.75
 settle 20
 wait 120
@@ -190,6 +230,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_AfterRain_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_AfterRain_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_AfterRain_CarGlass
 time 19.6
 settle 20
 wait 120
@@ -228,6 +278,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Snow_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Snow_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Snow_CarGlass
 time 21.5
 settle 20
 wait 120
@@ -266,6 +326,16 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Dust_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Dust_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Dust_CarGlass
 time 23.6
 settle 20
 wait 120
@@ -304,3 +374,13 @@ aim -10 -38
 wait 3
 settle 8
 shot SHOW_Night_Snow
+move 0 -300 230
+aim -12 -90
+wait 3
+settle 8
+shot SHOW_Night_Car
+move -120 -700 200
+aim -23 -113
+wait 3
+settle 8
+shot SHOW_Night_CarGlass
