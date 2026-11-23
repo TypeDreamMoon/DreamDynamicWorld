@@ -146,12 +146,17 @@ void ADreamWindSliceActor::Tick(float DeltaSeconds)
 // DreamWind.Slice <mode|off> [height] [size] [yaw for a vertical slice]
 static FAutoConsoleCommandWithWorldAndArgs GDreamWindSliceCommand(
 	TEXT("DreamWind.Slice"),
-	TEXT("DreamWind.Slice <0 wind | 1 baked terrain map | 2 volume | 3 distance field | 4 runtime terrain map | off> [height cm, default 100] [size cm, default 6000] [yaw: a vertical slice along it]: a debug plane following the camera that paints one layer of the wind."),
+	TEXT("DreamWind.Slice <0 wind | 1 baked terrain map | 2 volume | 3 distance field | 4 runtime terrain map | 5 fluid residual divergence | off> [height cm, default 100] [size cm, default 6000] [yaw: a vertical slice along it]: a debug plane following the camera that paints one layer of the wind."),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 	{
 		if (!World)
 		{
 			return;
+		}
+		// The fluid's residual divergence goes into the volumes' w only while a slice shows it.
+		if (IConsoleVariable* ShowDivergence = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamWind.Fluid.ShowDivergence")))
+		{
+			ShowDivergence->Set(Args.Num() > 0 && FCString::Atoi(*Args[0]) == int32(EDreamWindSliceMode::FluidDivergence) ? 1 : 0, ECVF_SetByConsole);
 		}
 		ADreamWindSliceActor* Slice = nullptr;
 		for (TActorIterator<ADreamWindSliceActor> It(World); It; ++It)
@@ -181,7 +186,7 @@ static FAutoConsoleCommandWithWorldAndArgs GDreamWindSliceCommand(
 		{
 			return;
 		}
-		Slice->Mode = EDreamWindSliceMode(FMath::Clamp(FCString::Atoi(*Args[0]), 0, 4));
+		Slice->Mode = EDreamWindSliceMode(FMath::Clamp(FCString::Atoi(*Args[0]), 0, int32(EDreamWindSliceMode::FluidDivergence)));
 		const float Height = Args.Num() > 1 ? FCString::Atof(*Args[1]) : 100.0f;
 		Slice->Size = Args.Num() > 2 ? FMath::Max(FCString::Atof(*Args[2]), 100.0f) : 6000.0f;
 		Slice->bVertical = Args.Num() > 3;

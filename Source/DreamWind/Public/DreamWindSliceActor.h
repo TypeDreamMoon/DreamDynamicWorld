@@ -24,6 +24,8 @@ enum class EDreamWindSliceMode : uint8
 	DistanceField = 3,
 	/** The runtime terrain wind map alone: how much wind it leaves at this height, where it speeds the wind up. */
 	RuntimeTerrain = 4,
+	/** What the fluid's pressure iterations left of the divergence (with DreamWind.Fluid.ShowDivergence 1, which the console slice sets), its walls grey. */
+	FluidDivergence = 5,
 };
 
 /**
