@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceHlslShim.h"
 #include "DreamSurfaceInteraction.h"
 #include "DreamSurfaceMaps.h"
@@ -580,6 +581,61 @@ bool FDreamSurfaceVehicleGlassTest::RunTest(const FString& Parameters)
 	const TArray<float>& Wiping = Screen->GetCustomPrimitiveData().Data;
 	TestTrue(TEXT("wipers running"), Wiping.Num() > 29 && FMath::IsNearlyEqual(Wiping[28], 1.5f));
 	TestTrue(TEXT("the body has none"), Body->GetCustomPrimitiveData().Data.Num() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceEaveDripTest, "DreamSurface.EaveDrips", DreamSurface::Tests::Flags)
+bool FDreamSurfaceEaveDripTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	{
+		using namespace DreamWind::Hlsl;
+		TestNearlyEqual(TEXT("in a downpour the eave runs"), DSF_EaveDrip(1.0f, 1.0f, 0.0f, 0.55f), 1.0f, 1.0e-4f);
+		TestNearlyEqual(TEXT("a soaked roof after the rain drips as hard"), DSF_EaveDrip(0.0f, 1.0f, 0.0f, 0.55f), 1.0f, 1.0e-4f);
+		const float Drying = DSF_EaveDrip(0.0f, 0.7f, 0.0f, 0.55f);
+		TestTrue(TEXT("a drying roof drips less"), Drying > 0.0f && Drying < 0.3f);
+		TestNearlyEqual(TEXT("a damp one not at all"), DSF_EaveDrip(0.0f, 0.5f, 0.0f, 0.55f), 0.0f, 1.0e-4f);
+		TestNearlyEqual(TEXT("a frozen one not at all"), DSF_EaveDrip(0.0f, 1.0f, 0.6f, 0.55f), 0.0f, 1.0e-4f);
+	}
+
+	// An eave in a world: an afternoon's rain, then the sky clears.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSurfaceDripLine* Eave = W.World->SpawnActor<ADreamSurfaceDripLine>(FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator, Params);
+	Eave->Drips->Length = 400.0f;
+	W.GoTo(At(11.0));
+	W.Weather->ForceWeather(Rain(), 0.0f);
+	W.RunTo(At(13.0));
+	Eave->Drips->Refresh();
+	const float Raining = Eave->Drips->GetDripStrength();
+	W.Weather->ForceWeather(Clear(), 0.0f);
+	W.RunTo(At(13.25));
+	Eave->Drips->Refresh();
+	const float JustAfter = Eave->Drips->GetDripStrength();
+	W.RunTo(At(17.0));
+	Eave->Drips->Refresh();
+	const float Later = Eave->Drips->GetDripStrength();
+	AddInfo(FString::Printf(TEXT("drip strength: in the rain %.2f, a quarter hour after %.2f, four hours after %.2f"), Raining, JustAfter, Later));
+	TestTrue(TEXT("the eave runs in the rain"), Raining > 0.8f);
+	TestTrue(TEXT("and drips on just after it"), JustAfter > 0.2f);
+	TestTrue(TEXT("dry hours later"), Later < 0.01f);
+	TestNearlyEqual(TEXT("drops a second: strength x per metre x length"), Eave->Drips->GetDropRate(), Later * Eave->Drips->DropsPerMetre * 4.0f, 1.0e-3f);
+
+	// Dripping, it stirs the puddles below (the view is close).
+	W.RunTo(At(13.25));
+	W.Weather->ForceWeather(Rain(), 0.0f);
+	W.RunTo(At(14.0));
+	Eave->Drips->Refresh();
+	const int32 Before = W.Surface->GetPendingStamps().Num();
+	Eave->Drips->TickComponent(1.0f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("the drops ring the puddles below"), W.Surface->GetPendingStamps().Num() > Before);
 	return true;
 }
 
