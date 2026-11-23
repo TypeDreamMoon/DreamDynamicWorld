@@ -287,6 +287,21 @@ public:
 	/** Exponential average of the same (about the last 100 frames). */
 	double GetAverageTickMs() const { return AverageTickMs; }
 
+	// ---- Whirlwinds ---------------------------------------------------------------------------
+
+	/**
+	 * Registers or updates a whirlwind (a tornado, a dust devil) for whatever draws or hears it (the sky's funnel
+	 * clouds). Id 0 registers a new one; returns its id, to update it with every frame and remove it with.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Vortex")
+	int32 SetVortex(int32 Id, const FDreamWorldVortex& Vortex);
+
+	UFUNCTION(BlueprintCallable, Category = "Dream World|Vortex")
+	void RemoveVortex(int32 Id);
+
+	/** Every whirlwind registered, by id. */
+	const TMap<int32, FDreamWorldVortex>& GetVortices() const { return Vortices; }
+
 private:
 	void UpdateCelestial();
 	void UpdateViewProbe(float DeltaTime, bool bSnap);
@@ -297,6 +312,8 @@ private:
 
 	FDreamWorldClockConfig Clock;
 	double WorldSeconds = 0.0;
+	TMap<int32, FDreamWorldVortex> Vortices;
+	int32 NextVortexId = 1;
 	bool bPaused = false;
 
 	bool bTransitionActive = false;
