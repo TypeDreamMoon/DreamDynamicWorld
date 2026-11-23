@@ -4,6 +4,7 @@
 #include "DreamWorldTracks.h"
 #include "DreamWeather.h"
 #include "DreamWeatherModule.h"
+#include "DreamWeatherChannels.h"
 #include "DreamWeatherPreset.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWeatherSubsystem.h"
@@ -154,6 +155,25 @@ bool FDreamWorldSequencerSectionsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("only the keyed channel applies"), Desc.Channels.Num(), 1);
 	TestNearlyEqual(TEXT("at its curve"), Desc.Channels.FindRef(DreamWeather::Tags::Channel_Precipitation), 0.25f, 1.0e-4f);
 	TestEqual(TEXT("in full without easing"), Desc.Weight, 1.0f);
+	// Any channel the weather has, by its tag: past the first eleven built-ins (freezing rain, hail, sleet) and the
+	// project's own alike.
+	if (FMovieSceneFloatChannel* Hail = Channels->GetOrAddCurve(DreamWeather::Tags::Channel_Hail))
+	{
+		Hail->AddLinearKey(FFrameNumber(0), 0.5f);
+		const FDreamWeatherModifierDesc WithHail = Channels->MakeModifier(FFrameTime(250));
+		TestNearlyEqual(TEXT("the hail channel keyed by its tag"), WithHail.Channels.FindRef(DreamWeather::Tags::Channel_Hail), 0.5f, 1.0e-4f);
+		TestEqual(TEXT("with the precipitation still"), WithHail.Channels.Num(), 2);
+	}
+	else
+	{
+		AddError(TEXT("no curve for the hail channel"));
+	}
+	TestNull(TEXT("no curve for a tag the weather does not have"), Channels->GetOrAddCurve(FGameplayTag()));
+	for (const FDreamWeatherChannelDef& Def : FDreamWeatherChannels::Get())
+	{
+		Channels->GetOrAddCurve(Def.Channel);
+	}
+	TestEqual(TEXT("a curve for every channel the weather has"), Channels->GetCurves().Num(), FDreamWeatherChannels::Num());
 
 	UDreamLightningSection* Lightning = NewObject<UDreamLightningSection>();
 	Lightning->Strikes.AddConstantKey(FFrameNumber(100), 1.0f);

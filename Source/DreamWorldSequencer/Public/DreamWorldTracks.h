@@ -106,9 +106,23 @@ protected:
 	virtual void End(TSharedRef<UE::MovieScene::FSharedPlaybackState> SharedPlaybackState, const UE::MovieScene::FEvaluationHookParams& Params) const override;
 };
 
+/** A weather channel's curve on a channel section, by the channel's tag (any channel: built-in or the project's own). */
+USTRUCT()
+struct FDreamWeatherChannelCurve
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FGameplayTag Channel;
+
+	UPROPERTY()
+	FMovieSceneFloatChannel Curve;
+};
+
 /**
  * Weather channels by curve: each keyed channel is pulled to its curve while the section is active (Blend, at the
- * section's eased weight); unkeyed ones are left to the weather.
+ * section's eased weight); unkeyed ones are left to the weather. Every channel the weather has can be keyed -- the
+ * built-in ones and the project's own (Project Settings > Dream Weather) -- each by its tag.
  */
 UCLASS(MinimalAPI)
 class UDreamWeatherChannelSection : public UMovieSceneHookSection
@@ -139,8 +153,19 @@ public:
 	/** The modifier the section stands for at a sequence time. */
 	DREAMWORLDSEQUENCER_API FDreamWeatherModifierDesc MakeModifier(FFrameTime Time) const;
 
-	/** The channel curves, in the weather's built-in order (FDreamWeatherChannels). */
-	TArray<const FMovieSceneFloatChannel*, TInlineAllocator<11>> GetCurves() const;
+	/** Every channel's curve, in the weather's order (FDreamWeatherChannels): the first eleven built-ins' are the fields
+	 *  above (as sequences saved before the others were added keep them), the rest MoreChannels' by tag. */
+	TArray<TPair<FGameplayTag, const FMovieSceneFloatChannel*>> GetCurves() const;
+
+	/** A channel's curve by its tag (made for a channel the section has none of yet); null for a tag the weather does
+	 *  not have. */
+	DREAMWORLDSEQUENCER_API FMovieSceneFloatChannel* GetOrAddCurve(const FGameplayTag& Channel);
+
+	/** The curves of the channels past the first eleven built-ins, by tag. */
+	UPROPERTY()
+	TArray<FDreamWeatherChannelCurve> MoreChannels;
+
+	virtual void PostLoad() override;
 
 protected:
 	virtual EMovieSceneChannelProxyType CacheChannelProxy() override;

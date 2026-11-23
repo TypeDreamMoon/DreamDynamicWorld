@@ -184,25 +184,91 @@ UDreamWeatherChannelSection::UDreamWeatherChannelSection(const FObjectInitialize
 	bSupportsInfiniteRange = true;
 }
 
-TArray<const FMovieSceneFloatChannel*, TInlineAllocator<11>> UDreamWeatherChannelSection::GetCurves() const
+namespace DreamWorldSequencer
 {
-	return { &CloudCoverage, &CloudDarkness, &Precipitation, &SnowRatio, &Fog, &Dust, &Wind, &Lightning, &Temperature, &Wetness, &SnowCover };
+	/** How many of the weather's built-in channels the channel section's own fields hold (the first ones, in order). */
+	static constexpr int32 FieldChannels = 11;
+}
+
+TArray<TPair<FGameplayTag, const FMovieSceneFloatChannel*>> UDreamWeatherChannelSection::GetCurves() const
+{
+	const FMovieSceneFloatChannel* Fields[DreamWorldSequencer::FieldChannels] = { &CloudCoverage, &CloudDarkness, &Precipitation, &SnowRatio, &Fog, &Dust,
+		&Wind, &Lightning, &Temperature, &Wetness, &SnowCover };
+	TArray<TPair<FGameplayTag, const FMovieSceneFloatChannel*>> Out;
+	const TArray<FDreamWeatherChannelDef>& Defs = FDreamWeatherChannels::Get();
+	for (int32 i = 0; i < Defs.Num(); ++i)
+	{
+		if (i < DreamWorldSequencer::FieldChannels)
+		{
+			Out.Emplace(Defs[i].Channel, Fields[i]);
+			continue;
+		}
+		for (const FDreamWeatherChannelCurve& More : MoreChannels)
+		{
+			if (More.Channel == Defs[i].Channel)
+			{
+				Out.Emplace(Defs[i].Channel, &More.Curve);
+				break;
+			}
+		}
+	}
+	return Out;
+}
+
+FMovieSceneFloatChannel* UDreamWeatherChannelSection::GetOrAddCurve(const FGameplayTag& Channel)
+{
+	const int32 Index = FDreamWeatherChannels::IndexOf(Channel);
+	if (Index == INDEX_NONE)
+	{
+		return nullptr;
+	}
+	if (Index < DreamWorldSequencer::FieldChannels)
+	{
+		FMovieSceneFloatChannel* Fields[DreamWorldSequencer::FieldChannels] = { &CloudCoverage, &CloudDarkness, &Precipitation, &SnowRatio, &Fog, &Dust,
+			&Wind, &Lightning, &Temperature, &Wetness, &SnowCover };
+		return Fields[Index];
+	}
+	for (FDreamWeatherChannelCurve& More : MoreChannels)
+	{
+		if (More.Channel == Channel)
+		{
+			return &More.Curve;
+		}
+	}
+	FDreamWeatherChannelCurve& Added = MoreChannels.AddDefaulted_GetRef();
+	Added.Channel = Channel;
+	ChannelProxy.Reset();
+	return &Added.Curve;
+}
+
+void UDreamWeatherChannelSection::PostLoad()
+{
+	Super::PostLoad();
+	// (Every channel the weather has now gets a curve, so a channel added to the project can be keyed.)
+	for (const FDreamWeatherChannelDef& Def : FDreamWeatherChannels::Get())
+	{
+		GetOrAddCurve(Def.Channel);
+	}
 }
 
 EMovieSceneChannelProxyType UDreamWeatherChannelSection::CacheChannelProxy()
 {
+	// (A curve for every channel the weather has, the project's own too; they can change, so the proxy is dynamic.)
+	for (const FDreamWeatherChannelDef& Def : FDreamWeatherChannels::Get())
+	{
+		GetOrAddCurve(Def.Channel);
+	}
 	FMovieSceneChannelProxyData Channels;
-	const TArray<FDreamWeatherChannelDef>& Defs = FDreamWeatherChannels::Get();
-	const TArray<const FMovieSceneFloatChannel*, TInlineAllocator<11>> Curves = GetCurves();
+	const TArray<TPair<FGameplayTag, const FMovieSceneFloatChannel*>> Curves = GetCurves();
 	for (int32 i = 0; i < Curves.Num(); ++i)
 	{
-		const FName Name = Defs.IsValidIndex(i) ? Defs[i].Channel.GetTagName() : FName(*FString::Printf(TEXT("Channel%d"), i));
+		const FName Name = Curves[i].Key.GetTagName();
 		FString Label = Name.ToString();
 		Label.RemoveFromStart(TEXT("Dream.Weather.Channel."));
-		DreamWorldSequencer::AddCurve(Channels, const_cast<FMovieSceneFloatChannel&>(*Curves[i]), Name, FText::FromString(Label), i);
+		DreamWorldSequencer::AddCurve(Channels, const_cast<FMovieSceneFloatChannel&>(*Curves[i].Value), Name, FText::FromString(Label), i);
 	}
 	ChannelProxy = MakeShared<FMovieSceneChannelProxy>(MoveTemp(Channels));
-	return EMovieSceneChannelProxyType::Static;
+	return EMovieSceneChannelProxyType::Dynamic;
 }
 
 FDreamWeatherModifierDesc UDreamWeatherChannelSection::MakeModifier(FFrameTime Time) const
@@ -213,15 +279,13 @@ FDreamWeatherModifierDesc UDreamWeatherChannelSection::MakeModifier(FFrameTime T
 	Desc.Weight = EvaluateEasing(Time);
 	Desc.Priority = BasePriority + GetRowIndex();
 	Desc.BlendInSeconds = 0.0f;
-	const TArray<FDreamWeatherChannelDef>& Defs = FDreamWeatherChannels::Get();
-	const TArray<const FMovieSceneFloatChannel*, TInlineAllocator<11>> Curves = GetCurves();
-	for (int32 i = 0; i < Curves.Num() && i < Defs.Num(); ++i)
+	for (const TPair<FGameplayTag, const FMovieSceneFloatChannel*>& Curve : GetCurves())
 	{
 		float Value = 0.0f;
 		// Only what has keys (or a default set by hand) applies; the rest stays the weather's.
-		if ((Curves[i]->GetNumKeys() > 0 || Curves[i]->GetDefault().IsSet()) && Curves[i]->Evaluate(Time, Value))
+		if ((Curve.Value->GetNumKeys() > 0 || Curve.Value->GetDefault().IsSet()) && Curve.Value->Evaluate(Time, Value))
 		{
-			Desc.Channels.Add(Defs[i].Channel, Value);
+			Desc.Channels.Add(Curve.Key, Value);
 		}
 	}
 	return Desc;
