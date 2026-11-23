@@ -21,9 +21,8 @@ static TAutoConsoleVariable<int32> CVarDreamSurfaceQuality(
 
 namespace DreamWorld::Quality
 {
-	static int32 EngineLevel(const TCHAR* Name)
+	static int32 EngineLevel(const IConsoleVariable* Variable)
 	{
-		const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
 		return Variable ? FMath::Clamp(Variable->GetInt(), 0, 4) : 3;
 	}
 
@@ -65,11 +64,15 @@ int32 UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup Group)
 	{
 		return FMath::Min(Own, 4);
 	}
+	// (looked up once: the groups are asked every frame)
+	static const IConsoleVariable* const Texture = IConsoleManager::Get().FindConsoleVariable(TEXT("sg.TextureQuality"));
+	static const IConsoleVariable* const Shadow = IConsoleManager::Get().FindConsoleVariable(TEXT("sg.ShadowQuality"));
+	static const IConsoleVariable* const Effects = IConsoleManager::Get().FindConsoleVariable(TEXT("sg.EffectsQuality"));
 	switch (Group)
 	{
-	case EDreamWorldQualityGroup::Surface: return EngineLevel(TEXT("sg.TextureQuality"));
-	case EDreamWorldQualityGroup::Fog: return EngineLevel(TEXT("sg.ShadowQuality"));
-	default: return EngineLevel(TEXT("sg.EffectsQuality"));
+	case EDreamWorldQualityGroup::Surface: return EngineLevel(Texture);
+	case EDreamWorldQualityGroup::Fog: return EngineLevel(Shadow);
+	default: return EngineLevel(Effects);
 	}
 }
 
