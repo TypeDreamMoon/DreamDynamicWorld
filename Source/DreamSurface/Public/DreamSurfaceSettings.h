@@ -60,6 +60,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Water", meta = (ClampMin = "50", UIMax = "2000", Units = "cm"))
 	float LowRadius = 300.0f;
 
+	/**
+	 * Snow and dust drift with the wind where they lie (the wind's runtime terrain map): more of them in a lee, behind
+	 * walls and rises, less on an exposed ridge; a lee also dries slower and gathers less rime. Off: the weather's wind
+	 * everywhere.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Snow")
+	bool bWindDrift = true;
+
 	// ---- Surface maps ---------------------------------------------------------------------------
 
 	/**

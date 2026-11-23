@@ -1615,7 +1615,7 @@ bool FDreamSurfaceHailTest::RunTest(const FString& Parameters)
 	const float4 Dry(0.0f, 0.0f, 0.0f, 0.0f);
 	const float4 Still(0.0f, 0.0f, 0.0f, 0.0f);
 	auto ToHlsl = [](const FVector4f& V) { return float4(V.X, V.Y, V.Z, V.W); };
-	const float4 Melting = DSF_Step(Dry, Dry, float4(1.0f, 0.0f, 0.0f, 0.0f), float4(0.0f, 0.0f, 22.0f, 0.0f), Still, ToHlsl(Rates.R0()), ToHlsl(Rates.R1()),
+	const float4 Melting = DSF_Step(Dry, Dry, float4(1.0f, 0.0f, 0.0f, 0.0f), float4(0.0f, 0.0f, 22.0f, 0.0f), Still, Dry, ToHlsl(Rates.R0()), ToHlsl(Rates.R1()),
 		ToHlsl(Rates.R2()), ToHlsl(Rates.R3()), R4, R5, 0.1f);
 	TestTrue(*FString::Printf(TEXT("melting hail wets the surface (%.2f)"), Melting.x), Melting.x > 0.05f);
 
@@ -1659,6 +1659,88 @@ bool FDreamSurfaceHailTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("an hour later: %s"), *Describe(Gone)));
 	TestTrue(TEXT("melted within the hour"), Gone.Hail < 0.05f);
 	TestTrue(TEXT("and the ground wet from it and the rain"), Gone.Wetness > 0.2f);
+	return true;
+}
+
+// The wind where a surface lies (the wind's terrain map's factor there): a lee gathers the falling snow and dust, an
+// exposed ridge keeps less and is blown clean of a cold cover; the open is as it was; a lee dries slower, rimes less.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWindDriftTest, "DreamSurface.WindDrift", DreamSurface::Tests::Flags)
+bool FDreamSurfaceWindDriftTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	const FDreamSurfaceRates Rates;
+	auto H = [](const FVector4f& V) { return float4(V.X, V.Y, V.Z, V.W); };
+	const float4 R0 = H(Rates.R0()), R1 = H(Rates.R1()), R2 = H(Rates.R2()), R3 = H(Rates.R3()), R4 = H(Rates.R4()), R5 = H(Rates.R5());
+	const float4 None(0.0f, 0.0f, 0.0f, 0.0f);
+	// One drive in the open, then as the surface lies at a wind factor.
+	struct FAt
+	{
+		float4 D0;
+		float4 D2;
+	};
+	auto At = [](const float4& OpenD0, float Factor)
+	{
+		FAt A;
+		A.D2 = DSF_LocalD2(float4(0.0f, 0.0f, 0.0f, 0.0f), OpenD0, Factor);
+		A.D0 = DSF_LocalD0(OpenD0, Factor);
+		return A;
+	};
+	auto Run = [&](float4 S, const float4& OpenD0, const float4& D1, float Factor, float Hours, int32 Steps)
+	{
+		const FAt A = At(OpenD0, Factor);
+		for (int32 i = 0; i < Steps; ++i)
+		{
+			S = DSF_Step(S, None, None, A.D0, D1, A.D2, R0, R1, R2, R3, R4, R5, Hours / Steps);
+		}
+		return S;
+	};
+
+	// In the open the wind changes nothing: the step is the one it was.
+	const float4 Windy(0.0f, 0.6f, -4.0f, 0.8f);
+	const FAt Open = At(Windy, 1.0f);
+	TestTrue(TEXT("the open: no lee, no exposure, the weather's wind"), Open.D2.y == 0.0f && Open.D2.z == 0.0f && Open.D0.w == Windy.w);
+	const float4 Plain = DSF_Step(None, None, None, Windy, None, None, R0, R1, R2, R3, R4, R5, 2.0f);
+	TestNearlyEqual(TEXT("the open: the snow after two hours as before"), DSF_Step(None, None, None, Open.D0, None, Open.D2, R0, R1, R2, R3, R4, R5, 2.0f).z, Plain.z, 1e-6f);
+
+	// A windy snowfall: behind a wall (a fifth of the wind reaches), in the open, on a ridge (half as much again).
+	const float Lee = Run(None, Windy, None, 0.2f, 2.0f, 8).z;
+	const float OpenSnow = Run(None, Windy, None, 1.0f, 2.0f, 8).z;
+	const float Ridge = Run(None, Windy, None, 1.5f, 2.0f, 8).z;
+	AddInfo(FString::Printf(TEXT("two hours of a windy snowfall: in a lee %.2f, in the open %.2f, on a ridge %.2f"), Lee, OpenSnow, Ridge));
+	TestTrue(TEXT("snow heaps up in the lee"), Lee > OpenSnow * 1.5f);
+	TestTrue(TEXT("and less of it stays on the ridge"), Ridge < OpenSnow * 0.8f);
+	// No snow falling, a strong cold wind: the ridge is blown clean, the open keeps its cover.
+	const float4 Gale(0.0f, 0.0f, -6.0f, 1.0f);
+	const float RidgeAfter = Run(float4(0.0f, 0.0f, 0.8f, 0.0f), Gale, None, 1.5f, 6.0f, 12).z;
+	const float OpenAfter = Run(float4(0.0f, 0.0f, 0.8f, 0.0f), Gale, None, 1.0f, 6.0f, 12).z;
+	AddInfo(FString::Printf(TEXT("six hours of a cold gale over a cover of 0.8: the ridge %.2f, the open %.2f"), RidgeAfter, OpenAfter));
+	TestTrue(TEXT("the gale blows the ridge's snow off"), RidgeAfter < 0.6f);
+	TestNearlyEqual(TEXT("and leaves the open's"), OpenAfter, 0.8f, 1e-4f);
+
+	// A dust storm: more settles in the lee, the ridge stays cleaner.
+	const float4 DustyAir(0.4f, 0.6f, 0.0f, 0.0f);
+	const float4 DryWind(0.0f, 0.0f, 25.0f, 0.8f);
+	const float DustLee = Run(None, DryWind, DustyAir, 0.2f, 1.0f, 4).w;
+	const float DustOpen = Run(None, DryWind, DustyAir, 1.0f, 1.0f, 4).w;
+	const float DustRidge = Run(None, DryWind, DustyAir, 1.5f, 1.0f, 4).w;
+	AddInfo(FString::Printf(TEXT("an hour of a dust storm: in a lee %.2f, in the open %.2f, on a ridge %.2f"), DustLee, DustOpen, DustRidge));
+	TestTrue(TEXT("dust gathers in the lee"), DustLee > DustOpen * 1.3f);
+	TestTrue(TEXT("less on the ridge"), DustRidge < DustOpen * 0.8f);
+
+	// A wet surface in the sun and a wind: the lee stays wet longer.
+	const float4 Breeze(0.0f, 0.0f, 15.0f, 1.0f);
+	const float4 Sun(0.8f, 0.0f, 0.5f, 0.0f);
+	const float WetLee = Run(float4(1.0f, 0.0f, 0.0f, 0.0f), Breeze, Sun, 0.2f, 1.0f, 4).x;
+	const float WetOpen = Run(float4(1.0f, 0.0f, 0.0f, 0.0f), Breeze, Sun, 1.0f, 1.0f, 4).x;
+	TestTrue(*FString::Printf(TEXT("the lee dries slower (%.2f against %.2f)"), WetLee, WetOpen), WetLee > WetOpen);
+
+	// A freezing fog in a wind: less rime in the lee.
+	const float4 Fog(0.0f, 0.0f, 0.0f, 1.0f);
+	const float4 Freezing(0.0f, 0.0f, -5.0f, 1.0f);
+	const FAt FogLee = At(Freezing, 0.2f);
+	const float RimeLee = DSF_StepIce(None, None, FogLee.D0, Fog, R0, R3, R4, 0.5f).z;
+	const float RimeOpen = DSF_StepIce(None, None, Freezing, Fog, R0, R3, R4, 0.5f).z;
+	TestTrue(*FString::Printf(TEXT("less rime in the lee (%.2f against %.2f)"), RimeLee, RimeOpen), RimeLee < RimeOpen * 0.7f);
 	return true;
 }
 

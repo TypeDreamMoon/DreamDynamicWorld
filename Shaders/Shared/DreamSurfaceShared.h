@@ -23,7 +23,9 @@
 //   D0 = (rain landing 0..1, snow landing 0..1, air temperature in Celsius, wind 0..1); sleet counts half as rain, half
 //        as snow
 //   D1 = (sunlight on it 0..1, dust in the air 0..1, open sky 0..1, fog 0..1)
-//   D2 = (hail landing 0..1, -, -, -)
+//   D2 = (hail landing 0..1, lee 0..1, exposed 0..1, -): the lee is how much of the weather's wind the place is
+//        sheltered from (behind a wall, a rise), the exposed how much harder it blows there than in the open (a ridge);
+//        both 0 in the open (DSF_LocalD2). A lee gathers snow and dust, an exposed place is blown clean of them.
 // The landing amounts are the weather's times the exposure there: under a roof nothing lands, and the shade there keeps
 // the sun off too. The open sky is the clear part of the sky the surface sees (no cloud, no roof): what it loses its
 // warmth to at night. The rates, five float4s, in game hours (DSF_Rates):
@@ -135,8 +137,30 @@ DSF_FN float DSF_HailMelt(float4 D0, float4 D1, float4 R4, float4 R5, float Hour
 	return Hours * Degrees / (10.0f * max(R5.y, 1.0e-3f)) * Sun * Rain / 1.4f;
 }
 
+// The wind where the surface lies. Factor: how much of the weather's wind reaches it, as the wind's terrain map has it
+// (its speed-up and its wind shadow at the top surface there): 1 in the open, under 1 in a lee, over 1 on a ridge.
+// DSF_LocalD0 makes D0's wind the wind there (a lee dries slower, frosts sooner, rimes less); DSF_LocalD2 adds the lee
+// and the exposure to D2 from the open drive's wind (call it with the open D0, before DSF_LocalD0).
+DSF_FN float4 DSF_LocalD0(float4 D0, float Factor)
+{
+	return float4(D0.x, D0.y, D0.z, saturate(saturate(D0.w) * max(Factor, 0.0f)));
+}
+
+DSF_FN float4 DSF_LocalD2(float4 D2, float4 OpenD0, float Factor)
+{
+	float Wind = saturate(OpenD0.w);
+	return float4(D2.x, saturate(Wind * (1.0f - Factor)), saturate(Wind * (Factor - 1.0f) * 2.0f), D2.w);
+}
+
+// How much more (or less) of what falls settles on a place for the wind there (D2's lee and exposure): the blown snow
+// and dust come down in the lee, an exposed place keeps less of them.
+DSF_FN float DSF_Drift(float4 D2)
+{
+	return (1.0f + 1.5f * saturate(D2.y)) * (1.0f - 0.7f * saturate(D2.z));
+}
+
 // The state after Hours of this weather (S2: the ice's side, S3 the hail's, as they stood at the start of the step).
-DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 S3, float4 D0, float4 D1, float4 R0, float4 R1, float4 R2, float4 R3, float4 R4, float4 R5, float Hours)
+DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 S3, float4 D0, float4 D1, float4 D2, float4 R0, float4 R1, float4 R2, float4 R3, float4 R4, float4 R5, float Hours)
 {
 	// The cold first: on frozen ground the film freezes into glaze and the rain freezes as it lands; what thaws runs back
 	// into the film. Frozen puddles neither fill nor dry.
@@ -148,11 +172,13 @@ DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 S3, float4 D0, float4 D1, flo
 	float Dry = DSF_DryFactor(D0, D1) * Hours;
 
 	// Snow first: what melts runs into the film and the hollows. Warm ground melts the flakes as they land: what does not
-	// settle wets the surface as rain would.
+	// settle wets the surface as rain would. The wind heaps it in a lee and blows a cold, dry cover off an exposed place.
 	float Settle = 1.0f - smoothstep(0.5f, 3.0f, D0.z);
-	float SnowIn = saturate(S.z + SnowFall * Settle * Hours / max(R1.x, 1.0e-3f));
+	float Drift = DSF_Drift(D2);
+	float SnowIn = saturate(S.z + SnowFall * Settle * Drift * Hours / max(R1.x, 1.0e-3f));
 	float Melted = min(SnowIn, DSF_Melt(D0, D1, R1, Hours));
-	float Snow = SnowIn - Melted;
+	float Blown = min(SnowIn - Melted, saturate(D2.z) * saturate(0.5f - 0.25f * D0.z) * Hours / max(R1.x, 1.0e-3f));
+	float Snow = SnowIn - Melted - Blown;
 	float MeltWater = Melted * R1.z;
 	Rain = saturate(Rain + SnowFall * (1.0f - Settle) * (1.0f - C.y));
 
@@ -165,9 +191,10 @@ DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 S3, float4 D0, float4 D1, flo
 	float Soaked = saturate((Wet - 0.8f) * 5.0f);
 	float Water = saturate(S.y + ((Rain * Soaked * Hours + MeltWater * 0.5f) / max(R0.z, 1.0e-3f) - Dry / max(R0.w, 1.0e-3f)) * (1.0f - Frozen));
 
-	// Dust settles from a dusty air, a little from dry wind, and rain washes it off; it clears on its own slowly.
-	float DustIn = saturate(D1.y) * Hours / max(R2.x, 1.0e-3f) + saturate(D0.w) * (1.0f - Wet) * 0.1f * Hours / max(R2.x, 1.0e-3f);
-	float DustOut = Rain * Hours / max(R2.y, 1.0e-3f) + Hours / max(R2.z, 1.0e-3f);
+	// Dust settles from a dusty air, a little from dry wind, and rain washes it off; it clears on its own slowly. More of
+	// it comes down in a lee; an exposed place is blown clean many times faster.
+	float DustIn = (saturate(D1.y) * Hours / max(R2.x, 1.0e-3f) + saturate(D0.w) * (1.0f - Wet) * 0.1f * Hours / max(R2.x, 1.0e-3f)) * Drift;
+	float DustOut = Rain * Hours / max(R2.y, 1.0e-3f) + (1.0f + 12.0f * saturate(D2.z)) * Hours / max(R2.z, 1.0e-3f);
 	float Dust = saturate(S.w + DustIn - DustOut);
 
 	return float4(Wet, Water, Snow, Dust);

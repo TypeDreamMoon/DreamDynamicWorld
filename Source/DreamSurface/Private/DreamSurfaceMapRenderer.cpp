@@ -68,6 +68,14 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMap)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutIce)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutHail)
+		SHADER_PARAMETER(FVector4f, WindL1Near)
+		SHADER_PARAMETER(FVector4f, WindL1Far)
+		SHADER_PARAMETER(FVector4f, WindL1Params)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WindL1NearDerived)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WindL1FarDerived)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WindL1NearHeight)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, WindL1FarHeight)
+		SHADER_PARAMETER_SAMPLER(SamplerState, WindL1Sampler)
 	END_SHADER_PARAMETER_STRUCT()
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters) { return DreamSurface::Render::ShouldCompile(Parameters); }
@@ -230,6 +238,21 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->OutMap = GraphBuilder.CreateUAV(Target);
 	Params->OutIce = GraphBuilder.CreateUAV(IceTarget);
 	Params->OutHail = GraphBuilder.CreateUAV(HailTarget);
+	// The wind's terrain map, a level only with both its maps (else it is off: the wind there as in the open).
+	auto WindLevel = [&GraphBuilder](FVector4f Level, FTextureRenderTargetResource* Derived, FTextureRenderTargetResource* Height,
+		FVector4f& OutLevel, FRDGTextureRef& OutDerived, FRDGTextureRef& OutHeight)
+	{
+		FRHITexture* DerivedRHI = Derived ? Derived->GetRenderTargetTexture() : nullptr;
+		FRHITexture* HeightRHI = Height ? Height->GetRenderTargetTexture() : nullptr;
+		const bool bOn = Level.W > 0.5f && DerivedRHI && HeightRHI;
+		OutLevel = bOn ? Level : FVector4f::Zero();
+		OutDerived = bOn ? RegisterExternalTexture(GraphBuilder, DerivedRHI, TEXT("DreamSurface.WindDerived")) : GSystemTextures.GetBlackDummy(GraphBuilder);
+		OutHeight = bOn ? RegisterExternalTexture(GraphBuilder, HeightRHI, TEXT("DreamSurface.WindHeight")) : GSystemTextures.GetBlackDummy(GraphBuilder);
+	};
+	WindLevel(Args.WindL1Near, Args.WindL1NearDerived, Args.WindL1NearHeight, Params->WindL1Near, Params->WindL1NearDerived, Params->WindL1NearHeight);
+	WindLevel(Args.WindL1Far, Args.WindL1FarDerived, Args.WindL1FarHeight, Params->WindL1Far, Params->WindL1FarDerived, Params->WindL1FarHeight);
+	Params->WindL1Params = Args.WindL1Params;
+	Params->WindL1Sampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 
 	TShaderMapRef<FDreamSurfaceStateCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 	FComputeShaderUtils::AddPass(GraphBuilder,

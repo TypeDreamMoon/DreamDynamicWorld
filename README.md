@@ -746,7 +746,27 @@ game runs swaps them in place -- the clouds keep drawing, their history starting
 | Epic | half resolution, 160 samples, 6 slices (as tuned) | on, 24 samples | all | 100% | the sky's |
 | Cinematic | full resolution, 256 samples, the sun maps whole | on, 48 samples | all | 100% | the sky's |
 
-The wind takes its level from `r.DreamWind.Quality` (-1 = as above). The surface maps take theirs from
+The wind takes its level from `r.DreamWind.Quality` (-1 = as above); only the GPU's field changes with it -- the CPU's
+wind (`SampleWind`, forces, gameplay) is the same at every level:
+
+| Level | Terrain map (L1) | Volume (L2) | GPU: the wind's own passes; the whole frame against low |
+|---|---|---|---|
+| Low | the level's baked map: speed and steering (its wind shadow, 25 texture reads a vertex, is left to the CPU) | none | none of its own; the frame's baseline |
+| Medium | the runtime map | one fluid grid, 64×64×16 at 4 m (256 m across), 4 pressure iterations, no far grid | 0.09 ms; frame +0.24 ms |
+| High | the runtime map | epic's grids with a quarter fewer pressure iterations near (6), the far grid every third frame | (to be timed) |
+| Epic | the runtime map | the settings, as tuned: near 64×64×32 at 1 m (8 iterations, MacCormack, vorticity), far 64×64×32 at 4 m stepped every other frame | 0.24 ms (near 0.13, far 0.08 every other frame, walls 0.01, terrain map); frame +0.41 ms |
+| Cinematic | the runtime map | near 128×128×64 at 50 cm (64 m), 16 iterations; far 96×96×48 at 4 m (384 m), every frame | 0.96 ms (near 0.75, far 0.16); frame +1.13 ms |
+
+(Medians, RTX 4070 Ti SUPER, 1920×1080, the wind field test level's 40 000 blades of grass, `Measure-ShowcaseGpu.ps1
+-Scene WindField`; the frame row includes what the materials read.) The levels are drawn from the project settings: epic is them as they stand -- as the sky's epic is its tuned defaults,
+and the engine's scalability is epic on a PC that has not detected its own, so that is what such a machine gets --, the
+others scale them. A level with the
+same grids takes effect at once; one with other grids fades the volume out over half a second, starts the new grids
+from the wind as consumers had it without them (the terrain maps' shadow), and fades them in -- nothing jumps.
+Without compute shaders (the mobile renderer) or a renderer at all, the wind runs as low: the analytic wind and the
+baked terrain map, the volume's reads in the materials masked off (the same `MF_DreamWindSample`).
+
+The surface maps take theirs from
 `r.DreamSurface.Quality` (-1 = as above) as the world starts -- their state maps at half their size at low and medium,
 three quarters at high, as authored above -- and keep that size while the game runs: a level changed then takes effect
 at the next load (resizing would drop the wetness and snow they have gathered, a visible jump); `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
@@ -1036,7 +1056,17 @@ couple of degrees above freezing the ground freezes, and once the sun is on it i
 - **frost** — hoarfrost grows under a clear, still sky (*Frost Hours*; a fifth as fast under cloud, none in a wind or
   while something falls) and goes within the half hour once the sun is on it;
 - **rime** — a freezing fog (the weather's fog channel) builds it on everything, some three times as fast in a full
-  wind (*Rime Hours*).
+  wind (*Rime Hours*), and in the materials most on the faces turned into the wind (its feathers grow upwind; a lee
+  face keeps little).
+
+**The wind where it lies** (*Wind Drift*, on). The weather's wind is the open's; where a surface lies the wind's runtime
+terrain map knows how much of it gets there (`UDreamWindSubsystem::GetTerrainWindFactor`: its speed-up times what its
+wind shadow leaves, 1 in the open). Behind a wall or a rise the falling snow and dust come down in the lee — up to two
+and a half times as much in a full lee —, a ridge where the wind blows harder keeps less and has a cold, dry cover blown
+off it; a lee also dries slower, frosts sooner and rimes less. The open is as it was. The surface maps read the GPU's
+terrain map (its near level's speed-up, both levels' shadow), the CPU's queries its CPU grid, so they agree; at the
+wind's low quality level (no runtime terrain map) the maps take the weather's wind everywhere. The lees are the terrain
+map's as it stands, for the whole memory: they move as the wind turns. `DreamWind.TerrainFactor x y` prints it.
 
 **Hail.** Hailstones heap up as fast as they land: a full hailstorm whitens the ground within minutes (*Hail Settle
 Hours*, 0.08), even on warm summer ground. They melt with the ground above freezing — a full cover in half an hour at
@@ -1083,7 +1113,8 @@ precipitation, snow ratio, temperature, dust, wind, fog, freezing rain, hail and
 moving storm leaves its snow along its way, not 48 hours of it wherever it is now), then the shared formula — so a
 map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`, `DreamSurface.Gpu.MovingZone` for a
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
-cut out, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
+cut out, `DreamSurface.WindDrift` for the lee's snow and dust, a ridge blown clean, the open unchanged, a lee drying
+slower and riming less, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
 jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump),
 and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
@@ -1508,8 +1539,9 @@ off their corners and fill an L's pocket, and behind them it turns back toward t
 materials and Niagara read it (`MF_DreamWindSample`, the wind DI) as before; the CPU sample does not (gameplay stays
 deterministic, a dedicated server has none).
 
-* Two grids, the volumes' (`VolumeResolution` 64×64×32): **near** at 1 m cells (64 m across, 32 m tall), **far** at 4 m
-  (256 m, 128 m). They sit on the ground under the camera (`FluidCellsBelowGround` cells into it; they rise with a camera
+* Two grids, the volumes' (`VolumeResolution` 64×64×32, at the epic quality level; the others scale them, see
+  *Quality levels*): **near** at 1 m cells (64 m across, 32 m tall), **far** at 4 m (256 m, 128 m), stepped every
+  `FluidFarStepInterval` (2) frames, each step as long, holding its window in between. They sit on the ground under the camera (`FluidCellsBelowGround` cells into it; they rise with a camera
   high above it) and follow it by whole cells; a jump of more than a quarter of a grid starts it afresh.
 * Each frame, per grid: carry the air along itself (semi-Lagrangian; on the near grid MacCormack, `bFluidMacCormack`,
   sharp enough for the shear off a corner to roll up), vorticity confinement on the near grid (`FluidVorticity`, 0.4),
@@ -1545,9 +1577,19 @@ deterministic, a dedicated server has none).
   (`RotorThrust` cm/s along −Z, `RotorReach` down) spreads over the ground in a ring. The velocity is how the component
   moved since last frame. Each record reaches only the 8×8×8-cell tiles under its footprint; one smaller than a cell is
   spread over one and weakened as much.
+* **Who reads it.** Materials and Niagara as before (the wind DI's `SampleWind` adds the volumes; falling leaves and
+  debris follow the eddies). Precipitation: each fall path is slanted by the CPU's wind where it comes down (straighter
+  behind a wall), and every rain drop, flake, mote, hail pellet and sleet piece adds the fluid's deviation on top
+  (`DreamWindDeviation` module, the DI's `SampleWindDeviation`) times its layer's `WindResponse` (rain and freezing rain
+  1, sleet 0.5, hail 0.05), within a few metres of its path (`MaxOffset`); one the wind blew below the top surface under
+  it (in under a roof) dies there, so the snow stays outdoors. Sound (the listener) and the wind's camera shake read
+  `SampleWindVisual`: the CPU sample plus the fluid at the point, read back from the GPU two or three frames late (up to
+  16 points a frame, `bFluidProbes`); `UDreamWindForceComponent::bUseVisualWind` (off by default) pushes decorative
+  bodies with it. Gameplay keeps the CPU sample.
 * The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
 * Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
-  near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
+  near grid **0.13 ms**, far grid 0.08 ms on the frames it steps (every other one: 0.04 ms a frame), the walls' lookup
+  0.01 ms; the distance field's own update about 0.09 ms
   (paid only by projects that would not keep it anyway: not with software Lumen or distance field AO). Fluid instead of
   the residual volume: +0.2 ms of the frame. What the pressure leaves of the divergence: 0.2 % of the speed on average.
 
@@ -1729,8 +1771,13 @@ past its sides than in the open, spins opposite ways behind its two downwind cor
 not in the open, stays still in the house's walls, with the walls from the distance field — twice, 300 frames apart —
 and from the heights; and the residual divergence), `DreamWind.Gpu.FluidDisturbances` (in a calm: a body walking at
 3 m/s leaves a wake behind and little before or beside it; an explosion before the long wall bursts out on the open
-side and barely behind the wall; a rotor's downwash goes down under it and out over the ground all round) and
-`DreamWind.Gpu.DistanceFieldProbe`.
+side and barely behind the wall; a rotor's downwash goes down under it and out over the ground all round),
+`DreamWind.Quality.Tiers` (what each quality level runs), `DreamWind.Gpu.FluidQuality` (switching epic, high,
+cinematic, medium, low and back while it runs: the volume fades and never jumps, the grids change only once it is out,
+high at once on epic's grids, the flow round the house as at epic at high and cinematic, medium's one coarse grid, low
+without volume or runtime map),
+`DreamWind.Gpu.FluidPlayInEditor` (while a play session runs only it solves the volumes; back in the editor none of its
+blast is left in them) and `DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night

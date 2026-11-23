@@ -39,6 +39,14 @@ public:
 		float Vorticity = 0.0f;
 		/** Second-order advection (a corrective pass): far less smearing. */
 		bool bMacCormack = false;
+		/** This level's time step, s (a level stepped every other frame takes two frames' time). */
+		float DeltaTime = 0.0f;
+		/** Per step toward the cells beside (the checkerboard's damping over this level's step). */
+		float Smoothing = 0.1f;
+		/** A surface within this fraction of a cell of a cell's centre makes it a wall. */
+		float WallThickness = 0.45f;
+		/** False: the level holds this frame (its volume as the last step left it, still read by the near level). */
+		bool bStep = true;
 	};
 
 	struct FStepArgs
@@ -47,14 +55,11 @@ public:
 		FDreamWindBackgroundResources Background;
 		FLevelArgs Near;
 		FLevelArgs Far;
-		float DeltaTime = 0.0f;
 		float Relaxation = 1.5f;
-		float Smoothing = 0.1f;
 		float NudgeTime = 3.0f;
 		float SpongeTime = 0.1f;
 		int32 SpongeCells = 4;
 		float MaxSpeed = 8000.0f;
-		float WallThickness = 0.45f;
 		/** Walls from the global distance field (else the terrain map's heights everywhere). */
 		bool bDistanceField = true;
 		/** The volumes' w holds the residual divergence instead of the walls (debug). */

@@ -1,0 +1,43 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The wind fluid at a few points for the CPU (sound, the camera, decorative physics): the volumes' deviation (the near
+// level inside its window, the far one beyond), read back a few frames later. See FDreamWindFluidProbes.
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+
+float4 V0;
+float4 V1;
+float4 V2;
+float4 V3;
+uint NumProbes;
+StructuredBuffer<float4> Points;   // xyz world position
+Texture3D<float4> Near;
+Texture3D<float4> Far;
+SamplerState VolumeSampler;
+RWStructuredBuffer<float4> OutProbes;   // xyz deviation (cm/s), w how much of it the volumes covered (0 outside both)
+
+[numthreads(16, 1, 1)]
+void ProbeCS(uint3 Id : SV_DispatchThreadID)
+{
+	const uint Index = Id.x;
+	if (Index >= NumProbes)
+	{
+		return;
+	}
+	const float3 P = Points[Index].xyz;
+	const FDreamWindVolumeParams VP = DW_UnpackVolume(V0, V1);
+	const FDreamWindVolumeParams VPF = DW_UnpackVolume(V2, V3);
+	const float NearMask = DW_VolumeMask(P, VP);
+	const float FarMask = DW_VolumeMask(P, VPF);
+	float3 Deviation = 0.0f;
+	if (FarMask > 0.0f)
+	{
+		Deviation = Far.SampleLevel(VolumeSampler, DW_VolumeUVW(P, VPF), 0).xyz * FarMask;
+	}
+	if (NearMask > 0.0f)
+	{
+		Deviation = lerp(Deviation, Near.SampleLevel(VolumeSampler, DW_VolumeUVW(P, VP), 0).xyz, NearMask);
+	}
+	OutProbes[Index] = float4(Deviation, max(NearMask, FarMask));
+}

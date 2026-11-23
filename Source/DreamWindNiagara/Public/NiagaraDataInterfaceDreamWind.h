@@ -14,11 +14,15 @@ struct FVMExternalFunctionBindingInfo;
 /**
  * Niagara access to the world's DreamWind field.
  *
- *  SampleWind(Position)   -> Velocity (cm/s), Gust
- *  GetGlobalWind()        -> Direction, Speed
+ *  SampleWind(Position)          -> Velocity (cm/s), Gust
+ *  SampleWindDeviation(Position) -> Deviation (cm/s), TopHeight (cm)
+ *  GetGlobalWind()               -> Direction, Speed
  *
  * CPU sims evaluate the analytic wind + live sources from the shared header (no read-back).
  * GPU sims do the same and can additionally sample the dynamic volume (impulses, wakes, residual).
+ * SampleWindDeviation is the dynamic volume alone (the wind fluid's deviation from the background, what precipitation
+ * adds to its path's slant; 0 on CPU sims) and the top surface under the position from the terrain maps (a particle the
+ * wind blew below it is under a roof).
  */
 UCLASS(EditInlineNew, Category = "DreamWind", CollapseCategories, meta = (DisplayName = "Dream Wind"))
 class DREAMWINDNIAGARA_API UNiagaraDataInterfaceDreamWind : public UNiagaraDataInterface
@@ -50,6 +54,8 @@ class DREAMWINDNIAGARA_API UNiagaraDataInterfaceDreamWind : public UNiagaraDataI
 		SHADER_PARAMETER(FVector4f, L1Params)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1NearMap)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float4>, L1FarMap)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, L1NearHeight)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, L1FarHeight)
 		SHADER_PARAMETER_SAMPLER(SamplerState, L1Sampler)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -90,6 +96,7 @@ public:
 
 	void VMSampleWind(FVectorVMExternalFunctionContext& Context);
 	void VMGetGlobalWind(FVectorVMExternalFunctionContext& Context);
+	void VMSampleWindDeviation(FVectorVMExternalFunctionContext& Context);
 
 protected:
 #if WITH_EDITORONLY_DATA
@@ -100,4 +107,5 @@ protected:
 private:
 	static const FName SampleWindName;
 	static const FName GetGlobalWindName;
+	static const FName SampleWindDeviationName;
 };

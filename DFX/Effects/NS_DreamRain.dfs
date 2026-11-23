@@ -7,7 +7,7 @@
 System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
-        ModulePaths = ["/DreamDynamicWorld/Weather/Modules"];
+        ModulePaths = ["/DreamDynamicWorld/Weather/Modules", "/DreamDynamicWorld/Wind/Modules"];
         WarmupTime  = 0.0;
         FixedBounds = box(-8000, -8000, -12000, 8000, 8000, 6000);
     }
@@ -16,6 +16,8 @@ System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
         DI<ArrayFloat4> Paths;
         DI<ArrayFloat3> Starts;
         DI<ArrayFloat3> Normals;
+        DI<DreamWind> Wind;
+        float  WindResponse = 1.0                [ Group="Motion"; Description="How much of the wind fluid's deviation the drops take (the weather sets it per layer)." ];
         float  DropRate     = 0.0                [ Group="Amount"; Description="Drops spawned per second." ];
         float  SplashRate   = 0.0                [ Group="Amount"; Description="Splashes spawned per second." ];
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the drops spawned now that start part way down their path (1 for the frame that fills the air at once)." ];
@@ -55,6 +57,8 @@ System(Name="Weather/Effects/NS_DreamRain", Root="Plugin.DreamDynamicWorld")
 
         ParticleUpdate = {
             ParticleState();
+            Vector Particles.Velocity = hlsl { Particles.DreamPathVelocity };
+            DreamWindDeviation(Wind = User.Wind, Response = User.WindResponse, MaxOffset = 200.0);
             SolveForcesAndVelocity();
         }
 

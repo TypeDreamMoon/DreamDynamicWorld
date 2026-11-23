@@ -145,6 +145,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "64", EditCondition = "bFluid"))
 	int32 FluidFarPressureIterations = 4;
 
+	/**
+	 * The far level steps every this many frames, each step as long (it changes slowly at 4 m and is read only beyond the
+	 * near level: half its cost for nothing that shows). The cinematic quality level steps it every frame, high one frame
+	 * less often.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "4", EditCondition = "bFluid"))
+	int32 FluidFarStepInterval = 2;
+
 	/** Over-relaxation of the pressure iterations (1 = plain Gauss-Seidel; up to 1.9 converges faster). */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "1.9", EditCondition = "bFluid"))
 	float FluidPressureRelaxation = 1.5f;
@@ -198,6 +206,13 @@ public:
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.3", ClampMax = "1", EditCondition = "bFluid"))
 	float FluidWallThickness = 0.45f;
+
+	/**
+	 * Read the fluid back at a few points for SampleWindVisual (sound and the camera by default, force components that
+	 * ask for it): up to 16 a frame, answers two or three frames late. Off: SampleWindVisual is the plain CPU sample.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (EditCondition = "bFluid"))
+	bool bFluidProbes = true;
 
 	/** Moving bodies the fluid takes each frame (UDreamWindMoverComponent), the nearest to the camera. */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "256", EditCondition = "bFluid"))

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "DreamWindTypes.h"
+#include "DreamWindQualityTier.h"
 #include "DreamWindHlslShim.h"
 #include "DreamWorldSharedTargets.h"
 #include "Math/Float16Color.h"
@@ -118,6 +119,10 @@ struct DREAMWIND_API FDreamWindFrameData
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
 	FVector4f T2 = FVector4f::Zero();
+	/** The GPU's consumers (materials, Niagara) march the baked map's wind shadow: not at the low quality level. */
+	bool bGpuBakedShadow = true;
+	/** T2 as the GPU's consumers take it. */
+	FVector4f GpuT2() const { return FVector4f(bGpuBakedShadow ? T2.X : 0.0f, T2.Y, T2.Z, T2.W); }
 	/** Live sources this frame, strongest first, already envelope-scaled. */
 	TArray<DreamWind::Hlsl::FDreamWindSourceData> Sources;
 	/** The moving bodies' records (bodies, wakes, downwash), nearest the camera first: for the fluid only, not the CPU sample. */
@@ -254,6 +259,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DreamWind")
 	FVector SampleWindVelocity(FVector WorldPosition) const;
 
+	/**
+	 * How much of the wind reaches the top surface at a point, as the runtime terrain map's CPU grid has it: its speed-up
+	 * and wind shadow (1 in the open, under 1 in a lee, over 1 on a ridge), 1 where the grid does not reach. What the
+	 * surfaces' snow and dust drift by; the surface map reads the same from the GPU's map.
+	 */
+	float GetTerrainWindFactor(const FVector& Position) const;
+
+	/**
+	 * The wind as the eye sees it, for sound, the camera and decorative physics: the CPU sample with the wind fluid's
+	 * eddies, wakes and blasts at the point, read back from the GPU two or three frames late. Key names the asker (one
+	 * point each; up to 16 a frame). The plain CPU sample until an answer arrives, without the fluid, and on a server.
+	 * Late and not the same on every machine: never for gameplay that has to agree.
+	 */
+	UFUNCTION(BlueprintPure, Category = "DreamWind")
+	FDreamWindSampleResult SampleWindVisual(FName Key, FVector WorldPosition, EDreamWindQuality Quality = EDreamWindQuality::Cheap) const;
+
 	// ---- Sources / impulses (L3) -----------------------------------------------------------------
 
 	/**
@@ -356,7 +377,13 @@ public:
 
 	/** True when this world drives the shared volume render target this frame. */
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
-	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
+	bool IsVolumeActive() const { return FrameData.V1.W > 0.0f; }
+
+	/** How much of the volume consumers take this frame, 0..1 (it fades over half a second when the quality level changes its grids). */
+	float GetVolumeFade() const { return FrameData.V1.W; }
+
+	/** What the wind field runs at (the quality level's tier; a new level's grids take over once the volume has faded out). */
+	const FDreamWindQualityTier& GetQualityTier() const { return Tier; }
 
 	/** True when the volumes are solved as a fluid this frame (else the residual volume, or nothing). */
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
@@ -387,6 +414,8 @@ private:
 	};
 
 	void AdvanceGlobalWind(float DeltaTime);
+	/** Follows the quality level: a tier with the same grids at once, other grids once the volume has faded out. */
+	void UpdateQualityTier(float DeltaTime);
 	void GatherSources();
 	void BuildFrameData(float DeltaTime);
 	void UpdateEngineWindSource();
@@ -402,7 +431,7 @@ private:
 	/** Applies the terrain map (if any) to an analytic sample on the CPU. */
 	DreamWind::Hlsl::FDreamWindSample ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const;
 	bool UpdateVolumeLevel(float WindDelta, UTextureRenderTargetVolume* Texture, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer,
-		float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty);
+		const FIntVector& Resolution, float VoxelSize, const FVector& Center, FVector& InOutPrevCenter, bool& bInOutHistoryDirty);
 	static void EnsureVolumeTextureMatches(UTextureRenderTargetVolume* Texture, const FIntVector& Res, const TSharedPtr<FDreamWindVolumeRenderer, ESPMode::ThreadSafe>& Renderer);
 	FVector SnapToVoxels(const FVector& Center, float VoxelSize) const;
 	void UpdateDebugDisplay();
@@ -431,6 +460,11 @@ private:
 	TArray<TWeakObjectPtr<UDreamWindSourceComponent>> SourceComponents;
 	TArray<TWeakObjectPtr<class UDreamWindMoverComponent>> MoverComponents;
 	void GatherMovers();
+	/** The CPU sample, with or without the sources (the fluid's deviation already carries them). */
+	FDreamWindSampleResult SampleWindImpl(FVector WorldPosition, EDreamWindQuality Quality, bool bSources) const;
+	/** The fluid's probes for SampleWindVisual: this frame's asks (one point per key), read in the next fluid step. */
+	TSharedPtr<class FDreamWindFluidProbes, ESPMode::ThreadSafe> Probes;
+	mutable TMap<FName, FVector> ProbeAsks;
 
 	FDreamWindFrameData FrameData;
 
@@ -461,6 +495,12 @@ private:
 	bool bFluidActive = false;
 	bool bFluidHistoryDirty = true;
 	bool bFluidDistanceFieldRequested = false;
+	/** The tier the volumes are laid out for, and how much of them consumers take (0..1, over half a second). */
+	FDreamWindQualityTier Tier;
+	bool bTierValid = false;
+	float VolumeFade = 1.0f;
+	/** Whether the far level steps this frame (it holds its window between its steps). */
+	bool bFarStepThisFrame = true;
 
 	// terrain
 	UPROPERTY(Transient)

@@ -54,7 +54,8 @@ void UDreamWindForceComponent::ApplyWind()
 			continue;
 		}
 		const FVector Center = Body->Bounds.Origin;
-		const FVector Air = Wind->SampleWindVelocity(Center);
+		// (a probe per body: its name in the world is the key)
+		const FVector Air = bUseVisualWind ? Wind->SampleWindVisual(FName(*Body->GetPathName()), Center).Velocity : Wind->SampleWindVelocity(Center);
 		const FVector Relative = Air - Body->GetPhysicsLinearVelocity();
 		const FVector Along = Relative.GetSafeNormal();
 		if (Along.IsZero())

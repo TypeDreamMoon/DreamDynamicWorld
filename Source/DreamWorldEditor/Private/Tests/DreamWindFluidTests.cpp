@@ -7,6 +7,7 @@
 
 #include "CoreMinimal.h"
 #include "DreamWindSettings.h"
+#include "DreamWindQualityTier.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindTestMap.h"
 
@@ -19,6 +20,7 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/PackageName.h"
+#include "RHIGlobals.h"
 #include "ShaderCompiler.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -202,26 +204,35 @@ namespace DreamWindFluidTests
 			}
 		}
 
-		// (the open: 22 m upwind of the house's front, nothing upwind of it; past the side: 2.5 m off the wall, the cell
-		// right beside it keeps no speed toward it)
+		// (the open: 22 m upwind of the house's front, nothing upwind of it; past the side: the fastest 1.5 .. 5.5 m off the
+		// wall -- the cell right beside it keeps no speed toward it, and a fine grid has the flow part from the wall at the
+		// front corner, the speed-up beyond the bubble)
 		const FVector OpenPoint(HouseCenter.X - HouseSize.X * 0.5 - 2200.0, HouseCenter.Y, Z);
-		const float Past = V.Velocity(FVector(HouseCenter.X, Side + 250.0, Z)).Size();
+		float Past = 0.0f;
+		for (double Off = 150.0; Off <= 550.0; Off += 100.0)
+		{
+			Past = FMath::Max(Past, float(V.Velocity(FVector(HouseCenter.X, Side + Off, Z)).Size()));
+		}
 		const float Open = V.Velocity(OpenPoint).Size();
 		const float Inside = V.Wall(HouseCenter);
 
-		// behind each downwind corner, the strongest spin within a few metres (off the walls)
+		// behind each downwind corner, the strongest spin within a few metres (off the walls), signed as the spin there is
+		// on the whole: a fine grid resolves small counter-spinning eddies inside the shear layer, the layer's own sense
+		// is what tells the corners apart
 		auto StrongestSpin = [&V, Z](double X0, double X1, double Y0, double Y1)
 		{
 			float Best = 0.0f;
+			double Sum = 0.0;
 			for (double X = X0; X <= X1; X += 100.0)
 			{
 				for (double Y = FMath::Min(Y0, Y1); Y <= FMath::Max(Y0, Y1); Y += 100.0)
 				{
 					const float Spin = V.VorticityZ(FVector(X, Y, Z));
-					Best = FMath::Abs(Spin) > FMath::Abs(Best) ? Spin : Best;
+					Best = FMath::Max(Best, FMath::Abs(Spin));
+					Sum += Spin;
 				}
 			}
-			return Best;
+			return Sum < 0.0 ? -Best : Best;
 		};
 		const float Left = StrongestSpin(Back + 50.0, Back + 450.0, Side - 250.0, Side + 150.0);
 		const float Right = StrongestSpin(Back + 50.0, Back + 450.0, -Side + 250.0, -Side - 150.0);
@@ -295,6 +306,8 @@ bool FDreamWindFluidFlowTest::RunTest(const FString& Parameters)
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
 	SetCVar(TEXT("DreamWind.Fluid"), 1);
 	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
+	// (the epic quality level: the grids as tuned)
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	// The background the deviation is read against must be the same on both sides: the baked map (the same map and
 	// the same code on the CPU and the GPU; the runtime map's CPU grid has coarser cells) without its wind shadow (the
 	// fluid makes the lee). The walls of the 2.5D fallback then come from the baked map's heights.
@@ -434,6 +447,7 @@ bool FDreamWindFluidFlowTest::RunTest(const FString& Parameters)
 	{
 		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
 		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
 		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
 		SetCVar(TEXT("DreamWind.Occlusion"), -1);
 		if (UDreamWindSubsystem* W = Wind())
@@ -468,6 +482,8 @@ bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
 	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
 	SetCVar(TEXT("DreamWind.Fluid"), 1);
 	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
+	// (the epic quality level: the grids as tuned)
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
 	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
 	WaitFrames(10);
 
@@ -623,6 +639,32 @@ bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("rotor (8 m up, 1500 cm/s): 3.5 m up under it %.0f cm/s down; 5 m out over the ground, %.0f cm/s outward on average"), -Under.Z, Out));
 		TestTrue(TEXT("rotor: the downwash goes down under it"), -Under.Z > 300.0f);
 		TestTrue(TEXT("rotor: over the ground it spreads out in a ring"), Out > 100.0);
+	});
+
+	// The wind as the eye sees it (SampleWindVisual): asked under the rotor for a few frames, its answer comes back from
+	// the GPU with the downwash in it; the CPU sample has none.
+	static const FName ProbeKey(TEXT("DreamWindTests.UnderTheRotor"));
+	const FVector ProbePoint(Rotor.X, Rotor.Y, 350.0);
+	TSharedRef<int32> Asked = MakeShared<int32>(0);
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Asked, ProbePoint]()
+	{
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->SampleWindVisual(ProbeKey, ProbePoint);
+		}
+		return ++(*Asked) >= 12;
+	}));
+	Then([this, ProbePoint]()
+	{
+		UDreamWindSubsystem* W = Wind();
+		if (!W)
+		{
+			return;
+		}
+		const FVector Visual = W->SampleWindVisual(ProbeKey, ProbePoint).Velocity;
+		const FVector Plain = W->SampleWindVelocity(ProbePoint);
+		AddInfo(FString::Printf(TEXT("probe under the rotor after 12 frames: as seen %s, the CPU sample %s (cm/s)"), *Visual.ToCompactString(), *Plain.ToCompactString()));
+		TestTrue(TEXT("probe: the wind as seen carries the downwash, read back from the GPU"), Visual.Z < -300.0 && FMath::Abs(Plain.Z) < 100.0);
 		GEngine->Exec(EditorWorld(), TEXT("DreamWind.Rotor off"));
 	});
 
@@ -630,6 +672,442 @@ bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
 	{
 		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
 		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(FVector::ZeroVector, false);
+		}
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	return true;
+}
+
+// ---- Quality levels ------------------------------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindQualityTiersTest, "DreamWind.Quality.Tiers", DreamWindFluidTests::Flags)
+bool FDreamWindQualityTiersTest::RunTest(const FString& Parameters)
+{
+	const UDreamWindSettings& S = *UDreamWindSettings::Get();
+	if (!FApp::CanEverRender() || GMaxRHIFeatureLevel < ERHIFeatureLevel::SM5)
+	{
+		// (no compute shaders, no renderer: every level runs as low)
+		for (int32 Level = 0; Level <= 4; ++Level)
+		{
+			const FDreamWindQualityTier T = FDreamWindQualityTier::Resolve(S, Level);
+			TestTrue(FString::Printf(TEXT("without a renderer level %d runs as low"), Level), T.Level == 0 && !T.bVolume && !T.bRuntimeTerrain);
+		}
+		return true;
+	}
+	const FDreamWindQualityTier Low = FDreamWindQualityTier::Resolve(S, 0);
+	const FDreamWindQualityTier Medium = FDreamWindQualityTier::Resolve(S, 1);
+	const FDreamWindQualityTier High = FDreamWindQualityTier::Resolve(S, 2);
+	const FDreamWindQualityTier Epic = FDreamWindQualityTier::Resolve(S, 3);
+	const FDreamWindQualityTier Cinematic = FDreamWindQualityTier::Resolve(S, 4);
+	TestTrue(TEXT("low: the analytic wind and the baked map only, without its shadow march on the GPU"), !Low.bVolume && !Low.bRuntimeTerrain && !Low.bBakedShadow && Epic.bBakedShadow);
+	TestTrue(TEXT("medium: the runtime terrain map, one grid at the far level's cells, no far level"),
+		Medium.bVolume && Medium.bRuntimeTerrain && !Medium.bFar && Medium.NearCell == Epic.FarCell && Medium.NearResolution.Z == Epic.NearResolution.Z / 2);
+	TestTrue(TEXT("epic: the settings (as the sky's epic is its tuned defaults)"), Epic.NearResolution == S.VolumeResolution && Epic.NearCell == S.VolumeVoxelSize
+		&& Epic.NearIterations == S.FluidPressureIterations && Epic.FarInterval == S.FluidFarStepInterval && Epic.bFar == S.bVolumeFarLevel);
+	TestTrue(TEXT("high: epic's grids with less work on them"), High.SameLayout(Epic) && High.NearIterations < Epic.NearIterations && High.FarInterval > Epic.FarInterval);
+	TestTrue(TEXT("cinematic: finer near cells over more of them, more iterations, a wider far level every frame"),
+		Cinematic.NearCell < Epic.NearCell && Cinematic.NearResolution.X > Epic.NearResolution.X && Cinematic.NearIterations > Epic.NearIterations
+		&& Cinematic.FarResolution.X > Epic.FarResolution.X && Cinematic.FarInterval == 1);
+	TestTrue(TEXT("every level's grids in whole thread groups"),
+		Cinematic.NearResolution.X % 4 == 0 && Cinematic.NearResolution.Z % 4 == 0 && Cinematic.FarResolution.Z % 4 == 0 && Medium.NearResolution.Z % 4 == 0);
+	auto Cells = [](const FDreamWindQualityTier& T) { return T.bVolume ? double(T.NearResolution.X) * T.NearResolution.Y * T.NearResolution.Z : 0.0; };
+	TestTrue(TEXT("the near grid grows level by level"), Cells(Low) < Cells(Medium) && Cells(Medium) < Cells(High) && Cells(High) <= Cells(Epic) && Cells(Epic) < Cells(Cinematic));
+	TestTrue(TEXT("the near level stays inside the far one"), Cinematic.NearResolution.X * Cinematic.NearCell < Cinematic.FarResolution.X * Cinematic.FarCell);
+	TestTrue(TEXT("a change of grids is told apart from a change of iterations"), !Epic.SameLayout(Cinematic) && !Epic.SameLayout(Medium) && High.SameLayout(Epic));
+	return true;
+}
+
+namespace DreamWindFluidTests
+{
+	/** What the volume fade did while the level changed, frame by frame. */
+	struct FFadeWatch
+	{
+		int32 Frames = 0;
+		float Last = 1.0f;
+		float Lowest = 1.0f;
+		/** The largest change in one frame, against what half a second's fade allows in that frame. */
+		float WorstStep = 0.0f;
+		float WorstAllowed = 1.0f;
+		bool bRoseBeforeSwitch = false;
+		int32 SwitchFrame = INDEX_NONE;
+		float FadeBeforeSwitch = 1.0f;
+		/** The new grid's mean deviation the frame after it started (cm/s). */
+		double MeanAtStart = -1.0;
+	};
+
+	double MeanDeviation(UDreamWindSubsystem* W, bool bFar = false)
+	{
+		TArray<FFloat16Color> Texels;
+		FIntVector Size;
+		FVector4f V0, V1;
+		if (!W || !W->ReadVolume(bFar, Texels, Size, V0, V1))
+		{
+			return -1.0;
+		}
+		double Sum = 0.0;
+		int32 Count = 0;
+		for (const FFloat16Color& T : Texels)
+		{
+			if (T.A.GetFloat() < 0.5f)
+			{
+				Sum += FVector3f(T.R.GetFloat(), T.G.GetFloat(), T.B.GetFloat()).Size();
+				++Count;
+			}
+		}
+		return Count > 0 ? Sum / Count : 0.0;
+	}
+
+	/** Switches to a level and follows the fade until the new grids run in full (or MaxFrames). */
+	void SwitchLevel(FAutomationTestBase* Test, int32 Level, int32 MaxFrames = 150)
+	{
+		TSharedRef<FFadeWatch> Watch = MakeShared<FFadeWatch>();
+		TSharedRef<int32> From = MakeShared<int32>(-1);
+		Then([Level, Watch, From]()
+		{
+			*From = Wind() ? Wind()->GetQualityTier().Level : -1;
+			Watch->Last = Wind() ? Wind()->GetVolumeFade() : 0.0f;
+			SetCVar(TEXT("r.DreamWind.Quality"), Level);
+		});
+		ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Level, Watch, MaxFrames]()
+		{
+			UDreamWindSubsystem* W = Wind();
+			if (!W)
+			{
+				return true;
+			}
+			const float Fade = W->GetVolumeFade();
+			const bool bSwitched = W->GetQualityTier().Level == Level;
+			const float Allowed = FMath::Max(float(FApp::GetDeltaTime()), 1.0f / 240.0f) / 0.5f * 1.5f + 0.01f;
+			const float Step = FMath::Abs(Fade - Watch->Last);
+			if (Watch->Frames > 0 && Step / Allowed > Watch->WorstStep / Watch->WorstAllowed)
+			{
+				Watch->WorstStep = Step;
+				Watch->WorstAllowed = Allowed;
+			}
+			if (!bSwitched && Fade > Watch->Last + 0.001f)
+			{
+				Watch->bRoseBeforeSwitch = true;
+			}
+			if (bSwitched && Watch->SwitchFrame == INDEX_NONE)
+			{
+				Watch->SwitchFrame = Watch->Frames;
+				Watch->FadeBeforeSwitch = Watch->Last;
+			}
+			else if (bSwitched && Watch->MeanAtStart < 0.0 && Fade > 0.0f)
+			{
+				Watch->MeanAtStart = MeanDeviation(W);
+			}
+			Watch->Lowest = FMath::Min(Watch->Lowest, Fade);
+			Watch->Last = Fade;
+			++Watch->Frames;
+			const bool bDone = bSwitched && (Fade >= 1.0f || !W->GetQualityTier().bVolume);
+			return bDone || Watch->Frames >= MaxFrames;
+		}));
+		Then([Test, Level, Watch, From]()
+		{
+			const bool bLayoutChanged = Watch->Lowest < 0.5f;
+			Test->AddInfo(FString::Printf(TEXT("quality %d -> %d: switched after %d frames (fade just before %.2f, lowest %.2f), largest step %.3f of %.3f allowed; the new grid's mean deviation at its start %.1f cm/s"),
+				*From, Level, Watch->SwitchFrame, Watch->FadeBeforeSwitch, Watch->Lowest, Watch->WorstStep, Watch->WorstAllowed, Watch->MeanAtStart));
+			Test->TestTrue(FString::Printf(TEXT("quality %d: the wind takes the level"), Level), Watch->SwitchFrame != INDEX_NONE);
+			Test->TestTrue(FString::Printf(TEXT("quality %d: the volume fades, it never jumps"), Level), Watch->WorstStep <= Watch->WorstAllowed);
+			Test->TestFalse(FString::Printf(TEXT("quality %d: it fades out before the grids change"), Level), Watch->bRoseBeforeSwitch);
+			if (bLayoutChanged)
+			{
+				Test->TestTrue(FString::Printf(TEXT("quality %d: the grids change only once it is out"), Level), Watch->FadeBeforeSwitch <= 0.05f || *From == 0);
+			}
+		});
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindFluidQualityTest, "DreamWind.Gpu.FluidQuality", DreamWindFluidTests::Flags)
+bool FDreamWindFluidQualityTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWindFluidTests;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	if (!FPackageName::DoesPackageExist(DreamWorld::Setup::WindTestMapPackage))
+	{
+		AddError(TEXT("The wind field test level is missing: run Setup -WindFieldTestMap."));
+		return false;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	SetCVar(TEXT("DreamWind.Fluid"), 1);
+	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
+	SetCVar(TEXT("DreamWind.RuntimeTerrain"), 0);
+	SetCVar(TEXT("DreamWind.Occlusion"), 0);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
+	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
+	WaitFrames(10);
+	Then([]()
+	{
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective())
+			{
+				C->SetRealtime(true);
+				C->SetViewLocation(GridCenter + FVector(-2000.0, 0.0, 1500.0));
+				C->SetViewRotation(FRotator(-35.0, 0.0, 0.0));
+				C->Invalidate();
+			}
+		}
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(GridCenter, true);
+			FDreamWindGlobalWind Steady = W->GetGlobalWind();
+			Steady.Direction = DreamWorld::Setup::WindTest::WindDirection;
+			Steady.Speed = DreamWorld::Setup::WindTest::WindSpeed;
+			Steady.GustStrength = 0.0f;
+			Steady.TurbulenceStrength = 0.0f;
+			W->SetGlobalWind(Steady, 0.0f);
+		}
+		GShaderCompilingManager->FinishAllCompilation();
+	});
+	WaitFrames(300);
+	auto CheckGrid = [this](const TCHAR* What, bool bFar, const FIntVector& Size, float Cell)
+	{
+		TArray<FFloat16Color> Texels;
+		FIntVector ReadSize = FIntVector::ZeroValue;
+		FVector4f V0, V1;
+		const bool bRead = Wind() && Wind()->ReadVolume(bFar, Texels, ReadSize, V0, V1);
+		const float ReadCell = bRead ? 1.0f / (V1.X * float(ReadSize.X)) : 0.0f;
+		AddInfo(FString::Printf(TEXT("%s: %s %dx%dx%d at %.0f cm"), What, bFar ? TEXT("far") : TEXT("near"), ReadSize.X, ReadSize.Y, ReadSize.Z, ReadCell));
+		TestTrue(FString::Printf(TEXT("%s: the %s volume is %dx%dx%d at %.0f cm"), What, bFar ? TEXT("far") : TEXT("near"), Size.X, Size.Y, Size.Z, Cell),
+			bRead && ReadSize == Size && FMath::IsNearlyEqual(ReadCell, Cell, 1.0f));
+	};
+	Then([this, CheckGrid]()
+	{
+		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
+		TestEqual(TEXT("epic: the wind runs at it"), T.Level, 3);
+		TestEqual(TEXT("epic: in full"), Wind()->GetVolumeFade(), 1.0f);
+		CheckGrid(TEXT("epic"), false, T.NearResolution, T.NearCell);
+		CheckGrid(TEXT("epic"), true, T.FarResolution, T.FarCell);
+	});
+
+	// High: epic's grids with less work on them, at once (no fade); the flow round the house as at epic.
+	SwitchLevel(this, 2);
+	WaitFrames(300);
+	Then([this, CheckGrid]()
+	{
+		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
+		TestEqual(TEXT("high: no fade for the same grids"), Wind()->GetVolumeFade(), 1.0f);
+		CheckGrid(TEXT("high"), false, T.NearResolution, T.NearCell);
+		CheckGrid(TEXT("high"), true, T.FarResolution, T.FarCell);
+	});
+	CheckAveraged(this, TEXT("high"));
+
+	// Cinematic: the volume fades out, the finer grids start where the consumers had the wind without them, and fade
+	// in; the flow round the house as at epic.
+
+	SwitchLevel(this, 4);
+	WaitFrames(300);
+	Then([this, CheckGrid]()
+	{
+		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
+		CheckGrid(TEXT("cinematic"), false, T.NearResolution, T.NearCell);
+		CheckGrid(TEXT("cinematic"), true, T.FarResolution, T.FarCell);
+	});
+	CheckAveraged(this, TEXT("cinematic"));
+
+	// Medium: one coarse grid and the runtime terrain map; low: neither.
+	Then([]() { SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1); });
+	SwitchLevel(this, 1);
+	WaitFrames(200);
+	TSharedRef<uint32> Captures = MakeShared<uint32>(0);
+	Then([this, CheckGrid, Captures]()
+	{
+		const FDreamWindQualityTier& T = Wind()->GetQualityTier();
+		CheckGrid(TEXT("medium"), false, T.NearResolution, T.NearCell);
+		TArray<FFloat16Color> Texels;
+		FIntVector Size;
+		FVector4f V0, V1;
+		TestFalse(TEXT("medium: no far level"), Wind()->ReadVolume(true, Texels, Size, V0, V1));
+		FVolume V;
+		V.Read();
+		TestTrue(TEXT("medium: the house is walls in the coarse grid"), V.Wall(DreamWorld::Setup::WindTest::HouseCenter) > 0.5f);
+		*Captures = Wind()->GetTerrainCaptureCount();
+	});
+	WaitFrames(60);
+	Then([this, Captures]()
+	{
+		TestTrue(FString::Printf(TEXT("medium: the runtime terrain map runs (%u -> %u captures)"), *Captures, Wind()->GetTerrainCaptureCount()), Wind()->GetTerrainCaptureCount() > *Captures);
+	});
+	SwitchLevel(this, 0);
+	WaitFrames(10);
+	Then([this, Captures]()
+	{
+		TestFalse(TEXT("low: no volume"), Wind()->IsVolumeActive());
+		TestFalse(TEXT("low: no fluid"), Wind()->IsFluidActive());
+		*Captures = Wind()->GetTerrainCaptureCount();
+	});
+	WaitFrames(60);
+	Then([this, Captures]()
+	{
+		TestEqual(TEXT("low: no runtime terrain map"), Wind()->GetTerrainCaptureCount(), *Captures);
+	});
+	// and back: from nothing, the grids start at once and fade in
+	SwitchLevel(this, 3);
+	Then([this]()
+	{
+		TestTrue(TEXT("back at epic: the fluid runs"), Wind()->IsFluidActive() && Wind()->GetVolumeFade() >= 1.0f);
+	});
+
+	Then([]()
+	{
+		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
+		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
+		SetCVar(TEXT("DreamWind.Occlusion"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(FVector::ZeroVector, false);
+		}
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	return true;
+}
+
+// ---- A play session ------------------------------------------------------------------------------------------------
+// While it plays, only it solves and draws the wind's volumes; the editor world's materials leave them alone. When it
+// ends the editor world solves them afresh: nothing of the play session's wind (a blast) is left in them.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindFluidPIETest, "DreamWind.Gpu.FluidPlayInEditor", DreamWindFluidTests::Flags)
+bool FDreamWindFluidPIETest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWindFluidTests;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	if (!FPackageName::DoesPackageExist(DreamWorld::Setup::WindTestMapPackage))
+	{
+		AddError(TEXT("The wind field test level is missing: run Setup -WindFieldTestMap."));
+		return false;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	SetCVar(TEXT("DreamWind.Fluid"), 1);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
+	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
+	WaitFrames(10);
+	Then([]()
+	{
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective())
+			{
+				C->SetRealtime(true);
+				C->SetViewLocation(GridCenter + FVector(-2000.0, 0.0, 1500.0));
+				C->SetViewRotation(FRotator(-35.0, 0.0, 0.0));
+				C->Invalidate();
+			}
+		}
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(GridCenter, true);
+		}
+		GShaderCompilingManager->FinishAllCompilation();
+	});
+	WaitFrames(120);
+
+	// In the open upwind of the house, away from the clearing's bursts.
+	const FVector Blast(-1000.0, -600.0, 150.0);
+	auto Peak = [Blast](UDreamWindSubsystem* W)
+	{
+		TArray<FFloat16Color> Texels;
+		FIntVector Size;
+		FVector4f V0, V1;
+		if (!W || !W->ReadVolume(false, Texels, Size, V0, V1))
+		{
+			return -1.0f;
+		}
+		const FVector Extent(1.0 / V1.X, 1.0 / V1.Y, 1.0 / V1.Z);
+		const FVector Min = FVector(V0.X, V0.Y, V0.Z) - Extent * 0.5;
+		const FVector Cell = Extent / FVector(Size);
+		float Best = 0.0f;
+		for (int32 Z = 0; Z < Size.Z; ++Z)
+		{
+			for (int32 Y = 0; Y < Size.Y; ++Y)
+			{
+				for (int32 X = 0; X < Size.X; ++X)
+				{
+					const FVector P = Min + (FVector(X, Y, Z) + 0.5) * Cell;
+					if (FVector::Dist(P, Blast) < 600.0)
+					{
+						const FFloat16Color& T = Texels[(Z * Size.Y + Y) * Size.X + X];
+						Best = FMath::Max(Best, FVector3f(T.R.GetFloat(), T.G.GetFloat(), T.B.GetFloat()).Size());
+					}
+				}
+			}
+		}
+		return Best;
+	};
+	auto PlayWind = []() { return GEditor && GEditor->PlayWorld ? UDreamWindSubsystem::Get(GEditor->PlayWorld.Get()) : nullptr; };
+
+	TSharedRef<uint32> EditorSteps = MakeShared<uint32>(0);
+	TSharedRef<float> Before = MakeShared<float>(0.0f);
+	TSharedRef<float> InPlay = MakeShared<float>(0.0f);
+	Then([this, Peak, Before]()
+	{
+		TestTrue(TEXT("the editor world runs the fluid with nothing playing"), Wind() && Wind()->IsFluidActive());
+		*Before = Peak(Wind());
+	});
+	Then([]()
+	{
+		FRequestPlaySessionParams Params;
+		Params.WorldType = EPlaySessionWorldType::PlayInEditor;
+		GEditor->RequestPlaySession(Params);
+	});
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]() { return GEditor->PlayWorld != nullptr; }));
+	WaitFrames(2);
+	Then([PlayWind, EditorSteps]()
+	{
+		if (UDreamWindSubsystem* W = PlayWind())
+		{
+			W->OverrideVolumeCenter(GridCenter, true);
+		}
+		*EditorSteps = Wind() ? Wind()->GetFluidStepCount() : 0;
+	});
+	WaitFrames(90);
+	Then([this, PlayWind, EditorSteps]()
+	{
+		UDreamWindSubsystem* W = PlayWind();
+		TestTrue(TEXT("the play session runs the fluid"), W && W->IsFluidActive() && W->GetVolumeFade() >= 1.0f);
+		TestFalse(TEXT("the editor world's materials leave the volumes alone while it plays"), Wind() && Wind()->IsVolumeActive());
+		TestFalse(TEXT("nor does it solve them"), Wind() && Wind()->IsFluidActive());
+		if (W)
+		{
+			W->AddExplosion(FVector(-1000.0, -600.0, 150.0), 400.0f, 2000.0f, 0.25f);
+		}
+	});
+	WaitFrames(6);
+	Then([PlayWind, Peak, InPlay]() { *InPlay = Peak(PlayWind()); });
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]() { return GEditor->PlayWorld == nullptr; }));
+	WaitFrames(3);
+	Then([this, Peak, Before, InPlay, EditorSteps]()
+	{
+		const float After = Peak(Wind());
+		AddInfo(FString::Printf(TEXT("the strongest deviation within 6 m of the blast: before the play session %.0f cm/s, in it just after the blast %.0f, back in the editor %.0f"), *Before, *InPlay, After));
+		TestTrue(TEXT("back in the editor, it runs the fluid again"), Wind() && Wind()->IsFluidActive() && Wind()->GetFluidStepCount() > *EditorSteps);
+		TestTrue(TEXT("the play session's blast was in its volume"), *InPlay > 500.0f);
+		TestTrue(TEXT("and none of it is left in the editor's"), After >= 0.0f && After < FMath::Max(*Before * 2.0f, 0.2f * *InPlay));
+	});
+	Then([]()
+	{
+		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
 		if (UDreamWindSubsystem* W = Wind())
 		{
 			W->OverrideVolumeCenter(FVector::ZeroVector, false);

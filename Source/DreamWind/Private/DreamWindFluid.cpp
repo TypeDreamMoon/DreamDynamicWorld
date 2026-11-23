@@ -393,7 +393,16 @@ void FDreamWindFluid::Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepAr
 
 	// The far level first: the near one's background carries its deviation.
 	FRDGTextureRef FarVolume = nullptr;
-	if (Args.Far.bEnabled)
+	if (Args.Far.bEnabled && !Args.Far.bStep && Far.bValid && !Args.bReset)
+	{
+		// (between its steps: as the last one left it, in the window it had)
+		FRHITexture* FarRHI = Args.Far.Target ? Args.Far.Target->GetRenderTargetTexture() : nullptr;
+		if (FarRHI && FarRHI->GetSizeXYZ() == Far.Resolution)
+		{
+			FarVolume = RegisterExternalTexture(GraphBuilder, FarRHI, TEXT("DreamWind.VolumeRT"));
+		}
+	}
+	else if (Args.Far.bEnabled)
 	{
 		RDG_EVENT_SCOPE(GraphBuilder, "Far");
 		FarVolume = StepLevel(GraphBuilder, Far, Args.Far, Args, Background, Sources, Records, nullptr, nullptr);
@@ -452,10 +461,9 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 	Grid.Resolution = Res;
 	Grid.CellSize = LevelArgs.CellSize;
 	Grid.Origin = LevelArgs.Origin;
-	Grid.DeltaTime = Args.DeltaTime;
+	Grid.DeltaTime = LevelArgs.DeltaTime;
 	Grid.SpongeCells = FMath::Max(Args.SpongeCells, 0);
-	// The same thickness in cm for both levels: the far level's coarse cells would otherwise swell every wall by metres.
-	Level.WallThickness = Args.WallThickness * Args.Near.CellSize / FMath::Max(LevelArgs.CellSize, 1.0f);
+	Level.WallThickness = LevelArgs.WallThickness;
 
 	FRDGTextureRef DPersistent = GraphBuilder.RegisterExternalTexture(Level.D, TEXT("DreamWind.FluidD"));
 	FRDGTextureRef ThetaPrev = GraphBuilder.RegisterExternalTexture(Level.Theta[Level.Current], TEXT("DreamWind.FluidTheta"));
@@ -536,7 +544,7 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 		P->Curl = Curl ? Curl : GraphBuilder.RegisterExternalTexture(GSystemTextures.VolumetricBlackDummy);
 		P->SourceLists = SourceLists;
 		P->Vorticity = Curl ? LevelArgs.Vorticity : 0.0f;
-		P->Smoothing = FMath::Clamp(Args.Smoothing, 0.0f, 1.0f);
+		P->Smoothing = FMath::Clamp(LevelArgs.Smoothing, 0.0f, 1.0f);
 		P->NudgeTime = FMath::Max(Args.NudgeTime, 0.01f);
 		P->SpongeTime = FMath::Max(Args.SpongeTime, 0.001f);
 		P->OutD = GraphBuilder.CreateUAV(DForced);

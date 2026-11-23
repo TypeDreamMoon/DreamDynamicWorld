@@ -35,7 +35,8 @@ param(
     # -Scene Showcase: the showcase level's features (above). WindField: the wind's on the wind field test level
     # (Setup -WindFieldTestMap): WindVolume, WindOcclusion, WindOcclusionVolume, WindTerrainRuntime, WindTerrainShadow,
     # WindTerrainPasses, WindFluid, WindFluidNear, WindFluidFar, WindFluidWalls, WindFluidFrame, WindFluidDistanceField,
-    # WindDistanceFieldUpdate, WindVolumeAll, WindGrass.
+    # WindDistanceFieldUpdate, WindVolumeAll, WindGrass (these at the wind's epic quality level), and per quality level Q
+    # 0..4: WindQualityQ, WindQualityQNear, WindQualityQFar, WindQualityQFrame.
     [ValidateSet('Showcase', 'WindField')]
     [string]$Scene = 'Showcase',
     [string[]]$Only = @(),
@@ -146,6 +147,31 @@ if ($Scene -eq 'WindField')
         (Feature WindGrass 'Wind grass, 40 000 blades (all its draws, frame)' 'per level' toggle 11 '' Grass `
             -Off @('ShowFlag.InstancedStaticMeshes 0') -On @('ShowFlag.InstancedStaticMeshes 1') -Reset @('ShowFlag.InstancedStaticMeshes 1'))
     )
+    # Every quality level (r.DreamWind.Quality; the rows above run at epic, 3: the tuned settings): the wind's own GPU work (the fluid, the
+    # runtime terrain map, the walls), its near and far levels, and the whole frame against the low level.
+    $Tiers = @('low', 'medium', 'high', 'epic', 'cinematic')
+    for ($Q = 0; $Q -le 4; ++$Q)
+    {
+        $Features += Feature "WindQuality$Q" "Wind at quality $Q, $($Tiers[$Q]) (fluid + terrain map + walls, events)" $(if ($Q -eq 3) { 'yes (the rows above)' } else { '' }) events 11 '' Grass `
+            -Setup @("r.DreamWind.Quality $Q") -Reset @('r.DreamWind.Quality 3') -Event 'RenderGraphExecute - DreamWind\.(Fluid|Terrain)|^DreamWind\.FluidWalls'
+        if ($Q -ge 1)
+        {
+            $Features += Feature "WindQuality${Q}Near" "Wind at quality $Q, its near level" '' events 11 '' Grass `
+                -Setup @("r.DreamWind.Quality $Q") -Reset @('r.DreamWind.Quality 3') -Event '^Near$' -Under 'DreamWind\.Fluid$'
+        }
+        if ($Q -ge 2)
+        {
+            $Features += Feature "WindQuality${Q}Far" "Wind at quality $Q, its far level" '' events 11 '' Grass `
+                -Setup @("r.DreamWind.Quality $Q") -Reset @('r.DreamWind.Quality 3') -Event '^Far$' -Under 'DreamWind\.Fluid$'
+            $Features += Feature "WindQuality${Q}Frame" "Wind at quality $Q against low (frame)" '' toggle 11 '' Grass `
+                -Off @('r.DreamWind.Quality 0') -On @("r.DreamWind.Quality $Q") -Reset @('r.DreamWind.Quality 3')
+        }
+        elseif ($Q -eq 1)
+        {
+            $Features += Feature "WindQuality${Q}Frame" "Wind at quality $Q against low (frame)" '' toggle 11 '' Grass `
+                -Off @('r.DreamWind.Quality 0') -On @("r.DreamWind.Quality $Q") -Reset @('r.DreamWind.Quality 3')
+        }
+    }
 }
 $MapName = Split-Path $Map -Leaf
 if ($Only.Count -gt 0)
@@ -194,6 +220,8 @@ if (-not $Log)
     # --- The script ---------------------------------------------------------------------------------------------------
     $Lines = @('# Measure-ShowcaseGpu.ps1', 'r.ProfileGPU.ShowUI 0', 'r.ProfileGPU.TableFormatting 0', 'r.ProfileGPU.ShowHeader 1',
         'r.ShowMaterialDrawEvents 1', 'ShowFlag.EyeAdaptation 0', 'DreamWorld.Pause 1', 'settle', "wait $WarmUp")
+    # (the wind's rows at its epic quality level -- the tuned settings --, whatever the machine's scalability)
+    if ($Scene -eq 'WindField') { $Lines += 'r.DreamWind.Quality 3' }
     $Profile = @(); for ($I = 0; $I -lt $Samples; ++$I) { $Profile += 'ProfileGPU', 'wait 12' }
     foreach ($F in $Features)
     {

@@ -8,7 +8,7 @@
 System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
 {
     Settings = {
-        ModulePaths = ["/DreamDynamicWorld/Weather/Modules"];
+        ModulePaths = ["/DreamDynamicWorld/Weather/Modules", "/DreamDynamicWorld/Wind/Modules"];
         WarmupTime  = 0.0;
         FixedBounds = box(-12000, -12000, -4000, 12000, 12000, 4000);
     }
@@ -17,6 +17,8 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
         DI<ArrayFloat4> Paths;
         DI<ArrayFloat3> Starts;
         DI<ArrayFloat3> Normals;
+        DI<DreamWind> Wind;
+        float  WindResponse = 1.0                [ Group="Motion"; Description="How much of the wind fluid's deviation the motes take (the weather sets it per layer)." ];
         float  DropRate     = 0.0                [ Group="Amount"; Description="Motes spawned per second." ];
         float  SplashRate   = 0.0                [ Group="Amount"; Description="Unused by dust." ];
         float  Anywhere     = 0.0                [ Group="Amount"; Description="Share of the motes spawned now that start part way along their path." ];
@@ -67,6 +69,7 @@ System(Name="Weather/Effects/NS_DreamDust", Root="Plugin.DreamDynamicWorld")
                                            cos(Particles.Age * 1.9 + Particles.DustPhase * 1.3),
                                            sin(Particles.Age * 3.1 + Particles.DustPhase * 0.7) * 0.5) * User.Swirl
             };
+            DreamWindDeviation(Wind = User.Wind, Response = User.WindResponse, MaxOffset = 1000.0);
             SolveForcesAndVelocity();
             Color Particles.Color = hlsl {
                 float4(User.Tint.rgb, User.Tint.a * User.Presence * saturate(Particles.NormalizedAge * 8.0) * saturate((1.0 - Particles.NormalizedAge) * 8.0))

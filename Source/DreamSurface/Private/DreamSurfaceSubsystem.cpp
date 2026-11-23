@@ -128,7 +128,7 @@ FDreamSurfaceState UDreamSurfaceSubsystem::Step(const FDreamSurfaceState& State,
 	const float4 R5 = ToHlsl4(Rates.R5());
 	const float H = FMath::Max(Hours, 0.0f);
 	// Every side from the state at the start of the step, as the surface map does.
-	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, S3, D0, D1, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, R5, H);
+	const float4 Out = DreamWind::Hlsl::DSF_Step(S, S2, S3, D0, D1, D2, R0, ToHlsl4(Rates.R1()), ToHlsl4(Rates.R2()), R3, R4, R5, H);
 	const float4 Cold = DreamWind::Hlsl::DSF_StepIce(S, S2, D0, D1, R0, R3, R4, H);
 	const float4 Hail = DreamWind::Hlsl::DSF_StepHail(S3, D0, D1, D2, R4, R5, H);
 	return FDreamSurfaceState::FromVectors(FVector4f(Out.x, Out.y, Out.z, Out.w), FVector4f(Cold.x, Cold.y, Cold.z, Cold.w), FVector4f(Hail.x, Hail.y, Hail.z, Hail.w));
@@ -142,6 +142,13 @@ FDreamWeatherValues UDreamSurfaceSubsystem::GlobalAtStep(int64 StepIndex) const
 	}
 	const UDreamWeatherSubsystem* Weather = WeatherSubsystem.Get();
 	return Weather ? Weather->EvaluateSchedule(double(StepIndex) * StepSeconds()) : FDreamWeatherChannels::Defaults();
+}
+
+float UDreamSurfaceSubsystem::WindFactorAt(const FVector& Position) const
+{
+	const UWorld* World = GetWorld();
+	const UDreamWindSubsystem* Wind = World && UDreamSurfaceSettings::Get()->bWindDrift ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
+	return Wind ? Wind->GetTerrainWindFactor(Position) : 1.0f;
 }
 
 FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky) const
@@ -162,9 +169,13 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	const FVector4f Air(W.Temperature, W.Wind, W.Dust, float(Sky.SunDirection.Z));
 	const float Freezing = W.Values.Get(FDreamWeatherChannels::FreezingRain);
 	const DreamWind::Hlsl::float2 Kinds(W.Values.Get(FDreamWeatherChannels::Hail), W.Values.Get(FDreamWeatherChannels::Sleet));
-	const DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
+	DreamWind::Hlsl::float4 D0 = DreamWind::Hlsl::DSF_OpenD0(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
 	const DreamWind::Hlsl::float4 D1 = DreamWind::Hlsl::DSF_OpenD1(ToHlsl4(Here), ToHlsl4(Air), W.Values.Get(FDreamWeatherChannels::Fog));
-	const DreamWind::Hlsl::float4 D2 = DreamWind::Hlsl::DSF_OpenD2(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
+	DreamWind::Hlsl::float4 D2 = DreamWind::Hlsl::DSF_OpenD2(ToHlsl4(Here), ToHlsl4(Air), Freezing, Kinds);
+	// ...with the wind where it lies (the runtime terrain map's lees and ridges, as the surface map has them)...
+	const float WindFactor = WindFactorAt(Position);
+	D2 = DreamWind::Hlsl::DSF_LocalD2(D2, D0, WindFactor);
+	D0 = DreamWind::Hlsl::DSF_LocalD0(D0, WindFactor);
 	// ...then the cover: under a roof nothing lands, the air is stiller, the sun and the sky are off and less dust gets in.
 	const float Exposure = bOpenSky ? 1.0f : W.Exposure;
 	Drive.Rain = D0.x * Exposure;
@@ -176,6 +187,8 @@ FDreamSurfaceDrive UDreamSurfaceSubsystem::DriveAt(const FVector& Position, doub
 	Drive.OpenSky = D1.z * Exposure;
 	Drive.Fog = D1.w;
 	Drive.Hail = D2.x * Exposure;
+	Drive.Lee = D2.y;
+	Drive.Exposed = D2.z;
 	return Drive;
 }
 

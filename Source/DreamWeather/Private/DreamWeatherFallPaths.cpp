@@ -84,6 +84,18 @@ int32 FDreamWeatherFallPaths::CountLanded() const
 void FDreamWeatherFallPaths::Fill(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity,
 	const FParams& Params, TFunctionRef<float(const FVector&)> Shelter)
 {
+	Fill(World, ViewLocation, ViewForward, [&FallVelocity](const FVector&) { return FallVelocity; }, Params, Shelter);
+}
+
+void FDreamWeatherFallPaths::Update(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity, float DeltaTime,
+	const FParams& Params, TFunctionRef<float(const FVector&)> Shelter)
+{
+	Update(World, ViewLocation, ViewForward, [&FallVelocity](const FVector&) { return FallVelocity; }, DeltaTime, Params, Shelter);
+}
+
+void FDreamWeatherFallPaths::Fill(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt,
+	const FParams& Params, TFunctionRef<float(const FVector&)> Shelter)
+{
 	const int32 Capacity = FMath::Max(Params.Capacity, 1);
 	Ends.SetNum(Capacity);
 	Starts.SetNum(Capacity);
@@ -92,20 +104,20 @@ void FDreamWeatherFallPaths::Fill(UWorld* World, const FVector& ViewLocation, co
 	Surfaces.SetNumZeroed(Capacity);
 	for (int32 i = 0; i < Capacity; ++i)
 	{
-		TraceOne(World, i, ViewLocation, ViewForward, FallVelocity, Params, Shelter);
+		TraceOne(World, i, ViewLocation, ViewForward, FallVelocityAt, Params, Shelter);
 	}
 	Next = 0;
 	Budget = 0.0f;
 	++Generation;
 }
 
-void FDreamWeatherFallPaths::Update(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity, float DeltaTime,
+void FDreamWeatherFallPaths::Update(UWorld* World, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt, float DeltaTime,
 	const FParams& Params, TFunctionRef<float(const FVector&)> Shelter)
 {
 	const int32 Capacity = FMath::Max(Params.Capacity, 1);
 	if (Ends.Num() != Capacity)
 	{
-		Fill(World, ViewLocation, ViewForward, FallVelocity, Params, Shelter);
+		Fill(World, ViewLocation, ViewForward, FallVelocityAt, Params, Shelter);
 		return;
 	}
 	Budget += float(Capacity) * FMath::Max(DeltaTime, 0.0f) / FMath::Max(Params.RefreshSeconds, 0.05f);
@@ -113,7 +125,7 @@ void FDreamWeatherFallPaths::Update(UWorld* World, const FVector& ViewLocation, 
 	Budget -= float(Count);
 	for (int32 i = 0; i < Count; ++i)
 	{
-		TraceOne(World, Next, ViewLocation, ViewForward, FallVelocity, Params, Shelter);
+		TraceOne(World, Next, ViewLocation, ViewForward, FallVelocityAt, Params, Shelter);
 		Next = (Next + 1) % Capacity;
 	}
 	if (Count > 0)
@@ -122,7 +134,7 @@ void FDreamWeatherFallPaths::Update(UWorld* World, const FVector& ViewLocation, 
 	}
 }
 
-void FDreamWeatherFallPaths::TraceOne(UWorld* World, int32 Index, const FVector& ViewLocation, const FVector& ViewForward, const FVector& FallVelocity,
+void FDreamWeatherFallPaths::TraceOne(UWorld* World, int32 Index, const FVector& ViewLocation, const FVector& ViewForward, TFunctionRef<FVector(const FVector&)> FallVelocityAt,
 	const FParams& Params, TFunctionRef<float(const FVector&)> Shelter)
 {
 	using namespace DreamWeather::FallPaths;
@@ -141,7 +153,10 @@ void FDreamWeatherFallPaths::TraceOne(UWorld* World, int32 Index, const FVector&
 	}
 	const FVector Ground(ViewLocation.X + Radius * FMath::Cos(Angle), ViewLocation.Y + Radius * FMath::Sin(Angle), ViewLocation.Z);
 
-	// The path starts above it, upwind, so that it falls onto that point along the fall direction.
+	// The path starts above it, upwind, so that it falls onto that point along the fall direction: the drops' velocity
+	// where this path comes down (3 m over the view's level above its landing spot: behind a wall the wind shadow there
+	// stands it up, in the open it slants).
+	const FVector FallVelocity = FallVelocityAt(Ground + FVector(0.0, 0.0, 300.0));
 	FVector Dir = FallVelocity.GetSafeNormal();
 	if (Dir.Z > -0.05)
 	{

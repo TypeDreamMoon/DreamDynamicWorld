@@ -183,15 +183,24 @@ float4 DSM_IceShown(float4 Ice, float4 Mask, float Exposure)
 //   frost          on what sees the sky, most on what faces up; fine clumps of crystals break it up as it thins
 //   rime           on what stands out into the fog: edges and rounded corners (where the shading normal bends away
 //                  from the flat facet) and what faces up, little on broad flat upright faces; in fine feathers
+//                  -- and most on the faces turned into the wind: its feathers grow upwind, a lee face keeps little
 // Gain = how readily frost and rime cover (above 1 sooner). Normal = the face's world normal: the patterns lie in the
-// face's own plane (projected along its main axis), so an upright face's frost does not streak.
+// face's own plane (projected along its main axis), so an upright face's frost does not streak. Wind = where the wind
+// blows (xy) times how strong it is, 0..1 (DSM_RimeWind; zero: no side is favoured).
 float2 DSM_FacePlane(float3 WorldPos, float3 Normal)
 {
 	float3 N = abs(Normal);
 	return N.z > max(N.x, N.y) ? WorldPos.xy : (N.x > N.y ? WorldPos.yz : WorldPos.xz);
 }
 
-float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, float Gain)
+// The wind as the rime's faces take it, from the wind's MPC vector DreamWind_P0 (direction, speed cm/s): where it
+// blows (xy) times how strong it is (full from 12 m/s).
+float2 DSM_RimeWind(float4 WindP0)
+{
+	return float2(WindP0.x, WindP0.y) * saturate(WindP0.w / 1200.0f);
+}
+
+float4 DSM_ColdCoversInWind(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, float Gain, float2 Wind)
 {
 	float Up = saturate(Normal.z);
 	float2 P = DSM_FacePlane(WorldPos, Normal);
@@ -206,9 +215,19 @@ float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, 
 	float3 Facet = cross(ddx(WorldPos), ddy(WorldPos));
 	float Bend = 1.0f - abs(dot(Facet * rsqrt(max(dot(Facet, Facet), 1.0e-12f)), Normal));
 	float Exposed = max(0.2f + 0.8f * Up * Up, smoothstep(0.015f, 0.12f, Bend));
+	// Into the wind more of the fog's droplets strike and freeze; behind, few: an upright face turned upwind rimes as an
+	// edge does, its back hardly at all.
+	float Strength = length(Wind);
+	float Facing = Strength > 0.001f ? -dot(float2(Normal.x, Normal.y), Wind) / Strength : 0.0f;
+	Exposed *= 1.0f + Strength * (2.5f * saturate(Facing) - 0.8f * saturate(-Facing));
 	float Feather = DSF_Hollow(P.x + 1.3f, P.y - 2.9f, 2.5f) * 0.6f + DSF_Hollow(P.x - 7.1f, P.y + 4.3f, 1.2f) * 0.4f;
 	float Rime = saturate((Ice.z * Gain * Exposed * 2.0f - (1.0f - Feather) * 0.55f) * 2.5f);
 	return float4(Glaze, Frozen, Frost, Rime);
+}
+
+float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, float Gain)
+{
+	return DSM_ColdCoversInWind(Ice, Puddle, Normal, WorldPos, Gain, float2(0.0f, 0.0f));
 }
 
 // The hail lying over a point (0..1): the hail maps beside the state maps, the view's beyond both (DDW_SurfaceViewHail),
@@ -576,11 +595,12 @@ FDreamSurfaceLook DSM_Realistic(float3 Color, float Roughness, float Metallic, f
 //   LookFrost = (the frost's colour [0.86, 0.89, 0.93], its roughness [0.75])
 //   LookCold  = (how readily frost and rime cover [1], how much of its colour a glazed surface keeps [0.8], how far the
 //               crystals' glints tilt the normal [0.5], the rime's brightness over the frost's [1.04])
-//   LookCold2 = (how far a full frost whitens a surface [0.5], a full rime [0.9], -, -)
+//   LookCold2 = (how far a full frost whitens a surface [0.5], a full rime [0.9], the wind for the rime's faces
+//               (DSM_RimeWind) [0, 0])
 FDreamSurfaceLook DSM_RealisticCold(FDreamSurfaceLook L, float4 Ice, float3 WorldPos, float3 NormalWS,
 	float4 LookIce, float4 LookIce2, float4 LookFrost, float4 LookCold, float4 LookCold2)
 {
-	float4 C = DSM_ColdCovers(Ice, L.Puddle, NormalWS, WorldPos, LookCold.x) * (1.0f - L.SnowCover);
+	float4 C = DSM_ColdCoversInWind(Ice, L.Puddle, NormalWS, WorldPos, LookCold.x, float2(LookCold2.z, LookCold2.w)) * (1.0f - L.SnowCover);
 	float Dielectric = 1.0f - L.Metallic;
 
 	// The glaze: darker as water is, a cold tint, glossy, smoothing the surface's small bumps a little.

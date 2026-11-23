@@ -29,6 +29,8 @@ float4  {ParameterName}_L1Far;
 float4  {ParameterName}_L1Params;
 Texture2D<float4> {ParameterName}_L1NearMap;
 Texture2D<float4> {ParameterName}_L1FarMap;
+Texture2D<float>  {ParameterName}_L1NearHeight;
+Texture2D<float>  {ParameterName}_L1FarHeight;
 SamplerState      {ParameterName}_L1Sampler;
 
 void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, out float Out_Gust)
@@ -124,6 +126,62 @@ void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, 
 
 	Out_Velocity = V;
 	Out_Gust = S.Gust;
+}
+
+void SampleWindDeviation_{ParameterName}(in float3 In_Position, out float3 Out_Deviation, out float Out_TopHeight)
+{
+	const float3 WorldPos = In_Position + {ParameterName}_SystemLWCTile * UE_LWC_RENDER_TILE_SIZE;
+
+	// the dynamic volume alone: the near level inside its window, the far one beyond
+	float3 Deviation = 0;
+#if {SampleVolume}
+	const FDreamWindVolumeParams VP = DW_UnpackVolume({ParameterName}_V0, {ParameterName}_V1);
+	const FDreamWindVolumeParams VPF = DW_UnpackVolume({ParameterName}_V2, {ParameterName}_V3);
+	const float NearMask = DW_VolumeMask(WorldPos, VP);
+	const float FarMask = DW_VolumeMask(WorldPos, VPF);
+	if (FarMask > 0.0f)
+	{
+		Deviation = {ParameterName}_VolumeFarTexture.SampleLevel({ParameterName}_VolumeFarSampler, DW_VolumeUVW(WorldPos, VPF), 0).xyz * FarMask;
+	}
+	if (NearMask > 0.0f)
+	{
+		Deviation = lerp(Deviation, {ParameterName}_VolumeTexture.SampleLevel({ParameterName}_VolumeSampler, DW_VolumeUVW(WorldPos, VP), 0).xyz, NearMask);
+	}
+#endif
+	Out_Deviation = Deviation;
+
+	// the top surface under it: the runtime map's texel (near, then far), else the baked map's height
+	float Top = -1.0e30f;
+	const FDreamWindL1Level LN = DW_UnpackL1Level({ParameterName}_L1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level({ParameterName}_L1Far);
+	const bool bNear = LN.Mode > 0.5f && DW_L1Weight(WorldPos, LN) > 0.0f;
+	if (bNear || (LF.Mode > 0.5f && DW_L1Weight(WorldPos, LF) > 0.0f))
+	{
+		// (one branch per level: HLSL has no conditional on structs)
+		uint Width, Height;
+		if (bNear)
+		{
+			{ParameterName}_L1NearHeight.GetDimensions(Width, Height);
+			const float2 UV = frac(DW_L1UV(WorldPos, LN));
+			Top = {ParameterName}_L1NearHeight.Load(int3(min(int2(UV * float2(Width, Height)), int2(Width, Height) - 1), 0));
+		}
+		else
+		{
+			{ParameterName}_L1FarHeight.GetDimensions(Width, Height);
+			const float2 UV = frac(DW_L1UV(WorldPos, LF));
+			Top = {ParameterName}_L1FarHeight.Load(int3(min(int2(UV * float2(Width, Height)), int2(Width, Height) - 1), 0));
+		}
+	}
+	else
+	{
+		const FDreamWindTerrainParams TP = DW_UnpackTerrain({ParameterName}_T0, {ParameterName}_T1, {ParameterName}_T2);
+		const float2 TUV = DW_TerrainUV(WorldPos, TP);
+		if (DW_TerrainInside(TUV, TP) > 0.0f)
+		{
+			Top = DW_TerrainHeight({ParameterName}_TerrainTexture.SampleLevel({ParameterName}_TerrainSampler, DW_TerrainAtlasTexelUV(TUV, 0, TP), 0), TP);
+		}
+	}
+	Out_TopHeight = Top;
 }
 
 void GetGlobalWind_{ParameterName}(out float3 Out_Direction, out float Out_Speed)

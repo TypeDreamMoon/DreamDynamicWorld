@@ -80,7 +80,7 @@ struct FDreamSurfaceTexelDrive
 // A step's drive in the open at the texel: the zones there (in priority order), the cloud gate on the precipitation,
 // the temperature of the view's hour with the offset there, then DreamSurfaceShared.h's open drive. Step: the whole step
 // (its zones from ZoneTracks), or -1 for the step in progress (the records as they are).
-FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, float4 Kinds, float2 P, int Step)
+FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, float4 Kinds, float2 P, int Step, float WindFactor)
 {
 	float Hail = Kinds.x;
 	float Sleet = Kinds.y;
@@ -123,7 +123,62 @@ FDreamSurfaceTexelDrive DriveHere(float4 Global, float4 Channels, float4 Air, fl
 	D.D0 = DSF_OpenD0(Weather, Here, Freezing, float2(Hail, Sleet));
 	D.D1 = DSF_OpenD1(Weather, Here, Fog);
 	D.D2 = DSF_OpenD2(Weather, Here, Freezing, float2(Hail, Sleet));
+	// the wind where it lies: its lee and its exposure (from the open wind), then the wind there
+	D.D2 = DSF_LocalD2(D.D2, D.D0, WindFactor);
+	D.D0 = DSF_LocalD0(D.D0, WindFactor);
 	return D;
+}
+
+// The wind's runtime terrain map (DreamWindShared.h's L1): both levels, their derived maps (speed-up, steering, wind
+// shadow height) and top-surface heights. WindFactorAt: how much of the weather's wind reaches the top surface at a
+// point (1 where the map does not reach or knows no surface, as the CPU's query has it): the speed-up times what the
+// wind shadow leaves. The speed-up is the near level's where it reaches (the CPU grid's scale: the far level's 8 m
+// texels see a whole yard as one rise), the far level's beyond.
+float4 WindL1Near;
+float4 WindL1Far;
+float4 WindL1Params;
+Texture2D WindL1NearDerived;
+Texture2D WindL1FarDerived;
+Texture2D WindL1NearHeight;
+Texture2D WindL1FarHeight;
+SamplerState WindL1Sampler;
+
+// A level's top-surface height at the texel holding a point (cm; below -1e6 where it knows none).
+float WindTopAt(Texture2D Heights, float3 P, FDreamWindL1Level L)
+{
+	uint Width, Height;
+	Heights.GetDimensions(Width, Height);
+	const float2 UV = frac(DW_L1UV(P, L));
+	const int2 Texel = min(int2(UV * float2(Width, Height)), int2(Width, Height) - 1);
+	return Heights.Load(int3(Texel, 0)).r;
+}
+
+float WindFactorAt(float2 P)
+{
+	const FDreamWindL1Level LN = DW_UnpackL1Level(WindL1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level(WindL1Far);
+	const float3 P0 = float3(P.x, P.y, 0.0f);
+	const float WN = DW_L1Weight(P0, LN);
+	const float WF = DW_L1Weight(P0, LF);
+	if (WN <= 0.0f && WF <= 0.0f)
+	{
+		return 1.0f;
+	}
+	// the top surface: the texel's own (no blending with an unknown neighbour's), from the finer level
+	const bool bNear = WN > 0.0f;
+	const float Top = bNear ? WindTopAt(WindL1NearHeight, P0, LN) : WindTopAt(WindL1FarHeight, P0, LF);
+	if (Top < -1.0e6f)
+	{
+		return 1.0f;
+	}
+	const float3 X = float3(P.x, P.y, Top + 30.0f);
+	const FDreamWindL1Params Params = DW_UnpackL1Params(WindL1Params);
+	const float4 TN = bNear ? WindL1NearDerived.SampleLevel(WindL1Sampler, DW_L1UV(X, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+	const float4 TF = WF > 0.0f ? WindL1FarDerived.SampleLevel(WindL1Sampler, DW_L1UV(X, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+	const float Speed = lerp(1.0f, max(lerp(TF.x, TN.x, WN), 0.0f), saturate(Params.SpeedScale) * max(WN, WF));
+	const float OpenFar = WF > 0.0f ? lerp(1.0f, DW_L1Open(TF.w, X.z, Params), WF) : 1.0f;
+	const float Open = lerp(OpenFar, DW_L1Open(TN.w, X.z, Params), WN);
+	return Speed * Open;
 }
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -134,6 +189,8 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		return;
 	}
 	float2 P = TexelWorld(DispatchThreadId.xy);
+	// (the terrain map as it stands now, for every step of the memory: its lees move only as the wind turns)
+	const float WindFactor = WindFactorAt(P);
 	float4 S;
 	float4 S2;
 	float4 S3;
@@ -145,9 +202,9 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		for (uint k = 0; k < NumSteps; ++k)
 		{
 			uint First = k * DSM_STEP_FLOAT4S;
-			FDreamSurfaceTexelDrive D = DriveHere(Steps[First + 0], Steps[First + 1], Steps[First + 2], Steps[First + 3], P, (int)k);
+			FDreamSurfaceTexelDrive D = DriveHere(Steps[First + 0], Steps[First + 1], Steps[First + 2], Steps[First + 3], P, (int)k, WindFactor);
 			// Every part from the state at the start of the step.
-			float4 Next = DSF_Step(S, S2, S3, D.D0, D.D1, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, StepHours);
+			float4 Next = DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, StepHours);
 			float4 NextIce = DSF_StepIce(S, S2, D.D0, D.D1, Rates0, Rates3, Rates4, StepHours);
 			S3 = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, StepHours);
 			S2 = NextIce;
@@ -163,8 +220,8 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		S2 = IceStepStart[DispatchThreadId.xy];
 		S3 = HailStepStart[DispatchThreadId.xy];
 	}
-	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, PartialKinds, P, -1);
-	OutMap[DispatchThreadId.xy] = DSF_Step(S, S2, S3, D.D0, D.D1, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, PartialHours);
+	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, PartialKinds, P, -1, WindFactor);
+	OutMap[DispatchThreadId.xy] = DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, PartialHours);
 	OutIce[DispatchThreadId.xy] = DSF_StepIce(S, S2, D.D0, D.D1, Rates0, Rates3, Rates4, PartialHours);
 	OutHail[DispatchThreadId.xy] = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, PartialHours);
 }
