@@ -73,7 +73,15 @@ public:
 	/** The bolts alive now, newest last. */
 	TArray<UNiagaraComponent*> GetBolts() const;
 
+	/**
+	 * How far the wind has carried the air at the view, cm: the wind summed frame by frame (so a change of wind never
+	 * jumps it), what the fog's noise drifts by (DDW_FogDrift).
+	 */
+	FVector2D GetFogDrift() const { return FogDrift; }
+
 private:
+	FVector2D FogDrift = FVector2D::ZeroVector;
+
 	/** A lightning strike: draw its bolt if it is within reach. */
 	UFUNCTION()
 	void HandleLightningStrike(const FDreamLightningStrike& Strike);
