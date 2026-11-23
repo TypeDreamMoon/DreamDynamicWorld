@@ -185,6 +185,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	FDreamSkyLighting Target = Style->EvaluateLighting(Celestial);
 	Look = Style->EvaluateLook(Celestial);
 	Look.Aurora = Style->EvaluateAuroraPresence(Clock.GetCelestialSettings());
+	Look.Noctilucent = Style->EvaluateNoctilucentPresence(Clock.GetCelestialSettings(), Clock.GetDateTime());
 	if (Style->Eclipse.bFromSunAndMoon && Clock.GetCelestialSettings().Mode == EDreamCelestialMode::Realistic)
 	{
 		FVector2D Offset;
@@ -755,6 +756,13 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// Noctilucent clouds, as present as the world (or a modifier) says, in the deep twilight.
+	{
+		const FDreamSkyNoctilucent& N = Style.Noctilucent;
+		const float Strength = N.bEnabled ? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) : 0.0f;
+		Clock.SetVectorParameter(MPC_Noctilucent, FLinearColor(Strength, FMath::Clamp(N.Altitude, 40.0f, 150.0f), FMath::Max(N.BandSpacing, 1.0f), FMath::Max(N.Drift, 0.0f)));
+		Clock.SetVectorParameter(MPC_NoctilucentColor, With(N.Color, FMath::Max(N.BillowSpacing, 0.5f)));
+	}
 	// The earth's shadow and the Belt of Venus over the style's gradient (the physical sky has its own).
 	{
 		const FDreamSkyEarthShadow& E = Style.EarthShadow;

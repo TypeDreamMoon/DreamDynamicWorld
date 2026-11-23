@@ -101,6 +101,7 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 	}
 	if (bOverride_StarIntensity) { K.StarIntensity = Scale(K.StarIntensity, StarIntensity); }
 	if (bOverride_Aurora) { K.Aurora = Toward(K.Aurora, FMath::Clamp(Aurora, 0.0f, 1.0f)); }
+	if (bOverride_Noctilucent) { K.Noctilucent = Toward(K.Noctilucent, FMath::Clamp(Noctilucent, 0.0f, 1.0f)); }
 	if (bOverride_LightPollution) { K.LightPollution = Toward(K.LightPollution, FMath::Max(LightPollution, 0.0f)); }
 	if (bOverride_Airglow) { K.AirglowScale = Scale(K.AirglowScale, Airglow); }
 	if (bOverride_LightShafts) { K.LightShafts = Scale(K.LightShafts, LightShafts); }

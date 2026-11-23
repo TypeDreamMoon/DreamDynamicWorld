@@ -116,6 +116,13 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 				>= GetDefault<UDreamSkyStyle>()->Halos.HighCoverFull && Entry.Condition.bHours && Entry.Condition.StartHour < 12.0f;
 		}
 		TestTrue(TEXT("a sheet of high cloud for the morning's halo"), bHalo);
+		bool bShine = false;
+		for (const FDreamSkyConditionalModifier& Entry : Sky->ConditionalModifiers)
+		{
+			bShine |= Entry.Modifier && Entry.Modifier->Settings.bOverride_Noctilucent && Entry.Modifier->Settings.Noctilucent > 0.5f
+				&& Entry.Condition.bHours && Entry.Condition.StartHour >= 17.0f && Entry.Condition.EndHour <= 21.0f;
+		}
+		TestTrue(TEXT("noctilucent clouds for the evening's twilight"), bShine);
 	}
 
 	// The day's weather in order, a cycle of a day.

@@ -782,4 +782,62 @@ bool FDreamSkyHalosTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyNoctilucentTest, "DreamSky.Night.Noctilucent", DreamSky::NightTests::Flags)
+bool FDreamSkyNoctilucentTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// Where and when: high latitudes, either hemisphere, in the weeks round its midsummer; as told in the artistic mode.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	FDreamCelestialSettings Settings;
+	Settings.Mode = EDreamCelestialMode::Realistic;
+	Settings.Latitude = 60.0;
+	const FDateTime June(2026, 6, 21), July(2026, 7, 20), December(2026, 12, 21);
+	TestNearlyEqual(TEXT("60 N at midsummer: in full"), Style->EvaluateNoctilucentPresence(Settings, June), 1.0f, 1e-4f);
+	TestTrue(TEXT("a month after: still"), Style->EvaluateNoctilucentPresence(Settings, July) > 0.9f);
+	TestEqual(TEXT("in midwinter: none"), Style->EvaluateNoctilucentPresence(Settings, December), 0.0f);
+	Settings.Latitude = -60.0;
+	TestNearlyEqual(TEXT("60 S in December: in full"), Style->EvaluateNoctilucentPresence(Settings, December), 1.0f, 1e-4f);
+	TestEqual(TEXT("60 S in June: none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Latitude = 35.0;
+	TestEqual(TEXT("35 N: none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Latitude = 85.0;
+	TestEqual(TEXT("85 N (the sun never sets in summer): none"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Settings.Mode = EDreamCelestialMode::Artistic;
+	TestEqual(TEXT("artistic: none unless told"), Style->EvaluateNoctilucentPresence(Settings, June), 0.0f);
+	Style->Noctilucent.ArtisticPresence = 0.7f;
+	TestNearlyEqual(TEXT("artistic: as told"), Style->EvaluateNoctilucentPresence(Settings, June), 0.7f, 1e-6f);
+	// In the deep twilight only.
+	TestEqual(TEXT("not with the sun up"), UDreamSkyStyle::NoctilucentTwilight(2.0f), 0.0f);
+	TestEqual(TEXT("not in the bright civil twilight"), UDreamSkyStyle::NoctilucentTwilight(-3.0f), 0.0f);
+	TestEqual(TEXT("in full 10 degrees under"), UDreamSkyStyle::NoctilucentTwilight(-10.0f), 1.0f);
+	TestEqual(TEXT("not at night, the sun too far under to light them"), UDreamSkyStyle::NoctilucentTwilight(-18.0f), 0.0f);
+
+	// Helsinki at a midsummer midnight: the dome is told to draw them.
+	{
+		FNightWorld W(FDateTime(2026, 6, 21, 0, 30, 0), 60.17, 24.94, 2.0f);
+		if (!TestTrue(TEXT("north world"), W.IsValid()))
+		{
+			return false;
+		}
+		const FLinearColor N = W.Parameter(MPC_Noctilucent);
+		const float Brightness = W.Sky->GetEffectiveStyle()->Noctilucent.Brightness;
+		TestTrue(FString::Printf(TEXT("drawn at midsummer midnight (%.4f of %.4f)"), N.R, Brightness), N.R > 0.5f * Brightness);
+		TestNearlyEqual(TEXT("as high as the style says"), N.G, W.Sky->GetEffectiveStyle()->Noctilucent.Altitude, 1e-3f);
+		W.Sky->GetEffectiveStyle()->Noctilucent.bEnabled = false;
+		W.Clock->Tick(0.016f);
+		TestEqual(TEXT("turned off: not drawn"), W.Parameter(MPC_Noctilucent).R, 0.0f);
+	}
+	// The same place at a midwinter midnight: none.
+	{
+		FNightWorld W(FDateTime(2026, 12, 21, 18, 0, 0), 60.17, 24.94, 2.0f);
+		if (TestTrue(TEXT("winter world"), W.IsValid()))
+		{
+			TestEqual(TEXT("not in midwinter"), W.Parameter(MPC_Noctilucent).R, 0.0f);
+		}
+	}
+	return true;
+}
+
 #endif

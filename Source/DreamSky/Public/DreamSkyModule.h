@@ -28,6 +28,8 @@ namespace DreamSky::Names
 	inline const FName MPC_Halo(TEXT("DDW_Halo"));                // the 22 degree ring, the sun dogs, the corona (each times how far it shows), the sheet's milkiness
 	inline const FName MPC_EarthShadow(TEXT("DDW_EarthShadow"));  // over the style's gradient: rgb the shadow's tint, a its height (sun depressions)
 	inline const FName MPC_EarthBelt(TEXT("DDW_EarthBelt"));      // rgb the Belt of Venus's tint, a how strongly both are drawn
+	inline const FName MPC_Noctilucent(TEXT("DDW_Noctilucent"));          // brightness (presence, twilight), altitude, band spacing (km), drift (km/s)
+	inline const FName MPC_NoctilucentColor(TEXT("DDW_NoctilucentColor")); // rgb, a = the billows' spacing (km)
 	inline const FName MPC_Halo2(TEXT("DDW_Halo2"));              // the ring's radius, its width, the corona's first ring, the moon's drawn radius (degrees)
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
 	inline const FName MPC_AuroraShape2(TEXT("DDW_AuroraShape2")); // ray contrast, upward fade, the banded tones' first two levels

@@ -1191,6 +1191,50 @@ float3 DSky_Halos(float3 V, float3 LightDir, float3 Moon, float3 Lit, float4 Hal
 	return Light * Lit * Shows;
 }
 
+// Noctilucent clouds: a thin shell N.y km up, seen where the sun still lights it (its ray to them passing more than
+// some 15 km over the ground: the air below screens it), in bands N.z km apart, broken and wavering, with billows
+// NC.a km across them, drifting N.w km/s; silver-blue (NC.rgb) as bright as N.x (the dome's measure, already times how
+// present they are and how far the twilight lets them show), brightest toward the sun (they scatter forward), denser
+// toward the horizon (the shell seen edge on), dimmed by the low air.
+float3 DSky_Noctilucent(float3 V, float3 Sun, float3 Camera, float4 N, float4 NC, float Seconds, Texture3D Noise, SamplerState NoiseSampler)
+{
+	if (N.x <= 0.0 || V.z <= 0.005)
+	{
+		return float3(0, 0, 0);
+	}
+	float Planet = DSky_PlanetRadius * 1.0e-5;   // km
+	float3 Eye = float3(0.0, 0.0, Planet + max(Camera.z, 0.0) * 1.0e-5);
+	float Shell = Planet + N.y;
+	float B = dot(Eye, V);
+	float T = -B + sqrt(max(B * B - dot(Eye, Eye) + Shell * Shell, 0.0));
+	float3 P = Eye + V * T;
+	// (Lit while the sun's ray to them clears the screening air.)
+	float Along = dot(P, Sun);
+	float Closest = Along >= 0.0 ? length(P) : length(P - Along * Sun);
+	float Lit = smoothstep(Planet + 10.0, Planet + 22.0, Closest);
+	if (Lit <= 0.0)
+	{
+		return float3(0, 0, 0);
+	}
+	float2 Q = P.xy + Camera.xy * 1.0e-5;
+	// (The bands lie across a slow direction of their own; they drift along it.)
+	float2 Across = normalize(float2(0.83, 0.56));
+	float2 AlongBands = float2(-Across.y, Across.x);
+	Q += Across * (Seconds * N.w);
+	float Cover = smoothstep(0.38, 0.72, Noise.SampleLevel(NoiseSampler, float3(Q / 900.0, 0.31), 0).r);
+	float Bend = Noise.SampleLevel(NoiseSampler, float3(Q / 260.0, 0.77), 0).r - 0.5;
+	float Bands = 0.5 + 0.5 * sin(6.2831853 * (dot(Q, Across) / N.z + 0.5 * Bend));
+	float Break = Noise.SampleLevel(NoiseSampler, float3(Q / 120.0, 0.13), 0).r;
+	float Billows = 0.5 + 0.5 * sin(6.2831853 * (dot(Q, AlongBands) / NC.a + 2.0 * Break));
+	float Pattern = Cover * (0.3 + 0.7 * Bands * sqrt(Bands)) * lerp(0.65, 1.0, Billows) * smoothstep(0.1, 0.5, Break + 0.3);
+	// (Edge on toward the horizon the thin shell is seen through more of itself; the low air dims and reddens it a little.)
+	float Grazing = sqrt(max(1.0 - dot(Eye, Eye) / (Shell * Shell) * (1.0 - V.z * V.z), 0.0));
+	float Path = 1.0 / max(Grazing, 0.12);
+	float3 Air = exp(-float3(0.05, 0.08, 0.14) / max(V.z, 0.03));
+	float Toward = 0.35 + 0.65 * DSky_Square(saturate(0.5 + 0.5 * dot(V, Sun)));
+	return NC.rgb * Air * (N.x * Lit * Pattern * Path * Toward);
+}
+
 // The earth's shadow and the Belt of Venus over the style's gradient (Share: how much of the sky is the gradient; the
 // physical sky has its own): after sunset, away from the sun, the gradient is tinted blue-grey (Shadow.rgb) up to
 // Shadow.a times the sun's depression and pink (Belt.rgb) in a band over it, as strongly as Belt.a; from the sun's
@@ -1327,7 +1371,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1404,6 +1448,8 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	Sky += DSky_Aurora(V, Aurora, AuroraLow, AuroraHigh, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, Seconds, Noise, NoiseSampler, ScreenUV);
 	// The night's own glow (more of it through the longer air low down) and a city's light climbing from the horizon.
 	Sky += DSky_NightGlow(V, NightGlow, LightPollution);
+	// Noctilucent clouds in the deep twilight, far above everything else, behind the high cloud.
+	Sky += DSky_Noctilucent(V, Sun, Camera, Noctilucent, NoctilucentColor, Seconds, Noise, NoiseSampler);
 	// The ice halos in a sheet of high cloud, the corona in thin cloud round the moon: the sheet milks the sky a little,
 	// the halos are in its light (behind the high cloud's veils, which they brighten).
 	if (any(Halo4 > 0.0))

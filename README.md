@@ -333,6 +333,17 @@ air in the planet's shadow unlit), so they show whenever the grade's `GradientBl
 gradient the style's `EarthShadow` draws them as far as the gradient shows: `ShadowTint` and `BeltTint` multiply the
 gradient, `Height` is the shadow's top in sun depressions (2, as the physical sky's), `Strength` how strongly.
 
+**Noctilucent clouds.** In the deep twilight of high-latitude summer nights thin silver-blue clouds some 82 km up shine
+low over where the sun went, lit long after it has set on the air below: the dome draws them on a shell that high,
+where the sun's ray to them still clears the lower air, in bands (`BandSpacing`, 50 km) broken and wavering, with
+billows across them (`BillowSpacing`, 9 km), drifting (`Drift`, 0.05 km/s), brightest toward the sun and denser toward
+the horizon. In the realistic mode they come from `StartLatitude` (45) to full at `FullLatitude` (52), fading out by
+`EndLatitude` (72), north or south, within `SeasonFullDays` (35) of the hemisphere's midsummer and gone by
+`SeasonEndDays` (65); in the artistic mode as `ArtisticPresence` says. They show with the sun from 4 to 17 degrees
+under, in full from 7 to 13 (`UDreamSkyStyle::NoctilucentTwilight`), as bright as the style's `Noctilucent.Brightness`
+in the dome's measure, the same under every look; a sky modifier's *Noctilucent* brings them anywhere (the showcase's
+evening has them from 17:30 to 20).
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

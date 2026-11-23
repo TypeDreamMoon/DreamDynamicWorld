@@ -167,6 +167,33 @@ float UDreamSkyStyle::EvaluateAuroraPresence(const FDreamCelestialSettings& Sett
 	return To > From ? FMath::SmoothStep(From, To, Latitude) : (Latitude >= To ? 1.0f : 0.0f);
 }
 
+float UDreamSkyStyle::EvaluateNoctilucentPresence(const FDreamCelestialSettings& Settings, const FDateTime& Date) const
+{
+	if (!Noctilucent.bEnabled)
+	{
+		return 0.0f;
+	}
+	if (Settings.Mode != EDreamCelestialMode::Realistic)
+	{
+		return FMath::Clamp(Noctilucent.ArtisticPresence, 0.0f, 1.0f);
+	}
+	const FDreamSkyNoctilucent& N = Noctilucent;
+	const float Latitude = FMath::Abs(float(Settings.Latitude));
+	const float Band = FMath::SmoothStep(N.StartLatitude, FMath::Max(N.FullLatitude, N.StartLatitude + 0.01f), Latitude)
+		* (1.0f - FMath::SmoothStep(FMath::Max(N.EndLatitude - 5.0f, N.FullLatitude), FMath::Max(N.EndLatitude, N.FullLatitude + 0.01f), Latitude));
+	// (Days from the hemisphere's midsummer, round the year.)
+	const float Midsummer = Settings.Latitude >= 0.0 ? 172.0f : 355.0f;
+	float Days = FMath::Abs(float(Date.GetDayOfYear()) - Midsummer);
+	Days = FMath::Min(Days, 365.0f - Days);
+	const float Season = 1.0f - FMath::SmoothStep(N.SeasonFullDays, FMath::Max(N.SeasonEndDays, N.SeasonFullDays + 1.0f), Days);
+	return Band * Season;
+}
+
+float UDreamSkyStyle::NoctilucentTwilight(float SunElevation)
+{
+	return FMath::SmoothStep(-17.0f, -13.0f, SunElevation) * (1.0f - FMath::SmoothStep(-7.0f, -4.0f, SunElevation));
+}
+
 float UDreamSkyStyle::GlowNight(float SunElevation)
 {
 	// (A city's lights come on as the sun sets and stand out by the end of the civil twilight.)

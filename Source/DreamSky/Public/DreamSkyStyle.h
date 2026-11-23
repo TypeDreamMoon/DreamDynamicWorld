@@ -573,6 +573,57 @@ struct DREAMSKY_API FDreamSkyEarthShadow
 	float Height = 2.0f;
 };
 
+/**
+ * Noctilucent clouds: thin silver-blue ice some 82 km up, at high latitudes in the weeks round midsummer, lit by the sun
+ * long after it has set on the air below; seen in the deep twilight low over where the sun went, in bands and fine
+ * billows. Drawn on the dome, in the dome's own measure, the same under every look.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyNoctilucent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds")
+	bool bEnabled = true;
+
+	/** How bright they draw at their strongest, in the dome's own measure (a dark night's zenith is some 0.006). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "0.3"))
+	float Brightness = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (HideAlphaChannel))
+	FLinearColor Color = FLinearColor(0.62f, 0.8f, 1.0f, 1.0f);
+
+	/** Their height, km, and the spacing of their bands and of the billows across them, km. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "60", UIMax = "100"))
+	float Altitude = 82.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "5", UIMax = "200"))
+	float BandSpacing = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "1", UIMax = "40"))
+	float BillowSpacing = 9.0f;
+
+	/** How fast they drift, km a second (some 50 m/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "0.5"))
+	float Drift = 0.05f;
+
+	/** Realistic mode: the latitudes (north or south) they begin and are full at, and fade out by toward the pole. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float StartLatitude = 45.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float FullLatitude = 52.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "90"))
+	float EndLatitude = 72.0f;
+
+	/** Realistic mode: how many days from midsummer (June 21 north, December 21 south) they are full, and gone. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", UIMax = "120"))
+	float SeasonFullDays = 35.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "1", UIMax = "180"))
+	float SeasonEndDays = 65.0f;
+
+	/** Artistic mode: how present they are (none unless told). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float ArtisticPresence = 0.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -589,6 +640,14 @@ public:
 
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
+
+	/** How present noctilucent clouds are where and when the world is: by latitude and the days from midsummer in the
+	 *  realistic mode, as the style says in the artistic one. */
+	float EvaluateNoctilucentPresence(const FDreamCelestialSettings& Settings, const FDateTime& Date) const;
+
+	/** How far the twilight lets them show for the sun this high (degrees): from 4 under, full from 7 to 13, gone by 17
+	 *  (the air below dark enough, they still in the sun). */
+	static float NoctilucentTwilight(float SunElevation);
 
 	/** How far the halos and the corona show for this much high cloud (CloudHighCover), 0 .. 1 each. */
 	FVector2f EvaluateHaloPresence(float HighCover) const;
@@ -802,6 +861,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ShowOnlyInnerProperties))
 	FDreamSkyEarthShadow EarthShadow;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Noctilucent Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyNoctilucent Noctilucent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

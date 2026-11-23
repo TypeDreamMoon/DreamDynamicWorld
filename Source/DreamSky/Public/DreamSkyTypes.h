@@ -648,6 +648,8 @@ struct DREAMSKY_API FDreamSkyLook
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") FLinearColor Haze = FLinearColor(0.5f, 0.5f, 0.5f, 0.0f);
 	/** How present the aurora is, 0..1 (where the world lies, or a modifier's); the night's darkness goes on when it is drawn. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Aurora = 0.0f;
+	/** How present noctilucent clouds are, 0..1 (where and when the world is, or a modifier's); the twilight goes on when they are drawn. */
+	UPROPERTY(BlueprintReadOnly, Category = "Sky") float Noctilucent = 0.0f;
 	/** How strong the city's light is at the horizon (the style's LightPollution, or a modifier's), in the dome's measure. */
 	UPROPERTY(BlueprintReadOnly, Category = "Sky") float LightPollution = 0.0f;
 	/** Scales the night sky's own glow (the style's Airglow). */

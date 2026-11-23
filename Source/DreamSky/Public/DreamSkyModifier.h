@@ -118,6 +118,12 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float Aurora = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
+	bool bOverride_Noctilucent = false;
+	/** How present noctilucent clouds turn, 0..1, wherever and whenever the world is (they still show only in the deep twilight). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_Noctilucent", ClampMin = "0", ClampMax = "1"))
+	float Noctilucent = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (InlineEditConditionToggle))
 	bool bOverride_LightPollution = false;
 	/** How strong a city's light turns at the horizon, in the dome's measure (see the style's NightGlow). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sky", meta = (EditCondition = "bOverride_LightPollution", ClampMin = "0", UIMax = "0.3"))
