@@ -414,4 +414,97 @@ DSF_FN float4 DSF_GlassRain(float2 Glass, float Time, float Rain, float Wet, flo
 	return float4(Run.x + Big.x + Small.x, Run.y + Big.y + Small.y, saturate(max(Run.z, max(Big.z, Small.z))), saturate(Run.z));
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Glass that moves (a car's windows): the drops are pushed along by the air as well as pulled down by gravity, the panes
+// facing the way it goes catch more rain, and wipers clear an arc.
+
+// Which way the water on a pane goes and how fast, from gravity and the air rushing past (both in the pane's own axes:
+// x across, y up it; cm/s for the air, Down = how much of gravity lies along the pane, 0 flat .. 1 upright). Returns the
+// direction the drops run (x, y, a unit vector), how fast they go against a still pane's (z, 1 = only gravity) and how
+// far the air stretches the sitting drops along it (w, 0 none .. 1 long streaks). The air drags a drop along once it
+// blows at some 4 m/s over the pane, and at 15 m/s (55 km/h) it holds one on an upright pane against gravity (on a raked
+// windscreen, sooner).
+DSF_FN float4 DSF_GlassFlow(float2 Air, float Down)
+{
+	float AirSpeed = sqrt(Air.x * Air.x + Air.y * Air.y);
+	float Drag = max(AirSpeed - 400.0f, 0.0f) / 1100.0f;
+	float2 Push = AirSpeed > 1.0f ? Air * (Drag / AirSpeed) : float2(0.0f, 0.0f);
+	float2 Flow = float2(0.0f, -saturate(Down)) + Push;
+	float Strength = sqrt(Flow.x * Flow.x + Flow.y * Flow.y);
+	if (Strength < 1.0e-3f)
+	{
+		return float4(0.0f, -1.0f, 0.0f, 0.0f);
+	}
+	return float4(Flow.x / Strength, Flow.y / Strength, Strength, saturate(Drag * 0.5f));
+}
+
+// How much more rain a pane catches moving through it: Facing = how squarely it faces the way it goes (the dot of its
+// normal and the direction of travel, 0..1), Speed in cm/s; rain falls at some 9 m/s.
+DSF_FN float DSF_GlassRainGain(float Facing, float Speed)
+{
+	return 1.0f + saturate(Facing) * Speed / 900.0f;
+}
+
+// Seconds since a wiper last swept the angle Angle (radians): it swings between A0 and A1 and back once every Period
+// seconds, easing at the ends, starting at A0 at time Start; Period <= 0: it is parked, and a point it never reaches
+// waits forever (a large number).
+DSF_FN float DSF_WiperSince(float Angle, float A0, float A1, float Time, float Start, float Period)
+{
+	float Span = A1 - A0;
+	float S = Span != 0.0f ? (Angle - A0) / Span : -1.0f;
+	if (Period <= 0.0f || S < 0.0f || S > 1.0f)
+	{
+		return 1.0e6f;
+	}
+	// The blade is at the angle at two phases of each swing: on the way out and on the way back.
+	float Phase = acos(clamp(1.0f - 2.0f * S, -1.0f, 1.0f)) / 6.2831853f;
+	float U = (Time - Start) / Period;
+	if (U < Phase)
+	{
+		return 1.0e6f;
+	}
+	float Out = frac(U - Phase);
+	float Back = U >= 1.0f - Phase ? frac(U - (1.0f - Phase)) : 1.0e6f;
+	return min(Out, Back) * Period;
+}
+
+// How clear a wiper has left a point on the pane, 1 just swept .. 0 the rain has covered it again: Since = seconds since
+// the blade went by (DSF_WiperSince), Rain = the rain landing there now (with the speed's gain); a full rain lays the
+// drops again within some three seconds. A thin film right behind the blade shows as its own (y, 0..1).
+DSF_FN float2 DSF_WiperClear(float Since, float Rain)
+{
+	float Back = Since * (0.2f + 0.8f * saturate(Rain)) / 3.0f;
+	return float2(1.0f - saturate(Back), (1.0f - smoothstep(0.0f, 0.12f, Since)) * step(Since, 1.0e5f));
+}
+
+// Rain on a pane that moves: as DSF_GlassRain, the runners going along Flow (DSF_GlassFlow) at its speed, the sitting
+// drops stretched along it into streaks at speed and sliding with it, and Wiped (0..1, DSF_WiperClear) clearing them.
+DSF_FN float4 DSF_GlassRainFlow(float2 Glass, float Time, float Rain, float Wet, float4 Flow, float Wiped)
+{
+	float Amount = max(Rain * 0.9f, Wet * 0.75f) * (1.0f - saturate(Wiped));
+	if (Amount <= 0.0f)
+	{
+		return float4(0.0f, 0.0f, 0.0f, 0.0f);
+	}
+	// The pane's axes turned so that the drops run down "y": across = perpendicular to the flow, up = against it.
+	float2 Up = float2(-Flow.x, -Flow.y);
+	float2 Across = float2(Up.y, -Up.x);
+	float2 G = float2(Glass.x * Across.x + Glass.y * Across.y, Glass.x * Up.x + Glass.y * Up.y);
+	float4 Run = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	if (Flow.z > 0.0f && Rain > 0.0f)
+	{
+		Run = DSF_GlassRunners(G, Time * Flow.z, saturate(Rain * min(Flow.z, 1.5f)), 2.5f);
+	}
+	// Stretched along the flow and sliding with it.
+	float Stretch = saturate(Flow.w);
+	float2 Bead = float2(G.x, (G.y + Time * Stretch * 30.0f) / (1.0f + 3.0f * Stretch));
+	float Cycle = saturate(Rain * 4.0f);
+	float3 Big = DSF_GlassBeads(Bead, Time, Amount * 0.8f, Cycle, Run.w, 1.4f, 19.0f);
+	float3 Small = DSF_GlassBeads(Bead + 0.37f, Time * 1.3f, Amount, Cycle, Run.w, 0.55f, 53.0f);
+	// The slope back into the pane's own axes (the stretch flattens a streak's slope along it).
+	float2 Slope = float2(Run.x + Big.x + Small.x, (Run.y + (Big.y + Small.y) / (1.0f + 3.0f * Stretch)));
+	float2 World = float2(Slope.x * Across.x + Slope.y * Up.x, Slope.x * Across.y + Slope.y * Up.y);
+	return float4(World.x, World.y, saturate(max(Run.z, max(Big.z, Small.z))), saturate(Run.z));
+}
+
 #endif // DREAMSURFACE_SHARED_H
