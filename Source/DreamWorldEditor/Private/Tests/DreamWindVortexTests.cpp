@@ -158,7 +158,9 @@ bool FDreamWindVortexSpawnerTest::RunTest(const FString& Parameters)
 		}
 		const double Mid = A.StartSeconds + A.LifetimeSeconds * 0.5;
 		bEnvelope &= A.StrengthAt(A.StartSeconds - 1.0) == 0.0f && A.StrengthAt(Mid) == 1.0f && A.StrengthAt(A.EndSeconds()) == 0.0f
-			&& A.StrengthAt(A.StartSeconds + A.LifetimeSeconds * 0.05) > 0.0f && A.StrengthAt(A.StartSeconds + A.LifetimeSeconds * 0.05) < 1.0f;
+			&& A.StrengthAt(A.StartSeconds + A.LifetimeSeconds * 0.05) > 0.0f && A.StrengthAt(A.StartSeconds + A.LifetimeSeconds * 0.05) < 1.0f
+			&& A.DecayAt(Mid) == 0.0f && A.DecayAt(A.StartSeconds + A.LifetimeSeconds * 0.875) > 0.3f
+			&& FMath::IsNearlyEqual(A.DecayAt(A.StartSeconds + A.LifetimeSeconds * 0.875) + A.StrengthAt(A.StartSeconds + A.LifetimeSeconds * 0.875), 1.0f, 1e-3f);
 		bNear &= FVector2D::Distance(A.FootAt(Mid), FVector2D(1000.0, 2000.0)) <= Spawner->PassRadius * 1.2;
 	}
 	AddInfo(FString::Printf(TEXT("a year: dust devils %d / %d / %d / %d, tornadoes %d / %d / %d / %d (spring, summer, autumn, winter)"),
@@ -168,7 +170,7 @@ bool FDreamWindVortexSpawnerTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("most dust devils in summer, none in winter"), Devils[1] > Devils[0] && Devils[1] > Devils[2] && Devils[3] == 0);
 	TestTrue(TEXT("tornadoes most in summer, none in winter"), Tornadoes[1] > Tornadoes[2] && Tornadoes[3] == 0 && Tornadoes[1] > 0);
 	TestTrue(TEXT("dust devils only in the afternoon's hours"), bHours);
-	TestTrue(TEXT("each spins up, holds and dies out"), bEnvelope);
+	TestTrue(TEXT("each spins up, holds and dies out, roping out as it does"), bEnvelope);
 	TestTrue(TEXT("each passes near the spawner half way through its life"), bNear);
 
 	// What is alive at a moment is what the slots say.

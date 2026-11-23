@@ -212,6 +212,31 @@ DreamSurface.Walker.Frame 320 260 -32 130
 wait 2
 DreamSurface.Walker.Frame 320 260 -32 130
 shot SHOW_Storm_Walker
+move 3100 200 250
+aim 12 1
+wait 6
+settle 8
+shot SHOW_Tornado_Moving
+time 14.073
+aim 12 -45
+wait 6
+settle 8
+shot SHOW_Tornado_Forming
+time 14.139
+aim 12 -25
+wait 6
+settle 8
+shot SHOW_Tornado_Touchdown
+time 14.316
+aim 12 43
+wait 6
+settle 8
+shot SHOW_Tornado_Rope
+time 14.3265
+aim 12 45
+wait 6
+settle 8
+shot SHOW_Tornado_Breaking
 time 16.75
 settle 20
 wait 120

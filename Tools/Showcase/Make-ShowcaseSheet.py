@@ -1,6 +1,6 @@
 # Tiles the showcase tour's shots (Invoke-ShowcaseTour.ps1) into overview sheets: rows = weather, columns = views; the
 # winter morning's cold (frost, thaw, rime); the far land, rows = weather, columns = aerial perspective and height fog on
-# and off; and the dusk sequence as a strip.
+# and off; the storm's tornado through its life and the dusk sequence as strips.
 #   python Make-ShowcaseSheet.py <screenshots folder> <output folder>
 import os
 import sys
@@ -31,5 +31,6 @@ def sheet(name, rows, cols):
 sheet('ShowcaseSheet.png', rows, views)
 sheet('ShowcaseCold.png', ['Frost', 'Thaw', 'Rime'], ['Wide', 'Toon', 'Ground', 'Pond', 'Grove', 'Walker'])
 sheet('ShowcaseDusk.png', ['Dusk'], ['%02d' % i for i in range(7)])
+sheet('ShowcaseTornado.png', ['Tornado'], ['Forming', 'Touchdown', 'Moving', 'Rope', 'Breaking'])
 sheet('ShowcaseFar.png', ['Far_Noon', 'Far_Evening', 'Far_Overcast', 'Far_Fog'],
       ['ApOn_FogOn', 'ApOff_FogOn', 'ApOn_FogOff', 'ApOff_FogOff'])

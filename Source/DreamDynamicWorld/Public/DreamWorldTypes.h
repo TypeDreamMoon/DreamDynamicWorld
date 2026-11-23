@@ -363,4 +363,10 @@ struct DREAMDYNAMICWORLD_API FDreamWorldVortex
 	/** A tornado's funnel cloud is drawn; false for a dust devil (no funnel). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
 	bool bFunnel = true;
+
+	/** How far it has roped out as it dies, 0 not .. 1 gone: the funnel stays down to the ground, thinning to a rope,
+	 *  stretched and leaning further with the wind aloft, its wall cloud and dust fading, until it breaks (some 0.8) and
+	 *  goes. While it is above 0 the funnel is drawn all the way down whatever its Strength. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0", ClampMax = "1"))
+	float Decay = 0.0f;
 };

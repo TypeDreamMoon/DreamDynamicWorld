@@ -61,6 +61,7 @@ void FDreamSkyModule::StartupModule()
 		FDreamWorldParameters::RegisterVector(Owner, MPC_Funnel[i], Black);
 		FDreamWorldParameters::RegisterVector(Owner, MPC_FunnelShape[i], Black);
 	}
+	FDreamWorldParameters::RegisterVector(Owner, MPC_FunnelDecay, Black);
 	FDreamWorldParameters::RegisterVector(Owner, MPC_FlatClouds, FLinearColor(0.0f, 0.0f, 1.0f, 0.65f));
 	FDreamWorldParameters::RegisterVector(Owner, MPC_Meteors, Black);
 	FDreamWorldParameters::RegisterVector(Owner, MPC_MeteorRadiant, FLinearColor(0.0f, 0.0f, 1.0f, 0.0f));

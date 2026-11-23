@@ -552,6 +552,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_CloudClearing"),
 		TEXT("DDW_Funnel0"), TEXT("DDW_Funnel1"), TEXT("DDW_Funnel2"), TEXT("DDW_Funnel3"),
 		TEXT("DDW_FunnelShape0"), TEXT("DDW_FunnelShape1"), TEXT("DDW_FunnelShape2"), TEXT("DDW_FunnelShape3"),
+		TEXT("DDW_FunnelDecay"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;
