@@ -400,7 +400,11 @@ are in frame.
 Drop an **`ADreamWeather`** in the level to turn the weather on (without one the sky keeps to its style).
 
 **Channels.** The weather is a set of named numbers (`Dream.Weather.Channel.*` gameplay tags): cloud coverage
-and darkness, precipitation and snow ratio, fog, dust, wind, lightning, temperature offset, wetness, snow cover.
+and darkness, precipitation and snow ratio, fog, dust, wind, lightning, temperature offset, wetness, snow cover,
+freezing rain. **Freezing rain** (`Dream.Weather.Channel.FreezingRain`) is the share of the precipitation's rain that
+is supercooled, 0..1: what falls near freezing turns to snow whatever the weather says, all but that share, so a
+freezing rain stays rain below freezing (the rain's particles and sounds as any rain); what it does to the ground is
+the surfaces' (it glazes what is frozen). The snow ratio channel itself still wins: a weather that says snow snows.
 A project adds its own (ash, spores, miasma) in *Project Settings ▸ Dream Weather ▸ Custom Channels*; every
 query, preset, zone and modifier handles them like the built-in ones. Each channel has its own transition time
 and **lead**: clouds and wind start changing before the weather turns, rain and lightning follow, the ground
@@ -410,7 +414,8 @@ lags — a change of weather reads as coming.
 `Random` (weighted, with persistence) or `Seasonal` (weights per season, either hemisphere). Every selector is a
 pure function of the world time and seed: the same moment has the same weather on every machine, after every
 load, in every replay, and `GetForecast` is just the function evaluated ahead. Presets (`UDreamWeatherPreset`)
-hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`. A preset
+hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust / Frost /
+FreezingRain / FreezingFog`. A preset
 can name a *Sky Modifier* (see *Sky modifiers* above): the sky takes it on as far as that weather is in effect
 where the view is, through the schedule's transitions, forced or pushed presets and zones alike, weighed by the
 rules the channels blend by (an Override pulls what is under it back by its weight; the other blends add theirs).
@@ -435,7 +440,7 @@ needs about −30 to freeze, and `DreamWeather.MarkEdge Air` (below) rings where
 weather where it is by implementing `IDreamWeatherInfluence`.
 
 **Queries and events.** `SampleWeather(Position)` — every channel there, rain and snow (precipitation turns to
-snow near freezing, so a mountain top snows in the valley's rain), the temperature (climate, season, hour,
+snow near freezing, so a mountain top snows in the valley's rain; a freezing rain's share stays rain), the temperature (climate, season, hour,
 height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay conditions. Events:
 `OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
 are saved in the world snapshot; the schedule needs nothing saved.

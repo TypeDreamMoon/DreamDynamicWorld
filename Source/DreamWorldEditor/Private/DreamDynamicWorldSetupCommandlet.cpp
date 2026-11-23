@@ -368,7 +368,7 @@ namespace DreamWorld::Setup
 		using namespace DreamWeather::Tags;
 		const FGameplayTag Coverage = Channel_CloudCoverage, Dark = Channel_CloudDarkness, Precip = Channel_Precipitation, Snow = Channel_SnowRatio,
 			Fog = Channel_Fog, Dust = Channel_Dust, Wind = Channel_Wind, Lightning = Channel_Lightning, Temperature = Channel_Temperature, Wet = Channel_Wetness,
-			SnowCover = Channel_SnowCover;
+			SnowCover = Channel_SnowCover, Freezing = Channel_FreezingRain;
 		const TArray<FPresetSpec> Specs = {
 			{ TEXT("WP_Clear"), TEXT("Clear"), { { Coverage, 0.15f }, { Wind, 0.2f }, { Temperature, 1.0f } } },
 			{ TEXT("WP_Cloudy"), TEXT("Cloudy"), { { Coverage, 0.55f }, { Dark, 0.05f }, { Wind, 0.35f } } },
@@ -380,6 +380,8 @@ namespace DreamWorld::Setup
 			{ TEXT("WP_Dust"), TEXT("Dust Storm"), { { Coverage, 0.35f }, { Dust, 0.9f }, { Wind, 0.85f }, { Temperature, 4.0f } } },
 			// A clear, still, cold night: frost on the ground and black ice where it was wet (the surfaces' cold).
 			{ TEXT("WP_Frost"), TEXT("Frost"), { { Coverage, 0.05f }, { Wind, 0.05f }, { Temperature, -2.0f } } },
+			// Freezing rain: supercooled rain falling with the air below freezing; it glazes what it lands on.
+			{ TEXT("WP_FreezingRain"), TEXT("Freezing Rain"), { { Coverage, 1.0f }, { Dark, 0.35f }, { Precip, 0.55f }, { Freezing, 1.0f }, { Wind, 0.3f }, { Fog, 0.2f }, { Temperature, -8.0f }, { Wet, 1.0f } } },
 			// A freezing fog in a breeze: rime builds on everything.
 			{ TEXT("WP_FreezingFog"), TEXT("Freezing Fog"), { { Coverage, 0.7f }, { Dark, 0.1f }, { Fog, 0.95f }, { Wind, 0.5f }, { Temperature, -14.0f } } },
 		};

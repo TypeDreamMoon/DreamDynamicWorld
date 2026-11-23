@@ -43,6 +43,7 @@ TArray<FDreamWeatherChannelDef> FDreamWeatherChannels::MakeBuiltIn()
 	Out.Add(Make(Channel_Temperature, 0.0f, -40.0f, 40.0f, 60.0f, 0.0f));
 	Out.Add(Make(Channel_Wetness, 0.0f, 0.0f, 1.0f, 20.0f, -10.0f));
 	Out.Add(Make(Channel_SnowCover, 0.0f, 0.0f, 1.0f, 60.0f, -20.0f));
+	Out.Add(Make(Channel_FreezingRain, 0.0f, 0.0f, 1.0f, 10.0f, 0.0f));
 	check(Out.Num() == NumBuiltIn);
 	return Out;
 }
@@ -56,14 +57,18 @@ const TArray<FDreamWeatherChannelDef>& FDreamWeatherChannels::Get()
 	}
 	const UDreamWeatherSettings* Settings = UDreamWeatherSettings::Get();
 	Channels = MakeBuiltIn();
-	// The built-ins' timings and defaults from the settings, when they still describe the same channels.
-	if (Settings && Settings->BuiltInChannels.Num() == NumBuiltIn)
+	// The built-ins' timings and defaults from the settings, each by its tag: a project saved before a built-in was
+	// added keeps its own for the others, and the new one starts from its default.
+	if (Settings)
 	{
-		for (int32 i = 0; i < NumBuiltIn; ++i)
+		for (const FDreamWeatherChannelDef& Saved : Settings->BuiltInChannels)
 		{
-			if (Settings->BuiltInChannels[i].Channel == Channels[i].Channel)
+			for (int32 i = 0; i < NumBuiltIn; ++i)
 			{
-				Channels[i] = Settings->BuiltInChannels[i];
+				if (Saved.Channel.IsValid() && Saved.Channel == Channels[i].Channel)
+				{
+					Channels[i] = Saved;
+				}
 			}
 		}
 	}
