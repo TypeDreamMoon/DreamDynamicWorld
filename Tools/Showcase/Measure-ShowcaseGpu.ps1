@@ -33,7 +33,8 @@
 param(
     [string]$Project,
     # -Scene Showcase: the showcase level's features (above). WindField: the wind's on the wind field test level
-    # (Setup -WindFieldTestMap): WindVolume, WindOcclusion, WindOcclusionVolume, WindVolumeAll, WindGrass.
+    # (Setup -WindFieldTestMap): WindVolume, WindOcclusion, WindOcclusionVolume, WindTerrainRuntime, WindTerrainShadow,
+    # WindTerrainPasses, WindVolumeAll, WindGrass.
     [ValidateSet('Showcase', 'WindField')]
     [string]$Scene = 'Showcase',
     [string[]]$Only = @(),
@@ -127,6 +128,8 @@ if ($Scene -eq 'WindField')
             -Setup @('DreamWind.RuntimeTerrain 0') -Off @('DreamWind.Occlusion 0') -On @('DreamWind.Occlusion 1') -Reset @('DreamWind.Occlusion -1', 'DreamWind.RuntimeTerrain -1') -Event '^DreamWindVolume')
         (Feature WindTerrainRuntime 'Runtime terrain map instead of the baked march (everything, frame)' 'yes' toggle 11 '' Grass `
             -Off @('DreamWind.RuntimeTerrain 0') -On @('DreamWind.RuntimeTerrain 1') -Reset @('DreamWind.RuntimeTerrain -1'))
+        (Feature WindTerrainShadow 'Wind shadow from the runtime terrain map (materials + volume + its passes, frame)' 'yes' toggle 11 '' Grass `
+            -Off @('DreamWind.RuntimeTerrain 0', 'DreamWind.Occlusion 0') -On @('DreamWind.RuntimeTerrain 1', 'DreamWind.Occlusion 1') -Reset @('DreamWind.Occlusion -1', 'DreamWind.RuntimeTerrain -1'))
         (Feature WindTerrainPasses 'Runtime terrain map (its capture scatter and derive passes)' 'yes' events 11 '' Grass -Event 'RenderGraphExecute - DreamWind\.Terrain')
         (Feature WindVolumeAll 'Wind volume (update + material reads, frame)' 'yes' toggle 11 '' Grass `
             -Off @('DreamWind.Volume 0') -On @('DreamWind.Volume 1') -Reset @('DreamWind.Volume -1'))
