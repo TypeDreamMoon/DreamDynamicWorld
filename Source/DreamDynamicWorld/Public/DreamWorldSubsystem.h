@@ -282,6 +282,24 @@ public:
 
 	const FDreamViewProbe& GetViewProbe() const { return ViewProbe; }
 
+	// ---- Rooms and their openings -----------------------------------------------------------------
+
+	/** The rooms (UDreamInteriorComponent) and doors and windows (UDreamPortalComponent) of this world; they register themselves. */
+	void RegisterInterior(const class UDreamInteriorComponent* Interior);
+	void UnregisterInterior(const class UDreamInteriorComponent* Interior);
+	void RegisterPortal(const class UDreamPortalComponent* Portal);
+	void UnregisterPortal(const class UDreamPortalComponent* Portal);
+	TArray<const class UDreamInteriorComponent*> GetInteriors() const;
+	TArray<const class UDreamPortalComponent*> GetPortals() const;
+
+	/** The rooms' weight at a point (UDreamInteriorComponent::GetWeightAt, the largest); bWeatherOnly: the rooms that keep the weather out, 1 anywhere inside them. */
+	float GetInteriorAt(const FVector& Position, bool bWeatherOnly = false) const;
+
+	/** A portal opened, closed or moved: its bounds (the wind looks at its walls there again). */
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnPortalChanged, const FBox& /*Bounds*/);
+	FOnPortalChanged OnPortalChanged;
+	void NotifyPortalChanged(const FBox& Bounds) { OnPortalChanged.Broadcast(Bounds); }
+
 	/** Game-thread cost of the last tick, including every OnWorldTick listener, in milliseconds. */
 	double GetLastTickMs() const { return LastTickMs; }
 	/** Exponential average of the same (about the last 100 frames). */
@@ -335,6 +353,8 @@ private:
 
 	FDreamViewProbe ViewProbe;
 	FDreamViewOcclusion ViewOcclusion;
+	TArray<TWeakObjectPtr<const class UDreamInteriorComponent>> Interiors;
+	TArray<TWeakObjectPtr<const class UDreamPortalComponent>> Portals;
 
 	double LastTickMs = 0.0;
 	double AverageTickMs = 0.0;
