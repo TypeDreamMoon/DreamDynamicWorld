@@ -778,6 +778,10 @@ public:
 	/** How much of the aurora the sky's darkness shows at a sun elevation (degrees), 0..1. */
 	static float AuroraNight(float SunElevation);
 
+	/** How much of the night sky the air lets through, 1 clear .. 0 none, for a haze (FDreamSkyLook::Haze's alpha) and
+	 *  the weather's fog and cloud cover (0..1 each): see NightSkyHazeExponent. */
+	float NightSkyThrough(float Haze, float Fog, float CloudCover) const;
+
 	/** The strongest meteor shower on a date and how strong it is then (none in the gaps between them). */
 	FDreamSkyShowerActivity EvaluateMeteorShower(const FDateTime& Date) const;
 
@@ -981,6 +985,25 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Milky Way", meta = (ShowOnlyInnerProperties))
 	FDreamSkyMilkyWay MilkyWay;
+
+	/**
+	 * How the weather hides the night sky -- the stars, the Milky Way, the aurora, meteors and satellites, noctilucent
+	 * clouds, and the moon to a dull disk -- all by one share (NightSkyThrough): the haze (a dust storm's, a fog's) leaves
+	 * (1 - haze) to this power of it, so a light haze dims them and a dust storm all but hides them.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Sky", meta = (ClampMin = "0.5", UIMax = "6"))
+	float NightSkyHazeExponent = 2.0f;
+
+	/** How much of it the weather's fog and its cloud cover each take more, at their thickest (0..1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Sky", meta = (ClampMin = "0", ClampMax = "1"))
+	float NightSkyFogHides = 0.9f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Sky", meta = (ClampMin = "0", ClampMax = "1"))
+	float NightSkyCloudHides = 0.4f;
+
+	/** How much of the moon (its disk and glow) the night sky's share leaves at none, over what the dome's haze already
+	 *  takes: a dull disk in a dust storm, not none. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Night Sky", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonThroughHaze = 0.6f;
 
 	/** How much brighter the catalogue's stars are drawn for each magnitude (1 = as in the sky, 2.512 times; less
 	 *  keeps the faint ones in sight next to the bright). */

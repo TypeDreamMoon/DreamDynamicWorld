@@ -282,6 +282,13 @@ float UDreamSkyStyle::SunDogAzimuth(float LightElevation, float RefractiveIndex)
 	return FMath::RadiansToDegrees(2.0f * FMath::Asin(Effective * 0.5f)) - 60.0f;
 }
 
+float UDreamSkyStyle::NightSkyThrough(float Haze, float Fog, float CloudCover) const
+{
+	const float Air = FMath::Pow(1.0f - FMath::Clamp(Haze, 0.0f, 1.0f), FMath::Max(NightSkyHazeExponent, 0.5f));
+	return Air * (1.0f - FMath::Clamp(NightSkyFogHides, 0.0f, 1.0f) * FMath::Clamp(Fog, 0.0f, 1.0f))
+		* (1.0f - FMath::Clamp(NightSkyCloudHides, 0.0f, 1.0f) * FMath::Clamp(CloudCover, 0.0f, 1.0f));
+}
+
 float UDreamSkyStyle::AuroraNight(float SunElevation)
 {
 	// (It shows once the sky is dark enough: from the end of the civil twilight, in full by the nautical's end.)

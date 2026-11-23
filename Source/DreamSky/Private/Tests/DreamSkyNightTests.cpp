@@ -605,6 +605,32 @@ bool FDreamSkyMilkyWayTest::RunTest(const FString& Parameters)
 	const float Lit = W.SkySubsystem->GetMilkyWayVisibility();
 	TestTrue(FString::Printf(TEXT("a bright city all but hides it (%.3f)"), Lit), Lit < 0.1f * Dark);
 	W.SkySubsystem->RemoveModifier(City);
+
+	// The weather's haze hides the night sky, all of it by one share: a light haze dims it, a dust storm's all but hides
+	// the stars and the Milky Way, and leaves the moon a dull disk.
+	const UDreamSkyStyle* Style = W.Sky->GetEffectiveStyle();
+	TestNearlyEqual(TEXT("a clear night lets it all through"), Style->NightSkyThrough(0.0f, 0.0f, 0.0f), 1.0f, 1e-6f);
+	TestNearlyEqual(TEXT("a light haze half"), Style->NightSkyThrough(0.3f, 0.0f, 0.0f), 0.49f, 0.01f);
+	TestTrue(TEXT("a dust storm's haze next to none"), Style->NightSkyThrough(0.95f, 0.0f, 0.0f) < 0.005f);
+	TestNearlyEqual(TEXT("thick fog a tenth"), Style->NightSkyThrough(0.0f, 1.0f, 0.0f), 0.1f, 1e-4f);
+	TestNearlyEqual(TEXT("a full cover six tenths"), Style->NightSkyThrough(0.0f, 0.0f, 1.0f), 0.6f, 1e-4f);
+	W.Clock->Tick(0.016f);
+	const float StarsClear = W.Parameter(MPC_Stars).R;
+	const float MilkyClear = W.Parameter(MPC_MilkyWay).G;
+	const float MoonClear = W.Parameter(MPC_MoonDisk).G;
+	const float Through = W.SkySubsystem->GetNightSkyThrough();
+	UDreamSkyModifier* Dust = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Dust->Settings.bOverride_Haze = true;
+	Dust->Settings.Haze = 0.95f;
+	W.SkySubsystem->SetModifierAlpha(Dust, 1.0f);
+	W.Clock->Tick(0.016f);
+	const float Hidden = W.SkySubsystem->GetNightSkyThrough();
+	TestTrue(FString::Printf(TEXT("a dust storm hides the night sky (%.4f of %.3f)"), Hidden, Through), Hidden < 0.01f * FMath::Max(Through, 0.1f));
+	TestTrue(TEXT("the stars with it"), W.Parameter(MPC_Stars).R < 0.01f * StarsClear + 1e-6f);
+	TestTrue(TEXT("and the Milky Way"), W.Parameter(MPC_MilkyWay).G < 0.01f * MilkyClear + 1e-6f);
+	TestTrue(FString::Printf(TEXT("the moon a dull disk (%.3f of %.3f)"), W.Parameter(MPC_MoonDisk).G, MoonClear),
+		MoonClear <= 0.0f || FMath::IsNearlyEqual(W.Parameter(MPC_MoonDisk).G / MoonClear, Style->MoonThroughHaze / FMath::Lerp(Style->MoonThroughHaze, 1.0f, Through), 0.03f));
+	W.SkySubsystem->RemoveModifier(Dust);
 	W.Clock->SetTimeOfDay(19.3f);
 	W.Clock->Tick(0.016f);
 	TestTrue(FString::Printf(TEXT("not in the twilight (%.3f)"), W.SkySubsystem->GetMilkyWayVisibility()), W.SkySubsystem->GetMilkyWayVisibility() < 0.2f);

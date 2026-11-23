@@ -686,6 +686,14 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 {
 	using namespace DreamSky::Names;
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
+	// How much of the night sky -- the stars, the Milky Way, the aurora, meteors and satellites, noctilucent clouds, the
+	// moon to a dull disk -- the weather's haze, fog and cloud let through: one share for them all.
+	{
+		const FDreamWorldEnvironment& NightAir = Clock.GetEnvironment();
+		NightSkyThroughShare = Style.NightSkyThrough(Look.Haze.A, NightAir.bActive ? NightAir.Fog : 0.0f, NightAir.bActive ? NightAir.CloudCoverage : 0.0f);
+	}
+	const float NightThrough = NightSkyThroughShare;
+	const float MoonThrough = FMath::Lerp(FMath::Clamp(Style.MoonThroughHaze, 0.0f, 1.0f), 1.0f, NightThrough);
 
 	Clock.SetVectorParameter(MPC_Zenith, With(Look.Zenith, 0.0f));
 	Clock.SetVectorParameter(MPC_Horizon, With(Look.Horizon, Look.HorizonExponent));
@@ -696,10 +704,10 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float MoonScale = FMath::Max(Look.MoonDiskScale, 0.05f);
 	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, FMath::Max(Style.SunHaloExponent / (SunScale * SunScale), 1.0f)));
 	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize * SunScale));
-	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize * MoonScale));
-	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, FMath::Max(Style.MoonHaloExponent / (MoonScale * MoonScale), 1.0f)));
+	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk * MoonThrough, Style.MoonDiskSize * MoonScale));
+	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo * MoonThrough, FMath::Max(Style.MoonHaloExponent / (MoonScale * MoonScale), 1.0f)));
 	Clock.SetVectorParameter(MPC_MoonLook, FLinearColor(FMath::Max(Style.MoonTerminatorSoftness, 0.002f), FMath::Max(Style.MoonEarthshine, 0.0f), 0.0f, 0.0f));
-	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
+	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity * NightThrough, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
 	Clock.SetVectorParameter(MPC_StarLook, FLinearColor(FMath::Max(Style.StarSize, 0.1f), FMath::Max(Style.StarTwinkleSpeed, 0.0f), FMath::Clamp(Style.StarDimmest, 0.0f, 1.0f), 0.0f));
 	// The celestial sphere: its north pole as high as the latitude, toward north; the March equinox on the celestial
 	// equator, as far west of the meridian (its hour angle) as the local sidereal time.
@@ -721,13 +729,11 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	{
 		const FDreamSkyMilkyWay& MW = Style.MilkyWay;
 		const FDreamCelestialState& Heavens = Clock.GetCelestial();
-		const FDreamWorldEnvironment& Env = Clock.GetEnvironment();
 		const float Dark = FMath::SmoothStep(-MW.ShowsBelow, FMath::Max(-MW.FullBelow, -MW.ShowsBelow + 0.1f), -Applied.SunElevation);
 		const float MoonLight = Heavens.MoonIllumination * FMath::SmoothStep(-2.0f, 10.0f, Heavens.MoonElevation);
 		const float Moon = 1.0f - FMath::Clamp(MW.MoonWash, 0.0f, 1.0f) * FMath::Pow(FMath::Clamp(MoonLight, 0.0f, 1.0f), 0.6f);
 		const float City = FMath::Exp(-1.0986f * FMath::Max(Look.LightPollution, 0.0f) / FMath::Max(MW.CityWash, 1.0e-3f));
-		const float Air = (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) * (Env.bActive ? (1.0f - 0.9f * FMath::Clamp(Env.Fog, 0.0f, 1.0f)) * (1.0f - 0.4f * FMath::Clamp(Env.CloudCoverage, 0.0f, 1.0f)) : 1.0f);
-		MilkyWayVisibility = Dark * Moon * City * Air;
+		MilkyWayVisibility = Dark * Moon * City * NightThrough;
 		const float Shows = FMath::Max(Look.MilkyWay, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f) * MilkyWayVisibility;
 		const FLinearColor Light = MW.Tint * Shows;
 		Clock.SetVectorParameter(MPC_MilkyWay, FLinearColor(Light.R, Light.G, Light.B, FMath::Max(MW.Contrast, 0.25f)));
@@ -740,7 +746,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const bool bSouth = Settings.Mode == EDreamCelestialMode::Realistic && Settings.Latitude < 0.0;
 		const FVector Pole = DreamWorld::Celestial::DirectionFromAngles(0.0, bSouth ? 180.0 : 0.0, Settings.NorthYaw);
 		const float Strength = (CVarDreamSkySkyDetail.GetValueOnGameThread() >= 1 ? 1.0f : 0.0f)
-			* FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f)
+			* FMath::Max(Look.Aurora, 0.0f) * UDreamSkyStyle::AuroraNight(Applied.SunElevation) * FMath::Max(Style.Aurora.Brightness, 0.0f) * NightThrough
 			* (Style.Aurora.bStylizedTones && bStylizedClouds ? -1.0f : 1.0f);
 		Clock.SetVectorParameter(MPC_Aurora, FLinearColor(Strength, Style.Aurora.Speed, float(Pole.X), float(Pole.Y)));
 		Clock.SetVectorParameter(MPC_AuroraLow, With(Style.Aurora.LowColor, Style.Aurora.ArcDistance));
@@ -825,14 +831,14 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const double Ra = FMath::DegreesToRadians(double(MeteorShower.RightAscension));
 		const double Dec = FMath::DegreesToRadians(double(MeteorShower.Declination));
 		const FVector Radiant = (FMath::Cos(Dec) * (FMath::Cos(Ra) * X + FMath::Sin(Ra) * Y) + FMath::Sin(Dec) * Pole).GetSafeNormal();
-		const float Dark = MS.bEnabled ? UDreamSkyStyle::AuroraNight(Applied.SunElevation) * (1.0f - 0.85f * FMath::Clamp(Look.Haze.A, 0.0f, 1.0f)) : 0.0f;
+		const float Dark = MS.bEnabled ? UDreamSkyStyle::AuroraNight(Applied.SunElevation) * NightThrough : 0.0f;
 		const float Forced = CVarDreamSkyMeteors.GetValueOnGameThread();
 		const float Detail = CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2 ? 1.0f : 0.0f;
 		const float Scale = (Forced >= 0.0f ? Forced : FMath::Max(MS.RateScale, 0.0f)) * FMath::Max(Look.Meteors, 0.0f) * Dark * Detail;
 		const float Sporadic = FMath::Max(MS.SporadicPerHour, 0.0f) * Scale;
 		const float Shower = MeteorShower.ZenithalHourlyRate * FMath::Max(float(Radiant.Z), 0.0f) * Scale;
 		MeteorRate = Sporadic + Shower;
-		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) * Detail : 0.0f;
+		const float Satellites = MS.bEnabled ? FMath::Max(MS.SatellitesPerHour, 0.0f) * FMath::Max(Look.Meteors, 0.0f) * (Forced >= 0.0f ? Forced : 1.0f) * Detail * NightThrough : 0.0f;
 		Clock.SetVectorParameter(MPC_Meteors, FLinearColor(Sporadic, Shower, FMath::Max(MS.Brightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f), Satellites));
 		Clock.SetVectorParameter(MPC_MeteorRadiant, FLinearColor(float(Radiant.X), float(Radiant.Y), float(Radiant.Z), FMath::Max(MS.SatelliteBrightness, 0.0f) * FMath::Max(Look.StarIntensity, 0.0f)));
 		Clock.SetVectorParameter(MPC_MeteorLook, With(MS.Color, FMath::Max(MS.TrailLength, 0.2f)));
@@ -841,7 +847,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	{
 		const FDreamSkyNoctilucent& N = Style.Noctilucent;
 		const float Strength = N.bEnabled && CVarDreamSkySkyDetail.GetValueOnGameThread() >= 2
-			? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) : 0.0f;
+			? FMath::Max(Look.Noctilucent, 0.0f) * UDreamSkyStyle::NoctilucentTwilight(Applied.SunElevation) * FMath::Max(N.Brightness, 0.0f) * NightThrough : 0.0f;
 		Clock.SetVectorParameter(MPC_Noctilucent, FLinearColor(Strength, FMath::Clamp(N.Altitude, 40.0f, 150.0f), FMath::Max(N.BandSpacing, 1.0f), FMath::Max(N.Drift, 0.0f)));
 		Clock.SetVectorParameter(MPC_NoctilucentColor, With(N.Color, FMath::Max(N.BillowSpacing, 0.5f)));
 	}
