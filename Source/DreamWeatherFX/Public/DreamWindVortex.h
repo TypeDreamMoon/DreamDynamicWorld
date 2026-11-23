@@ -106,7 +106,7 @@ public:
 	float TangentialSpeed = 1200.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0"))
-	float Updraft = 600.0f;
+	float Updraft = 900.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0"))
 	float Inflow = 300.0f;
@@ -121,13 +121,13 @@ public:
 
 	/** Its dust and debris: puffs and pieces a second at full strength, their sizes and colours. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0"))
-	float DustRate = 80.0f;
+	float DustRate = 30.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "1"))
-	float PuffSize = 120.0f;
+	float PuffSize = 110.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look")
-	FLinearColor DustColor = FLinearColor(0.62f, 0.52f, 0.40f, 0.55f);
+	FLinearColor DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.3f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look", meta = (ClampMin = "0"))
 	float DebrisRate = 10.0f;
@@ -136,7 +136,7 @@ public:
 	float DebrisSize = 8.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex|Look")
-	FLinearColor DebrisColor = FLinearColor(0.45f, 0.33f, 0.20f, 1.0f);
+	FLinearColor DebrisColor = FLinearColor(0.10f, 0.08f, 0.06f, 0.9f);
 
 	/** Fill the sizes, speeds and look with a kind's (a plan's Scale scales the sizes). */
 	UFUNCTION(BlueprintCallable, Category = "Vortex")
@@ -169,6 +169,9 @@ private:
 	FDreamVortexPlan Plan;
 	bool bHasPlan = false;
 	int32 VortexId = 0;
+	/** When it formed, for the sky's funnel (its plan's start, or when it first blew). */
+	double BornSeconds = 0.0;
+	bool bBorn = false;
 };
 
 /**

@@ -56,7 +56,8 @@ bool FDreamWindTwisterShapeTest::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("round the core's edge, counter-clockwise from above at its full speed (%s)"), *Edge.ToCompactString()), FMath::IsNearlyEqual(Edge.Y, 1000.0, 30.0));
 	TestNearlyEqual(TEXT("inside the core it turns as a solid body (half way: half the speed)"), At(Ccw, FVector(150.0, 0.0, 1000.0)).Y, 500.0, 25.0);
 	TestNearlyEqual(TEXT("outside it, falling off as 1/r"), At(Ccw, FVector(600.0, 0.0, 1000.0)).Y, 500.0, 25.0);
-	TestTrue(TEXT("its axis rises at the updraft"), FMath::IsNearlyEqual(At(Ccw, FVector(0.0, 0.0, 1500.0)).Z, 500.0, 10.0));
+	TestTrue(TEXT("its core's wall rises at the updraft"), FMath::IsNearlyEqual(At(Ccw, FVector(240.0, 0.0, 1500.0)).Z, 500.0, 10.0));
+	TestTrue(TEXT("its axis less (a tube of rising air)"), At(Ccw, FVector(0.0, 0.0, 1500.0)).Z < 0.4 * 500.0 && At(Ccw, FVector(0.0, 0.0, 1500.0)).Z > 0.0);
 	const FVector Low = At(Ccw, FVector(300.0, 0.0, 50.0));
 	TestTrue(FString::Printf(TEXT("along the ground the air is drawn in (%.0f cm/s inward)"), -Low.X), -Low.X > 200.0 && -Low.X < 300.0);
 	TestTrue(TEXT("higher up much less so"), -At(Ccw, FVector(300.0, 0.0, 2500.0)).X < 0.05 * 300.0);
@@ -94,12 +95,22 @@ bool FDreamWindTwisterWorldTest::RunTest(const FString& Parameters)
 	const FVector Round = Wind->SampleWindVelocity(FVector(Devil->CoreRadius, 0.0, 600.0));
 	AddInfo(FString::Printf(TEXT("a dust devil in a calm: at its core's edge 6 m up %s cm/s"), *Round.ToCompactString()));
 	TestTrue(TEXT("the air turns round it at its speed"), FMath::IsNearlyEqual(Round.Y, double(Devil->TangentialSpeed), 0.05 * Devil->TangentialSpeed));
-	TestTrue(TEXT("and rises in its core"), Wind->SampleWindVelocity(FVector(0.0, 0.0, 1000.0)).Z > 0.8 * Devil->Updraft);
+	TestTrue(TEXT("and rises in its core's wall"), Wind->SampleWindVelocity(FVector(Devil->CoreRadius * 0.8, 0.0, 1000.0)).Z > 0.8 * Devil->Updraft);
 	TestTrue(TEXT("far off it the air is calm"), Wind->SampleWindVelocity(FVector(5000.0, 0.0, 600.0)).IsNearlyZero(1.0));
+	// The clock's register (the sky's funnels): a dust devil is not in it; a tornado is, with its funnel.
+	const UDreamWorldSubsystem* Clock = World->GetSubsystem<UDreamWorldSubsystem>();
+	TestTrue(TEXT("a dust devil draws no funnel"), Clock && Clock->GetVortices().Num() == 0 && Devil->GetVortexId() == 0);
+	Devil->SetKind(EDreamVortexKind::Tornado);
+	Devil->Refresh();
+	const FDreamWorldVortex* Registered = Clock ? Clock->GetVortices().Find(Devil->GetVortexId()) : nullptr;
+	TestTrue(TEXT("a tornado is registered with the clock, its funnel as wide as it reaches"), Registered && Registered->bFunnel && Registered->Radius == Devil->Radius
+		&& Registered->Strength == 1.0f && Registered->Spin == 1.0f && Clock->GetVortices().Num() == 1);
+	Devil->SetKind(EDreamVortexKind::DustDevil);
 	Devil->Intensity = 0.0f;
 	Devil->Refresh();
 	Wind->Tick(0.016f);
 	TestTrue(TEXT("died out, nothing"), Wind->SampleWindVelocity(FVector(Devil->CoreRadius, 0.0, 600.0)).IsNearlyZero(1.0));
+	TestTrue(TEXT("and out of the register"), Clock && Clock->GetVortices().Num() == 0 && Devil->GetVortexId() == 0);
 	World->DestroyWorld(false);
 	return true;
 }

@@ -3,6 +3,7 @@
 #include "DreamWindVortex.h"
 #include "DreamWeatherSelector.h"
 #include "DreamWindSourceComponent.h"
+#include "DreamWindSubsystem.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
 
@@ -62,12 +63,12 @@ void ADreamWindVortex::SetKind(EDreamVortexKind NewKind, float Scale)
 		TangentialSpeed = 5000.0f;
 		Updraft = 2500.0f;
 		Inflow = 1200.0f;
-		DustRate = 180.0f;
-		PuffSize = 900.0f * K;
-		DustColor = FLinearColor(0.30f, 0.28f, 0.25f, 0.7f);
+		DustRate = 120.0f;
+		PuffSize = 700.0f * K;
+		DustColor = FLinearColor(0.22f, 0.21f, 0.19f, 0.45f);
 		DebrisRate = 120.0f;
 		DebrisSize = 30.0f;
-		DebrisColor = FLinearColor(0.25f, 0.20f, 0.15f, 1.0f);
+		DebrisColor = FLinearColor(0.06f, 0.05f, 0.04f, 0.95f);
 	}
 	else
 	{
@@ -75,14 +76,14 @@ void ADreamWindVortex::SetKind(EDreamVortexKind NewKind, float Scale)
 		CoreRadius = 250.0f * K;
 		Height = 4000.0f * K;
 		TangentialSpeed = 1200.0f;
-		Updraft = 600.0f;
+		Updraft = 900.0f;
 		Inflow = 300.0f;
-		DustRate = 80.0f;
-		PuffSize = 120.0f * K;
-		DustColor = FLinearColor(0.62f, 0.52f, 0.40f, 0.55f);
+		DustRate = 30.0f;
+		PuffSize = 110.0f * K;
+		DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.3f);
 		DebrisRate = 10.0f;
 		DebrisSize = 8.0f;
-		DebrisColor = FLinearColor(0.45f, 0.33f, 0.20f, 1.0f);
+		DebrisColor = FLinearColor(0.10f, 0.08f, 0.06f, 0.9f);
 	}
 }
 
@@ -142,24 +143,66 @@ void ADreamWindVortex::Refresh()
 	// (on while it blows: a world that has not begun play does not switch components on by itself)
 	Wind->SetActive(S > 0.001f);
 
+	// The clock's register: the sky draws a tornado's funnel (and the dust it raises) from it. A dust devil is not in it:
+	// its look is its own dust.
+	if (UDreamWorldSubsystem* Clock = UDreamWorldSubsystem::Get(this))
+	{
+		if (S <= 0.001f || Kind != EDreamVortexKind::Tornado)
+		{
+			Unregister();
+		}
+		else
+		{
+			if (!bBorn)
+			{
+				BornSeconds = bHasPlan ? Plan.StartSeconds : Clock->GetWorldSeconds();
+				bBorn = true;
+			}
+			FDreamWorldVortex V;
+			V.Location = GetActorLocation();
+			V.Radius = R;
+			V.Strength = S;
+			V.Spin = bClockwise ? -1.0f : 1.0f;
+			V.TangentialSpeed = TangentialSpeed * S;
+			// It leans with the wind aloft: its top drifts downwind for about the time the air takes to rise up it.
+			if (const UDreamWindSubsystem* Air = UDreamWindSubsystem::Get(this))
+			{
+				const FDreamWindGlobalWind G = Air->GetGlobalWind();
+				const FVector Drift = G.Direction.GetSafeNormal2D() * double(G.Speed) * double(Height / FMath::Max(Updraft, 100.0f)) * 0.3;
+				V.Lean = FVector2D(Drift).ClampAxes(-Height * 0.5, Height * 0.5);
+			}
+			V.BornSeconds = BornSeconds;
+			V.bFunnel = true;
+			VortexId = Clock->SetVortex(VortexId, V);
+		}
+	}
+
 	if (Effect)
 	{
 		const bool bTornado = Kind == EDreamVortexKind::Tornado;
-		Effect->SetVariableFloat(TEXT("Intensity"), S);
-		Effect->SetVariableFloat(TEXT("DustRate"), DustRate);
-		Effect->SetVariableFloat(TEXT("Radius"), CoreRadius * 1.3f);
-		Effect->SetVariableFloat(TEXT("Height"), bTornado ? 1500.0f : 150.0f);
-		Effect->SetVariableFloat(TEXT("Lifetime"), bTornado ? 10.0f : 7.0f);
-		Effect->SetVariableFloat(TEXT("PuffSize"), PuffSize);
-		Effect->SetVariableLinearColor(TEXT("Tint"), DustColor);
-		Effect->SetVariableFloat(TEXT("DebrisRate"), DebrisRate);
-		Effect->SetVariableFloat(TEXT("DebrisSize"), DebrisSize);
-		Effect->SetVariableLinearColor(TEXT("DebrisColor"), DebrisColor);
+		Effect->SetVariableFloat(TEXT("User.Intensity"), S);
+		Effect->SetVariableFloat(TEXT("User.DustRate"), DustRate);
+		Effect->SetVariableFloat(TEXT("User.Radius"), CoreRadius);
+		Effect->SetVariableFloat(TEXT("User.Height"), bTornado ? 1500.0f : 150.0f);
+		Effect->SetVariableFloat(TEXT("User.Lifetime"), bTornado ? 10.0f : 8.0f);
+		Effect->SetVariableFloat(TEXT("User.Drag"), 6.0f);
+		Effect->SetVariableFloat(TEXT("User.PuffSize"), PuffSize);
+		Effect->SetVariableLinearColor(TEXT("User.Tint"), DustColor);
+		Effect->SetVariableFloat(TEXT("User.DebrisRate"), DebrisRate);
+		Effect->SetVariableFloat(TEXT("User.DebrisSize"), DebrisSize);
+		Effect->SetVariableLinearColor(TEXT("User.DebrisColor"), DebrisColor);
 	}
 }
 
 void ADreamWindVortex::Unregister()
 {
+	if (VortexId != 0)
+	{
+		if (UDreamWorldSubsystem* Clock = UDreamWorldSubsystem::Get(this))
+		{
+			Clock->RemoveVortex(VortexId);
+		}
+	}
 	VortexId = 0;
 }
 
@@ -328,7 +371,7 @@ void ADreamWindVortexSpawner::EndPlay(const EEndPlayReason::Type Reason)
 // DreamWeather.Vortex <DustDevil|Tornado|off> [x y] [intensity] [scale]: a whirlwind placed by hand (shots, tests).
 static FAutoConsoleCommandWithWorldAndArgs GDreamWeatherVortexCommand(
 	TEXT("DreamWeather.Vortex"),
-	TEXT("DreamWeather.Vortex <DustDevil|Tornado> <x> <y> [intensity 0..1] [scale]: stand a whirlwind there (on the ground under it); DreamWeather.Vortex off: take the ones placed so away."),
+	TEXT("DreamWeather.Vortex <DustDevil|Tornado> <x> <y> [intensity 0..1] [scale] [dust shade]: stand a whirlwind there (on the ground under it); DreamWeather.Vortex off: take the ones placed so away."),
 	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 	{
 		if (!World || Args.Num() < 1)
@@ -361,6 +404,12 @@ static FAutoConsoleCommandWithWorldAndArgs GDreamWeatherVortexCommand(
 		if (ADreamWindVortex* Vortex = World->SpawnActor<ADreamWindVortex>(FVector(Foot, Ground), FRotator::ZeroRotator, Spawn))
 		{
 			Vortex->SetKind(Kind, Args.Num() > 4 ? FCString::Atof(*Args[4]) : 1.0f);
+			if (Args.Num() > 5)
+			{
+				// (how light its dust is against its kind's: for tuning by eye)
+				const float Shade = FMath::Max(FCString::Atof(*Args[5]), 0.0f);
+				Vortex->DustColor = FLinearColor(Vortex->DustColor.R * Shade, Vortex->DustColor.G * Shade, Vortex->DustColor.B * Shade, Vortex->DustColor.A);
+			}
 			Vortex->Intensity = Args.Num() > 3 ? FMath::Clamp(FCString::Atof(*Args[3]), 0.0f, 1.0f) : 1.0f;
 			Vortex->Tags.Add(Tag);
 			Vortex->Refresh();
