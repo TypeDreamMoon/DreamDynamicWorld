@@ -25,6 +25,8 @@
 #include "DreamWeatherZone.h"
 #include "DreamWindForceComponent.h"
 #include "DreamWindGlobalActor.h"
+#include "DreamWindVortex.h"
+#include "DreamWorldCelestial.h"
 #include "DreamWorldTracks.h"
 
 #include "Components/StaticMeshComponent.h"
@@ -323,6 +325,29 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("one far land"), FarLands, 1);
 	TestEqual(TEXT("no sequence playing in the day level"), ActorsOf<ALevelSequenceActor>(World).Num(), 0);
+
+	// The tornado in the afternoon's storm: one spawner's, no dust devils of its, half way through its life at the hour the
+	// tours shoot it at (its stages' hours are the tours' too), crossing 2.5 km east of the hut.
+	const TArray<ADreamWindVortexSpawner*> Spawners = ActorsOf<ADreamWindVortexSpawner>(World);
+	const TArray<ADreamSky*> Clocks = ActorsOf<ADreamSky>(World);
+	if (TestEqual(TEXT("one whirlwind spawner"), Spawners.Num(), 1) && Clocks.Num() == 1)
+	{
+		const ADreamWindVortexSpawner* Spawner = Spawners[0];
+		TestTrue(TEXT("tornadoes only"), Spawner->DustDevilChance == FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
+		const double DayStart = DreamWorld::Celestial::FromDateTime(FDateTime(2026, 1, 20));
+		const double Mid = DayStart + DreamWorld::Setup::ShowcaseTornadoMidHour * 3600.0;
+		FDreamVortexPlan Plan;
+		if (TestTrue(TEXT("a tornado on the showcase's day"), Spawner->PlanSlot(Clocks[0]->Clock.Seed, DreamWorld::Celestial::DayIndex(DayStart), Plan)
+			&& Plan.Kind == EDreamVortexKind::Tornado))
+		{
+			const double U = (Mid - Plan.StartSeconds) / double(Plan.LifetimeSeconds);
+			TestTrue(*FString::Printf(TEXT("half way through its life at the storm's hour (%.3f)"), U), FMath::Abs(U - 0.5) < 0.03);
+			TestNearlyEqual(TEXT("its life"), Plan.LifetimeSeconds, DreamWorld::Setup::ShowcaseTornadoMinutes * 60.0f, 0.5f);
+			TestTrue(TEXT("in the storm (13-15)"), DreamWorld::Celestial::HoursOfDay(Plan.StartSeconds) >= 13.0
+				&& DreamWorld::Celestial::HoursOfDay(Plan.EndSeconds()) < 15.0);
+			TestTrue(TEXT("crossing 2.5 km east of the hut"), FVector2D::Distance(Plan.FootAt(Mid), DreamWorld::Setup::ShowcaseTornadoPass) < 25000.0);
+		}
+	}
 	return true;
 }
 

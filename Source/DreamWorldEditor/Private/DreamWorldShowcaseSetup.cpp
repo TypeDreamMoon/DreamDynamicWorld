@@ -871,6 +871,49 @@ namespace DreamWorld::ShowcaseSetup
 		return Schedule;
 	}
 
+	/**
+	 * The tornado in the afternoon's storm (13-15): a spawner's, whole from beside the hut -- forming, touching down,
+	 * moving on, roping out and breaking -- crossing 2.5 km east of it from south to north. A tornado in every day's slot,
+	 * on one line at one speed for one life; its seed offset the first whose tornado on the showcase's day is half way
+	 * through its life at ShowcaseTornadoMidHour, so every run of the level has the same one at the same moments.
+	 */
+	void AddTornadoSpawner(UWorld& World, int32 Seed)
+	{
+		using namespace DreamWorld::Setup;
+		ADreamWindVortexSpawner* Spawner = World.SpawnActor<ADreamWindVortexSpawner>(FVector(ShowcaseTornadoPass, 0.0), FRotator::ZeroRotator);
+		if (!Spawner)
+		{
+			return;
+		}
+		Spawner->SetActorLabel(TEXT("TornadoSpawner"));
+		Spawner->SlotHours = 24.0f;
+		Spawner->DustDevilChance = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+		Spawner->TornadoChance = FVector4f(1.0f, 1.0f, 1.0f, 1.0f);
+		Spawner->TornadoMinutes = FVector2D(ShowcaseTornadoMinutes, ShowcaseTornadoMinutes);
+		Spawner->TornadoSpeed = FVector2D(550.0, 550.0);
+		Spawner->PassRadius = 0.0f;
+		Spawner->PrevailingYaw = 90.0f;
+		Spawner->DirectionVariation = 0.0f;
+		const double DayStart = DreamWorld::Celestial::FromDateTime(Day);
+		const int64 Slot = DreamWorld::Celestial::DayIndex(DayStart);
+		const double Mid = DayStart + ShowcaseTornadoMidHour * 3600.0;
+		for (int32 Offset = 0; Offset < 1000000; ++Offset)
+		{
+			Spawner->SeedOffset = Offset;
+			FDreamVortexPlan Plan;
+			if (Spawner->PlanSlot(Seed, Slot, Plan) && Plan.Kind == EDreamVortexKind::Tornado
+				&& FMath::Abs((Mid - Plan.StartSeconds) / double(Plan.LifetimeSeconds) - 0.5) < 0.03)
+			{
+				const FVector2D Foot = Plan.FootAt(Mid);
+				UE_LOG(LogDreamWorld, Display, TEXT("Showcase: the tornado (seed offset %d) from %.3f h for %.1f minutes, at %.3f h at (%.0f, %.0f), scale %.2f, spin %d."),
+					Offset, DreamWorld::Celestial::HoursOfDay(Plan.StartSeconds), Plan.LifetimeSeconds / 60.0f, ShowcaseTornadoMidHour, Foot.X, Foot.Y,
+					Plan.Scale, Plan.Spin);
+				return;
+			}
+		}
+		UE_LOG(LogDreamWorld, Warning, TEXT("Showcase: no seed offset puts the tornado in the storm; it comes when its seed says."));
+	}
+
 	bool BuildOne(const TCHAR* PackagePath, UDreamSkyStyle* Style, const FShowcaseKit& Kit, UDreamSkyModifier* Aurora, UDreamSkyModifier* Halo, UDreamSkyModifier* Shine, UDreamSkyModifier* Storm, ULevelSequence* Dusk,
 		UDreamCloudPainting* Clouds)
 	{
@@ -1072,12 +1115,13 @@ namespace DreamWorld::ShowcaseSetup
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
 		AddHailField(*World, FVector(-900.0, 2300.0, 0.0));
 		// A dust devil turning on the open ground west of the square: its dust, its pull on the grass, the leaves and the
-		// rain are the wind's. A tornado is a spawner's or the console's (DreamWeather.Vortex Tornado x y).
+		// rain are the wind's. The tornado is a spawner's, in the afternoon's storm, 2.5 km east.
 		if (ADreamWindVortex* Devil = World->SpawnActor<ADreamWindVortex>(FVector(-2200.0, -2000.0, 0.0), FRotator::ZeroRotator))
 		{
 			Devil->SetKind(EDreamVortexKind::DustDevil);
 			Devil->SetActorLabel(TEXT("DustDevil"));
 		}
+		AddTornadoSpawner(*World, Sky->Clock.Seed);
 		AddStorm(*World);
 
 		// The wind, with level heights baked over the set: roofs keep the rain off, puddles follow the dips. The bake

@@ -31,6 +31,16 @@ namespace DreamWorld::Setup
 	inline const FVector2D ShowcaseBasinCenter(2700.0, -1500.0);
 	inline const FVector2D ShowcaseBasinSize(300.0, 200.0);
 
+	/**
+	 * The showcase's tornado, in the afternoon's storm: a spawner's (ADreamWindVortexSpawner) whose path crosses this
+	 * point, 2.5 km east of the hut, heading north; it lives ShowcaseTornadoMinutes and is half way through its life at
+	 * ShowcaseTornadoMidHour on the showcase's day (the schedule tour's storm), so its stages fall at fixed hours: forming
+	 * at 14.074, touching down 14.14, moving on 14.2, roping out 14.317, breaking 14.328.
+	 */
+	inline const FVector2D ShowcaseTornadoPass(252450.0, 700.0);
+	constexpr double ShowcaseTornadoMidHour = 14.2;
+	constexpr float ShowcaseTornadoMinutes = 18.0f;
+
 	/** The far land round the set (near hills 5-7.5 km out, mid mountains 12-16 km, a far range 24-30 km, to 2 km high). */
 	inline const TCHAR* ShowcaseFarLandPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcaseFarLand");
 	inline const FVector2D ShowcaseFarCenter(2500.0, 0.0);

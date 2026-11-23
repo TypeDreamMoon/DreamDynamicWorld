@@ -1066,18 +1066,20 @@ mode (no movement, no HUD): `LS_DreamWorldShowcaseDusk`, twenty seconds of dusk 
 sequence in Sequencer to scrub it.
 
 **Looking it over.** A shot tour stops the clock in each weather of the schedule and takes seven views — the wide
-shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — then forces snow and dust by
+shot, the toon group, inside the hut, the doorway, the pond, the grove, the snow field — and in the storm the tornado
+from beside the hut at its five stages (its own sheet) — then forces snow and dust by
 day and a storm by night (the schedule has them the other way round), a winter morning after an evening's rain and a
 clear, still night — frost and black ice at dawn, the thaw by late morning, then rime in a freezing fog (`-Parts cold`,
 its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's, the far land's and the tornado's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
-`DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above.
+`DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above (the
+tornado half way through its life at the hour the tour shoots it, whose stages' hours the tour has).
 
 **Timing it.** `Tools/Showcase/Measure-ShowcaseGpu.ps1` times the GPU features one at a time on the showcase level at
 1920x1080, each at a fixed view and weather: the surface maps, the surface materials, trails, ripples, window glass,
@@ -1768,7 +1770,11 @@ deterministic, a dedicated server has none).
   A dust devil only starts in the afternoon (`DustDevilHours`, 11..17). Each lives some minutes (`DustDevilMinutes`,
   `TornadoMinutes`), crosses the area on a straight line through a point within `PassRadius` of the spawner (from
   `PrevailingYaw`, give or take `DirectionVariation`), spins up over its first sixth and dies out over its last quarter.
-* The showcase has a dust devil on the open ground west of the square. `DreamWeather.Vortex <DustDevil|Tornado> x y
+* The showcase has a dust devil on the open ground west of the square, and a spawner's tornado in the afternoon's
+  storm: it crosses 2.5 km east of the hut from south to north, 18 minutes from 14:03, its whole life in view from
+  beside the hut -- forming, touching down, moving on, roping out and breaking (one tornado a day on one line; Setup
+  takes the first seed offset whose tornado on the showcase's day is half way through its life at 14.2 h, so every run
+  of the level has the same one). `DreamWeather.Vortex <DustDevil|Tornado> x y
   [intensity] [scale]` stands one anywhere (`DreamWeather.Vortex off` takes them away); `DreamWind.DebugDraw 1` draws
   the column and its core.
 * Measured (`DreamWind.Gpu.FluidTwister`, a dust devil in a calm): the fluid turns at 1120 cm/s round its core's edge,
