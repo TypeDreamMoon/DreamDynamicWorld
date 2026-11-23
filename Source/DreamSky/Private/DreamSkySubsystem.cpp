@@ -31,6 +31,11 @@ static TAutoConsoleVariable<float> CVarDreamSkyMeteors(
 	TEXT(" satellites; 100 = a dense sky to look at); -1 = the style's."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<float> CVarDreamSkyCloudClearing(
+	TEXT("DreamSky.CloudClearing"), -1.0f,
+	TEXT("Scales the clouds' clearing round the sun and the moon whatever the style says (0 = none, to compare); -1 = the style's."),
+	ECVF_Default);
+
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
 
 namespace DreamSky::Subsystem
@@ -202,7 +207,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	}
 	// (While the sky cloud renderer draws the clouds their shadow falls on the ground through the sun's light function:
 	// the overcast does not dim the sun light as well.)
-	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, Sky->DrawsClouds() && Sky->SunLight);
+	Style->ApplyWeather(Clock.GetEnvironment(), Target, Look, (Sky->DrawsClouds() || Sky->DrawsFlatClouds()) && Sky->SunLight);
 	// The physical sky (DreamAtmosphere) over the style's curves, as far as its grade says.
 	DreamSky::AtmosphereBridge::Apply(Clock, *Sky, *Style, Target, Look);
 	// Indoors goes in before the easing, so walking through a door fades the exposure rather than cutting it.
@@ -246,7 +251,7 @@ void UDreamSkySubsystem::Update(UDreamWorldSubsystem& Clock, float DeltaTime)
 	Sky->UpdateDome(Clock.GetViewLocation(), Clock.HasViewLocation());
 	Sky->UpdateCloudShadow(Clock.GetViewLocation());
 	bStylizedClouds = Sky->GetEffectiveCloudLook() != EDreamSkyCloudLook::Realistic;
-	WriteParameters(Clock, *Style, Sky->DrawsClouds());
+	WriteParameters(Clock, *Style, Sky->DrawsClouds(), Sky->DrawsFlatClouds());
 	LogLighting(Clock);
 	Applied = Modified;
 }
@@ -670,7 +675,7 @@ void UDreamSkySubsystem::ApplySnapshot(const FDreamWorldSnapshot& Snapshot)
 	}
 }
 
-void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds)
+void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds, bool bFlatClouds)
 {
 	using namespace DreamSky::Names;
 	auto With = [](const FLinearColor& C, float A) { return FLinearColor(C.R, C.G, C.B, A); };
@@ -678,10 +683,14 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	Clock.SetVectorParameter(MPC_Zenith, With(Look.Zenith, 0.0f));
 	Clock.SetVectorParameter(MPC_Horizon, With(Look.Horizon, Look.HorizonExponent));
 	Clock.SetVectorParameter(MPC_Ground, With(Look.Ground, 0.0f));
-	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, Style.SunHaloExponent));
-	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize));
-	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize));
-	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, Style.MoonHaloExponent));
+	// (The disks as large as the look draws them -- larger near the horizon -- and their glows with them: a glow's
+	// exponent, its tightness, over the scale squared.)
+	const float SunScale = FMath::Max(Look.SunDiskScale, 0.05f);
+	const float MoonScale = FMath::Max(Look.MoonDiskScale, 0.05f);
+	Clock.SetVectorParameter(MPC_SunHalo, With(Look.SunHalo, FMath::Max(Style.SunHaloExponent / (SunScale * SunScale), 1.0f)));
+	Clock.SetVectorParameter(MPC_SunDisk, With(Look.SunDisk, Style.SunDiskSize * SunScale));
+	Clock.SetVectorParameter(MPC_MoonDisk, With(Look.MoonDisk, Style.MoonDiskSize * MoonScale));
+	Clock.SetVectorParameter(MPC_MoonHalo, With(Look.MoonHalo, FMath::Max(Style.MoonHaloExponent / (MoonScale * MoonScale), 1.0f)));
 	Clock.SetVectorParameter(MPC_MoonLook, FLinearColor(FMath::Max(Style.MoonTerminatorSoftness, 0.002f), FMath::Max(Style.MoonEarthshine, 0.0f), 0.0f, 0.0f));
 	Clock.SetVectorParameter(MPC_Stars, FLinearColor(Look.StarIntensity, Style.StarDensity, Style.StarTwinkle, FMath::Clamp(Look.StarsHidden, 0.0f, 1.0f)));
 	Clock.SetVectorParameter(MPC_StarLook, FLinearColor(FMath::Max(Style.StarSize, 0.1f), FMath::Max(Style.StarTwinkleSpeed, 0.0f), FMath::Clamp(Style.StarDimmest, 0.0f, 1.0f), 0.0f));
@@ -762,6 +771,19 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The clouds clearing round the sun and the moon (the renderer and the dome read it).
+	{
+		const float Forced = CVarDreamSkyCloudClearing.GetValueOnGameThread();
+		const float Scale = Forced >= 0.0f ? Forced : 1.0f;
+		Clock.SetVectorParameter(MPC_CloudClearing, FLinearColor(FMath::Clamp(Look.SunClearing * Scale, 0.0f, 1.0f), FMath::Clamp(Look.MoonClearing * Scale, 0.0f, 1.0f),
+			Look.ClearingRadius, Look.ClearingExponent));
+	}
+	// The flat clouds, while the dome draws them instead of the renderer.
+	{
+		const FDreamSkyFlatClouds& F = Style.FlatClouds;
+		Clock.SetVectorParameter(MPC_FlatClouds, FLinearColor(bFlatClouds ? FMath::Clamp(F.Opacity, 0.0f, 1.0f) : 0.0f, float(FMath::Clamp(F.Tones, 0, 4)),
+			FMath::Max(F.Scale, 0.1f), FMath::Clamp(F.ShadowStrength, 0.0f, 1.0f)));
+	}
 	// Meteors and satellites: the sporadic ones, the shower of the date streaking from its radiant (as high as it stands:
 	// none with it under the horizon), as dark as the night is.
 	{
@@ -812,7 +834,7 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		Clock.SetVectorParameter(MPC_Halo, FLinearColor(FMath::Max(H.Intensity, 0.0f) * Shows.X, FMath::Max(H.SunDogs, 0.0f) * Shows.X,
 			FMath::Max(H.Corona, 0.0f) * Shows.Y, FMath::Clamp(H.Milkiness, 0.0f, 1.0f) * Shows.X));
 		Clock.SetVectorParameter(MPC_Halo2, FLinearColor(FMath::Clamp(H.Radius, 10.0f, 40.0f), FMath::Max(H.Width, 0.2f), FMath::Max(H.CoronaRadius, 0.5f),
-			FMath::Max(Style.MoonDiskSize, 0.0f)));
+			FMath::Max(Style.MoonDiskSize * Look.MoonDiskScale, 0.0f)));
 	}
 	Clock.SetVectorParameter(MPC_CloudLit, With(Look.CloudLit, Style.CloudRim));
 	Clock.SetVectorParameter(MPC_CloudShadow, With(Look.CloudShadow, Style.CloudOpacity));

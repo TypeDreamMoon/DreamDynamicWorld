@@ -16,6 +16,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Level.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/TextureCube.h"
 #include "Engine/VolumeTexture.h"
 #include "HAL/IConsoleManager.h"
 #include "MaterialShared.h"
@@ -314,13 +315,51 @@ bool FDreamSkyCloudBackendTest::RunTest(const FString& Parameters)
 		const int32 Saved = Enable->GetInt();
 		Enable->Set(0, ECVF_SetByCode);
 		W.Clock->Tick(0.016f);
-		TestFalse(TEXT("DreamSky.CloudRender.Enable 0: no clouds"), W.Sky->DrawsClouds());
+		TestFalse(TEXT("DreamSky.CloudRender.Enable 0: the renderer draws no clouds"), W.Sky->DrawsClouds());
 		TestFalse(TEXT("the dome's sky light capture takes no panorama"), DomeLeavesCloudsOut());
-		TestTrue(TEXT("the sun takes no cloud shadow"), W.Sky->SunLight->LightFunctionMaterial == nullptr);
-		TestNull(TEXT("and no shadow texture is kept"), W.Sky->GetCloudShadowTarget());
+		TestNull(TEXT("no shadow texture is kept"), W.Sky->GetCloudShadowTarget());
+		// The flat clouds stand in: the dome draws them, the sun takes their shadow; with them off, nothing.
+		TestTrue(TEXT("the flat clouds stand in"), W.Sky->DrawsFlatClouds());
+		const UMaterialInterface* FlatShadow = W.Sky->SunLight->LightFunctionMaterial;
+		TestTrue(TEXT("the sun takes the flat clouds' shadow"), FlatShadow && FlatShadow->GetName() == TEXT("M_DreamFlatCloudShadow"));
+		IConsoleVariable* Flat = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds.Flat"));
+		if (TestNotNull(TEXT("DreamSky.Clouds.Flat"), Flat))
+		{
+			Flat->Set(0, ECVF_SetByCode);
+			W.Clock->Tick(0.016f);
+			TestFalse(TEXT("flat clouds off: none"), W.Sky->DrawsFlatClouds());
+			TestTrue(TEXT("the sun takes no cloud shadow"), W.Sky->SunLight->LightFunctionMaterial == nullptr);
+			Flat->Set(-1, ECVF_SetByCode);
+		}
 		Enable->Set(Saved, ECVF_SetByCode);
 		W.Clock->Tick(0.016f);
 		TestTrue(TEXT("on again: the clouds as before"), W.Sky->DrawsClouds() == FApp::CanEverRender());
+		TestTrue(TEXT("and the flat clouds only where the renderer does not draw"), W.Sky->DrawsFlatClouds() == !W.Sky->DrawsClouds());
+	}
+	// DreamSky.Clouds.Flat 1: the flat clouds instead of the renderer (a low quality), what the dome is told.
+	if (IConsoleVariable* Flat = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Clouds.Flat")))
+	{
+		Flat->Set(1, ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
+		TestFalse(TEXT("Flat 1: the renderer does not draw"), W.Sky->DrawsClouds());
+		TestTrue(TEXT("the flat clouds do"), W.Sky->DrawsFlatClouds());
+		FLinearColor Value = FLinearColor::Black;
+		UMaterialParameterCollectionInstance* Instance = Collection ? W.World->GetParameterCollectionInstance(Collection) : nullptr;
+		if (Instance && Instance->GetVectorParameterValue(DreamSky::Names::MPC_FlatClouds, Value))
+		{
+			TestNearlyEqual(TEXT("the dome draws them as opaque as the style says"), Value.R, W.Sky->GetEffectiveStyle()->FlatClouds.Opacity, 1e-5f);
+			TestNearlyEqual(TEXT("their shadow as strong"), Value.A, W.Sky->GetEffectiveStyle()->FlatClouds.ShadowStrength, 1e-5f);
+		}
+		W.Sky->GetEffectiveStyle()->FlatClouds.bEnabled = false;
+		W.Clock->Tick(0.016f);
+		TestFalse(TEXT("the style's flat clouds off: none"), W.Sky->DrawsFlatClouds());
+		if (Instance && Instance->GetVectorParameterValue(DreamSky::Names::MPC_FlatClouds, Value))
+		{
+			TestEqual(TEXT("the dome draws none"), Value.R, 0.0f);
+		}
+		W.Sky->GetEffectiveStyle()->FlatClouds.bEnabled = true;
+		Flat->Set(-1, ECVF_SetByCode);
+		W.Clock->Tick(0.016f);
 	}
 	// (It is in the depth buffer: a terrain reaching further than the dome stood out behind it as a black band under the
 	// horizon. Its sky goes by the view direction alone, so it stands far beyond any terrain.)
@@ -414,8 +453,8 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 
 	// While the sky cloud renderer draws the clouds, their shadow takes the sun off the ground through the sun's light
 	// function: under an overcast the sun light is left whole (the same clouds are not counted twice) and only the shared
-	// parameters' main light -- the materials read no light function -- is dimmed. Without the renderer the sky dims the
-	// sun light itself.
+	// parameters' main light -- the materials read no light function -- is dimmed. So while the flat clouds stand in and
+	// cast theirs. With neither the sky dims the sun light itself.
 	DreamSky::Tests::FSkyWorld W;
 	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
 	{
@@ -456,9 +495,9 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	}
 	TestTrue(FString::Printf(TEXT("a clear noon has a sun (%.2f lux)"), Clear), Clear > 1.0f);
 	const float Dimmed = Clear * (1.0f - Style->OvercastLightDimming);
-	if (W.Sky->DrawsClouds())
+	if (W.Sky->DrawsClouds() || W.Sky->DrawsFlatClouds())
 	{
-		TestNearlyEqual(FString::Printf(TEXT("the renderer's shadow shades the ground: the sun light left whole (%.2f against %.2f lux)"), Grey, Clear), Grey,
+		TestNearlyEqual(FString::Printf(TEXT("the clouds' shadow (the renderer's, or the flat clouds') shades the ground: the sun light left whole (%.2f against %.2f lux)"), Grey, Clear), Grey,
 			Clear, FMath::Max(1e-3f, Clear * 2e-3f));
 	}
 	else
@@ -469,6 +508,66 @@ bool FDreamSkyCloudShadowSunTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(FString::Printf(TEXT("the materials' main light dimmed either way (%.2f against %.2f lux)"), GreyMain, ClearMain), GreyMain,
 		ClearMain * (1.0f - Style->OvercastLightDimming), FMath::Max(1e-3f, ClearMain * 2e-3f));
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyLightSourceTest, "DreamSky.Actor.SkyLightSource", DreamSky::Tests::Flags)
+bool FDreamSkyLightSourceTest::RunTest(const FString& Parameters)
+{
+	// The sky light's source: the dome captured in real time (by default) or when it changed, or a cubemap, fixed or
+	// tinted by the sky's ambient light.
+	DreamSky::Tests::FSkyWorld W;
+	if (!TestNotNull(TEXT("clock"), W.Clock) || !TestNotNull(TEXT("sky actor"), W.Sky))
+	{
+		return false;
+	}
+	ADreamSky& Sky = *W.Sky;
+	USkyLightComponent* Light = Sky.SkyLight;
+	auto At = [&W](int32 Hour, float Minutes = 0.0f)
+	{
+		FDreamWorldClockConfig Config;
+		Config.StartTime = FDateTime(2026, 6, 21, Hour, 0, 0) + FTimespan::FromMinutes(Minutes);
+		W.Clock->ApplyClockConfig(Config, true);
+		W.Clock->Tick(0.016f);
+	};
+	At(12);
+	TestTrue(TEXT("by default: the dome captured in real time"), Light->SourceType == SLS_CapturedScene && Light->bRealTimeCapture);
+	Sky.bRealTimeSkyCapture = false;
+	At(12);
+	TestTrue(TEXT("real time off: captured when it changed"), Sky.GetEffectiveSkyLightSource() == EDreamSkyLightSource::CaptureWhenChanged && !Light->bRealTimeCapture);
+	Sky.bRealTimeSkyCapture = true;
+
+	Sky.SkyLightSource = EDreamSkyLightSource::Cubemap;
+	At(12);
+	TestTrue(TEXT("a fixed cubemap: no capture"), Light->SourceType == SLS_SpecifiedCubemap && !Light->bRealTimeCapture);
+	TestTrue(TEXT("none given: the engine's daylight one"), Light->Cubemap && Light->Cubemap->GetName() == TEXT("DaylightAmbientCubemap"));
+	TestTrue(TEXT("white"), Light->GetLightColor().Equals(FLinearColor::White, 1e-5f));
+	const float Fixed = Light->Intensity;
+
+	Sky.SkyLightSource = EDreamSkyLightSource::TintedCubemap;
+	At(12);
+	TestTrue(TEXT("tinted: the plain white cube"), Light->Cubemap && Light->Cubemap->GetName() == TEXT("T_DreamSkyWhiteCube"));
+	const FLinearColor Noon = Light->GetLightColor();
+	const float NoonIntensity = Light->Intensity;
+	TestTrue(FString::Printf(TEXT("tinted by the noon sky: blue (%s)"), *Noon.ToString()), Noon.B >= Noon.R && FMath::IsNearlyEqual(FMath::Max3(Noon.R, Noon.G, Noon.B), 1.0f, 1e-4f));
+	TestTrue(TEXT("the ground below from the sky's ambient ground"), Light->bLowerHemisphereIsBlack);
+	At(0);
+	TestTrue(FString::Printf(TEXT("darker at night (%.4f against %.4f)"), Light->Intensity, NoonIntensity), Light->Intensity < 0.5f * NoonIntensity);
+	TestTrue(TEXT("the fixed cubemap's brightness was the style's sky light intensity"), Fixed > 0.0f);
+
+	// The console overrides it; back to the capture.
+	IConsoleVariable* Forced = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.SkyLightSource"));
+	if (TestNotNull(TEXT("DreamSky.SkyLightSource"), Forced))
+	{
+		Forced->Set(0, ECVF_SetByCode);
+		At(12);
+		TestTrue(TEXT("forced back to the real time capture"), Light->SourceType == SLS_CapturedScene && Light->bRealTimeCapture);
+		TestTrue(TEXT("its colour white again"), Light->GetLightColor().Equals(FLinearColor::White, 1e-5f));
+		Forced->Set(-1, ECVF_SetByCode);
+	}
+	Sky.SkyLightSource = EDreamSkyLightSource::RealTimeCapture;
+	At(12);
+	TestTrue(TEXT("the capture again"), Light->SourceType == SLS_CapturedScene);
 	return true;
 }
 

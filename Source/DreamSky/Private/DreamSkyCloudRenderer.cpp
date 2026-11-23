@@ -549,6 +549,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"), TEXT("DDW_SkyModClouds"), TEXT("DDW_NightGlow"), TEXT("DDW_LightPollution"),
 		TEXT("DDW_MoonDir"), TEXT("DDW_SkyGrade0"), TEXT("DDW_SkyGrade1"), TEXT("DDW_SkyGrade2"), TEXT("DDW_SkyGrade3"),
 		TEXT("DDW_AtmosphereSun"), TEXT("DDW_AtmosphereMoon"), TEXT("DDW_AmbientSky"), TEXT("DDW_AmbientEquator"),
+		TEXT("DDW_CloudClearing"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;
@@ -744,7 +745,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		{
 			const FVector Sun = Clock->GetCelestial().SunDirection;
 			Settings.Flare.bEnabled = Sun.Z > -0.05;
-			Settings.Flare.SunDirection = FVector4f(float(Sun.X), float(Sun.Y), float(Sun.Z), FMath::DegreesToRadians(FMath::Max(Style->SunDiskSize, 0.05f)));
+			Settings.Flare.SunDirection = FVector4f(float(Sun.X), float(Sun.Y), float(Sun.Z), FMath::DegreesToRadians(FMath::Max(Style->SunDiskSize * Sky->GetLook().SunDiskScale, 0.05f)));
 			Settings.Flare.Flare = FVector4f(Strength, FMath::Max(F.Threshold, 0.0f), float(uint8(Preset)), 0.0f);
 			Settings.Flare.Tint = FVector4f(F.Tint.R, F.Tint.G, F.Tint.B, 1.0f);
 		}

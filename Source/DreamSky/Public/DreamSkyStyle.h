@@ -698,6 +698,69 @@ struct DREAMSKY_API FDreamSkyMeteors
 	float SatelliteBrightness = 0.25f;
 };
 
+/**
+ * The flat clouds: a cheap sheet of cloud the dome draws at the cloud base where the sky cloud renderer does not draw
+ * (below Shader Model 5, turned off, or chosen for a low quality: DreamSky.Clouds.Flat), from the weather map's cover
+ * and darkness, in the style's cloud colours, with its shadow on the ground.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyFlatClouds
+{
+	GENERATED_BODY()
+
+	/** Draw them where the renderer does not (off: no clouds there, as before). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds")
+	bool bEnabled = true;
+
+	/** How much of the sky behind them they hide, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float Opacity = 0.92f;
+
+	/** 0: shaded smoothly; 2 .. 4: in that many flat tones, as the toon look's clouds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "4"))
+	int32 Tones = 0;
+
+	/** The clouds' size (1 = some 4 km across the middle octave). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0.1", UIMax = "4"))
+	float Scale = 1.0f;
+
+	/** How much of the sun their shadow takes on the ground (0: none). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ClampMin = "0", ClampMax = "1"))
+	float ShadowStrength = 0.65f;
+};
+
+/**
+ * The clouds clearing round the sun and the moon: a low sun's evening clouds thin out round it, its disk and the glow
+ * about it showing through, and the moon's likewise. Each ray's cloud is eaten back from its edges and thinned as near
+ * the light as the falloff says (the thicker cores last), so the clouds shrink and fade toward it rather than a hole
+ * opening; the same for every cloud look, the high cloud and the flat clouds.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyCloudClearing
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing")
+	bool bEnabled = true;
+
+	/** How far round the light the clouds thin, degrees (to some 37% of the strength at this angle). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "1", UIMax = "60"))
+	float Radius = 14.0f;
+
+	/** How it falls off with the angle: 2 a soft bell, higher a flatter middle with a quicker edge, 1 a long tail. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "0.5", UIMax = "8"))
+	float Exponent = 2.0f;
+
+	/** How much the clouds thin right by the sun (0 none .. 1 most of them), over the sun's elevation: by default plain
+	 *  with a low sun, almost none by noon. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Sun elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve SunStrength;
+
+	/** The same by the moon, over the moon's elevation. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Moon elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve MoonStrength;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -834,6 +897,14 @@ public:
 	float SunHaloExponent = 6.0f;
 
 	/**
+	 * How large the sun's disk is drawn, times SunDiskSize, over its elevation: larger near the horizon (the moon
+	 * illusion, drawn). Only the disk as seen -- its glow, an eclipse's corona and the lens flare with it; the light's
+	 * source angle, and so the shadows' softness, stays as it is.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sun", meta = (XAxisName = "Sun elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve SunDiskScale;
+
+	/**
 	 * Share of the sun disk the sky light sees when it captures the dome. A full disk in the captured light
 	 * makes a hot spot every rough surface reflects; the sun's light comes from the directional light anyway.
 	 */
@@ -860,6 +931,11 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "1", UIMax = "128"))
 	float MoonHaloExponent = 24.0f;
+
+	/** How large the moon's disk is drawn, times MoonDiskSize, over its elevation: larger near the horizon. Only the disk
+	 *  as seen -- its glow, its corona and a lunar eclipse's shadow on it with it; the light's source angle stays. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Moon elevation", YAxisName = "Disk scale"))
+	FRuntimeFloatCurve MoonDiskScale;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (XAxisName = "Sun elevation", YAxisName = "Colour"))
 	FRuntimeCurveLinearColor MoonLightColor;
@@ -944,6 +1020,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Meteors", meta = (ShowOnlyInnerProperties))
 	FDreamSkyMeteors Meteors;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ShowOnlyInnerProperties))
+	FDreamSkyFlatClouds FlatClouds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ShowOnlyInnerProperties))
+	FDreamSkyCloudClearing CloudClearing;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;

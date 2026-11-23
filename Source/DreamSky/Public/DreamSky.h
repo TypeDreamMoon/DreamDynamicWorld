@@ -17,6 +17,22 @@ class UTextureRenderTarget2D;
 class UMaterialInterface;
 class UPostProcessComponent;
 class USkyLightComponent;
+class UTextureCube;
+
+/** Where the sky light's light comes from. */
+UENUM(BlueprintType)
+enum class EDreamSkyLightSource : uint8
+{
+	/** The dome captured continuously (time-sliced by the engine): everything the sky does, at its cost. */
+	RealTimeCapture,
+	/** The dome captured again when the sky has changed enough (cheaper; a step now and then). */
+	CaptureWhenChanged,
+	/** A fixed cubemap (SkyLightCubemap, the engine's daylight one if none), at the sky light's intensity: no capture at all. */
+	Cubemap,
+	/** A cubemap (SkyLightCubemap, a plain white one if none) tinted by the sky's ambient light and as bright as it: the
+	 *  sky's colour through the day without any capture -- for low end and mobile. */
+	TintedCubemap,
+};
 class UStaticMeshComponent;
 class UDreamSkyStyle;
 class UDreamSkySubsystem;
@@ -68,9 +84,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dome", meta = (ClampMin = "10000", UIMax = "200000000"))
 	float DomeRadius = 100000000.0f;
 
-	/** The sky light recaptures the dome continuously (time-sliced by the engine). Off = recaptured when the sky changed enough. */
+	/** The sky light recaptures the dome continuously (time-sliced by the engine). Off = recaptured when the sky changed
+	 *  enough. (Read with SkyLightSource RealTimeCapture: off then means CaptureWhenChanged.) */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
 	bool bRealTimeSkyCapture = true;
+
+	/** Where the sky light's light comes from: the dome captured (always, or when it has changed), or a cubemap, fixed or
+	 *  tinted by the sky (for low end and mobile: no capture at all). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog")
+	EDreamSkyLightSource SkyLightSource = EDreamSkyLightSource::RealTimeCapture;
+
+	/** The cubemap for the Cubemap and TintedCubemap sources (none: the engine's daylight cubemap; for the tinted one, a
+	 *  plain white one -- a neutral cubemap takes the sky's tint best). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog", meta = (EditCondition = "SkyLightSource == EDreamSkyLightSource::Cubemap || SkyLightSource == EDreamSkyLightSource::TintedCubemap"))
+	TSoftObjectPtr<UTextureCube> SkyLightCubemap;
+
+	/** Scales the cubemap's light (its texels times the sky light's intensity; tinted, times the sky's ambient light too). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sky Light and Fog", meta = (ClampMin = "0", UIMax = "8", EditCondition = "SkyLightSource == EDreamSkyLightSource::Cubemap || SkyLightSource == EDreamSkyLightSource::TintedCubemap"))
+	float SkyLightCubemapScale = 1.0f;
+
+	/** The sky light's source in use (SkyLightSource, with bRealTimeSkyCapture off turning a real time capture into one
+	 *  when changed; DreamSky.SkyLightSource overrides both). */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	EDreamSkyLightSource GetEffectiveSkyLightSource() const;
 
 	/**
 	 * How the sky cloud renderer draws the clouds: toon (the surface, in the style's few tones), realistic or painted
@@ -172,6 +208,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	bool DrawsClouds() const;
 
+	/** True while the dome draws the flat clouds: the renderer does not draw (DrawsClouds), DreamSky.Clouds.Flat is not 0,
+	 *  and the style's FlatClouds is on. */
+	UFUNCTION(BlueprintPure, Category = "Dream Sky")
+	bool DrawsFlatClouds() const;
+
 	/** The clock this level starts with. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	FDreamWorldClockConfig MakeClockConfig() const;
@@ -256,6 +297,15 @@ private:
 	TObjectPtr<UTextureRenderTarget2D> CloudShadowTarget;
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CloudShadowFunction;
+	/** The flat clouds' shadow (M_DreamFlatCloudShadow; it reads the shared parameters). */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> FlatCloudShadowFunction;
+
+	/** Puts the sky light on its source (GetEffectiveSkyLightSource), tinting a tinted cubemap by the sky's ambient light. */
+	void ApplySkyLightSource(const struct FDreamSkyLighting& Lighting, bool bSnap);
+	/** The cubemap the sky light was last given (to know when to set it again). */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureCube> AppliedSkyLightCubemap;
 	FVector4f CloudShadowPlacement = FVector4f(0.0f, 0.0f, 1.0f, 0.0f);
 
 	/** The conditional post processes' components and weights (UpdateConditions), and the conditional modifiers' weights. */

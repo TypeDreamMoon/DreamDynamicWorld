@@ -8,6 +8,7 @@
 #include "DreamWorldSubsystem.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Engine/TextureCube.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SkyLightComponent.h"
@@ -39,6 +40,19 @@ static TAutoConsoleVariable<bool> CVarDreamSkyCloudRenderEnable(
 	TEXT(" Shader Model 5, the mobile renderer) they are left out whatever it says."),
 	ECVF_Scalability);
 
+static TAutoConsoleVariable<int32> CVarDreamSkySkyLightSource(
+	TEXT("DreamSky.SkyLightSource"), -1,
+	TEXT("The sky light's source whatever the sky says: 0 the dome captured in real time, 1 captured when it changed, 2 a fixed")
+	TEXT(" cubemap, 3 a cubemap tinted by the sky (for low end and mobile); -1 = the sky's SkyLightSource."),
+	ECVF_Scalability);
+
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudsFlat(
+	TEXT("DreamSky.Clouds.Flat"), -1,
+	TEXT("The flat clouds (a cheap sheet the dome draws, with its shadow): -1 wherever the sky cloud renderer does not draw")
+	TEXT(" (below Shader Model 5, DreamSky.CloudRender.Enable 0); 1 instead of the renderer (for a low quality); 0 never (no")
+	TEXT(" clouds where the renderer does not draw). The style's FlatClouds.bEnabled turns them off for a sky."),
+	ECVF_Scalability);
+
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderLook(
 	TEXT("DreamSky.CloudRender.Look"), -1,
 	TEXT("How the sky cloud renderer draws the clouds: -1 = each Dream Sky's CloudLook, 0 = toon (the surface, lit in the")
@@ -58,6 +72,8 @@ namespace DreamSky::Actor
 		Unsupported,
 		/** DreamSky.CloudRender.Enable 0. */
 		TurnedOff,
+		/** DreamSky.Clouds.Flat 1: the flat clouds instead. */
+		Flat,
 	};
 
 	/** How a sky was saved (its custom version). */
@@ -83,6 +99,9 @@ namespace DreamSky::Actor
 	static const TCHAR* DomeMeshPath = TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere");
 	static const TCHAR* DefaultMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamSky.M_DreamSky");
 	static const TCHAR* CloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamCloudShadow.M_DreamCloudShadow");
+	static const TCHAR* FlatCloudShadowMaterialPath = TEXT("/DreamDynamicWorld/Sky/M_DreamFlatCloudShadow.M_DreamFlatCloudShadow");
+	static const TCHAR* DaylightCubemapPath = TEXT("/Engine/MapTemplates/Sky/DaylightAmbientCubemap.DaylightAmbientCubemap");
+	static const TCHAR* WhiteCubemapPath = TEXT("/DreamDynamicWorld/Sky/T_DreamSkyWhiteCube.T_DreamSkyWhiteCube");
 	/** The sky cloud renderer's ground shadow: texels a side, and how far round the view it reaches (cm). */
 	static constexpr int32 CloudShadowResolution = 512;
 	static constexpr float CloudShadowHalfExtent = 6000000.0f;
@@ -342,11 +361,21 @@ uint8 ADreamSky::WhyNoClouds() const
 	{
 		return uint8(ECloudsOff::Unsupported);
 	}
+	if (CVarDreamSkyCloudsFlat.GetValueOnGameThread() == 1)
+	{
+		return uint8(ECloudsOff::Flat);
+	}
 	if (!CVarDreamSkyCloudRenderEnable.GetValueOnGameThread())
 	{
 		return uint8(ECloudsOff::TurnedOff);
 	}
 	return uint8(ECloudsOff::None);
+}
+
+bool ADreamSky::DrawsFlatClouds() const
+{
+	const UDreamSkyStyle* S = GetEffectiveStyle();
+	return !DrawsClouds() && CVarDreamSkyCloudsFlat.GetValueOnGameThread() != 0 && (!S || S->FlatClouds.bEnabled);
 }
 
 void ADreamSky::TellCloudsOff(uint8 Why)
@@ -362,14 +391,17 @@ void ADreamSky::TellCloudsOff(uint8 Why)
 	{
 	case ECloudsOff::Unsupported:
 	{
-		UE_LOG(LogDreamSky, Warning, TEXT("%s: the sky cloud renderer cannot run here (it needs Shader Model 5 or above; the mobile renderer has none of its passes): the sky is drawn without its clouds."), *GetPathName());
+		UE_LOG(LogDreamSky, Warning, TEXT("%s: the sky cloud renderer cannot run here (it needs Shader Model 5 or above; the mobile renderer has none of its passes): %s."), *GetPathName(),
+			DrawsFlatClouds() ? TEXT("the dome draws the flat clouds instead") : TEXT("the sky is drawn without its clouds"));
 #if WITH_EDITOR
 		// (Once an editor session: every play in editor world would say it again.)
 		static bool bToldEditor = false;
 		if (GIsEditor && !bToldEditor && FSlateApplication::IsInitialized())
 		{
 			bToldEditor = true;
-			FNotificationInfo Info(NSLOCTEXT("DreamSky", "CloudsUnsupported", "Dream Sky: the clouds are not drawn here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview have no clouds)."));
+			FNotificationInfo Info(DrawsFlatClouds()
+				? NSLOCTEXT("DreamSky", "CloudsFlat", "Dream Sky: the flat clouds stand in here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview draw the dome's flat clouds).")
+				: NSLOCTEXT("DreamSky", "CloudsUnsupported", "Dream Sky: the clouds are not drawn here. The sky cloud renderer needs Shader Model 5 or above (the mobile renderer and its preview have no clouds)."));
 			Info.ExpireDuration = 8.0f;
 			FSlateNotificationManager::Get().AddNotification(Info);
 		}
@@ -377,7 +409,11 @@ void ADreamSky::TellCloudsOff(uint8 Why)
 		break;
 	}
 	case ECloudsOff::TurnedOff:
-		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.CloudRender.Enable is 0: the sky is drawn without its clouds."), *GetPathName());
+		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.CloudRender.Enable is 0: %s."), *GetPathName(),
+			DrawsFlatClouds() ? TEXT("the dome draws the flat clouds instead") : TEXT("the sky is drawn without its clouds"));
+		break;
+	case ECloudsOff::Flat:
+		UE_LOG(LogDreamSky, Display, TEXT("%s: DreamSky.Clouds.Flat is 1: the dome draws the flat clouds instead of the sky cloud renderer."), *GetPathName());
 		break;
 	case ECloudsOff::None:
 		if (Before != uint8(ECloudsOff::NoRenderer))
@@ -513,7 +549,26 @@ void ADreamSky::UpdateCloudShadow(const FVector& ViewLocation)
 	const bool bWanted = SunLight && DrawsClouds();
 	if (!bWanted)
 	{
-		if (SunLight && CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
+		CloudShadowTarget = nullptr;
+		CloudShadowPlacement.W = 0.0f;
+		// The flat clouds' shadow, while the dome draws them (it reads the shared parameters; none when the style asks none).
+		const UDreamSkyStyle* FlatStyle = GetEffectiveStyle();
+		if (SunLight && DrawsFlatClouds() && FlatStyle && FlatStyle->FlatClouds.ShadowStrength > 0.0f)
+		{
+			if (!FlatCloudShadowFunction)
+			{
+				FlatCloudShadowFunction = LoadObject<UMaterialInterface>(nullptr, FlatCloudShadowMaterialPath);
+			}
+			if (FlatCloudShadowFunction && SunLight->LightFunctionMaterial != FlatCloudShadowFunction)
+			{
+				SunLight->SetLightFunctionMaterial(FlatCloudShadowFunction);
+				SunLight->SetLightFunctionFadeDistance(1.0e9f);
+				SunLight->SetLightFunctionDisabledBrightness(1.0f);
+			}
+			return;
+		}
+		if (SunLight && ((CloudShadowFunction && SunLight->LightFunctionMaterial == CloudShadowFunction)
+			|| (FlatCloudShadowFunction && SunLight->LightFunctionMaterial == FlatCloudShadowFunction)))
 		{
 			// (The engine's defaults back.)
 			SunLight->SetLightFunctionMaterial(nullptr);
@@ -594,7 +649,81 @@ void ADreamSky::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	ApplyDome();
-	SkyLight->SetRealTimeCapture(bRealTimeSkyCapture);
+	SkyLight->SetRealTimeCapture(GetEffectiveSkyLightSource() == EDreamSkyLightSource::RealTimeCapture);
+}
+
+EDreamSkyLightSource ADreamSky::GetEffectiveSkyLightSource() const
+{
+	const int32 Forced = CVarDreamSkySkyLightSource.GetValueOnAnyThread();
+	if (Forced >= 0)
+	{
+		return EDreamSkyLightSource(FMath::Min(Forced, 3));
+	}
+	return SkyLightSource == EDreamSkyLightSource::RealTimeCapture && !bRealTimeSkyCapture ? EDreamSkyLightSource::CaptureWhenChanged : SkyLightSource;
+}
+
+void ADreamSky::ApplySkyLightSource(const FDreamSkyLighting& L, bool bSnap)
+{
+	using namespace DreamSky::Actor;
+	const EDreamSkyLightSource Source = GetEffectiveSkyLightSource();
+	const bool bCubemap = Source == EDreamSkyLightSource::Cubemap || Source == EDreamSkyLightSource::TintedCubemap;
+	if (!bCubemap)
+	{
+		const bool bRealTime = Source == EDreamSkyLightSource::RealTimeCapture;
+		if (SkyLight->SourceType != SLS_CapturedScene)
+		{
+			SkyLight->SourceType = SLS_CapturedScene;
+			SkyLight->SetLightColor(FLinearColor::White);
+			AppliedSkyLightCubemap = nullptr;
+			SkyLight->SetRealTimeCapture(bRealTime);
+			SkyLight->RecaptureSky();
+		}
+		else if (SkyLight->bRealTimeCapture != bRealTime)
+		{
+			SkyLight->SetRealTimeCapture(bRealTime);
+		}
+		if (SkyLight->Intensity != L.SkyLightIntensity && FMath::Abs(SkyLight->Intensity - L.SkyLightIntensity) > (bSnap ? 1.0e-5f : 0.005f) * FMath::Max(L.SkyLightIntensity, 1.0e-3f))
+		{
+			SkyLight->SetIntensity(L.SkyLightIntensity);
+		}
+		return;
+	}
+	// A cubemap: none given, the engine's daylight one (the tinted, a plain white one, which takes the tint as it is).
+	UTextureCube* Cube = SkyLightCubemap.LoadSynchronous();
+	if (!Cube)
+	{
+		Cube = LoadObject<UTextureCube>(nullptr, Source == EDreamSkyLightSource::TintedCubemap ? WhiteCubemapPath : DaylightCubemapPath);
+	}
+	if (SkyLight->SourceType != SLS_SpecifiedCubemap || AppliedSkyLightCubemap != Cube)
+	{
+		SkyLight->SetRealTimeCapture(false);
+		SkyLight->SourceType = SLS_SpecifiedCubemap;
+		SkyLight->SetCubemap(Cube);
+		AppliedSkyLightCubemap = Cube;
+		SkyLight->RecaptureSky();
+	}
+	// Tinted: the sky's ambient light from above as a captured dome gives it -- its colour mostly the zenith's (most of
+	// the dome; the horizon toward a low sun is a narrow warm band), the brightest channel to 1; as bright as the zenith's
+	// and the horizon's together -- fixed: the sky light's intensity as the style gives it, white.
+	FLinearColor Color = FLinearColor::White;
+	float Intensity = L.SkyLightIntensity * FMath::Max(SkyLightCubemapScale, 0.0f);
+	if (Source == EDreamSkyLightSource::TintedCubemap)
+	{
+		const FLinearColor Hue = L.AmbientSky * 0.7f + L.AmbientEquator * 0.3f;
+		const float Peak = FMath::Max3(Hue.R, Hue.G, FMath::Max(Hue.B, 1.0e-6f));
+		Color = FLinearColor(Hue.R / Peak, Hue.G / Peak, Hue.B / Peak, 1.0f);
+		const float Bright = ((L.AmbientSky + L.AmbientEquator) * 0.5f).GetLuminance();
+		Intensity *= Bright / FMath::Max(Color.GetLuminance(), 1.0e-4f);
+	}
+	const float Tolerance = bSnap ? 1.0e-5f : 0.002f;
+	if (!SkyLight->GetLightColor().Equals(Color, Tolerance))
+	{
+		SkyLight->SetLightColor(Color);
+	}
+	if (FMath::Abs(SkyLight->Intensity - Intensity) > (bSnap ? 1.0e-5f : 0.005f) * FMath::Max(Intensity, 1.0e-3f))
+	{
+		SkyLight->SetIntensity(Intensity);
+	}
 }
 
 void ADreamSky::PostRegisterAllComponents()
@@ -854,17 +983,18 @@ void ADreamSky::ApplyLighting(const FDreamSkyLighting& L, const UDreamSkyStyle& 
 	const float ColorTolerance = bSnap ? 1.0e-5f : 0.002f;
 	if (SkyLight)
 	{
-		if (Differs(SkyLight->Intensity, L.SkyLightIntensity, Relative, 1.0e-5f))
-		{
-			SkyLight->SetIntensity(L.SkyLightIntensity);
-		}
 		if (Differs(SkyLight->LowerHemisphereColor, L.AmbientGround, ColorTolerance))
 		{
 			SkyLight->SetLowerHemisphereColor(L.AmbientGround);
 		}
-		if (SkyLight->bRealTimeCapture != bRealTimeSkyCapture)
+		// (Its source -- the dome captured, or a cubemap, tinted by the sky or not -- and its intensity.)
+		ApplySkyLightSource(L, bSnap);
+		// (A cubemap brings its own ground: under a tinted one the lower hemisphere is the sky's ambient ground.)
+		const bool bBlackBelow = GetEffectiveSkyLightSource() == EDreamSkyLightSource::TintedCubemap;
+		if (SkyLight->bLowerHemisphereIsBlack != bBlackBelow)
 		{
-			SkyLight->SetRealTimeCapture(bRealTimeSkyCapture);
+			SkyLight->bLowerHemisphereIsBlack = bBlackBelow;
+			SkyLight->MarkRenderStateDirty();
 		}
 	}
 
@@ -975,7 +1105,7 @@ float ADreamSky::GetPostProcessWeight(int32 Index) const
 
 void ADreamSky::RecaptureSkyLight()
 {
-	if (SkyLight && !SkyLight->bRealTimeCapture)
+	if (SkyLight && GetEffectiveSkyLightSource() == EDreamSkyLightSource::CaptureWhenChanged && !SkyLight->bRealTimeCapture)
 	{
 		SkyLight->RecaptureSky();
 	}

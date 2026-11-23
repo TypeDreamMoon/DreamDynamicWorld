@@ -144,6 +144,24 @@ editor's mobile preview, the sky is drawn without its cumulus — the sky itself
 ever — and the log and the editor say so once. `DreamSky.CloudRender.Enable 0` leaves them out the same way: set it in
 a device profile to have no clouds on a platform.
 
+**Sky light.** The sky light takes its light from the dome captured in real time (`SkyLightSource`, by default),
+or captured again only when the sky has changed enough (`CaptureWhenChanged`, as `bRealTimeSkyCapture` off), or --
+for low end and mobile, with no capture at all -- from a cubemap: `Cubemap` a fixed one (`SkyLightCubemap`, the
+engine's daylight cubemap if none) at the style's sky light intensity, or `TintedCubemap` one tinted by the sky's
+ambient light and as bright as it (a plain white cube Setup makes, `T_DreamSkyWhiteCube`, if none: a neutral cubemap
+takes the tint best), the ground below it the sky's ambient ground; `SkyLightCubemapScale` scales either.
+`DreamSky.SkyLightSource 0..3` overrides it (a device profile or a quality setting).
+
+**Flat clouds.** Where the renderer does not draw, the dome draws flat clouds instead (`DreamSky.Clouds.Flat`, -1): a
+cheap sheet at the cloud base from the weather map's cover and darkness -- a few clouds, then many, then an overcast,
+dark under a storm, a storm zone showing from afar -- shaped by three octaves of the cloud noise drifting with the
+wind, lit through at the thin edges and shaded in the middles in the style's cloud colours, the side toward the sun
+brighter, veiled by the air far off; and the sun takes a light function (`M_DreamFlatCloudShadow`) that casts the same
+sheet on the ground. Nothing is marched: a few texture reads a sky pixel. `DreamSky.Clouds.Flat 1` draws them instead
+of the renderer (for a low quality setting or a device profile), `0` never (no clouds where the renderer does not
+draw, as before). The style's `FlatClouds` sets their `Opacity`, `Tones` (0 smooth; 2 to 4 flat tones, as the toon
+look's), `Scale` and `ShadowStrength`, or turns them off; `ADreamSky::DrawsFlatClouds` says whether they are drawn.
+
 The field (`Shaders/Private/DreamSkyCloudShape.ush`, from the 3D noise `T_DreamCloudNoise` that Setup generates) is
 built the way UDS's volumetric clouds are. The weather map's cover picks the cloud type at each point: small
 fair-weather cumulus, towering cumulus, stratocumulus, an overcast deck. A low-frequency formation of Worley cells,
@@ -312,6 +330,22 @@ mostly as a shower clears in the low sun of the morning or the evening, and as a
 is the air's own light, so the style's `Rainbow` is on by default; `Intensity` sets how bright, `Width` how far its
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
+
+**The sun and the moon larger near the horizon.** The disks are drawn larger as they near the horizon -- the moon
+illusion, drawn: the style's `SunDiskScale` and `MoonDiskScale` are curves over each one's elevation, times
+`SunDiskSize` / `MoonDiskSize` (by default half again on the horizon, as they are from some 20 degrees up), the same at
+any latitude and season. Only the disk as seen grows: its glow with it (its exponent over the scale squared), an
+eclipse's corona and a lunar eclipse's shadow on the moon, the moon's corona and the lens flare; the lights' source
+angle, and so the shadows' softness, stays. A sky modifier's *Disk Scale* turns both toward its own.
+
+**Clouds clearing round the sun and the moon.** With the sun low the clouds round it thin out, its disk and the glow
+about it showing through, and the moon's likewise: each ray's cloud is eaten back from its edges and its volume
+thinned as near the light as `CloudClearing.Radius` (14 degrees) and `Exponent` (2, a soft bell) say, so the clouds
+shrink and fade toward the light rather than a hole opening -- for the toon, realistic and painted clouds, the high
+cloud and the flat clouds alike (the light's own shading and the shadows are left as they are). How strongly is a
+curve over the light's elevation, `SunStrength` and `MoonStrength` (by default plain with the light low, almost none
+overhead); a sky modifier's *Cloud Clearing* turns all four toward its own. `DreamSky.CloudClearing <scale>` scales it
+whatever the style says (0 to compare; -1 = the style's).
 
 **Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
 sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the

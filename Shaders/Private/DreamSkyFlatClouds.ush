@@ -1,0 +1,39 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The flat clouds: a cheap layer of cloud drawn where the sky cloud renderer is not (below Shader Model 5, turned off,
+// or chosen for a low quality: DreamSky.Clouds.Flat). The dome (DreamSkyStylized.ush, DSky_FlatClouds) draws it from
+// below as a sheet at the cloud base, and the sun's light function (M_DreamFlatCloudShadow) casts the same sheet on the
+// ground. Where the cloud is comes from the weather map's cover (the same as the renderer's clouds, so a storm zone
+// shows from afar) and three octaves of the 3D cloud noise drifting with the wind; nothing is marched.
+//
+// FlatClouds (DDW_FlatClouds) = (opacity: 0 = not drawn, tones: 0 smooth, 2 .. 4 the toon look's bands, the pattern's
+// scale, how much of the sun its shadow takes).
+
+#ifndef DREAMSKY_FLATCLOUDS_USH
+#define DREAMSKY_FLATCLOUDS_USH
+
+#include "/Plugin/DreamDynamicWorld/Private/DreamSkyCloudShape.ush"
+
+// How much cloud the layer has at a point (world cm), and how dark it is there (the weather map's darkness): (density
+// 0..1, darkness 0..1). Lod: the noise's mip for the finest octave (the coarser go up with it).
+float2 DFC_Cover(float2 World, float4 Cloud0, float4 Cloud1, float4 CloudLayer, float4 MapParams, float4 FlatClouds, Texture2D Map,
+	SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler, float Lod)
+{
+	float3 Weather = DCS_MapAt(World, DCS_ViewWeather(Cloud0, CloudLayer), MapParams, Map, MapSampler);
+	float Cover = saturate(Weather.x);
+	// (Drifting as the cumulus do; the pattern's size its own.)
+	float2 P = (World + Cloud1.xy * 220000.0 * max(Cloud0.z, 0.05)) / max(FlatClouds.z, 0.1);
+	float Large = Noise.SampleLevel(NoiseSampler, float3(P / 1400000.0, 0.41), max(Lod - 3.0, 0.0)).r;
+	float Middle = Noise.SampleLevel(NoiseSampler, float3(P / 380000.0, 0.63), max(Lod - 1.5, 0.0)).r;
+	float Fine = Noise.SampleLevel(NoiseSampler, float3(P / 95000.0, 0.19), Lod).r;
+	float Shape = 0.55 * Large + 0.3 * Middle + 0.15 * Fine;
+	// (More of the pattern clears the cut as the cover rises -- a few clouds, then many, then an overcast -- the share of
+	// the sky clouded going as the renderer's does with its cover: a third at 0.55, most of it by 0.9. The noise's octaves
+	// average about its median, 0.52.)
+	float Share = pow(Cover, 1.8);
+	float Cut = lerp(0.76, 0.3, Share);
+	float Density = smoothstep(Cut - 0.04, Cut + 0.12, Shape) * smoothstep(0.02, 0.12, Cover);
+	return float2(Density, saturate(Weather.y));
+}
+
+#endif // DREAMSKY_FLATCLOUDS_USH

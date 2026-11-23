@@ -203,6 +203,20 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudDarkness", ClampMin = "0", ClampMax = "1"))
 	float CloudDarkness = 0.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (InlineEditConditionToggle))
+	bool bOverride_DiskScale = false;
+	/** How large the sun's (x) and the moon's (y) disks turn toward being drawn, times their sizes (the style's curves'
+	 *  scale replaced). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun and Moon", meta = (EditCondition = "bOverride_DiskScale"))
+	FVector2f DiskScale = FVector2f(1.0f, 1.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_CloudClearing = false;
+	/** The clouds' clearing round the sun and the moon the sky turns toward: x the strength by the sun, y by the moon (0..1),
+	 *  z how far round (degrees), w the falloff's exponent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudClearing"))
+	FVector4f CloudClearing = FVector4f(0.6f, 0.4f, 14.0f, 2.0f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_HighCloudCover = false;
 	/** The thin high cloud's cover the sky turns toward, 0..1 (a sheet of it, over the style's ice halo threshold, shows the halos). */

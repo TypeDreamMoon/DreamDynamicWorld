@@ -887,4 +887,97 @@ bool FDreamSkyMeteorsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyCloudClearingTest, "DreamSky.Clouds.Clearing", DreamSky::NightTests::Flags)
+bool FDreamSkyCloudClearingTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The clouds clear round a low sun, hardly round a high one; round the moon likewise; none when off.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	auto Look = [Style](float SunElevation, float MoonElevation)
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = SunElevation;
+		Celestial.MoonElevation = MoonElevation;
+		return Style->EvaluateLook(Celestial);
+	};
+	const FDreamSkyLook Evening = Look(3.0f, -30.0f), Noon = Look(60.0f, -30.0f), Night = Look(-30.0f, 5.0f);
+	TestTrue(FString::Printf(TEXT("a low sun clears the clouds round it (%.2f)"), Evening.SunClearing), Evening.SunClearing > 0.4f);
+	TestTrue(FString::Printf(TEXT("hardly at noon (%.2f)"), Noon.SunClearing), Noon.SunClearing < 0.05f);
+	TestTrue(FString::Printf(TEXT("a low moon too (%.2f)"), Night.MoonClearing), Night.MoonClearing > 0.3f);
+	TestEqual(TEXT("the sun under the horizon: none round it"), Night.SunClearing, 0.0f);
+	TestNearlyEqual(TEXT("as far round as the style says"), Evening.ClearingRadius, Style->CloudClearing.Radius, 1e-5f);
+	Style->CloudClearing.bEnabled = false;
+	TestEqual(TEXT("off: none"), Look(3.0f, 5.0f).SunClearing + Look(3.0f, 5.0f).MoonClearing, 0.0f);
+	Style->CloudClearing.bEnabled = true;
+
+	// A sky modifier turns it toward its own, halfway at half strength.
+	UDreamSkyModifier* Modifier = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Modifier->Settings.bOverride_CloudClearing = true;
+	Modifier->Settings.CloudClearing = FVector4f(1.0f, 1.0f, 30.0f, 4.0f);
+	FDreamSkyLook Blended = Evening;
+	FDreamSkyLighting Lighting;
+	Modifier->Settings.Apply(Lighting, Blended, 0.5f);
+	TestNearlyEqual(TEXT("a modifier halfway: the strength"), Blended.SunClearing, 0.5f * (Evening.SunClearing + 1.0f), 1e-4f);
+	TestNearlyEqual(TEXT("and the radius"), Blended.ClearingRadius, 0.5f * (Evening.ClearingRadius + 30.0f), 1e-3f);
+
+	// What the renderer and the dome read.
+	FNightWorld W(FDateTime(2026, 6, 21, 19, 40, 0), 35.0, 139.7, 9.0f);
+	if (TestTrue(TEXT("world"), W.IsValid()))
+	{
+		const FLinearColor C = W.Parameter(MPC_CloudClearing);
+		TestNearlyEqual(TEXT("the shared parameters carry the sun's strength"), C.R, W.SkySubsystem->GetLook().SunClearing, 1e-5f);
+		TestNearlyEqual(TEXT("and the radius"), C.B, W.SkySubsystem->GetLook().ClearingRadius, 1e-5f);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyDiskScaleTest, "DreamSky.Night.DiskScale", DreamSky::NightTests::Flags)
+bool FDreamSkyDiskScaleTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+
+	// The disks drawn larger near the horizon, as they are high up.
+	UDreamSkyStyle* Style = NewObject<UDreamSkyStyle>(GetTransientPackage());
+	auto Look = [Style](float SunElevation, float MoonElevation)
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = SunElevation;
+		Celestial.MoonElevation = MoonElevation;
+		return Style->EvaluateLook(Celestial);
+	};
+	const FDreamSkyLook Low = Look(1.0f, 1.0f), High = Look(60.0f, 60.0f);
+	TestTrue(FString::Printf(TEXT("the sun larger on the horizon (%.2f)"), Low.SunDiskScale), Low.SunDiskScale > 1.3f);
+	TestTrue(FString::Printf(TEXT("the moon too (%.2f)"), Low.MoonDiskScale), Low.MoonDiskScale > 1.3f);
+	TestNearlyEqual(TEXT("high up: as they are"), High.SunDiskScale, 1.0f, 1e-4f);
+	TestNearlyEqual(TEXT("the moon high up: as it is"), High.MoonDiskScale, 1.0f, 1e-4f);
+
+	// A modifier turns them toward its own.
+	UDreamSkyModifier* Modifier = NewObject<UDreamSkyModifier>(GetTransientPackage());
+	Modifier->Settings.bOverride_DiskScale = true;
+	Modifier->Settings.DiskScale = FVector2f(3.0f, 2.0f);
+	FDreamSkyLook Blended = High;
+	FDreamSkyLighting Lighting;
+	Modifier->Settings.Apply(Lighting, Blended, 0.5f);
+	TestNearlyEqual(TEXT("a modifier halfway: the sun's"), Blended.SunDiskScale, 2.0f, 1e-4f);
+	TestNearlyEqual(TEXT("the moon's"), Blended.MoonDiskScale, 1.5f, 1e-4f);
+
+	// What the dome is told: the disk larger, its glow wider; the sun light's source angle untouched.
+	FNightWorld W(FDateTime(2026, 6, 21, 19, 0, 0), 35.0, 139.7, 9.0f);
+	if (TestTrue(TEXT("world"), W.IsValid()))
+	{
+		const UDreamSkyStyle* Live = W.Sky->GetEffectiveStyle();
+		const float Scale = W.SkySubsystem->GetLook().SunDiskScale;
+		TestTrue(FString::Printf(TEXT("the evening sun drawn larger (%.2f)"), Scale), Scale > 1.1f);
+		TestNearlyEqual(TEXT("the disk's radius"), W.Parameter(MPC_SunDisk).A, Live->SunDiskSize * Scale, 1e-4f);
+		TestNearlyEqual(TEXT("its glow wider"), W.Parameter(MPC_SunHalo).A, FMath::Max(Live->SunHaloExponent / (Scale * Scale), 1.0f), 1e-4f);
+		const float SourceAngle = W.Sky->SunLight->LightSourceAngle;
+		W.Clock->Tick(0.016f);
+		TestNearlyEqual(TEXT("the light's source angle as it was"), W.Sky->SunLight->LightSourceAngle, SourceAngle, 1e-6f);
+	}
+	return true;
+}
+
 #endif

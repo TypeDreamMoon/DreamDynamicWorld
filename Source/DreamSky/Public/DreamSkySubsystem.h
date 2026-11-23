@@ -262,8 +262,9 @@ private:
 	FDreamSkyActiveModifier& FindOrAddModifier(UDreamSkyModifier* Modifier, EDreamSkyModifierSource Source = EDreamSkyModifierSource::Script);
 	/** The weather's sky modifiers (FDreamWorldEnvironment::SkyModifiers) into the stack. */
 	void TakeWeatherModifiers(const FDreamWorldEnvironment& Environment);
-	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds). */
-	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds);
+	/** bRendererDrawsClouds: the sky cloud renderer draws the clouds (ADreamSky::DrawsClouds); bFlatClouds: the dome draws
+	 *  the flat clouds instead (ADreamSky::DrawsFlatClouds). */
+	void WriteParameters(UDreamWorldSubsystem& Clock, const UDreamSkyStyle& Style, bool bRendererDrawsClouds, bool bFlatClouds);
 	void LogLighting(UDreamWorldSubsystem& Clock);
 	bool RecaptureIfChanged();
 

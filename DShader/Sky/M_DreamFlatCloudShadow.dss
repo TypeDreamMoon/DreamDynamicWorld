@@ -1,0 +1,42 @@
+// M_DreamFlatCloudShadow.dss -- the flat clouds on the ground: the light function ADreamSky puts on its sun while the
+// dome draws the flat clouds (ADreamSky::DrawsFlatClouds: the sky cloud renderer is not drawing).
+//
+// From the lit point it goes up toward the sun to the cloud base and works out there how much cloud the flat layer has
+// (DreamSkyFlatClouds.ush, the same as the dome draws), so the shadows drift with the clouds overhead.
+#pragma material(Domain = LightFunction)
+
+/// The weather map (cover, darkness), as the dome reads it.
+/// @default /DreamDynamicWorld/Weather/RT_DreamWeatherMap
+static const Texture2D WeatherMap;
+
+/// The 3D noise the clouds are shaped from (Setup generates it).
+/// @default /DreamDynamicWorld/Sky/T_DreamCloudNoise
+static const VolumeTexture CloudNoise;
+
+/// @custom
+float DreamFlatCloudShadow_Through(float3 World, float4 MainLight, float4 Cloud0, float4 Cloud1, float4 CloudLayer, float4 MapParams,
+	float4 FlatClouds, Texture2D Map, VolumeTexture Noise)
+{
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyFlatClouds.ush"
+	// Up the sun's direction to the cloud base (kept 3 degrees over the horizon); how much of the sun the cloud there
+	// takes, more where it is dark.
+	float3 L = normalize(MainLight.xyz);
+	float Up = max(CloudLayer.x - World.z, 0.0) / max(L.z, 0.05);
+	float2 Here = DFC_Cover(World.xy + L.xy * Up, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise,
+		NoiseSampler, 1.0);
+	float Taken = saturate(Here.x * 1.3) * lerp(0.75, 1.0, Here.y);
+	return 1.0 - FlatClouds.w * Taken * step(0.0001, FlatClouds.x);
+}
+
+export void M_DreamFlatCloudShadow(inout material m)
+{
+	float4 MainLight  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+	float4 Cloud0     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud0");
+	float4 Cloud1     = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_Cloud1");
+	float4 CloudLayer = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudLayer");
+	float4 MapParams  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_WeatherMap");
+	float4 FlatClouds = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_FlatClouds");
+	float Through = DreamFlatCloudShadow_Through(UE.WorldPosition().XYZ, MainLight, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds,
+		WeatherMap, CloudNoise);
+	m.EmissiveColor = Through.xxx;
+}
