@@ -3,6 +3,8 @@
 #include "DreamWeatherSubsystem.h"
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
+#include "DreamWeatherCloudPaint.h"
+#include "DreamWeatherHlslShim.h"
 #include "DreamWeatherMapRenderer.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -16,6 +18,7 @@
 
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "JsonObjectConverter.h"
 #include "Misc/App.h"
@@ -116,6 +119,44 @@ void UDreamWeatherSubsystem::RegisterInfluence(UObject* Influence)
 void UDreamWeatherSubsystem::UnregisterInfluence(UObject* Influence)
 {
 	Influences.RemoveAll([Influence](const TWeakObjectPtr<UObject>& I) { return !I.IsValid() || I.Get() == Influence; });
+}
+
+void UDreamWeatherSubsystem::RegisterCloudPaint(UDreamCloudPaintComponent* Paint)
+{
+	CloudPaints.RemoveAll([Paint](const TWeakObjectPtr<UDreamCloudPaintComponent>& P) { return !P.IsValid() || P.Get() == Paint; });
+	if (Paint)
+	{
+		CloudPaints.Add(Paint);
+	}
+	bMapRedrawPending = true;
+}
+
+void UDreamWeatherSubsystem::UnregisterCloudPaint(UDreamCloudPaintComponent* Paint)
+{
+	CloudPaints.RemoveAll([Paint](const TWeakObjectPtr<UDreamCloudPaintComponent>& P) { return !P.IsValid() || P.Get() == Paint; });
+	bMapRedrawPending = true;
+}
+
+static TAutoConsoleVariable<int32> CVarDreamWeatherCloudPaint(
+	TEXT("DreamWeather.CloudPaint"), 1,
+	TEXT("1 = the weather uses the level's cloud painting (ADreamCloudPaint), 0 = it ignores it (to compare)."),
+	ECVF_Default);
+
+UDreamCloudPaintComponent* UDreamWeatherSubsystem::GetActiveCloudPaint() const
+{
+	if (CVarDreamWeatherCloudPaint.GetValueOnGameThread() == 0)
+	{
+		return nullptr;
+	}
+	for (int32 i = CloudPaints.Num() - 1; i >= 0; --i)
+	{
+		UDreamCloudPaintComponent* Paint = CloudPaints[i].Get();
+		if (Paint && Paint->IsUsable())
+		{
+			return Paint;
+		}
+	}
+	return nullptr;
 }
 
 void UDreamWeatherSubsystem::RegisterShelter(UObject* Shelter)
@@ -370,6 +411,15 @@ void UDreamWeatherSubsystem::ApplyInfluences(const FVector& Position, FDreamWeat
 	{
 		Influence->ApplyWeatherInfluenceAt(Position, WorldSeconds, InOut);
 	}
+	// The cloud painting over the zones (the map draws it after them too).
+	if (const UDreamCloudPaintComponent* Paint = GetActiveCloudPaint())
+	{
+		const int32 Cover = FDreamWeatherChannels::CloudCoverage;
+		if (InOut.Values.IsValidIndex(Cover))
+		{
+			Paint->ApplyTo(Position, InOut.Values[Cover]);
+		}
+	}
 }
 
 float UDreamWeatherSubsystem::TemperatureFor(const FVector& Position, float Offset, float Coverage, double Seconds) const
@@ -415,13 +465,12 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
 	// The precipitation's kinds: its hail share first (at any temperature), the sleet's of what is left, the rest rain
 	// and snow by the snow ratio.
-	const float HailShare = FMath::Clamp(Values.Get(C::Hail), 0.0f, 1.0f);
-	const float SleetShare = FMath::Clamp(Values.Get(C::Sleet), 0.0f, 1.0f) * (1.0f - HailShare);
-	const float Left = 1.0f - HailShare - SleetShare;
-	S.Hail = S.Precipitation * HailShare;
-	S.Sleet = S.Precipitation * SleetShare;
-	S.Rain = S.Precipitation * Left * (1.0f - S.SnowRatio);
-	S.Snow = S.Precipitation * Left * S.SnowRatio;
+	// (DreamWeatherShared.h: the surfaces split what lands on them the same way.)
+	const DreamWind::Hlsl::float4 Kinds = DreamWind::Hlsl::DWX_SplitPrecipitation(S.Precipitation, S.SnowRatio, Values.Get(C::Hail), Values.Get(C::Sleet));
+	S.Rain = Kinds.x;
+	S.Snow = Kinds.y;
+	S.Hail = Kinds.z;
+	S.Sleet = Kinds.w;
 	S.Exposure = ExposureAt(Position);
 	S.bSheltered = S.Exposure < 0.5f;
 	S.RainHere = S.Rain * S.Exposure;
@@ -515,6 +564,28 @@ FText UDreamWeatherSubsystem::GetCurrentWeatherDisplayName() const
 		return FText::GetEmpty();
 	}
 	return Preset->DisplayName.IsEmpty() ? FText::FromName(Preset->GetFName()) : Preset->DisplayName;
+}
+
+UDreamWeatherPreset* UDreamWeatherSubsystem::GetForcedWeather() const
+{
+	if (ForcedModifierId == 0)
+	{
+		return nullptr;
+	}
+	for (const FModifier& M : Modifiers)
+	{
+		if (M.Id == ForcedModifierId && !M.bRemoving)
+		{
+			return M.Desc.Preset;
+		}
+	}
+	return nullptr;
+}
+
+UDreamWeatherPreset* UDreamWeatherSubsystem::GetWeatherShown() const
+{
+	UDreamWeatherPreset* Forced = GetForcedWeather();
+	return Forced ? Forced : GetCurrentWeather();
 }
 
 UDreamWeatherPreset* UDreamWeatherSubsystem::GetCurrentWeather() const
@@ -1091,7 +1162,14 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 
 	using C = FDreamWeatherChannels;
 	const FVector4f Global(GlobalValues.Get(C::CloudCoverage), GlobalValues.Get(C::CloudDarkness), GlobalValues.Get(C::Precipitation), 0.0f);
-	const bool bChanged = bMapRedrawPending || MapCenter != LastMapCenter || !Global.Equals(LastMapGlobal, 1.0e-3f) || MapZones != LastMapZones;
+	// The cloud painting, its texture brought up to date.
+	UDreamCloudPaintComponent* Paint = GetActiveCloudPaint();
+	UTexture2D* PaintTexture = Paint ? Paint->Paint->GetTexture() : nullptr;
+	const FVector4f PaintRect = PaintTexture ? Paint->GetFootprintRecord() : FVector4f::Zero();
+	const float PaintStrength = PaintTexture ? Paint->Strength : 0.0f;
+	const uint32 PaintRevision = PaintTexture ? Paint->Paint->GetRevision() : 0;
+	const bool bPaintChanged = PaintRect != LastMapPaintRect || PaintStrength != LastMapPaintStrength || PaintRevision != LastMapPaintRevision;
+	const bool bChanged = bMapRedrawPending || bPaintChanged || MapCenter != LastMapCenter || !Global.Equals(LastMapGlobal, 1.0e-3f) || MapZones != LastMapZones;
 	if (bChanged && (bMapRedrawPending || Now - LastMapDraw >= S->WeatherMapInterval))
 	{
 		FDreamWeatherMapRenderer::FUpdateArgs Args;
@@ -1103,8 +1181,14 @@ void UDreamWeatherSubsystem::UpdateWeatherMap(UDreamWorldSubsystem& Clock)
 		Args.PrecipitationGate = FVector2f(S->PrecipitationCloudCover);
 		Args.Zones = MapZones;
 		Args.NumZones = MapZoneCount;
+		Args.PaintResource = PaintTexture ? PaintTexture->GetResource() : nullptr;
+		Args.PaintRect = PaintRect;
+		Args.PaintStrength = PaintStrength;
 		if (Args.Target)
 		{
+			LastMapPaintRect = PaintRect;
+			LastMapPaintStrength = PaintStrength;
+			LastMapPaintRevision = PaintRevision;
 			MapRenderer->EnqueueUpdate(MoveTemp(Args));
 			bMapRedrawPending = false;
 			LastMapDraw = Now;

@@ -11,6 +11,7 @@
 
 class ADreamWeather;
 class FDreamWeatherMapRenderer;
+class UDreamCloudPaintComponent;
 class IDreamWeatherInfluence;
 class UDreamWeatherPreset;
 class UDreamWeatherSelector;
@@ -67,6 +68,13 @@ public:
 	/** Register an object implementing IDreamWeatherInfluence (zones register themselves). */
 	void RegisterInfluence(UObject* Influence);
 	void UnregisterInfluence(UObject* Influence);
+
+	/** Cloud paintings register themselves; the weather uses the latest usable one (GetActiveCloudPaint). */
+	void RegisterCloudPaint(UDreamCloudPaintComponent* Paint);
+	void UnregisterCloudPaint(UDreamCloudPaintComponent* Paint);
+
+	/** The cloud painting in use: the latest registered that is enabled and has a painting, or null. */
+	UDreamCloudPaintComponent* GetActiveCloudPaint() const;
 
 	/** Register an object implementing IDreamWeatherShelterProvider (shelter components register themselves). */
 	void RegisterShelter(UObject* Shelter);
@@ -141,6 +149,14 @@ public:
 	/** The weather the schedule is in now (the slot of a channel without lead), or null. */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
 	UDreamWeatherPreset* GetCurrentWeather() const;
+
+	/** The weather ForceWeather holds (until ClearForcedWeather), or null. */
+	UFUNCTION(BlueprintPure, Category = "Dream Weather")
+	UDreamWeatherPreset* GetForcedWeather() const;
+
+	/** The weather showing: the forced one, else the schedule's (GetCurrentWeather). */
+	UFUNCTION(BlueprintPure, Category = "Dream Weather")
+	UDreamWeatherPreset* GetWeatherShown() const;
 
 	/** The current weather's name for a player (its preset's DisplayName, localized; the asset's name if it has none). */
 	UFUNCTION(BlueprintPure, Category = "Dream Weather")
@@ -298,6 +314,11 @@ private:
 	TArray<TWeakObjectPtr<ADreamWeather>> WeatherActors;
 	TArray<TWeakObjectPtr<UObject>> Influences;
 	TArray<TWeakObjectPtr<UObject>> Shelters;
+	TArray<TWeakObjectPtr<UDreamCloudPaintComponent>> CloudPaints;
+	/** The painting the map was last drawn with: footprint, strength, revision (a change redraws it). */
+	FVector4f LastMapPaintRect = FVector4f::Zero();
+	float LastMapPaintStrength = -1.0f;
+	uint32 LastMapPaintRevision = 0;
 	TArray<TWeakObjectPtr<UDreamLightningRodComponent>> Rods;
 
 	// lightning (on its own real-time clock, so a storm looks the same at any day length)

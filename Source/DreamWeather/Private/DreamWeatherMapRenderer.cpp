@@ -7,6 +7,7 @@
 #include "GlobalShader.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "GlobalRenderResources.h"
 #include "ShaderParameterStruct.h"
 #include "TextureResource.h"
 
@@ -23,6 +24,10 @@ class FDreamWeatherMapCS : public FGlobalShader
 		SHADER_PARAMETER(uint32, NumZones)
 		SHADER_PARAMETER(FIntPoint, Resolution)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Zones)
+		SHADER_PARAMETER_TEXTURE(Texture2D, PaintMap)
+		SHADER_PARAMETER_SAMPLER(SamplerState, PaintSampler)
+		SHADER_PARAMETER(FVector4f, PaintRect)
+		SHADER_PARAMETER(float, PaintStrength)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutMap)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -91,6 +96,12 @@ void FDreamWeatherMapRenderer::Update_RenderThread(FRDGBuilder& GraphBuilder, co
 	Params->NumZones = NumZones;
 	Params->Resolution = Resolution;
 	Params->Zones = GraphBuilder.CreateSRV(ZoneBuffer);
+	// The cloud painting, or nothing (a black texture at no strength).
+	FRHITexture* PaintRHI = Args.PaintResource ? Args.PaintResource->TextureRHI.GetReference() : nullptr;
+	Params->PaintMap = PaintRHI ? PaintRHI : GBlackTexture->TextureRHI.GetReference();
+	Params->PaintSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	Params->PaintRect = Args.PaintRect;
+	Params->PaintStrength = PaintRHI ? Args.PaintStrength : 0.0f;
 	Params->OutMap = GraphBuilder.CreateUAV(Target);
 
 	TShaderMapRef<FDreamWeatherMapCS> Shader(GetGlobalShaderMap(GMaxRHIFeatureLevel));

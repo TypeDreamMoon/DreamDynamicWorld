@@ -16,6 +16,11 @@ int2 Resolution;
 
 // NumZones records of DWX_ZONE_FLOAT4S, then the points of the polygon footprints.
 StructuredBuffer<float4> Zones;
+// The cloud painting (UDreamCloudPaint): R the cover painted, G how far it pulls; over PaintRect (min x, min y, 1 / size).
+Texture2D PaintMap;
+SamplerState PaintSampler;
+float4 PaintRect;
+float PaintStrength;
 RWTexture2D<float4> OutMap;
 
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
@@ -32,6 +37,16 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	for (uint i = 0; i < NumZones; ++i)
 	{
 		V = DWX_ApplyZone(V, P, Zones[i * DWX_ZONE_FLOAT4S + 0], Zones[i * DWX_ZONE_FLOAT4S + 1], Zones[i * DWX_ZONE_FLOAT4S + 2], Zones);
+	}
+	// The painting over the zones (UDreamCloudPaintComponent::ApplyTo on the CPU).
+	if (PaintStrength > 0.0f)
+	{
+		float2 PaintUV = (P - PaintRect.xy) * PaintRect.zw;
+		if (all(PaintUV >= 0.0f) && all(PaintUV <= 1.0f))
+		{
+			float2 CoverAmount = PaintMap.SampleLevel(PaintSampler, PaintUV, 0).rg;
+			V.x = lerp(V.x, CoverAmount.x, saturate(CoverAmount.y * PaintStrength));
+		}
 	}
 	// After the zones, as SampleWeather does: rain only under a cover closed enough for it.
 	V = DWX_GatePrecipitation(V, PrecipitationGate);

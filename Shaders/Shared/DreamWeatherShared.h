@@ -162,4 +162,16 @@ DWX_FN float3 DWX_GatePrecipitation(float3 V, float2 Gate)
 	return float3(V.x, V.y, V.z * DWX_CloudAllows(V.x, Gate.x, Gate.y));
 }
 
+// What falls, split into its kinds: (rain, snow, hail, sleet). The hail takes its share first (at any temperature), the
+// sleet its share of what is left, the rest is rain and snow by the snow ratio -- the caller's, as the surfaces work it
+// out from each texel's own temperature. The freezing rain's share is of the rain this returns.
+DWX_FN float4 DWX_SplitPrecipitation(float Precipitation, float SnowRatio, float Hail, float Sleet)
+{
+	float HailShare = saturate(Hail);
+	float SleetShare = saturate(Sleet) * (1.0f - HailShare);
+	float Left = Precipitation * (1.0f - HailShare - SleetShare);
+	float Snow = saturate(SnowRatio);
+	return float4(Left * (1.0f - Snow), Left * Snow, Precipitation * HailShare, Precipitation * SleetShare);
+}
+
 #endif // DREAMWEATHER_SHARED_H
