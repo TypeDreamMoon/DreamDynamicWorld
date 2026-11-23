@@ -256,6 +256,17 @@ public:
 	/** Called by the view extension with the origin of the most recently set-up view. */
 	void ReportViewOrigin(const FVector& ViewOrigin, bool bIsGameView);
 
+	/**
+	 * Write a horizontal slice of the engine's global distance field, Size cm wide around Center, into Target (a float
+	 * RGBA render target that supports UAV) in the next perspective view of this world: R = distance to the nearest surface
+	 * (m), G = how many clipmaps the view had (0: no global distance field that frame), B = 1 inside them. Returns the
+	 * probe count that GetDistanceProbeCount reaches once it is written (0: no renderer, nothing queued).
+	 */
+	uint32 RequestDistanceFieldProbe(UTextureRenderTarget2D* Target, FVector Center, float Size);
+
+	/** Distance field probes written so far. */
+	uint32 GetDistanceProbeCount() const;
+
 	/** Force the volume window centre instead of following the camera (cinematics, tests). */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Volume")
 	void OverrideVolumeCenter(FVector Center, bool bEnable);

@@ -163,6 +163,23 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath TerrainTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindTerrain.RT_DreamWindTerrain"));
 
+	/**
+	 * The runtime terrain wind map's render targets (what the wind computes around the camera instead of baking): per
+	 * level, the derived map (speed multiplier, steering x, y, wind shadow height in cm; RGBA32F) and the top surface's
+	 * height (cm; R32F, the roofs the weather and the surfaces read). Wrap addressing: they are ring buffers over the world.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath TerrainNearTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindTerrainNear.RT_DreamWindTerrainNear"));
+
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath TerrainFarTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindTerrainFar.RT_DreamWindTerrainFar"));
+
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath HeightNearTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindHeightNear.RT_DreamWindHeightNear"));
+
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath HeightFarTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Wind/RT_DreamWindHeightFar.RT_DreamWindHeightFar"));
+
 	/** Terrain map used when the level's ADreamWindGlobal has none. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain", meta = (AllowedClasses = "/Script/DreamWind.DreamWindTerrainMap"))
 	FSoftObjectPath DefaultTerrainMap;

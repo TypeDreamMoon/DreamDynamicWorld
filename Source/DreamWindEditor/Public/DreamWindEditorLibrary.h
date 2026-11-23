@@ -50,6 +50,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DreamWind|Editor")
 	static bool EnsurePresets(bool bSaveAssets = true);
 
+	/** The runtime terrain wind map's four render targets (near and far: derived map RGBA32F, top height R32F). */
+	static bool EnsureRuntimeTerrainTextures(bool bSaveAssets = true);
+
+	/** One of them: wrap addressing, UAV, 256 texels a side, in this format. */
+	static UTextureRenderTarget2D* EnsureRuntimeTerrainTexture(const FSoftObjectPath& Path, EPixelFormat Format, bool bSaveAsset);
+
 	/**
 	 * Bake a terrain map from the world's collision into Target. Bounds left invalid = the bounds of the
 	 * level's static geometry. Marks the target dirty; does not save.

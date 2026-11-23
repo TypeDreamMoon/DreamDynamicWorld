@@ -1075,6 +1075,18 @@ tests), `DreamWind.TimeScale`, and the debug view:
 * `DreamWind.DebugDraw.Spacing` (default 250 cm) is widened automatically if the range would need more
   than 4096 cells; `DreamWind.DebugDraw.Field3D 0` gives flat sheet(s) instead — `Layers` planes from
   world Z `Height` upward.
+* **Slices** (seen in the 3D view and in screenshots, which the arrows are not): `DreamWind.Slice <mode> [height]
+  [size] [yaw]` lays a plane under the camera (`ADreamWindSliceActor`, also placeable): `0` the whole wind (hue =
+  direction, brightness = speed), `1` the terrain map alone (grey = how much wind its shadow leaves, red inside a solid,
+  warm where it speeds the wind up, cool where it slows it), `2` the dynamic volume alone (its residual, and the near
+  window's edge), `3` the engine's global distance field (red on a surface, white near one, blue farther off, magenta
+  where the view had none). A yaw stands the plane up, 15 m ahead of the camera, across that yaw. `DreamWind.Slice off`.
+* `DreamWind.Occlusion 0|1|-1` switches the terrain map's wind shadow off for every consumer (to time it, or to compare).
+* **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
+  tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
+  reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
+  0` and `r.GlobalDistanceField.DetailedNecessitySufficient 1` while asked, put back after); the project still needs
+  *Generate Mesh Distance Fields*. `DreamWind.Gpu.DistanceFieldProbe` checks it on the wind field test level.
 
 ## Test map
 
@@ -1104,6 +1116,14 @@ lane and the hut, so PIE drops you in the middle of it.
 
 The three demo actors (`DreamWindDemoActors.h`, `DreamWindImpulseEmitter.h`) are plain C++ and stay
 usable in your own levels; none of the runtime depends on them.
+
+**Wind field test level.** `/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindFieldTest` is generated (`Setup -WindFieldTestMap`)
+for measuring and comparing the wind field itself: flat ground with 40 000 blades of wind grass, a 10 x 8 x 6 m house, a
+24 m wall across the wind, an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
+4 s, a steady 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is
+in `DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on
+it (the volume update, the wind shadow's march in the materials and in the volume, the volume's material reads, the
+grass).
 
 ## Architecture notes
 
