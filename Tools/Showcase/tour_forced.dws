@@ -54,6 +54,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_SnowDay_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_SnowDay_Walker
 DreamWeather.Clear
 time 7
 DreamWeather.Set WP_Dust 0
@@ -108,6 +113,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_DustDay_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_DustDay_Walker
 DreamWeather.Clear
 time 18
 DreamWeather.Set WP_Storm 0
@@ -162,4 +172,9 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_StormNight_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_StormNight_Walker
 DreamWeather.Clear

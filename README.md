@@ -678,7 +678,7 @@ its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
@@ -904,6 +904,13 @@ materials (`DSM_Wave`) open the puddle where the water is pushed away, down to t
 surface along the waves (`WaveStrength`; the toon function draws a hard bright line on a steep wave, `ToonWaveThreshold`,
 `ToonWaveBrightness`). An eave's drops push the water too, so a drip line rings the puddle below it. Like the prints, it
 is for the look. `DreamSurface.Gpu.PuddleWaves` checks the hole, the ring and the level water after.
+
+**A walker.** `ADreamSurfaceWalker` walks an ellipse round *Center* (*Radii*) at *Speed* (1.2 m/s), on the ground
+(traced) and facing the way it goes, its two feet (surface interaction components) stepping in turn every half
+*Stride*: prints in the snow and the dust, puddles pushed away and ringing, with no character or animation. Its body is
+any mesh standing on its pivot; anything else that moves with a body can be attached to it.
+`DreamSurface.Walker.Frame [behind] [height] [pitch] [side]` puts the view behind it (a shot tour's following view).
+`DreamSurface.Walker` checks its pace, its loop and its alternating prints.
 
 **Test level.** `Lvl_DreamSurfaceTest` (`-run=DreamDynamicWorldSetup -SurfaceTestMap`): a pavement under a canopy with
 a shelter box (dry beneath it), a pergola found by a roof capture box, a heated circle (a mask brush), a pond, a window, a wind

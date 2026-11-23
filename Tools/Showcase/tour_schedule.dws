@@ -48,6 +48,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Clear_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Clear_Walker
 time 10.2
 settle 20
 wait 120
@@ -96,6 +101,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Cloudy_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Cloudy_Walker
 time 12.3
 settle 20
 wait 120
@@ -144,6 +154,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Rain_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Rain_Walker
 time 14.2
 settle 20
 wait 120
@@ -192,6 +207,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Storm_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Storm_Walker
 time 16.75
 settle 20
 wait 120
@@ -240,6 +260,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_AfterRain_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_AfterRain_Walker
 time 19.6
 settle 20
 wait 120
@@ -288,6 +313,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Snow_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Snow_Walker
 time 21.5
 settle 20
 wait 120
@@ -336,6 +366,11 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Dust_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Dust_Walker
 time 23.6
 settle 20
 wait 120
@@ -384,3 +419,8 @@ aim -23 -113
 wait 3
 settle 8
 shot SHOW_Night_CarGlass
+wait 3
+DreamSurface.Walker.Frame 320 260 -32 130
+wait 2
+DreamSurface.Walker.Frame 320 260 -32 130
+shot SHOW_Night_Walker

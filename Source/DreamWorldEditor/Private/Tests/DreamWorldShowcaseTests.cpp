@@ -1,6 +1,8 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldShowcaseSetup.h"
+#include "DreamSurfaceInteraction.h"
+#include "DreamSurfaceWalker.h"
 #include "DreamSurfaceSetup.h"
 #include "DreamWindTerrainMap.h"
 
@@ -158,6 +160,14 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("one lamp in the hut"), Lamps, 1);
 	TestTrue(TEXT("roofs the rain knows (hut, porch)"), CountTagged(World, FDreamWeatherFallPaths::RoofTag) >= 2);
 	TestEqual(TEXT("a porch roof capture box"), ActorsOf<ADreamSurfaceRoofCapture>(World).Num(), 1);
+	const TArray<ADreamSurfaceWalker*> Walkers = ActorsOf<ADreamSurfaceWalker>(World);
+	if (TestEqual(TEXT("a walker"), Walkers.Num(), 1))
+	{
+		const ADreamSurfaceWalker* Walker = Walkers[0];
+		TestNotNull(TEXT("with a body"), Walker->Body->GetStaticMesh().Get());
+		TestTrue(TEXT("whose feet press prints and stir the puddles"), Walker->LeftFoot->bAffectsPuddles && Walker->RightFoot->bAffectsSnowAndDust);
+		TestTrue(TEXT("going round the square"), FVector2D::Distance(Walker->Center, FVector2D(1300.0, 400.0)) < 200.0 && Walker->Radii.GetMin() > 200.0);
+	}
 	TestTrue(TEXT("a pond and a window in the open"), CountLabelled(World, TEXT("Pond")) == 1 && CountLabelled(World, TEXT("Window_Pane")) == 1);
 	TestTrue(TEXT("a grove of leaves"), CountTagged(World, FDreamWeatherFallPaths::LeavesTag) >= 3);
 

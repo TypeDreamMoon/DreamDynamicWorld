@@ -9,6 +9,7 @@
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
 #include "DreamSurfaceVehicleGlass.h"
+#include "DreamSurfaceWalker.h"
 
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
@@ -636,6 +637,55 @@ bool FDreamSurfaceEaveDripTest::RunTest(const FString& Parameters)
 	const int32 Before = W.Surface->GetPendingStamps().Num();
 	Eave->Drips->TickComponent(1.0f, LEVELTICK_All, nullptr);
 	TestTrue(TEXT("the drops ring the puddles below"), W.Surface->GetPendingStamps().Num() > Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceWalkerTest, "DreamSurface.Walker", DreamSurface::Tests::Flags)
+bool FDreamSurfaceWalkerTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	W.GoTo(At(12.0));
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSurfaceWalker* Walker = W.World->SpawnActor<ADreamSurfaceWalker>(FVector(500.0, 0.0, 0.0), FRotator::ZeroRotator, Params);
+	Walker->Center = FVector2D(0.0, 0.0);
+	Walker->Radii = FVector2D(500.0, 300.0);
+	Walker->LeftFoot->bTraceGround = false;
+	Walker->RightFoot->bTraceGround = false;
+	W.Surface->TakePendingStamps();
+
+	// Ten seconds at 1.2 m/s: some 12 m round the loop, a foot down every 65 cm, in turn.
+	FVector Last = Walker->GetActorLocation();
+	double Walked = 0.0;
+	for (int32 i = 0; i < 100; ++i)
+	{
+		Walker->WalkFor(0.1f);
+		Walked += FVector::Dist2D(Walker->GetActorLocation(), Last);
+		Last = Walker->GetActorLocation();
+		const FVector2D P(Last);
+		TestTrue(TEXT("it stays on its loop"), FMath::IsNearlyEqual(FMath::Square(P.X / 500.0) + FMath::Square(P.Y / 300.0), 1.0, 0.02));
+	}
+	const TArray<FVector4f> Stamps = W.Surface->TakePendingStamps();
+	AddInfo(FString::Printf(TEXT("walked %.0f cm in 10 s, %d steps"), Walked, Walker->GetStepCount()));
+	TestNearlyEqual(TEXT("at its speed"), Walked, 1200.0, 30.0);
+	TestEqual(TEXT("a step every half stride"), Walker->GetStepCount(), 18);
+	TestEqual(TEXT("each a print"), Stamps.Num() / 2, Walker->GetStepCount());
+	// The feet step in turn: consecutive prints lie either side of the way it goes.
+	if (Stamps.Num() >= 6)
+	{
+		const FVector2D A(Stamps[0].X, Stamps[0].Y), B(Stamps[2].X, Stamps[2].Y), C(Stamps[4].X, Stamps[4].Y);
+		const FVector2D Ahead = (C - A).GetSafeNormal();
+		const double SideA = FVector2D::CrossProduct(Ahead, A - B), SideC = FVector2D::CrossProduct(Ahead, C - B);
+		TestTrue(TEXT("left, right, left"), SideA * SideC > 0.0 && FMath::Abs(SideA) > 1.0);
+	}
+	TestTrue(TEXT("its prints stir the puddles"), Stamps.Num() >= 2 && Stamps[1].Y > 0.5f);
 	return true;
 }
 
