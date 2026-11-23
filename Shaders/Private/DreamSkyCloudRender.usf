@@ -164,7 +164,7 @@ SamplerState WeatherMapSampler;
 Texture3D CloudNoise;
 SamplerState CloudNoiseSampler;
 int MaxSamples;
-uint MarchDebug;     // 1: the rays that found no cloud red, the others green
+uint MarchDebug;     // 1: the rays that found no cloud red, the others green; 2: the per-pixel jitter held still
 Texture3D<float> NearTau;
 Texture3D<float> FarTau;
 SamplerState TauSampler;
@@ -284,10 +284,17 @@ FDSkyCloudField DSkyR_Field()
 // walk the rest of the ray in -- most of a ray is skipped (budgeted to walk all of it fine, 160 samples walked a storm
 // tower seen from under it in some 140 m steps where 70 m were meant, and the toon surface came out blurred and mottled,
 // a realistic or painted one washed out); skips up to 4 km, trusted in full (a true bound, or a step meant as one).
-FDCloudMarchParams DSkyR_Params(float3 V, float T, float T1, int Left, float Jitter, FDSkyCloudField F)
+// bByDistance: the fine steps by the distance alone -- the toon march's (which stops at its surface and walks no cloud
+// through), the realistic and painted marches' out of a deck (whose long way through needs the samples). Stretched to
+// the samples left (tens of kilometres of the layer ahead of a ray aslant), a cloud's thin fringe and a deck's first
+// lenses fell between them on some rays and not on their neighbours', in rows of dashes and stripes across the clouds.
+FDCloudMarchParams DSkyR_Params(float3 V, float T, float T1, int Left, float Jitter, FDSkyCloudField F, bool bByDistance)
 {
 	float Fine = clamp(T * 0.006, 3000.0, 20000.0);
-	Fine = max(Fine, 0.5 * (T1 - T) / float(max(Left - 8, 1)));
+	if (!bByDistance)
+	{
+		Fine = max(Fine, 0.5 * (T1 - T) / float(max(Left - 8, 1)));
+	}
 	// (Never so long near a funnel that its narrow column falls between two samples.)
 	float3 World = CameraWorld + V * T;
 	Fine = min(Fine, DSky_FunnelStep(World, World.z + dot(World.xy, World.xy) / (2.0 * DSky_PlanetRadius), F.Base));
@@ -649,7 +656,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	{
 		return float4(0, 0, 0, 0);
 	}
-	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
+	float Jitter = MarchDebug == 2u ? 0.5 : DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
 	float SkipJitter = frac(Jitter + 0.618034 * float(View.StateFrameIndex % 97u) + 0.5);
 	FDCloudSurface S = DCM_SurfaceBegin(T0, T1, 5);
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
@@ -665,7 +672,7 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 			AnchorSigned = C.Signed;
 			Anchor = C.Anchor;
 		}
-		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F);
+		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F, true);
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
@@ -819,9 +826,9 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	PP.Softness = LP_ToneSoftness;
 #endif
 
-	float Jitter = DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
+	float Jitter = MarchDebug == 2u ? 0.5 : DCM_InterleavedGradientNoise(float2(Ray), View.StateFrameIndex);
 	float SkipJitter = frac(Jitter + 0.618034 * float(View.StateFrameIndex % 97u) + 0.5);
-	FDCloudMarchParams P0 = DSkyR_Params(V, T0, T1, MaxSamples, Jitter, F);
+	FDCloudMarchParams P0 = DSkyR_Params(V, T0, T1, MaxSamples, Jitter, F, false);
 	FDCloudMarch M = DCM_Begin(T0, T1, P0);
 	FDCloudAnchor Anchor = (FDCloudAnchor)0;
 	// How much of the cover the funnels make (they are seen through the height fog only, not the clouds' air veil).
@@ -831,7 +838,7 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	{
 		float T = M.T;
 		FDSkyCloudSample C = DSkyR_Sample(V, T, F, Anchor);
-		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F);
+		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F, C.Deck <= 0.05);
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
@@ -1066,7 +1073,7 @@ void MarchCS(uint3 Id : SV_DispatchThreadID)
 		Amount *= 1.0 - 0.5 * VC.a * smoothstep(0.2, 0.6, P_CloudLayer.y) * saturate(V.z * 4.0);
 		VC.rgb = lerp(VC.rgb, Haze.rgb * VC.a, saturate(Amount));
 	}
-	if (MarchDebug != 0)
+	if (MarchDebug == 1u)
 	{
 		VC = Depth < 0.0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 0.3, 0.0, 1.0);
 	}
