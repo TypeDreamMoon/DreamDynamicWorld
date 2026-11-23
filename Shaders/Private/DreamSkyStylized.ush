@@ -896,6 +896,9 @@ void DSky_WalkSurface(inout FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, flo
 #define DSKY_TOON_ADV5 float4(0.1, 0.5, 0.3, 1.0)
 #define DSKY_TOON_ADV6 float4(1.6, 1.4, 0.8, 0.0)
 #endif
+#ifndef DSKY_TOON_MOONHUE
+#define DSKY_TOON_MOONHUE 0.4
+#endif
 
 // Paints the surface a walk found: the toon tones, the undersides, the silver lining, the veil of the air between, how
 // see-through it is; returns the colour (premultiplied) and the cover, Core = how deep the cloud is (for the lightning).
@@ -985,7 +988,11 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	float3 Shadow = CloudShadow.rgb * lerp(1.0, Tone, Extra.x) * Ambient * Under;
 	// (By moonlight the lit side is the shade lifted in the moon's hue, as the style's night colours have it: its lit
 	// colour is the sun's, still a sunset pink while the moon has already taken over in the dusk.)
-	float3 LitColor = lerp(CloudLit.rgb * lerp(1.0, SunHue, Warmth), CloudShadow.rgb * 1.8 * SunHue, LightColor.a);
+	// (Only part of the moonlight's hue: by moonlight the eye sees little colour, and the moonlight's full blue made the
+	// toon clouds a glowing blue in the deep twilight.)
+	float3 MoonHue = lerp(dot(SunHue, float3(0.2126, 0.7152, 0.0722)).xxx, SunHue, DSKY_TOON_MOONHUE);
+	MoonHue /= max(max(MoonHue.r, max(MoonHue.g, MoonHue.b)), 1.0e-4);
+	float3 LitColor = lerp(CloudLit.rgb * lerp(1.0, SunHue, Warmth), CloudShadow.rgb * 1.8 * MoonHue, LightColor.a);
 	float3 Lit = LitColor * lerp(1.0, Tone, Extra.x * 0.2) + Halo * Extra.y * Light;
 	float3 Half = lerp(Shadow, Lit, ToonHalf.w) * ToonHalf.rgb;
 	float3 Color = Shadow;

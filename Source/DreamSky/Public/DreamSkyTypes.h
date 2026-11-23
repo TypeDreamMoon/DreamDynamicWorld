@@ -510,6 +510,8 @@ struct FDreamSkyCloudLookParameters
 	FLinearColor PaintedCloudShadeScale = FLinearColor::White;
 	/** How far each takes the style's hue: toon lit, toon shade, painted lit, painted shade. */
 	FVector4f CloudToStyle = FVector4f(0.0f, 0.0f, 0.0f, 0.0f);
+	/** How much of the moonlight's hue the toon clouds' moonlit side takes (UDreamSkyStyle::MoonlightCloudSaturation). */
+	float MoonlightCloudSaturation = 0.4f;
 	// The light the clouds scatter, as the engine's clouds take it: the sky's sun light, or its moon light while that is
 	// the brighter, in the component's own colour (the low sun's deep red) times its illuminance (lux).
 	FLinearColor LightIlluminance = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);

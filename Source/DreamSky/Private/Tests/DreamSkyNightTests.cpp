@@ -980,4 +980,21 @@ bool FDreamSkyDiskScaleTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyTwilightCloudColoursTest, "DreamSky.Clouds.TwilightColours", DreamSky::NightTests::Flags)
+bool FDreamSkyTwilightCloudColoursTest::RunTest(const FString& Parameters)
+{
+	// The style's own cloud colours in the deep twilight and the night: a low-saturation grey-blue, not a glowing blue.
+	const UDreamSkyStyle* Style = GetDefault<UDreamSkyStyle>();
+	for (float Elevation : { -12.0f, -10.0f, -8.0f, -6.0f })
+	{
+		FDreamCelestialState Celestial;
+		Celestial.SunElevation = Elevation;
+		const FDreamSkyLook Look = Style->EvaluateLook(Celestial);
+		const FLinearColor S = Look.CloudShadow, L = Look.CloudLit;
+		TestTrue(FString::Printf(TEXT("sun %.0f: the shade low in saturation (%s)"), Elevation, *S.ToString()), S.B < 1.6f * FMath::Min(S.R, S.G));
+		TestTrue(FString::Printf(TEXT("sun %.0f: the lit side too (%s)"), Elevation, *L.ToString()), L.B < 1.45f * FMath::Min(L.R, L.G));
+	}
+	return true;
+}
+
 #endif

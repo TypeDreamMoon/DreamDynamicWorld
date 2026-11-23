@@ -963,6 +963,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
 	float MoonEarthshine = 0.06f;
 
+	/** How much of the moonlight's hue (MoonLightColor) the toon clouds' moonlit side takes, 0 .. 1: by moonlight the eye
+	 *  sees little colour (low, a grey-blue; 1, the moonlight's blue as it is). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonlightCloudSaturation = 0.4f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (XAxisName = "Sun elevation", YAxisName = "Intensity"))
 	FRuntimeFloatCurve StarIntensity;
 

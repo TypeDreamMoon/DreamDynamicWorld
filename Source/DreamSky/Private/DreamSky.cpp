@@ -502,6 +502,7 @@ void ADreamSky::GetCloudLookParameters(FDreamSkyCloudLookParameters& Out) const
 			const FRichCurve* Rich = Curve.GetRichCurveConst();
 			return Rich && Rich->GetNumKeys() > 0 ? FMath::Clamp(Rich->Eval(Elevation), 0.0f, 1.0f) : 0.0f;
 		};
+		Out.MoonlightCloudSaturation = FMath::Clamp(Effective->MoonlightCloudSaturation, 0.0f, 1.0f);
 		Out.CloudToStyle = FVector4f(ToStyle(Effective->CloudLitToStyle), ToStyle(Effective->CloudShadeToStyle),
 			ToStyle(Effective->PaintedCloudLitToStyle), ToStyle(Effective->PaintedCloudShadeToStyle));
 		Out.ShadowReach = Effective->CloudShadowReach;
