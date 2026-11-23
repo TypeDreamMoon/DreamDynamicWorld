@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWorldSubsystem.h"
+#include "DreamWorldInterior.h"
 #include "DreamWorldQuality.h"
 #include "DreamDynamicWorldModule.h"
 #include "DreamWorldCelestial.h"
@@ -441,6 +442,70 @@ void UDreamWorldSubsystem::ReportViewLocation(const FVector& Location, bool bIsG
 	bHasGameViewLocation |= bIsGameView;
 }
 
+void UDreamWorldSubsystem::RegisterInterior(const UDreamInteriorComponent* Interior)
+{
+	Interiors.RemoveAll([](const TWeakObjectPtr<const UDreamInteriorComponent>& W) { return !W.IsValid(); });
+	Interiors.AddUnique(Interior);
+}
+
+void UDreamWorldSubsystem::UnregisterInterior(const UDreamInteriorComponent* Interior)
+{
+	Interiors.RemoveAll([Interior](const TWeakObjectPtr<const UDreamInteriorComponent>& W) { return !W.IsValid() || W.Get() == Interior; });
+}
+
+void UDreamWorldSubsystem::RegisterPortal(const UDreamPortalComponent* Portal)
+{
+	Portals.RemoveAll([](const TWeakObjectPtr<const UDreamPortalComponent>& W) { return !W.IsValid(); });
+	Portals.AddUnique(Portal);
+}
+
+void UDreamWorldSubsystem::UnregisterPortal(const UDreamPortalComponent* Portal)
+{
+	Portals.RemoveAll([Portal](const TWeakObjectPtr<const UDreamPortalComponent>& W) { return !W.IsValid() || W.Get() == Portal; });
+}
+
+TArray<const UDreamInteriorComponent*> UDreamWorldSubsystem::GetInteriors() const
+{
+	TArray<const UDreamInteriorComponent*> Out;
+	for (const TWeakObjectPtr<const UDreamInteriorComponent>& W : Interiors)
+	{
+		if (const UDreamInteriorComponent* I = W.Get())
+		{
+			Out.Add(I);
+		}
+	}
+	return Out;
+}
+
+TArray<const UDreamPortalComponent*> UDreamWorldSubsystem::GetPortals() const
+{
+	TArray<const UDreamPortalComponent*> Out;
+	for (const TWeakObjectPtr<const UDreamPortalComponent>& W : Portals)
+	{
+		if (const UDreamPortalComponent* P = W.Get())
+		{
+			Out.Add(P);
+		}
+	}
+	return Out;
+}
+
+float UDreamWorldSubsystem::GetInteriorAt(const FVector& Position, bool bWeatherOnly) const
+{
+	float Best = 0.0f;
+	for (const TWeakObjectPtr<const UDreamInteriorComponent>& W : Interiors)
+	{
+		const UDreamInteriorComponent* I = W.Get();
+		if (I && (!bWeatherOnly || I->bShelterWeather))
+		{
+			// (the weather: all of it anywhere inside; the view fades in over the room's FadeDistance)
+			const float Weight = I->GetWeightAt(Position);
+			Best = FMath::Max(Best, bWeatherOnly ? (Weight > 0.0f ? 1.0f : 0.0f) : Weight);
+		}
+	}
+	return Best;
+}
+
 void UDreamWorldSubsystem::RefreshViewOcclusion()
 {
 	UpdateViewProbe(0.0f, true);
@@ -475,7 +540,8 @@ void UDreamWorldSubsystem::UpdateViewProbe(float DeltaTime, bool bSnap)
 		Params.IgnoredActor = Player->GetPawn();
 	}
 	ViewProbe.Update(World, ViewLocation, DeltaTime, Params, bSnap);
-	ViewOcclusion = ViewProbe.Get();
+	// Inside a room the room says it (closed but where its doors and windows are open); the rays elsewhere.
+	ViewOcclusion = DreamWorld::Interiors::Apply(ViewProbe.Get(), ViewLocation, GetInteriors(), GetPortals());
 	SetVectorParameter(DreamWorld::Names::MPC_Interior,
 		FLinearColor(ViewOcclusion.Interior, ViewOcclusion.Overhead, 0.0f, ViewOcclusion.bValid ? 1.0f : 0.0f));
 }

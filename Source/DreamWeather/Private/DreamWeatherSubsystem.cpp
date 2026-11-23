@@ -197,6 +197,12 @@ float UDreamWeatherSubsystem::ExposureAt(const FVector& Position) const
 			Shelter = FMath::Max(Shelter, S->GetShelterAt(Position));
 		}
 	}
+	// The rooms (UDreamInteriorComponent): nothing lands inside; right outside their walls the open's weather (they fade
+	// inward only, so the rain seen through a window falls up to the wall).
+	if (const UDreamWorldSubsystem* Clock = GetWorld() ? GetWorld()->GetSubsystem<UDreamWorldSubsystem>() : nullptr)
+	{
+		Shelter = FMath::Max(Shelter, Clock->GetInteriorAt(Position, true));
+	}
 
 	// The wind's baked heights are the level's top surfaces: a roof above the point covers it, and with wind the
 	// rain also comes in under the eaves on the windward side.

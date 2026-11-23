@@ -164,6 +164,15 @@ bool FDreamWeatherAudioOcclusionTest::RunTest(const FString& Parameters)
 	const FDreamOutdoorOcclusion Turned = Occlude(Doorway, -Right, 0.2f, 600.0f);
 	TestNearlyEqual(TEXT("turn around: the door is on the left"), Turned.Balance, -Door.Balance, 1.0e-4f);
 
+	// In a room (UDreamInteriorComponent) the sound comes from its open doors and windows, whatever the sides say: a
+	// window ahead and a little to the right is heard a little to the right.
+	FDreamViewOcclusion Room = ClosedRoom();
+	Room.Interior = 0.8f;
+	Room.Opening = FVector(0.3, 0.6, 0.0);   // ahead (+Y) and to the right (+X)
+	const FDreamOutdoorOcclusion InRoom = Occlude(Room, Right, 0.2f, 600.0f);
+	const float Expected = float(FVector2D(0.3, 0.6).GetSafeNormal().X) * 0.8f;
+	TestNearlyEqual(TEXT("a room: heard toward its opening"), InRoom.Balance, Expected, 1.0e-4f);
+
 	float L = 0.0f, R = 0.0f;
 	Place(0.8f, Door.Balance, L, R);
 	TestTrue(TEXT("placed right: the right keeps its loudness, the left fades"), FMath::IsNearlyEqual(R, 0.8f) && L < R);

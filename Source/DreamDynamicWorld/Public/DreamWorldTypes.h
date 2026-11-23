@@ -296,6 +296,10 @@ struct DREAMDYNAMICWORLD_API FDreamViewOcclusion
 	UPROPERTY(BlueprintReadOnly, Category = "View Occlusion")
 	float MinusY = 0.0f;
 
+	/** Inside a room: toward its open doors and windows (horizontal), as long as how much of the view they fill (0..1); zero elsewhere. */
+	UPROPERTY(BlueprintReadOnly, Category = "View Occlusion")
+	FVector Opening = FVector::ZeroVector;
+
 	/** False until a full round of rays has been cast (or when probing is off). */
 	UPROPERTY(BlueprintReadOnly, Category = "View Occlusion")
 	bool bValid = false;

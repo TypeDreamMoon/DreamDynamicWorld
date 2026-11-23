@@ -495,6 +495,7 @@ private:
 	bool bFluidActive = false;
 	bool bFluidHistoryDirty = true;
 	bool bFluidDistanceFieldRequested = false;
+	FDelegateHandle PortalChangedHandle;
 	/** The tier the volumes are laid out for, and how much of them consumers take (0..1, over half a second). */
 	FDreamWindQualityTier Tier;
 	bool bTierValid = false;

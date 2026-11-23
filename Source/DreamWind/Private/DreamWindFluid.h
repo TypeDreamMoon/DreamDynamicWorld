@@ -66,7 +66,12 @@ public:
 		bool bShowDivergence = false;
 		/** Start afresh (the world got the volumes back, a jump of the camera). */
 		bool bReset = false;
+		/** Openings carved out of the walls (doors, windows letting the air through): three float4 each -- centre, half
+		 *  extent (through the wall, across, up), rotation (quaternion) -- at most MaxPortals. */
+		TArray<FVector4f> Portals;
 	};
+
+	static constexpr int32 MaxPortals = 16;
 
 	/** Game thread: schedule this frame's step. */
 	void EnqueueStep(FStepArgs&& Args);

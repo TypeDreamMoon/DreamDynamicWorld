@@ -28,6 +28,7 @@
 #include "DreamWindPassThroughComponent.h"
 #include "DreamWindTestMap.h"
 #include "DreamWorldCelestial.h"
+#include "DreamWorldInterior.h"
 #include "DreamWorldTracks.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -526,8 +527,10 @@ namespace DreamWorld::ShowcaseSetup
 
 	/**
 	 * A hut to step into: stone walls, a doorway on the -X side, a wide window on the -Y side, a wooden roof (the rain's
-	 * roof); a table and a stool inside, and a dim warm lamp over the table. The walls block the view probe's rays, so
-	 * inside counts as indoors; the window and the lamp light the room enough to see into it.
+	 * roof); a table and a stool inside, and a dim warm lamp over the table. The window and the lamp light the room enough
+	 * to see into it. The room is a Dream Interior (indoors for the view, the sound, the weather and the wind), the
+	 * doorway an open portal the air goes through, the window a portal that lets the light and the sound in but not the
+	 * air (its glass).
 	 */
 	void AddHut(UWorld& World, const FShowcaseKit& Kit, const FVector& Center)
 	{
@@ -553,6 +556,31 @@ namespace DreamWorld::ShowcaseSetup
 			Roof->Tags.Add(FDreamWeatherFallPaths::RoofTag);
 		}
 		AddEaves(World, Center, Half + 30.0, Half + 30.0, Center.Z + Height, TEXT("Hut_Eave"));
+
+		// The room inside its walls, its doorway (out along -X) and its window (out along -Y).
+		if (ADreamInterior* Room = World.SpawnActor<ADreamInterior>(Center + FVector(0.0, 0.0, Height * 0.5), FRotator::ZeroRotator))
+		{
+			Room->Interior->Extent = FVector(Half - Wall * 0.5, Half - Wall * 0.5, Height * 0.5);
+			Room->RerunConstructionScripts();
+			Room->SetActorLabel(TEXT("Hut_Interior"));
+		}
+		if (ADreamPortal* Doorway = World.SpawnActor<ADreamPortal>(Center + FVector(-Half, 0.0, DoorHeight * 0.5), FRotator(0.0, 180.0, 0.0)))
+		{
+			Doorway->Portal->Width = Door;
+			Doorway->Portal->Height = DoorHeight;
+			Doorway->Portal->Depth = Wall + 40.0;
+			Doorway->RerunConstructionScripts();
+			Doorway->SetActorLabel(TEXT("Hut_Doorway"));
+		}
+		if (ADreamPortal* Window = World.SpawnActor<ADreamPortal>(Center + FVector(0.0, -Half, (Sill + Head) * 0.5), FRotator(0.0, -90.0, 0.0)))
+		{
+			Window->Portal->Width = WindowWide;
+			Window->Portal->Height = Head - Sill;
+			Window->Portal->Depth = Wall + 40.0;
+			Window->Portal->bVentilate = false;
+			Window->RerunConstructionScripts();
+			Window->SetActorLabel(TEXT("Hut_Window"));
+		}
 		PassThrough(AddBox(World, Kit, Kit.Wood, Center + FVector(80.0, 60.0, 40.0), FVector(140.0, 90.0, 80.0), TEXT("Hut_Table")));
 		PassThrough(SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Center + FVector(-20.0, 60.0, 22.0), FVector(0.4, 0.4, 0.45), FRotator::ZeroRotator, TEXT("Hut_Stool")));
 

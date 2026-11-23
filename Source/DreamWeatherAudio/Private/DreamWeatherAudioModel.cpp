@@ -43,6 +43,13 @@ namespace DreamWeatherAudio
 		Out.Volume = FMath::Lerp(1.0f, MinVolume + (1.0f - MinVolume) * Openness, Enclosed);
 		Out.Muffle = Enclosed * (1.0f - Openness);
 		Out.Balance = SumOpen > 1.0e-3f ? FMath::Clamp(SumPan / SumOpen, -1.0f, 1.0f) * Enclosed : 0.0f;
+		// In a room (UDreamInteriorComponent) the outdoors comes from its open doors and windows: toward them.
+		FVector2D Opening(Occlusion.Opening.X, Occlusion.Opening.Y);
+		if (Opening.SizeSquared() > 1.0e-6)
+		{
+			Opening.Normalize();
+			Out.Balance = FMath::Clamp(float(FVector2D::DotProduct(Opening, Right)), -1.0f, 1.0f) * Enclosed;
+		}
 		Out.CutoffHz = MuffleToCutoff(Out.Muffle, MinCutoffHz);
 		return Out;
 	}
