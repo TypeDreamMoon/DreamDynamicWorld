@@ -26,6 +26,8 @@ public:
 		Wetness,
 		SnowCover,
 		FreezingRain,
+		Hail,
+		Sleet,
 		NumBuiltIn
 	};
 

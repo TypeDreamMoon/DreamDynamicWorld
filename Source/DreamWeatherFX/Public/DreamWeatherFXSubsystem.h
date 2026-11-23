@@ -39,7 +39,9 @@ public:
 	static constexpr int32 RainLayer = 0;
 	static constexpr int32 SnowLayer = 1;
 	static constexpr int32 DustLayer = 2;
-	static constexpr int32 NumLayers = 3;
+	static constexpr int32 HailLayer = 3;
+	static constexpr int32 SleetLayer = 4;
+	static constexpr int32 NumLayers = 5;
 
 	/** The fall paths of a layer. */
 	const FDreamWeatherFallPaths& GetPaths(int32 Layer) const { return States[FMath::Clamp(Layer, 0, NumLayers - 1)].Paths; }

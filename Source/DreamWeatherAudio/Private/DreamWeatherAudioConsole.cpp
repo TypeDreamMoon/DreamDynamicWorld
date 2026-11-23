@@ -24,6 +24,7 @@ namespace DreamWeatherAudio::Console
 		case EDreamWeatherVoice::RainOnRoof: return TEXT("RainOnRoof");
 		case EDreamWeatherVoice::RainOnLeaves: return TEXT("RainOnLeaves");
 		case EDreamWeatherVoice::Snow: return TEXT("Snow");
+		case EDreamWeatherVoice::Hail: return TEXT("Hail");
 		default: return TEXT("Dust");
 		}
 	}

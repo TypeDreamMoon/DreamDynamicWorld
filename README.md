@@ -617,6 +617,26 @@ The numbers are worked out without an audio device too (a server, `-nosound`): `
 `GetPendingThunder` and `GetAmbienceParams` for gameplay and tests. `SetMuted` fades everything out and back.
 `DreamWorldPlaySetup` (below) builds the graphs, the preset and the two sound classes.
 
+### Precipitation types
+
+What falls is the Precipitation channel split into kinds: the Hail channel's share first (at any temperature -- a
+summer storm hails), the Sleet channel's share of what is left, the rest rain and snow by the snow ratio (snow near
+freezing whatever the weather says, all but the FreezingRain channel's supercooled share of the rain). The sample
+carries each (`Rain`, `Snow`, `Hail`, `Sleet`, and what lands on the point, `...Here`) and the state tags
+(`Dream.Weather.State.Hail`, `.Sleet`); the presets `WP_Hail`, `WP_Sleet` and `WP_FreezingRain` make each.
+
+| Type | Channel | Particles (`UDreamWeatherFXSettings`) | Fall speed | `WindResponse` | Sound |
+|---|---|---|---|---|---|
+| Rain | Precipitation, the rest | `NS_DreamRain`: streaks, splashes | 900 cm/s | 1 | rain light, heavy, on roofs, on leaves |
+| Freezing rain | FreezingRain (of the rain) | as rain | as rain | 1 (as rain) | as rain |
+| Snow | SnowRatio (of the rest) | `NS_DreamSnow`: swaying flakes | 130 cm/s | 1 | snow |
+| Sleet | Sleet | `NS_DreamSleet`: short wet streaks, slush splashes | 450 cm/s | 0.5 | half as rain, half as snow |
+| Hail | Hail | `NS_DreamHail`: pellets, bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
+
+Each layer's `WindResponse` goes to its effect (`User.WindResponse`): how much of the wind field's per-particle
+deviation its particles take. Hail and sleet count as precipitation on the surfaces for now (their own layer, hail
+lying for a while, is the surfaces' to add).
+
 ### Quality levels
 
 Dream Dynamic World follows the engine's scalability: each group of its features takes the level of the engine group it

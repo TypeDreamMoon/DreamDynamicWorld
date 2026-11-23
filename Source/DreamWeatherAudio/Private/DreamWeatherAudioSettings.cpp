@@ -21,6 +21,7 @@ FDreamWeatherSoundSlot& FDreamWeatherSounds::Get(EDreamWeatherVoice Voice)
 	case EDreamWeatherVoice::RainOnRoof: return RainOnRoof;
 	case EDreamWeatherVoice::RainOnLeaves: return RainOnLeaves;
 	case EDreamWeatherVoice::Snow: return Snow;
+	case EDreamWeatherVoice::Hail: return Hail;
 	default: return Dust;
 	}
 }
@@ -64,6 +65,11 @@ FDreamWeatherSounds UDreamWeatherAudioSettings::ResolveSounds() const
 		Out = Set->Sounds;
 	}
 	Out.FillEmptyFrom(Sounds);
+	// (No hail of its own: the rain on a roof's, pellets drumming.)
+	if (Out.Hail.IsEmpty())
+	{
+		Out.Hail = Out.RainOnRoof;
+	}
 	return Out;
 }
 

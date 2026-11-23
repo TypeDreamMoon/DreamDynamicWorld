@@ -214,8 +214,10 @@ void UDreamWeatherAudioSubsystem::GatherInputs(UDreamWorldSubsystem& Clock, cons
 	{
 		In.ListenerRight = FRotationMatrix(FRotator(0.0, Clock.GetViewRotation().Yaw, 0.0)).GetUnitAxis(EAxis::Y);
 	}
-	In.Rain = View.Rain;
-	In.Snow = View.Snow;
+	// (Sleet sounds half as the rain, half as the snow; hail has its own voice.)
+	In.Rain = View.Rain + 0.5f * View.Sleet;
+	In.Snow = View.Snow + 0.5f * View.Sleet;
+	In.Hail = View.Hail;
 	In.Dust = View.Dust;
 	In.Occlusion = Clock.GetViewOcclusion();
 

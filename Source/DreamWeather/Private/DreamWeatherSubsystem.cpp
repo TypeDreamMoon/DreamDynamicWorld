@@ -413,12 +413,21 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	// supercooled part of the rain: freezing rain stays rain below freezing.
 	S.FreezingRain = FMath::Clamp(Values.Get(C::FreezingRain), 0.0f, 1.0f);
 	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
-	S.Rain = S.Precipitation * (1.0f - S.SnowRatio);
-	S.Snow = S.Precipitation * S.SnowRatio;
+	// The precipitation's kinds: its hail share first (at any temperature), the sleet's of what is left, the rest rain
+	// and snow by the snow ratio.
+	const float HailShare = FMath::Clamp(Values.Get(C::Hail), 0.0f, 1.0f);
+	const float SleetShare = FMath::Clamp(Values.Get(C::Sleet), 0.0f, 1.0f) * (1.0f - HailShare);
+	const float Left = 1.0f - HailShare - SleetShare;
+	S.Hail = S.Precipitation * HailShare;
+	S.Sleet = S.Precipitation * SleetShare;
+	S.Rain = S.Precipitation * Left * (1.0f - S.SnowRatio);
+	S.Snow = S.Precipitation * Left * S.SnowRatio;
 	S.Exposure = ExposureAt(Position);
 	S.bSheltered = S.Exposure < 0.5f;
 	S.RainHere = S.Rain * S.Exposure;
 	S.SnowHere = S.Snow * S.Exposure;
+	S.HailHere = S.Hail * S.Exposure;
+	S.SleetHere = S.Sleet * S.Exposure;
 
 	if (S.CloudCoverage < 0.3f)
 	{
@@ -439,6 +448,14 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	if (S.Snow > 0.1f)
 	{
 		S.Tags.AddTag(S.Snow > 0.6f ? State_Snow_Heavy : State_Snow);
+	}
+	if (S.Hail > 0.05f)
+	{
+		S.Tags.AddTag(State_Hail);
+	}
+	if (S.Sleet > 0.1f)
+	{
+		S.Tags.AddTag(State_Sleet);
 	}
 	if (S.Lightning > 0.2f)
 	{
