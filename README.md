@@ -611,8 +611,7 @@ fog's opacity alone.
 
 What it costs (1400 x 788 internal, the showcase's morning mist with the camera in it, so every pixel marches): 0.41,
 0.53, 0.68 and 0.94 ms at 16, 24, 32 and 48 samples; the valley fog seen from the set 0.11 ms; the local fog volumes
-0.06 ms. `M_DreamGroundFog`'s shaders are keyed on its own code, not on the include: a change to `DreamGroundFog.ush`
-bumps *IncludeRevision* in `M_DreamGroundFog.dss` with it, or the old shaders stay in the derived data cache.
+0.06 ms.
 
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
