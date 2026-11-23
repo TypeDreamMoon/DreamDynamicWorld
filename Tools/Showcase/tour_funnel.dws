@@ -1,0 +1,31 @@
+# The funnel cloud: a tornado registered by hand 2 km north of the start (DreamWorld.Vortex), in an overcast sky --
+# forming, touching down (realistic, toon, painted), moving off with a lean, dissipating.
+ShowFlag.EyeAdaptation 0
+DreamSky.CloudRender.Look 1
+time 13
+move 600 300 300
+aim 16 0
+settle
+DreamWeather.Set WP_Overcast 0
+DreamWorld.Vortex 0 200000 0 0 18000 0.4 1 4000 0 4000
+wait 20
+shot funnel_1_forming
+DreamWorld.Vortex 1 200000 0 0 18000 1.0 1 6000 0 4000
+wait 6
+shot funnel_2_touchdown
+DreamSky.CloudRender.Look 0
+wait 6
+shot funnel_2_touchdown_toon
+DreamSky.CloudRender.Look 2
+wait 6
+shot funnel_2_touchdown_painted
+DreamSky.CloudRender.Look 1
+DreamWorld.Vortex 1 190000 -45000 0 18000 1.0 1 16000 -9000 4000
+wait 6
+shot funnel_3_moving
+DreamWorld.Vortex 1 185000 -60000 0 9000 0.3 1 22000 -12000 4000
+wait 6
+shot funnel_4_dissipating
+DreamSky.CloudRender.Look 0
+wait 6
+shot funnel_4_dissipating_toon
