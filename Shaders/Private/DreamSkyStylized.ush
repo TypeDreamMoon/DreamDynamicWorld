@@ -18,6 +18,30 @@
 #include "/Plugin/DreamDynamicWorld/Shared/DreamAtmosphereShared.h"
 #include "/Plugin/DreamDynamicWorld/Shared/DreamSkyGradeShared.h"
 
+// The cloud panorama (the sky cloud renderer's PanoramaCS writes it, the dome reads it in the sky light capture): longitude
+// across, latitude down from the zenith to a little below the horizon -- the clouds are seen from below, so the lower
+// hemisphere is left out and its texels go to the upper one (0.7 degrees a texel at 512 x 128).
+#define DSKY_PANORAMA_BELOW 0.13962634  // 8 degrees under the horizon at the bottom row
+
+float2 DSky_PanoramaUV(float3 V)
+{
+	float Latitude = asin(clamp(V.z, -1.0, 1.0));
+	return float2(frac(atan2(V.y, V.x) / (2.0 * 3.14159265)), saturate((0.5 * 3.14159265 - Latitude) / (0.5 * 3.14159265 + DSKY_PANORAMA_BELOW)));
+}
+
+float3 DSky_PanoramaDirection(float2 UV)
+{
+	float Longitude = UV.x * 2.0 * 3.14159265;
+	float Latitude = 0.5 * 3.14159265 - UV.y * (0.5 * 3.14159265 + DSKY_PANORAMA_BELOW);
+	return float3(cos(Latitude) * cos(Longitude), cos(Latitude) * sin(Longitude), sin(Latitude));
+}
+
+// How much of the panorama a direction takes: all of it above its bottom row, none further down (fading in between).
+float DSky_PanoramaShare(float3 V)
+{
+	return smoothstep(-DSKY_PANORAMA_BELOW, -0.5 * DSKY_PANORAMA_BELOW, asin(clamp(V.z, -1.0, 1.0)));
+}
+
 float DSky_Hash12(float2 p)
 {
 	float3 p3 = frac(float3(p.x, p.y, p.x) * 0.1031);
@@ -1919,8 +1943,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 VC = float4(0, 0, 0, 0);
 	if (CloudLayer.w > 0.5 && Capture > 0.5)
 	{
-		float2 UV = float2(frac(atan2(V.y, V.x) / (2.0 * 3.14159265)), 0.5 - asin(clamp(V.z, -1.0, 1.0)) / 3.14159265);
-		VC = Panorama.SampleLevel(PanoramaSampler, UV, 0);
+		VC = Panorama.SampleLevel(PanoramaSampler, DSky_PanoramaUV(V), 0) * DSky_PanoramaShare(V);
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
 	// (The clouds clearing round the sun and the moon: the high cloud fainter there.)

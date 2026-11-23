@@ -12,7 +12,7 @@
 //   SunMapCS    the optical depth toward the sun at every texel of a box round the view (two cascades, 10 km tall over
 //               the layer's base): what the realistic clouds are shadowed by, read once a sample instead of looking
 //               toward the light from each.
-//   PanoramaCS  the clouds round the view, longitude by latitude, every fourth frame: what the dome shows in the sky light
+//   PanoramaCS  the clouds round the view, longitude by latitude (the upper hemisphere), half its rows every fourth frame: what the dome shows in the sky light
 //               capture (the capture renders no base pass and calls no view extension).
 //   ShadowCS    the clouds' shadow on the ground: the sun map's transmittance from the layer's base toward the sun, which
 //               the sun light's light function (M_DreamCloudShadow) reads.
@@ -171,7 +171,9 @@ SamplerState TauSampler;
 float4 NearCenterExtent;  // the sun map cascades: centre x, y (world cm), half their width (cm)
 float4 FarCenterExtent;
 
-int2 PanoramaResolution;  // PanoramaCS: longitude across, latitude down (+90 at the top)
+int2 PanoramaResolution;  // PanoramaCS: longitude across, latitude down (+90 at the top; DSky_PanoramaUV)
+int PanoramaRowStart;     // PanoramaCS: the rows this update draws
+int PanoramaRows;
 RWTexture2D<float4> OutPanorama;
 
 float4 ShadowPlacement;   // ShadowCS: the ground shadow's middle x, y (world cm), half its width (cm)
@@ -1232,21 +1234,20 @@ void StormProximityCS(uint3 Id : SV_DispatchThreadID)
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void PanoramaCS(uint3 Id : SV_DispatchThreadID)
 {
-	if (any(int2(Id.xy) >= PanoramaResolution))
+	// (Half the rows an update, alternately: PanoramaRows from PanoramaRowStart.)
+	int2 Texel = int2(Id.x, int(Id.y) + PanoramaRowStart);
+	if (any(Texel >= PanoramaResolution) || int(Id.y) >= PanoramaRows)
 	{
 		return;
 	}
-	float2 UV = (float2(Id.xy) + 0.5) / float2(PanoramaResolution);
-	float Longitude = UV.x * 2.0 * PI;
-	float Latitude = (0.5 - UV.y) * PI;
-	float3 V = float3(cos(Latitude) * cos(Longitude), cos(Latitude) * sin(Longitude), sin(Latitude));
+	float3 V = DSky_PanoramaDirection((float2(Texel) + 0.5) / float2(PanoramaResolution));
 	float Depth;
 #if DSKY_LOOK != 0
-	float4 VC = DSkyR_Realistic(V, int2(Id.xy), 1.0e10, Depth);
+	float4 VC = DSkyR_Realistic(V, Texel, 1.0e10, Depth);
 #else
-	float4 VC = DSkyR_Toon(V, int2(Id.xy), 1.0e10, Depth);
+	float4 VC = DSkyR_Toon(V, Texel, 1.0e10, Depth);
 #endif
-	OutPanorama[Id.xy] = float4(max(VC.rgb, 0.0), saturate(VC.a));
+	OutPanorama[Texel] = float4(max(VC.rgb, 0.0), saturate(VC.a));
 }
 
 // The share of the sun the clouds let through to the layer's base (and below it) round the view: the transmittance

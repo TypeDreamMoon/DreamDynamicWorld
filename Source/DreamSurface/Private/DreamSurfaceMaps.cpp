@@ -32,6 +32,55 @@ namespace DreamSurface::Maps
 	/** Float4s per zone record (DreamSurfaceMap.usf's DSM_ZONE_FLOAT4S). */
 	constexpr int32 ZoneFloat4s = 5;
 
+	/** Whether hail falls in some whole step, or a zone pulls the hail up (its record's fifth float4, z: the hail it sets). */
+	bool AnyHail(const FDreamSurfaceMapSteps& Steps, const TArray<FVector4f>& Zones, int32 NumZones)
+	{
+		for (int32 i = 3; i < Steps.Steps.Num(); i += FDreamSurfaceMapSteps::FloatsPerStep)
+		{
+			if (Steps.Steps[i].X > 0.0f)
+			{
+				return true;
+			}
+		}
+		for (int32 z = 0; z < NumZones; ++z)
+		{
+			const int32 Record = z * ZoneFloat4s + 4;
+			if (Zones.IsValidIndex(Record) && Zones[Record].Z > 0.0f)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The box (min x, y, max x, y) every water body's area lies in over the blocks of the floods (two float4 a body). */
+	FVector4f FloodBounds(const TArray<FVector4f>& Floods)
+	{
+		FVector4f Box(1.0e30f, 1.0e30f, -1.0e30f, -1.0e30f);
+		for (int32 i = 0; i + 1 < Floods.Num(); i += 2)
+		{
+			const FVector4f& A = Floods[i];
+			const FVector4f& B = Floods[i + 1];
+			const float EX = FMath::Abs(A.Z) * B.X + FMath::Abs(A.W) * B.Y;
+			const float EY = FMath::Abs(A.W) * B.X + FMath::Abs(A.Z) * B.Y;
+			Box = FVector4f(FMath::Min(Box.X, A.X - EX), FMath::Min(Box.Y, A.Y - EY), FMath::Max(Box.Z, A.X + EX), FMath::Max(Box.W, A.Y + EY));
+		}
+		return Box;
+	}
+
+	/** Whether a water body is muddy in some block of the floods (only a muddy flood leaves silt). */
+	bool AnyMuddyFlood(const TArray<FVector4f>& Floods)
+	{
+		for (int32 i = 1; i < Floods.Num(); i += 2)
+		{
+			if (Floods[i].W > 0.0f)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Loads a map's render target and makes it something a compute pass can write. */
 	/**
 	 * The state maps sized for the surfaces' quality level (UDreamWorldQuality, r.DreamSurface.Quality) as the world
@@ -255,10 +304,16 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 {
 	using namespace DreamSurface::Names;
 	const UDreamSurfaceSettings* S = UDreamSurfaceSettings::Get();
-	const FDreamSurfaceState& View = Surface.GetViewState();
-	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(View.Wetness, View.Water, View.Snow, View.Dust));
-	Clock.SetVectorParameter(MPC_SurfaceViewIce, FLinearColor(View.Ice, View.Frost, View.Rime, View.FrozenWater));
-	Clock.SetVectorParameter(MPC_SurfaceViewHail, FLinearColor(View.Hail, 0.0f, 0.0f, 0.0f));
+	// Beyond both maps the land takes the region's state: the weather with no zone, no lee and no water body over it, as
+	// the far map has it away from the zones (the view's own state would carry a zone or a flood at the camera out to
+	// the horizon).
+	const FDreamSurfaceState& Region = Surface.GetRegionState();
+	Clock.SetVectorParameter(MPC_SurfaceView, FLinearColor(Region.ToVector()));
+	Clock.SetVectorParameter(MPC_SurfaceViewIce, FLinearColor(Region.ToIceVector()));
+	// (w: whether the maps may hold hail or silt -- 1 until the steps and the zones below say otherwise.)
+	FVector4f RegionHail = Region.ToHailVector();
+	RegionHail.W = 1.0f;
+	Clock.SetVectorParameter(MPC_SurfaceViewHail, FLinearColor(RegionHail));
 	Clock.SetVectorParameter(MPC_SurfaceParams, FLinearColor(S->MaxSnowDepth, UDreamWeatherSettings::Get()->RoofClearance, S->CoverSoftness, S->PuddleScale));
 
 	UWorld* World = Surface.GetWorld();
@@ -293,6 +348,12 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	LastZoneTracks = MoveTemp(Zones.Tracks);
 	LastNumZones = Zones.Num;
 	bIntegrateRequested = false;
+	// No hail in any step of the memory or zone and no muddy water body in any: the maps hold no hail and no silt, and the
+	// materials need not read them (DSM_HailLikely).
+	const bool bHailOrSilt = Steps.PartialKinds.X > 0.0f || DreamSurface::Maps::AnyHail(Steps, LastZones, LastNumZones)
+		|| DreamSurface::Maps::AnyMuddyFlood(Steps.Floods);
+	RegionHail.W = bHailOrSilt ? 1.0f : 0.0f;
+	Clock.SetVectorParameter(MPC_SurfaceViewHail, FLinearColor(RegionHail));
 
 	// The near map moves in eighths of its size (each move integrates it afresh), the far one with the weather map.
 	const FVector View2D = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
@@ -303,8 +364,11 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	const double FarTexel = FarExtent / FMath::Max(1, Far.Target->SizeX);
 	const FVector2D FarCenter(FMath::GridSnap(View2D.X, FarTexel * 8.0), FMath::GridSnap(View2D.Y, FarTexel * 8.0));
 
-	DrawState(0, Near, NearCenter, NearExtent, bZonesChanged, Surface, Weather, Now);
-	DrawState(1, Far, FarCenter, FarExtent, bZonesChanged, Surface, Weather, Now);
+	// A step going by integrates both maps: the far one a frame after the near one, so no frame pays for both (unless
+	// every update integrates, to measure what that costs).
+	const bool bNearIntegrated = DrawState(0, Near, NearCenter, NearExtent, bZonesChanged, true, Surface, Weather, Now);
+	DrawState(1, Far, FarCenter, FarExtent, bZonesChanged, !bNearIntegrated || DreamSurface::Maps::CVarIntegrateEveryFrame.GetValueOnGameThread() != 0,
+		Surface, Weather, Now);
 	DrawCover(Clock, NearCenter, NearExtent, Now);
 
 	using namespace DreamSurface::Maps;
@@ -314,13 +378,21 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	Clock.SetVectorParameter(MPC_SurfaceFar, Placement(Far.Center, Far.Extent, Far.bLive));
 }
 
-void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, UDreamSurfaceSubsystem& Surface, UDreamWeatherSubsystem& Weather, double Now)
+bool FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center, float Extent, bool bForce, bool bMayIntegrate, UDreamSurfaceSubsystem& Surface,
+	UDreamWeatherSubsystem& Weather, double Now)
 {
 	const FDreamSurfaceMapSteps& Steps = Surface.GetMapSteps();
-	const bool bIntegrate = bForce || !Map.bLive || Steps.Step != Map.Step || Center != Map.Center || Extent != Map.Extent;
+	const bool bIntegrate = bForce || Map.bOwesIntegrate || !Map.bLive || Steps.Step != Map.Step || Center != Map.Center || Extent != Map.Extent;
 	if (!bIntegrate && Now - Map.LastDraw < UDreamSurfaceSettings::Get()->MapInterval)
 	{
-		return;
+		return false;
+	}
+	// Not this frame (another map integrates in it): a map that stays where it is keeps what it shows a frame longer --
+	// the step in progress over the last step's start would be a step out -- and integrates on the next.
+	if (bIntegrate && !bMayIntegrate && Map.bLive && Center == Map.Center && Extent == Map.Extent)
+	{
+		Map.bOwesIntegrate = true;
+		return false;
 	}
 	FDreamSurfaceMapRenderer::FStateArgs Args;
 	Args.Target = Map.Target->GameThread_GetRenderTargetResource();
@@ -328,8 +400,9 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.HailTarget = Map.HailTarget ? Map.HailTarget->GameThread_GetRenderTargetResource() : nullptr;
 	if (!Args.Target || !Args.IceTarget || !Args.HailTarget)
 	{
-		return;
+		return false;
 	}
+	Map.bOwesIntegrate = false;
 	Args.Center = FVector2f(Center);
 	Args.Extent = Extent;
 	Args.bIntegrate = bIntegrate;
@@ -383,7 +456,12 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 			// Only the step in progress counts: put it where the shader looks for it (block NumSteps = 0).
 			Args.Floods.Append(Steps.Floods.GetData() + WholeSteps * BlockFloats, BlockFloats);
 		}
+		// (Every block, so the integral and the step in progress see the same box; a texel's margin round it.)
+		const float Margin = 2.0f * Extent / FMath::Max(1, Map.Target ? Map.Target->SizeX : 1);
+		const FVector4f Box = DreamSurface::Maps::FloodBounds(Steps.Floods);
+		Args.FloodBounds = FVector4f(Box.X - Margin, Box.Y - Margin, Box.Z + Margin, Box.W + Margin);
 	}
+	Args.bHailWork = DreamSurface::Maps::AnyHail(Steps, LastZones, LastNumZones);
 	if (bIntegrate)
 	{
 		Args.ZoneTracks = LastZoneTracks;
@@ -394,6 +472,7 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Map.Step = Steps.Step;
 	Map.LastDraw = Now;
 	Map.bLive = true;
+	return bIntegrate;
 }
 
 void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& Center, float Extent, double Now)

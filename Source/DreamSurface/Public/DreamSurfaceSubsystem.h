@@ -96,8 +96,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")
 	const FDreamSurfaceState& GetViewState() const { return ViewState; }
 
-	/** What drives a surface at this point over the step starting at WorldSeconds (bOpenSky: as if nothing covered it). */
-	FDreamSurfaceDrive DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky = false) const;
+	/**
+	 * The region's state in the open at the view this frame: the weather with no zone, no wind lee and no water body over
+	 * it -- what the land beyond both surface maps shows (DDW_SurfaceView*), as the far map has it away from the zones.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	const FDreamSurfaceState& GetRegionState() const { return RegionState; }
+
+	/**
+	 * What drives a surface at this point over the step starting at WorldSeconds (bOpenSky: as if nothing covered it;
+	 * bRegion: the region's weather there, open, with no zone, no wind lee and no water body -- GetRegionState's).
+	 */
+	FDreamSurfaceDrive DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky = false, bool bRegion = false) const;
 
 	/** How much of the weather's wind reaches the surface at a point (UDreamWindSubsystem::GetTerrainWindFactor; 1 with bWindDrift off). */
 	float WindFactorAt(const FVector& Position) const;
@@ -169,7 +179,7 @@ private:
 	void MapStepRecord(int64 StepIndex, FVector4f& OutWeather, FVector4f& OutChannels, FVector4f& OutAir, FVector4f& OutKinds) const;
 	void BuildMapSteps(int64 StepIndex);
 	void Record(int64 StepIndex, const FDreamWeatherValues& Global);
-	FDreamSurfaceState IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky = false) const;
+	FDreamSurfaceState IntegrateSteps(const FVector& Position, int64 FirstStep, int64 EndStep, const FDreamSurfaceState& Start, bool bOpenSky = false, bool bRegion = false) const;
 
 	/** The global weather at each step this session saw, by step index (world seconds / StepSeconds). */
 	TMap<int64, FDreamWeatherValues> History;
@@ -183,6 +193,9 @@ private:
 	FDreamSurfaceState ViewState;
 	/** The view's open-sky state at the start of ViewStep, at ViewAnchor: a frame inside that step only adds its part. */
 	FDreamSurfaceState ViewStepStart;
+	/** The region's state (GetRegionState) and its start of ViewStep, at ViewAnchor, integrated beside the view's. */
+	FDreamSurfaceState RegionState;
+	FDreamSurfaceState RegionStepStart;
 	int64 ViewStep = TNumericLimits<int64>::Min();
 	FVector ViewAnchor = FVector(1.0e30);
 

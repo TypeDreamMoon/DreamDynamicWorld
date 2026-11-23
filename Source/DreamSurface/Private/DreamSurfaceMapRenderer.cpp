@@ -64,6 +64,8 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, ZoneTracks)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Floods)
 		SHADER_PARAMETER(uint32, NumFloodBodies)
+		SHADER_PARAMETER(FVector4f, FloodBounds)
+		SHADER_PARAMETER(uint32, HailWork)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, StepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, IceStepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, HailStepStart)
@@ -241,6 +243,8 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->ZoneTracks = GraphBuilder.CreateSRV(TrackBuffer);
 	Params->Floods = GraphBuilder.CreateSRV(FloodBuffer);
 	Params->NumFloodBodies = bFloods ? uint32(Args.NumFloodBodies) : 0u;
+	Params->FloodBounds = Args.FloodBounds;
+	Params->HailWork = Args.bHailWork ? 1u : 0u;
 	Params->StepStart = GraphBuilder.CreateUAV(Start);
 	Params->IceStepStart = GraphBuilder.CreateUAV(IceStart);
 	Params->HailStepStart = GraphBuilder.CreateUAV(HailStart);

@@ -125,8 +125,10 @@ the optical depth toward the sun round the view shades them and casts their shad
 the sky puts on its sun, `M_DreamCloudShadow`): they take all of the sun off the ground under every look; the style's
 `StylizedCloudShadow` lowers that between broken clouds under the toon and painted ones (say 0.55: a painted
 background's cloud shadows lie light and warm), rising to all of it as the cover closes (an overcast casts no sun
-shadows); the `GroundShadow` override sets it for any look. A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
-in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
+shadows); the `GroundShadow` override sets it for any look. A panorama of them (`RT_DreamCloudPanorama`, 512 × 128 over the upper
+hemisphere and a little under the horizon -- the clouds are seen from below -- some 0.7° a texel; half its rows every
+fourth frame, the whole every eighth, at what a whole 256 × 128 one cost) is what the dome shows in the sky light
+capture, so the sky light and reflections see them: a still pond reflects the cumulus, not blocks of them. Seen from above the layer's base the clouds
 between the view and the ground are drawn over the scene too, just before the post processing: there they cover
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
 scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome
@@ -1197,7 +1199,8 @@ map texel and `SampleSurface` at its centre agree (`DreamSurface.Gpu.MatchesCpu`
 moving zone across a time jump and a forced change, and `DreamSurface.Gpu.PolygonZone` for an outline with a corner
 cut out, `DreamSurface.WindDrift` for the lee's snow and dust, a ridge blown clean, the open unchanged, a lee drying
 slower and riming less, `DreamSurface.Gpu.Ice` for frost, a glaze and rime in a freezing fog zone through a night, a thaw and a
-jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump),
+jump, `DreamSurface.Gpu.Hail` for a hailstorm zone and a sleet zone in summer showers, the melt after them and a jump,
+`DreamSurface.RegionState` for a cold zone round the camera that snows on the view's state and not on the region's),
 and a snow zone's border shows on the ground from afar. The whole
 memory is integrated when a step goes by, the map moves or the zones change; in between each update only adds the
 part of the current step gone by. The maps hold the state **in the open**; the cover map holds, per texel, the height
@@ -1206,9 +1209,18 @@ surface below it. What differs from a query: under partial cover (the windward e
 the reduced weather while a material scales the open state; the map takes the hour's temperature at the view's height
 (with each texel's own cloud cover, which takes some of the daily swing off, and its zones' offset), not at each
 texel's height; and like the weather map it takes Override zones only, without their height limits. The maps are
-placed by `DDW_SurfaceNear / Far` in the shared collection, beyond both the view's state stands (`DDW_SurfaceView`,
-`DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`). GPU cost: some 0.03 ms a frame (both maps
-and the cover), 0.2 ms for an integration.
+placed by `DDW_SurfaceNear / Far` in the shared collection; beyond both the land takes the **region's** state
+(`DDW_SurfaceView`, `DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`; `GetRegionState`): the weather with no zone, no wind
+lee and no water body over it, integrated at the view beside its own state (`GetViewState`) -- what the far map holds
+away from the zones, so the far land meets it without a seam, and a zone or a flood round the camera does not reach
+the horizon. (Steep slopes take no dust and hold no standing water, so on the horizon a far range stands apart from a
+dusty or flooded plain before it: it keeps its own colour while the plain greys -- under the aerial perspective and the
+fog it hardly shows.) `DDW_SurfaceViewHail.w` says whether the maps may hold hail or silt at all (hail in some step of the
+memory or a zone, a muddy water body); while it is 0 the materials do not read the hail maps. GPU cost: some 0.03 ms a
+frame (both maps and the cover); an integration (a step going by) costs the near map some 0.54 ms and the far one 0.18 ms
+on the showcase (2026-11-23, its pond flooding), the far map a frame after the near one so no frame pays both. The hail's part of the integral is left
+alone without hail in any step or zone, the flood's outside the box the water bodies reach; a material skips the hail,
+the silt and the cold's patterns where there is none of them.
 
 **Materials.** One node at the end of a material's attributes (Material Attributes in and out):
 

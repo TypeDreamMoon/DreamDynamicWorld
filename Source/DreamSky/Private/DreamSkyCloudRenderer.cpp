@@ -354,6 +354,8 @@ class FDreamSkyCloudPanoramaCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, StormProximity)
 		SHADER_PARAMETER(int32, ProximityResolution)
 		SHADER_PARAMETER(FIntPoint, PanoramaResolution)
+		SHADER_PARAMETER(int32, PanoramaRowStart)
+		SHADER_PARAMETER(int32, PanoramaRows)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutPanorama)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -1176,7 +1178,8 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 
 	// The panorama of the clouds round the view the dome shows in the sky light capture, every fourth frame (the capture
 	// itself is spread over frames): from the view, a ray a texel, half the samples, without the weather haze (the dome
-	// adds it).
+	// adds it). Half its rows an update, the upper half and the lower half in turn: the whole of it every eighth frame, an
+	// update as dear as a whole 256 x 128 one was.
 	FRHITexture* PanoramaRHI = RenderSettings.Panorama ? RenderSettings.Panorama->TextureRHI.GetReference() : nullptr;
 	if (PanoramaRHI && EnumHasAnyFlags(PanoramaRHI->GetFlags(), TexCreate_UAV) && (Frame & 3) == 0)
 	{
@@ -1197,12 +1200,15 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->StormProximity = Graph.StormProximity;
 		Params->ProximityResolution = DreamSkyCloudRender::ProximityResolution;
 		Params->PanoramaResolution = Resolution;
+		const int32 Rows = (Resolution.Y + 1) / 2;
+		Params->PanoramaRowStart = (Frame & 4) ? Rows : 0;
+		Params->PanoramaRows = Rows;
 		Params->OutPanorama = GraphBuilder.CreateUAV(Panorama);
 		FDreamSkyCloudMarchCS::FPermutationDomain Permutation;
 		Permutation.Set<FDreamSkyCloudMarchCS::FLook>(RenderSettings.Look);
 		TShaderMapRef<FDreamSkyCloudPanoramaCS> Shader(ShaderMap, Permutation);
 		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Panorama %dx%d", Resolution.X, Resolution.Y), Shader, Params,
-			FComputeShaderUtils::GetGroupCount(Resolution, FDreamSkyCloudMarchCS::GroupSize));
+			FComputeShaderUtils::GetGroupCount(FIntPoint(Resolution.X, Rows), FDreamSkyCloudMarchCS::GroupSize));
 		GraphBuilder.SetTextureAccessFinal(Panorama, ERHIAccess::SRVMask);
 	}
 

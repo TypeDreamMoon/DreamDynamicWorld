@@ -113,10 +113,14 @@ namespace DreamSurface::Tests
 			}
 		}
 
-		/** Sets the clock and runs a frame there. */
+		/**
+		 * Sets the clock and runs a frame there, and another: when a step going by has both maps integrate, the far one
+		 * does it a frame after the near one.
+		 */
 		void GoTo(double Seconds)
 		{
 			Clock->SetWorldSeconds(Seconds);
+			Clock->Tick(0.0f);
 			Clock->Tick(0.0f);
 		}
 
@@ -1902,6 +1906,39 @@ bool FDreamSurfaceFloodTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("dried by the evening"), Evening.Wetness < After.Wetness && Evening.Flooded < 0.01f);
 	TestTrue(TEXT("the silt stays a while"), Evening.Silt > 0.1f);
 	TestTrue(TEXT("asked again, the same"), Evening.Equals(W.Surface->SampleSurface(Under), 0.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceRegionStateTest, "DreamSurface.RegionState", DreamSurface::Tests::Flags)
+bool FDreamSurfaceRegionStateTest::RunTest(const FString& Parameters)
+{
+	// The land beyond the maps takes the region's state, not the view's: a zone round the camera stays where it is.
+	using namespace DreamSurface::Tests;
+	FSurfaceWorld W(Sequence({ { Rain(), 6.0f }, { Clear(), 6.0f } }));
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherZone* Cold = W.World->SpawnActor<ADreamWeatherZone>(FVector(0, 0, 0), FRotator::ZeroRotator, Params);
+	Cold->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Cold->Zone->Extent = FVector2D(3000, 3000);
+	Cold->Zone->BlendDistance = 500.0f;
+	Cold->Zone->Channels.Add(Channel_SnowRatio, 1.0f);
+	Cold->Zone->Channels.Add(Channel_Temperature, -25.0f);
+	W.Clock->ReportView(FVector(0, 0, 100), FRotator::ZeroRotator, true);
+	// Five hours into the rain: snow in the zone, wet ground in the region.
+	W.RunTo(At(5.0));
+
+	const FDreamSurfaceState& View = W.Surface->GetViewState();
+	const FDreamSurfaceState& Region = W.Surface->GetRegionState();
+	const FDreamSurfaceState Away = W.Surface->SampleOpenSurface(FVector(500000, 0, 100));
+	AddInfo(FString::Printf(TEXT("view %s / region %s / 5 km away %s"), *Describe(View), *Describe(Region), *Describe(Away)));
+	TestTrue(TEXT("the view, in the cold zone, has snow"), View.Snow > 0.3f);
+	TestTrue(TEXT("the region has none"), Region.Snow < 0.02f);
+	TestTrue(TEXT("the region is wet from the rain"), Region.Wetness > 0.5f);
+	TestTrue(TEXT("the region is what a place far from the zone has"), Region.Equals(Away, 0.02f));
 	return true;
 }
 
