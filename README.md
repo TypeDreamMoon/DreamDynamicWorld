@@ -463,6 +463,38 @@ the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of win
 a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
 (`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
 
+**Terrain fog.** Morning, valley and advection fog that come by themselves (`ADreamTerrainFog`, module
+`DreamWeatherFX`). The actor reads the ground in its box (*Extent*, *Cells* along a side; traces, or heights handed in
+with `SetTerrainHeights` and kept with the level, for land without collision) and finds its hollows: a closed basin up
+to where it would spill over, a valley up to the mean height of the land round it (*Hollow Radius*, a quarter of the
+box by default). It reads the air over the lowest ground: the weather's temperature, cloud, what falls and wetness
+(*Humidity*, plus *Wet Ground Humidity* times the wetness and a quarter of the weather's fog), the wind there (the
+wind subsystem's `SampleWindVelocity`), the sun's elevation. Two amounts, 0..1 each (`GetFogState`):
+
+- **radiation fog** (morning and valley fog): under a clear, calm sky the ground radiates its warmth away and the air at
+  it cools by *Sky Cooling* degrees; once that closes the gap to the dew point (some two degrees a tenth of humidity
+  short of saturation) it fogs. It builds over the night (*Build Hours*), is deepest about sunrise, and the sun burns
+  it off (a full fog within *Clear Hours* of the sun at 15 degrees in a clear sky; cloud slows it); a wind over
+  *Calm Wind* (half of it already thins it), cloud or rain stop it forming, and below *Driest Cold* the air is too
+  dry. It fills each hollow toward its brim, no deeper than *Pool Depth*, with a thin mist (*Mist Thickness*) over the
+  rest;
+- **advection fog** (with *Advection* on, beside cold water or snow): moist air warmer than *Cold Surface Temperature*
+  carried in on a wind within *Advection Wind* (a gale lifts it as low cloud) lays a fog over all the low ground,
+  *Advection Depth* over the lowest, at any hour; the sun only thins it.
+
+The fog is drawn with local fog volumes: *Patches* of them laid on the cells under the pooled fog (each *Patch Cells*
+across, keeping its cell while that stays under the fog and fading over to a new one), *Mist Patches* spread over the
+box. A local fog volume is a sphere (the engine makes its scale uniform), so each layer is its height fog, thinning
+from the ground to a seventh at the fog's top, with as much radial fog to soften its sides. The engine draws at most
+32 local fog volumes a view (`r.LocalFogVolume.TileMaxInstanceCount`, up to 256): count the patches of every terrain
+fog and fog bank that can draw at once. A jump of the clock settles the fog (the last twelve hours run through, the
+weather as it is now). Gameplay can ask `GetFogDepthAt`, `IsInFog`, `GetHollowAt`, `GetGroundHeightAt`; *Force* holds
+a given state (cinematics). `DreamWeather.TerrainFog [radiation [advection] | auto]` lists them and holds or releases
+them. The showcase has a morning mist over the set (pooling in the dip by the pond) and valley fog in the hills to
+the south-west; the forced tour shoots both just after sunrise after a clear, still night (`TerrainFog`).
+`DreamWeather.FX.TerrainFog.Model` checks when each fog forms, builds and clears; `.Actor` the hollows, the depth and
+patches in a bowl at dawn and their going by mid-morning.
+
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
