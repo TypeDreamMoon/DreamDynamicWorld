@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamWaterBody.h"
 #include "DreamWorldShowcaseSetup.h"
 #include "DreamWeatherFog.h"
 #include "DreamSurfaceInteraction.h"
@@ -280,7 +281,7 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("the pond's level"), FMath::IsNearlyEqual(Actor->GetActorLocation().Z, DreamWorld::Setup::ShowcasePondLevel, 0.1));
 		FStaticMeshConstAttributes Attributes(*Description);
 		const TVertexAttributesConstRef<FVector3f> Positions = Attributes.GetVertexPositions();
-		int32 Rim = 0, Wet = 0, Dry = 0;
+		int32 Rim = 0, Under = 0;
 		for (const FVertexID Vertex : Description->Vertices().GetElementIDs())
 		{
 			const FVector2D Local(Positions[Vertex].X, Positions[Vertex].Y);
@@ -289,14 +290,18 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 				continue;
 			}
 			const FVector2D At = FVector2D(Actor->GetActorLocation()) + Local;
-			const FVector2D Beyond = At + Local.GetSafeNormal() * (2.0 * DreamWorld::Setup::ShowcasePondInset);
 			++Rim;
-			Wet += DreamWorld::SurfaceSetup::GroundHeight(At.X, At.Y) < DreamWorld::Setup::ShowcasePondLevel ? 1 : 0;
-			Dry += DreamWorld::SurfaceSetup::GroundHeight(Beyond.X, Beyond.Y) > DreamWorld::Setup::ShowcasePondLevel ? 1 : 0;
+			// Under the bank, above the pond's brim: the risen water still meets the bank all round.
+			Under += DreamWorld::SurfaceSetup::GroundHeight(At.X, At.Y) >= DreamWorld::Setup::ShowcasePondLevel + DreamWorld::Setup::ShowcasePondRise ? 1 : 0;
 		}
 		TestTrue(*FString::Printf(TEXT("a round rim (%d sides)"), Rim), Rim >= 96);
-		TestEqual(TEXT("the rim under water all round"), Wet, Rim);
-		TestEqual(TEXT("the bank above water just beyond it all round"), Dry, Rim);
+		TestEqual(TEXT("the rim under the bank, above the brim, all round"), Under, Rim);
+		const UDreamWaterBodyComponent* Body = Actor->FindComponentByClass<UDreamWaterBodyComponent>();
+		if (TestNotNull(TEXT("the pond's water body"), Body))
+		{
+			TestTrue(TEXT("its mesh rides on its level"), Body->bMoveOwner);
+			TestNearlyEqual(TEXT("its brim"), Body->Rules.MaxRise, float(DreamWorld::Setup::ShowcasePondRise), 0.01f);
+		}
 	}
 
 	// The land out to the horizon: ranges kilometres out and up to some two kilometres high, under the set's ground where

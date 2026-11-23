@@ -9,6 +9,7 @@
 #include "DreamWeatherSubsystem.h"
 #include "DreamWorldSubsystem.h"
 
+#include "Components/DecalComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Misc/AutomationTest.h"
@@ -165,6 +166,15 @@ bool FDreamWaterBodyTest::RunTest(const FString& Parameters)
 	AddInfo(FString::Printf(TEXT("the view's water: surface %.0f, depth %.1f, turbidity %.2f"), View.SurfaceHeight, View.Depth, View.Turbidity));
 	TestEqual(TEXT("the view is in the pond"), View.Body.Get(), Body);
 	TestNearlyEqual(TEXT("60 cm under it"), View.Depth, 60.0f, 2.0f);
+
+	// The caustics: a decal from just over the surface down past the bottom, over the water's area.
+	if (const UDecalComponent* Decal = Body->GetCausticsDecal(); TestNotNull(TEXT("the caustics' decal (compile M_DreamWaterCaustics)"), Decal))
+	{
+		const float Middle = float(Decal->GetComponentLocation().Z);
+		TestNearlyEqual(TEXT("the decal midway between the surface and the bottom"), Middle, 0.5f * (Body->GetSurfaceHeight() + Body->GetBottomHeight()), 1.0f);
+		TestTrue(TEXT("down past the bottom, up past the surface"), Decal->DecalSize.X >= 0.5 * (Body->GetSurfaceHeight() - Body->GetBottomHeight()));
+		TestTrue(TEXT("over the water's area"), FMath::IsNearlyEqual(Decal->DecalSize.Y, Body->Extent.Y) && FMath::IsNearlyEqual(Decal->DecalSize.Z, Body->Extent.X));
+	}
 
 	// The world's snapshot keeps it.
 	const FDreamWaterState Kept = Body->GetState();
