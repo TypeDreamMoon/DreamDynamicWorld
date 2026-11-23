@@ -198,10 +198,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "1000", EditCondition = "bRuntimeTerrain"))
 	float RuntimeCaptureAltitude = 100000.0f;
 
-	/** Each frame one strip of each level is captured again, so moving buildings and streamed-in cells show up: the near
-	 *  level is captured afresh every this many frames (and the far level every twice as many). */
+	/** So moving buildings and streamed-in cells show up, each level is captured again strip by strip, in this many
+	 *  strips. (A building moved by code shows up at once through MarkObstaclesDirty.) */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "4", ClampMax = "256", EditCondition = "bRuntimeTerrain"))
-	int32 RuntimeRefreshFrames = 16;
+	int32 RuntimeRefreshStrips = 16;
+
+	/** Frames between two refresh strips, the levels taking turns: each capture is a scene render with a fixed cost of a
+	 *  few tenths of a millisecond, so at most one runs a frame. With 16 strips and 4 frames, the near level is captured
+	 *  afresh every 128 frames. What comes into view as the camera moves is captured first, without waiting. */
+	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (ClampMin = "1", ClampMax = "60", EditCondition = "bRuntimeTerrain"))
+	int32 RuntimeRefreshInterval = 4;
 
 	/** The far level's shapes: how the speed-up over ridges and the steering toward valleys come out of the heights. */
 	UPROPERTY(Config, EditAnywhere, Category = "Terrain|Runtime", meta = (EditCondition = "bRuntimeTerrain"))

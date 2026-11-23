@@ -344,33 +344,46 @@ void FDreamWindTerrainField::RefreshHiddenActors(UWorld& World)
 	}
 }
 
-void FDreamWindTerrainField::CaptureNext(UWorld& World, FLevel& Level, double ViewZ)
+bool FDreamWindTerrainField::CaptureNext(UWorld& World, FLevel& Level, double ViewZ, bool bRefresh)
 {
-	using namespace DreamWindTerrainFieldImpl;
 	const UDreamWindSettings* S = UDreamWindSettings::Get();
 	const FIntRect Window(Level.WindowMin, Level.WindowMin + FIntPoint(Level.Size));
 	FIntRect Rect;
-	while (Level.Pending.Num() > 0)
+	if (!bRefresh)
 	{
-		Rect = Level.Pending[0];
-		Level.Pending.RemoveAt(0);
-		Rect.Clip(Window);
-		if (Rect.Width() > 0 && Rect.Height() > 0)
+		while (Level.Pending.Num() > 0)
 		{
-			break;
+			Rect = Level.Pending[0];
+			Level.Pending.RemoveAt(0);
+			Rect.Clip(Window);
+			if (Rect.Width() > 0 && Rect.Height() > 0)
+			{
+				break;
+			}
+			Rect = FIntRect();
 		}
-		Rect = FIntRect();
+		if (Rect.Width() <= 0 || Rect.Height() <= 0)
+		{
+			return false;
+		}
 	}
-	if (Rect.Width() <= 0 || Rect.Height() <= 0)
+	else
 	{
-		// Nothing new in view: capture the next of the level's refresh strips (moving buildings, streamed-in cells).
-		const int32 Strips = FMath::Clamp(S->RuntimeRefreshFrames, 4, Level.Size);
+		// The next of the level's refresh strips (moving buildings, streamed-in cells).
+		const int32 Strips = FMath::Clamp(S->RuntimeRefreshStrips, 4, Level.Size);
 		const int32 Width = FMath::Max(Level.Size / Strips, 1);
 		const int32 X0 = Level.WindowMin.X + (Level.RefreshNext % Strips) * Width;
 		Rect = FIntRect(X0, Level.WindowMin.Y, FMath::Min(X0 + Width, Window.Max.X), Window.Max.Y);
 		Level.RefreshNext = (Level.RefreshNext + 1) % Strips;
 	}
+	Capture(World, Level, Rect, ViewZ);
+	return true;
+}
 
+void FDreamWindTerrainField::Capture(UWorld& World, FLevel& Level, const FIntRect& Rect, double ViewZ)
+{
+	using namespace DreamWindTerrainFieldImpl;
+	const UDreamWindSettings* S = UDreamWindSettings::Get();
 	if (!Level.Capture)
 	{
 		USceneCaptureComponent2D* Capture = NewObject<USceneCaptureComponent2D>(World.GetWorldSettings() ? static_cast<UObject*>(World.GetWorldSettings()) : static_cast<UObject*>(&World), NAME_None, RF_Transient);
@@ -565,8 +578,15 @@ void FDreamWindTerrainField::Update(UWorld& World, const FVector& ViewLocation, 
 
 	Follow(Near, ViewLocation);
 	Follow(Far, ViewLocation);
-	CaptureNext(World, Near, ViewLocation.Z);
-	CaptureNext(World, Far, ViewLocation.Z);
+	// One capture a frame at most (each is a scene render with a fixed cost): what came into view first, near before far;
+	// otherwise, every few frames, a refresh strip of each level in turn.
+	if (!CaptureNext(World, Near, ViewLocation.Z, false) && !CaptureNext(World, Far, ViewLocation.Z, false)
+		&& ++FramesSinceRefresh >= FMath::Max(S->RuntimeRefreshInterval, 1))
+	{
+		FramesSinceRefresh = 0;
+		CaptureNext(World, bRefreshFar ? Far : Near, ViewLocation.Z, true);
+		bRefreshFar = !bRefreshFar;
+	}
 
 	// The lee follows the wind: derive again once it has turned by more than a few degrees.
 	const FVector2D Dir2 = FVector2D(WindDir.X, WindDir.Y).GetSafeNormal();

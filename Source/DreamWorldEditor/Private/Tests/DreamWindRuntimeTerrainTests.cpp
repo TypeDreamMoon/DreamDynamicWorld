@@ -171,7 +171,8 @@ bool FDreamWindRuntimeTerrainTest::RunTest(const FString& Parameters)
 			AddError(TEXT("no House in the level"));
 		}
 	});
-	WaitFrames(120);
+	// (A full refresh of the near level: its strips times twice the refresh interval, the levels taking turns.)
+	WaitFrames(2 * UDreamWindSettings::Get()->RuntimeRefreshStrips * FMath::Max(UDreamWindSettings::Get()->RuntimeRefreshInterval, 1) + 30);
 	const TArray<FVector2D> After = { FVector2D(LeeX, HouseCenter.Y), FVector2D(LeeX, HouseCenter.Y + 3000.0) };
 	Then([this, After]()
 	{

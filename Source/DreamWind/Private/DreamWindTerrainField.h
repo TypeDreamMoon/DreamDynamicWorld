@@ -14,7 +14,8 @@ class UWorld;
 /**
  * The runtime terrain wind map (L1), game thread side: two levels around the camera, each a ring buffer over the world
  * (DreamWindShared.h, "The runtime terrain wind map"). A top-down depth capture of each level's newly exposed strips
- * (and, one strip a frame, of the whole level in turn, so moving buildings and streamed-in cells show up) goes into its
+ * (and, a strip every few frames, of the whole level in turn, so moving buildings and streamed-in cells show up; one
+ * capture a frame at most) goes into its
  * height map; whenever a level's heights or the wind's direction change, compute passes make its derived map: the speed
  * multiplier and steering from the blurred heights (far level), and the wind shadow height swept along the wind.
  * Only the world that owns the shared render targets runs it (DreamWorldSharedTargets).
@@ -80,7 +81,9 @@ private:
 
 	bool Resolve(FLevel& Level, const FSoftObjectPath& DerivedPath, const FSoftObjectPath& HeightPath, int32 Size, float Extent);
 	void Follow(FLevel& Level, const FVector& ViewLocation);
-	void CaptureNext(UWorld& World, FLevel& Level, double ViewZ);
+	/** Captures the level's next rectangle that came into view (or, with bRefresh, its next refresh strip); false if none. */
+	bool CaptureNext(UWorld& World, FLevel& Level, double ViewZ, bool bRefresh);
+	void Capture(UWorld& World, FLevel& Level, const FIntRect& Rect, double ViewZ);
 	void Derive(FLevel& Level, const FVector2D& WindDir2);
 	void RefreshHiddenActors(UWorld& World);
 
@@ -91,5 +94,7 @@ private:
 	double LastHiddenScan = -1.0e30;
 	uint32 CaptureCount = 0;
 	uint32 DeriveCount = 0;
+	int32 FramesSinceRefresh = 0;
+	bool bRefreshFar = false;
 	bool bActive = false;
 };
