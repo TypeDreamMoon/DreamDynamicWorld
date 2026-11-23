@@ -104,6 +104,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 		const Texture2D FarHailMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarHail");
 		const Texture2D TrailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceTrails");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DreamWind_P0") WindP0;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewIce") ViewIce;
@@ -185,7 +186,8 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherTerrain", R
 		float4 LookIce2 = float4(FrozenPuddleColor.rgb, FrozenPuddleRoughness);
 		float4 LookFrost = float4(FrostColor.rgb, FrostRoughness);
 		float4 LookCold = float4(FrostCoverGain, IceValue, FrostGlints, RimeBrightness);
-		float4 LookCold2 = float4(FrostAmount, RimeAmount, 0.0, 0.0);
+		float2 RimeWind = WindP0.xy * saturate(WindP0.w / 1200.0);
+		float4 LookCold2 = float4(FrostAmount, RimeAmount, RimeWind.x, RimeWind.y);
 		float3 NormalWS = UE.VertexNormalWS();
 		float Hail = DreamSurfaceTerrain_Hail(WP, NearPlace, FarPlace, ViewHail, Params, NearHailMap, FarHailMap, CoverMap, MaskMap);
 		float4 LookHail = float4(HailColor.rgb, HailRoughness);
