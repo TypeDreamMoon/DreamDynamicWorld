@@ -115,6 +115,25 @@ bool FDreamWindTwisterWorldTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// A dust devil only on dry, sunlit ground: none in rain, on wet or snowy ground, under a heavy overcast, after dark.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindDustDevilWeatherTest, "DreamWind.Twister.DustDevilWeather", DreamWindVortexTests::Flags)
+bool FDreamWindDustDevilWeatherTest::RunTest(const FString& Parameters)
+{
+	auto Let = [](float Precipitation, float Wetness, float Snow, float Cover, float Sun)
+	{
+		return ADreamWindVortex::DustDevilWeather(Precipitation, Wetness, Snow, Cover, Sun);
+	};
+	TestEqual(TEXT("a dry sunny afternoon: in full"), Let(0.0f, 0.0f, 0.0f, 0.2f, 40.0f), 1.0f);
+	TestEqual(TEXT("in rain: none"), Let(0.6f, 0.0f, 0.0f, 0.2f, 40.0f), 0.0f);
+	TestEqual(TEXT("on wet ground after it: none"), Let(0.0f, 0.8f, 0.0f, 0.2f, 40.0f), 0.0f);
+	TestEqual(TEXT("on snow: none"), Let(0.0f, 0.0f, 0.6f, 0.2f, 40.0f), 0.0f);
+	TestEqual(TEXT("under a full overcast: none"), Let(0.0f, 0.0f, 0.0f, 1.0f, 40.0f), 0.0f);
+	TestEqual(TEXT("at night: none"), Let(0.0f, 0.0f, 0.0f, 0.2f, -20.0f), 0.0f);
+	const float Low = Let(0.0f, 0.0f, 0.0f, 0.2f, 12.0f);
+	TestTrue(FString::Printf(TEXT("with the sun low: some (%.2f)"), Low), Low > 0.0f && Low < 1.0f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindVortexSpawnerTest, "DreamWind.Twister.Spawner", DreamWindVortexTests::Flags)
 bool FDreamWindVortexSpawnerTest::RunTest(const FString& Parameters)
 {

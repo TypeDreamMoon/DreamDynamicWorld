@@ -2,6 +2,7 @@
 
 #include "DreamWindVortex.h"
 #include "DreamWeatherSelector.h"
+#include "DreamWeatherSubsystem.h"
 #include "DreamWindSourceComponent.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWorldCelestial.h"
@@ -73,7 +74,7 @@ void ADreamWindVortex::SetKind(EDreamVortexKind NewKind, float Scale)
 		TangentialSpeed = 5000.0f;
 		Updraft = 2500.0f;
 		Inflow = 1200.0f;
-		DustRate = 120.0f;
+		DustRate = 160.0f;
 		PuffSize = 700.0f * K;
 		DustColor = FLinearColor(0.22f, 0.21f, 0.19f, 0.45f);
 		DebrisRate = 120.0f;
@@ -88,9 +89,9 @@ void ADreamWindVortex::SetKind(EDreamVortexKind NewKind, float Scale)
 		TangentialSpeed = 1200.0f;
 		Updraft = 900.0f;
 		Inflow = 300.0f;
-		DustRate = 30.0f;
-		PuffSize = 110.0f * K;
-		DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.3f);
+		DustRate = 220.0f;
+		PuffSize = 190.0f * K;
+		DustColor = FLinearColor(0.50f, 0.42f, 0.32f, 0.10f);
 		DebrisRate = 10.0f;
 		DebrisSize = 8.0f;
 		DebrisColor = FLinearColor(0.10f, 0.08f, 0.06f, 0.9f);
@@ -135,12 +136,38 @@ void ADreamWindVortex::Tick(float DeltaSeconds)
 		Decay = Plan.DecayAt(Now);
 		SetActorLocation(FVector(Foot, GroundAt(Foot)));
 	}
+	// The weather's say: a dust devil needs dry, sunlit ground (eased over some seconds; at once the first time and when
+	// the clock jumps, as everything else that eases snaps then).
+	float Allowed = 1.0f;
+	if (bFollowWeather && Kind == EDreamVortexKind::DustDevil)
+	{
+		const UDreamWeatherSubsystem* Weather = UDreamWeatherSubsystem::Get(this);
+		if (Weather && Weather->IsActive() && Clock)
+		{
+			const FDreamWeatherSample W = Weather->SampleWeather(GetActorLocation());
+			Allowed = DustDevilWeather(W.Precipitation, W.Wetness, W.SnowCover, W.CloudCoverage, Clock->GetCelestial().SunElevation);
+		}
+	}
+	const uint32 Jumps = Clock ? Clock->GetTimeJumpSerial() : 0u;
+	const bool bSnap = !bActivityPrimed || Jumps != LastJumpSerial;
+	Activity = bSnap ? Allowed : FMath::FInterpConstantTo(Activity, Allowed, FMath::Max(DeltaSeconds, 0.0f), 0.15f);
+	bActivityPrimed = true;
+	LastJumpSerial = Jumps;
 	Refresh();
+}
+
+float ADreamWindVortex::DustDevilWeather(float Precipitation, float Wetness, float SnowCover, float CloudCoverage, float SunElevationDegrees)
+{
+	const float Sun = FMath::SmoothStep(5.0f, 20.0f, SunElevationDegrees);
+	const float Dry = (1.0f - FMath::SmoothStep(0.02f, 0.2f, Precipitation)) * (1.0f - FMath::SmoothStep(0.15f, 0.5f, Wetness))
+		* (1.0f - FMath::SmoothStep(0.05f, 0.3f, SnowCover));
+	const float Clear = 1.0f - FMath::SmoothStep(0.6f, 0.95f, CloudCoverage);
+	return FMath::Clamp(Sun * Dry * Clear, 0.0f, 1.0f);
 }
 
 void ADreamWindVortex::Refresh()
 {
-	const float S = FMath::Clamp(Intensity, 0.0f, 1.0f);
+	const float S = FMath::Clamp(Intensity, 0.0f, 1.0f) * FMath::Clamp(Activity, 0.0f, 1.0f);
 	const float R = FMath::Max(Radius, 50.0f);
 	Wind->Type = EDreamWindSourceType::Twister;
 	Wind->Radius = R;
@@ -194,11 +221,29 @@ void ADreamWindVortex::Refresh()
 	if (Effect)
 	{
 		const bool bTornado = Kind == EDreamVortexKind::Tornado;
+		// The dust's column: a dust devil's the whole of it, a tornado's the cloud of dirt round its foot (the sky draws
+		// its funnel); the puffs climb it in a few seconds and turn round it at a share of the core's own turn.
+		const float Column = bTornado ? Height * 0.12f : Height;
+		const float Rise = bTornado ? 1200.0f : 650.0f;
+		const float Spin = 0.6f * TangentialSpeed / FMath::Max(CoreRadius, 10.0f) * (bClockwise ? -1.0f : 1.0f);
+		// Its top stands off downwind, about as far as the wind aloft carries the air while it rises up it.
+		FVector Lean = FVector::ZeroVector;
+		if (const UDreamWindSubsystem* Air = UDreamWindSubsystem::Get(this))
+		{
+			const FDreamWindGlobalWind G = Air->GetGlobalWind();
+			Lean = G.Direction.GetSafeNormal2D() * double(G.Speed) * double(Column / FMath::Max(Updraft, 100.0f)) * 0.3;
+			Lean = Lean.GetClampedToMaxSize(Column * 0.5);
+		}
 		Effect->SetVariableFloat(TEXT("User.Intensity"), S);
 		Effect->SetVariableFloat(TEXT("User.DustRate"), DustRate);
 		Effect->SetVariableFloat(TEXT("User.Radius"), CoreRadius);
 		Effect->SetVariableFloat(TEXT("User.Height"), bTornado ? 1500.0f : 150.0f);
-		Effect->SetVariableFloat(TEXT("User.Lifetime"), bTornado ? 10.0f : 8.0f);
+		Effect->SetVariableFloat(TEXT("User.ColumnHeight"), Column);
+		Effect->SetVariableFloat(TEXT("User.Rise"), Rise);
+		Effect->SetVariableFloat(TEXT("User.Spin"), Spin);
+		Effect->SetVariableFloat(TEXT("User.Flare"), bTornado ? 0.6f : 1.2f);
+		Effect->SetVariableVec3(TEXT("User.Lean"), Lean);
+		Effect->SetVariableFloat(TEXT("User.Lifetime"), Column / Rise * 1.1f);
 		Effect->SetVariableFloat(TEXT("User.Drag"), 6.0f);
 		Effect->SetVariableFloat(TEXT("User.PuffSize"), PuffSize);
 		Effect->SetVariableLinearColor(TEXT("User.Tint"), DustColor);
