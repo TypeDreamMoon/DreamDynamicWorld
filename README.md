@@ -926,6 +926,12 @@ and the odd twig — starts along the same paths (`NS_DreamWindLeaves`, its Debr
 wind field carries it. How much debris and its colour follow the season (`DebrisSeasonAmount`, `DebrisSpring` …
 `DebrisWinter`: autumn leaves, a bare winter). Nothing blows in indoors.
 
+**A dust storm's sky** (the style's *Weather* group): the air turns the dust's hue (`DustColor`; the fog, the horizon and
+the zenith, the sun's light and the ambient, with the physical sky as with the style's own gradient) and thickens
+(`DustFogScale`, and the fog's `FogMaxOpacity` goes to 1 with the dust, so the far land is gone), the dome and the
+clouds go behind the dust (`DustSkyHaze`, by the dust's square root: at `WP_Dust` the clouds are faint shapes) and the
+sun dims to a pale disc (`DustSunDimming`). At night it is the same dust in the dark: no brighter than the night.
+
 ### Sequencer
 
 Module `DreamWorldSequencer` (track editors in `DreamWorldPlayEditor`); *+ Track ▸ Dream World* in a level sequence:
