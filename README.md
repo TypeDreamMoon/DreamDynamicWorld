@@ -375,6 +375,13 @@ seconds), not on the base round it. `DreamWorld.Vortex Id X Y Z Radius Strength 
 `Tools/Showcase/tour_funnel.dws` (`-Parts funnel`) shows one forming, touching down, moving off and dissipating. Only
 the cloud renderer draws them (not the dome alone).
 
+*Known limitations of the funnels.* Realistic, seen from a few kilometres, the wall cloud and the funnel's top are a
+dark wedge hanging under the base line: its top is where the lighter base in front hides it, not an outline of its
+own. Realistic, close by, the far lit cloud base just behind a funnel's top can show a few fine vertical streaks (the
+rays through the top's fine steps have fewer samples left for the cloud beyond). Toon, the wall cloud is a paler
+lowered cloud body (the toon surface lit from the side), not much darker than the base. Painted, close by, the
+funnel's flared top still shows a faint cap edge.
+
 **Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
 sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
 sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light
