@@ -1585,6 +1585,12 @@ brightness — put it on a big plane).
 Strength, Lift)` in Particle Update before *Solve Forces and Velocity*; or call
 `Wind.SampleWind(Particles.Position, Velocity, Gust)` in your own module. `NS_DreamWindLeaves` (GPU)
 and `NS_DreamWindDebug` (CPU arrow grid) are the references.
+* **Setting a system's parameters from C++** (`UNiagaraComponent::SetVariableFloat`, `SetVariableLinearColor`, ...):
+  the name is the full one, `User.` and all (`TEXT("User.Intensity")`); without it the call finds nothing and is
+  silently ignored.
+* **A particle material reads the particle's colour with *Particle Color*** (`UE.ParticleColor()` in DreamShader), not
+  *Vertex Color*: on a Niagara sprite the vertex colour carries none of it (it reads white and opaque), so a tint and
+  an alpha fade written in the system would never show. Every weather and wind particle material here does.
 
 **Gameplay.**
 ```cpp

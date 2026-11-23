@@ -369,7 +369,8 @@ void UDreamWeatherFXSubsystem::UpdateLayer(int32 Index, const FDreamPrecipitatio
 	if (Effect && Index == DustLayer)
 	{
 		Effect->SetVariableFloat(Presence, State.Presence);
-		// Faded out: what is still flying goes at once (it would hang in the air as haze for the rest of its 20 s).
+		// Faded out: what is still flying is invisible now (its alpha follows Presence); it goes at once rather than be
+		// simulated for the rest of its 20 s.
 		if (State.Presence <= 0.0f && WasPresent > 0.0f && State.bActivated)
 		{
 			Effect->DeactivateImmediate();
