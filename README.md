@@ -445,7 +445,11 @@ are in frame.
 Drop an **`ADreamWeather`** in the level to turn the weather on (without one the sky keeps to its style).
 
 **Channels.** The weather is a set of named numbers (`Dream.Weather.Channel.*` gameplay tags): cloud coverage
-and darkness, precipitation and snow ratio, fog, dust, wind, lightning, temperature offset, wetness, snow cover.
+and darkness, precipitation and snow ratio, fog, dust, wind, lightning, temperature offset, wetness, snow cover,
+freezing rain. **Freezing rain** (`Dream.Weather.Channel.FreezingRain`) is the share of the precipitation's rain that
+is supercooled, 0..1: what falls near freezing turns to snow whatever the weather says, all but that share, so a
+freezing rain stays rain below freezing (the rain's particles and sounds as any rain); what it does to the ground is
+the surfaces' (it glazes what is frozen). The snow ratio channel itself still wins: a weather that says snow snows.
 A project adds its own (ash, spores, miasma) in *Project Settings ▸ Dream Weather ▸ Custom Channels*; every
 query, preset, zone and modifier handles them like the built-in ones. Each channel has its own transition time
 and **lead**: clouds and wind start changing before the weather turns, rain and lightning follow, the ground
@@ -455,7 +459,8 @@ lags — a change of weather reads as coming.
 `Random` (weighted, with persistence) or `Seasonal` (weights per season, either hemisphere). Every selector is a
 pure function of the world time and seed: the same moment has the same weather on every machine, after every
 load, in every replay, and `GetForecast` is just the function evaluated ahead. Presets (`UDreamWeatherPreset`)
-hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust`. A preset
+hold channel values; the plugin ships `WP_Clear / Cloudy / Overcast / Rain / Storm / Snow / Fog / Dust / Frost /
+FreezingRain / FreezingFog`. A preset
 can name a *Sky Modifier* (see *Sky modifiers* above): the sky takes it on as far as that weather is in effect
 where the view is, through the schedule's transitions, forced or pushed presets and zones alike, weighed by the
 rules the channels blend by (an Override pulls what is under it back by its weight; the other blends add theirs).
@@ -480,7 +485,7 @@ needs about −30 to freeze, and `DreamWeather.MarkEdge Air` (below) rings where
 weather where it is by implementing `IDreamWeatherInfluence`.
 
 **Queries and events.** `SampleWeather(Position)` — every channel there, rain and snow (precipitation turns to
-snow near freezing, so a mountain top snows in the valley's rain), the temperature (climate, season, hour,
+snow near freezing, so a mountain top snows in the valley's rain; a freezing rain's share stays rain), the temperature (climate, season, hour,
 height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay conditions. Events:
 `OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
 are saved in the world snapshot; the schedule needs nothing saved.
@@ -718,7 +723,7 @@ its own sheet) — looks at the far land from beside the hut (9 m
 up, to the south-west) at noon, in the evening, overcast and in fog with the aerial perspective and the height fog each
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
-<screenshots> <out>` for the overviews (rows the weathers, columns the views; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
+<screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars among them; the cold's and the far land's own sheets). The tour is plain `DreamWorld.Script`
 files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
@@ -823,7 +828,7 @@ and the cover), 0.2 ms for an integration.
 | `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into a white crust on every face; both break up in fine clumps as they thin |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
 | `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust; a glaze shifts the block toward a pale ice tint and widens the highlight band, a frozen puddle is a hard-edged pale block with crack lines, frost and rime a hard-edged white-blue cover with sparse glint dots |
-| `MF_DreamGlassRain` | window glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only |
+| `MF_DreamGlassRain` | window glass, vehicle glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only, and snow; on a vehicle's glass the air pushes the drops along and the wipers sweep them away (below) |
 | `MF_DreamSurfaceSample` | your own | wet, water, snow, dust and exposure at a world position, and the ice, frost, rime and frozen water |
 | `MF_DreamWaterRipples` | your own water | rain ripples on a tangent-space normal (a pond, a fountain), as many as the rain at the view brings |
 
@@ -874,6 +879,30 @@ under cover, as the ground) and the wetness the surface maps hold there, so a pa
 outlast the rain as long as the ground's film does. The drops are a pure function of the place and time
 (`DSF_GlassRain` in the shared header; `DreamSurface.GlassRain` checks it on the CPU): no texture, no render target.
 A translucent glass material wants per-pixel lighting (*Surface ForwardShading*) for the drops' highlights to show.
+Snow lies on a pane that faces up enough (a skylight, a windscreen), none on an upright one.
+
+**Vehicle glass.** With its **Vehicle Glass** input at 1, `MF_DreamGlassRain` reads the drops in the glass mesh's own
+frame (at its scale, so an unevenly scaled pane keeps round drops), so they stay put on a car's windows as it moves,
+and:
+
+- the air pushes the water along (`DSF_GlassFlow`): it drags a drop once it blows at some 4 m/s over the pane, holds
+  one against gravity on an upright pane at 15 m/s (on a raked windscreen sooner), so at speed the runners go up the
+  windscreen and the sitting drops streak and slide; on a side window the wind drives them across;
+- a pane facing the way the car goes catches more rain (`DSF_GlassRainGain`: four times as much head-on at 97 km/h);
+- the wipers sweep their arcs clear (`DSF_WiperSince`, `DSF_WiperClear`: the blade swings out and back, easing at the
+  ends; behind it the rain lays the drops again within some three seconds in a downpour, more slowly in a drizzle, and
+  a thin film shows right behind the blade); where they have swept the snow is gone, and the heater melts it.
+
+A **Dream Surface Vehicle Glass** component (`UDreamSurfaceVehicleGlassComponent`) on the vehicle tells its glass —
+the owner's primitives tagged `DreamGlass`, or all of them — how fast it moves (its velocity, or how far it moved, plus
+*Extra Velocity*: a parked car shown as if it drove), whether the wipers run (`SetWipers`, *Wiper Period*) and the
+*Heater*, through custom primitive data 24..30 (the velocity in each mesh's own frame; seconds per swing, 0 parked; the
+time they started; the heater). Where the wipers are on the pane is the material's (group *Vehicle Glass*: `WiperPivot`,
+`WiperPivot2` — a pivot in the mesh's frame and the blade's length, 0 none — and `WiperAngles`, from and to, degrees in
+the pane: 0 across it, 90 up it); `GlassSnowColor` is the snow's. `M_DreamVehicleGlassDemo` and its instance
+`MI_DreamVehicleGlassDemo` (made by the Setup, two wipers on the demo windscreen) show it; the showcase level has two
+cars south of the set, one parked and one shown at 60 km/h with its wipers running (the tours' *Car* and *CarGlass*
+views). `DreamSurface.VehicleGlass` checks the flow, the rain's gain, the wipers and what the component writes.
 
 **Masks and roofs.** A **mask brush** (`ADreamSurfaceMask`, or `UDreamSurfaceMaskComponent` on anything) multiplies
 what the weather leaves beneath it — 0 masks an amount out, above 1 strengthens it, per wet / water / snow / dust (the
@@ -885,6 +914,17 @@ captures from above the height of what stands inside it — a roof, a canopy, a 
 registers in a game world, when it moves and on `CaptureNow`, so what lies beneath stays dry and free of snow with no
 shelter box placed by hand. The heights go to the cover map (up to four boxes near the camera) and are read back once
 per capture, so the box is a weather shelter as well: exposure, the rain's fall paths and `SampleSurface` see it too.
+
+**Eaves.** A **drip line** (`ADreamSurfaceDripLine`, or `UDreamSurfaceDripLineComponent` on anything; along its X
+axis, *Length* long) along a roof's lower edge drips while it rains and after: how hard (`DSF_EaveDrip`) follows the
+rain landing on the roof and, once it stops, the roof's own film (the state in the open at the eave,
+`SampleOpenSurface`) — it drips on while the film stays above *Drip From Wetness* (0.55 of a soaked film), fewer and
+fewer drops as it dries, so a shaded, still eave drips longest; frozen, it stops. *Drops Per Metre* (8 a second in a
+full rain) sets how many. The drops (`NS_DreamEaveDrips`: they form along the eave, fall freely and splash on the
+ground traced below each end) ring the puddles they land in (the trail map, near the view). `GetDripStrength`,
+`GetDropRate` ask it; `DreamSurface.Dump` lists every drip line with its strength, rate and live particles. The
+showcase's hut and porch have them on their edges. `DreamSurface.EaveDrips` checks the rain, the drying and the
+puddles' rings.
 
 **Footprints.** A **surface interaction** component (`UDreamSurfaceInteractionComponent`) on a character, a foot or a
 wheel leaves prints: every *Step Distance* it moves (or on `PrintNow`) it traces down to the ground, asks what is

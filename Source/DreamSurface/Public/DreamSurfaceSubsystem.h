@@ -20,7 +20,7 @@ struct FDreamSurfaceMapSteps
 	/**
 	 * Three float4 per whole step, oldest first: the global weather (coverage, darkness, precipitation, snow ratio), the
 	 * global channels (temperature offset, dust, wind, fog), the air (the view's temperature under a clear sky with no
-	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it).
+	 * offset, the sun's Z, how much of the daily swing a closed cover takes off it, the freezing rain).
 	 */
 	TArray<FVector4f> Steps;
 	/** The step in progress, and how much of it has gone by. */
@@ -69,6 +69,13 @@ public:
 
 	/** The same at any world time (the past this session saw, or the schedule's). */
 	FDreamSurfaceState SampleSurfaceAt(const FVector& Position, double WorldSeconds) const;
+
+	/**
+	 * What the weather has left at this point now as if nothing covered it (a roof's own top, an eave): the state in the
+	 * open, no mask brushes.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Dream Surface")
+	FDreamSurfaceState SampleOpenSurface(FVector Position) const;
 
 	/** Lying snow at a point now, cm. */
 	UFUNCTION(BlueprintPure, Category = "Dream Surface")

@@ -1,0 +1,131 @@
+// DreamSurface: drops falling from an eave (CPU, a few hundred at most).
+//
+// UDreamSurfaceDripLineComponent fills the user parameters every frame: the eave (LineStart, LineEnd, world), the
+// ground below each end (FloorStart, FloorEnd: world Z) and how many drops fall a second (Rate: while it rains the eave
+// runs, after the rain it drips on as long as the roof stays wet). A drop forms at a random point along the eave, falls
+// freely and dies on the ground; splashes open on the ground below the eave at the same rate. Where along the eave a
+// particle is comes from its own position (the assignments of one block all read the attributes as they were before it,
+// so a value set there cannot be read back in the same block).
+System(Name="Surface/Effects/NS_DreamEaveDrips", Root="Plugin.DreamDynamicWorld")
+{
+    Settings = {
+        WarmupTime  = 0.0;
+        FixedBounds = box(-3000, -3000, -1500, 3000, 3000, 1500);
+    }
+
+    Properties = {
+        float  Rate       = 0.0                 [ Group="Amount"; Description="Drops a second along the whole eave." ];
+        Vector LineStart  = (0, 0, 300)         [ Group="Eave"; Description="One end of the eave, world cm." ];
+        Vector LineEnd    = (100, 0, 300)       [ Group="Eave"; Description="The other end, world cm." ];
+        float  FloorStart = 0.0                 [ Group="Eave"; Description="The ground's height below LineStart, world cm." ];
+        float  FloorEnd   = 0.0                 [ Group="Eave"; Description="The ground's height below LineEnd, world cm." ];
+        float  DropLength = 14.0                [ Group="Look"; Description="A falling drop's streak, cm at full speed." ];
+        float  DropWidth  = 1.0                 [ Group="Look"; Description="Its width, cm." ];
+        float  SplashSize = 9.0                 [ Group="Look"; Description="A splash's sprite, cm." ];
+        Color  Tint       = (0.8, 0.86, 0.95, 0.7) [ Group="Look" ];
+    }
+
+    Emitter Drops
+    {
+        Settings = {
+            SimTarget          = CPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 512;
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.Rate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode   = DirectSet,
+                Lifetime       = 3.0,
+                ColorMode      = DirectSet,
+                Color          = User.Tint,
+                SpriteSizeMode = NonUniform,
+                SpriteSize     = hlsl { float2(User.DropWidth, User.DropWidth * 2.0) }
+            );
+            // Somewhere along the eave, a hair off its edge.
+            Position Particles.Position = hlsl { lerp(User.LineStart, User.LineEnd, rand(1.0)) + float3(rand(2.0) - 1.0, rand(2.0) - 1.0, -1.0) };
+            Vector Particles.Velocity = hlsl { float3(0.0, 0.0, -30.0) };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            // Falling freely, the streak lengthening with the speed.
+            Vector Particles.Velocity = hlsl { Particles.Velocity + float3(0.0, 0.0, -980.0) * Engine.DeltaTime };
+            SolveForcesAndVelocity();
+            Vector2 Particles.SpriteSize = hlsl { float2(User.DropWidth, max(User.DropWidth * 2.0, User.DropLength * saturate(-Particles.Velocity.z / 700.0))) };
+            // On the ground below its place along the eave, it is gone (the next frame).
+            float Particles.Lifetime = hlsl { Particles.Position.z < lerp(User.FloorStart, User.FloorEnd, saturate(dot(Particles.Position.xy - User.LineStart.xy, User.LineEnd.xy - User.LineStart.xy) / max(dot(User.LineEnd.xy - User.LineStart.xy, User.LineEnd.xy - User.LineStart.xy), 1.0))) ? 0.0 : Particles.Lifetime };
+        }
+
+        SpriteRenderer Drop
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamRainDrop";
+            Alignment  = VelocityAligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+            Bind Velocity   -> Particles.Velocity;
+        }
+    }
+
+    Emitter Splashes
+    {
+        Settings = {
+            SimTarget          = CPU;
+            LocalSpace         = false;
+            Determinism        = false;
+            AllocationMode     = Fixed;
+            PreAllocationCount = 128;
+        }
+
+        EmitterUpdate = {
+            EmitterState(LifeCycleMode = Self, LoopBehavior = Infinite);
+            SpawnRate(SpawnRate = User.Rate);
+        }
+
+        ParticleSpawn = {
+            Spawn/Initialization/V2/InitializeParticle(
+                LifetimeMode      = Random,
+                LifetimeMin       = 0.15,
+                LifetimeMax       = 0.25,
+                ColorMode         = DirectSet,
+                Color             = User.Tint,
+                SpriteSizeMode    = Uniform,
+                UniformSpriteSize = User.SplashSize
+            );
+            // Below the eave; the update sets it on the ground there.
+            Position Particles.Position = hlsl {
+                float3(lerp(User.LineStart.xy, User.LineEnd.xy, rand(1.0)) + float2(rand(2.0) - 1.0, rand(2.0) - 1.0),
+                       (User.FloorStart + User.FloorEnd) * 0.5)
+            };
+        }
+
+        ParticleUpdate = {
+            ParticleState();
+            // On the ground below its place along the eave, the crown rising from the sprite's bottom edge.
+            Position Particles.Position = hlsl {
+                float3(Particles.Position.x, Particles.Position.y, lerp(User.FloorStart, User.FloorEnd, saturate(dot(Particles.Position.xy - User.LineStart.xy, User.LineEnd.xy - User.LineStart.xy) / max(dot(User.LineEnd.xy - User.LineStart.xy, User.LineEnd.xy - User.LineStart.xy), 1.0))) + User.SplashSize * 0.45)
+            };
+        }
+
+        SpriteRenderer Crown
+        {
+            Material   = "Plugin.DreamDynamicWorld:Weather/M_DreamRainSplash";
+            Alignment  = Unaligned;
+            FacingMode = FaceCamera;
+            SortMode   = None;
+
+            Bind SpriteSize -> Particles.SpriteSize;
+            Bind Color      -> Particles.Color;
+        }
+    }
+}

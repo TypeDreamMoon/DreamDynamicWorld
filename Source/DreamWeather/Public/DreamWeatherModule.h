@@ -31,6 +31,7 @@ namespace DreamWeather::Tags
 	DREAMWEATHER_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Channel_Temperature);
 	DREAMWEATHER_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Channel_Wetness);
 	DREAMWEATHER_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Channel_SnowCover);
+	DREAMWEATHER_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Channel_FreezingRain);
 
 	// What the weather is like at a point, for gameplay conditions (GAS, StateTree, behaviour trees).
 	DREAMWEATHER_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Clear);

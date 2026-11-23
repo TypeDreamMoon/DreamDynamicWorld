@@ -48,8 +48,8 @@ namespace DreamSurface::Maps
 	 * The zones of a world as the surface map reads them (DreamSurfaceMap.usf), in the order the weather applies them.
 	 * Override zones only, as the weather map takes them.
 	 *   Records  five float4 each: the weather map's three (footprint and coverage, darkness, precipitation, strength),
-	 *            then the snow ratio, temperature offset, dust and wind, then the fog (below -9999: not set); then the
-	 *            polygons' points.
+	 *            then the snow ratio, temperature offset, dust and wind, then the fog and the freezing rain (below -9999:
+	 *            not set); then the polygons' points.
 	 *            The footprint and strength are those at the start of the step in progress, as a query takes them.
 	 *   Tracks   NumSteps float4 per zone, oldest step first: where its footprint's centre stood (xy) and how strong it
 	 *            was (z) at the start of each whole step. A zone that moves (a storm drifting across) or fades has its
@@ -104,7 +104,7 @@ namespace DreamSurface::Maps
 			Set.Records.Add(Z1);
 			Set.Records.Add(FVector4f(Value(C::CloudCoverage, -1.0f), Value(C::CloudDarkness, -1.0f), Value(C::Precipitation, -1.0f), Zone->GetStrengthAt(Current)));
 			Set.Records.Add(FVector4f(Value(C::SnowRatio, -1.0e4f), Value(C::Temperature, -1.0e4f), Value(C::Dust, -1.0e4f), Value(C::Wind, -1.0e4f)));
-			Set.Records.Add(FVector4f(Value(C::Fog, -1.0e4f), -1.0e4f, -1.0e4f, -1.0e4f));
+			Set.Records.Add(FVector4f(Value(C::Fog, -1.0e4f), Value(C::FreezingRain, -1.0e4f), -1.0e4f, -1.0e4f));
 			for (int32 k = 0; k < NumSteps; ++k)
 			{
 				const double At = double(FirstStep + k) * StepSeconds;

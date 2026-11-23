@@ -137,6 +137,48 @@ bool FDreamWeatherRegistryTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherFreezingRainTest, "DreamWeather.Channels.FreezingRain", DreamWeather::Tests::Flags)
+bool FDreamWeatherFreezingRainTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	TestEqual(TEXT("the channel sits at its fixed index"), FDreamWeatherChannels::IndexOf(DreamWeather::Tags::Channel_FreezingRain), int32(FDreamWeatherChannels::FreezingRain));
+	TestEqual(TEXT("none by default"), FDreamWeatherChannels::Defaults().Get(FDreamWeatherChannels::FreezingRain), 0.0f);
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetWorldSeconds(Hours(12.0));
+	W.Clock->Tick(0.0f);
+	// The same rain at a point well below freezing: ordinary rain turns to snow there, supercooled rain stays rain, half
+	// of it half.
+	const FVector P(0, 0, 0);
+	auto At = [&](float Freezing)
+	{
+		FDreamWeatherValues V = W.Weather->GetGlobalValues();
+		V.Values[FDreamWeatherChannels::Temperature] = -30.0f;
+		V.Values[FDreamWeatherChannels::FreezingRain] = Freezing;
+		return W.Weather->SampleWeatherAt(P, V, W.Clock->GetWorldSeconds());
+	};
+	const FDreamWeatherSample Ordinary = At(0.0f);
+	const FDreamWeatherSample Freezing = At(1.0f);
+	const FDreamWeatherSample Half = At(0.5f);
+	AddInfo(FString::Printf(TEXT("at %.1f C: snow ratio %.2f ordinary, %.2f freezing, %.2f half"), Ordinary.Temperature, Ordinary.SnowRatio, Freezing.SnowRatio, Half.SnowRatio));
+	TestTrue(TEXT("it is freezing there"), Ordinary.Temperature < -1.0f);
+	TestTrue(TEXT("ordinary rain turns to snow"), Ordinary.SnowRatio > 0.99f && Ordinary.Rain < 0.01f);
+	TestTrue(TEXT("freezing rain stays rain"), Freezing.SnowRatio < 0.01f && FMath::IsNearlyEqual(Freezing.Rain, Freezing.Precipitation, 1.0e-4f));
+	TestNearlyEqual(TEXT("the sample carries it"), Freezing.FreezingRain, 1.0f, 1.0e-4f);
+	TestNearlyEqual(TEXT("half of it, half"), Half.SnowRatio, 0.5f, 1.0e-3f);
+	// The snow ratio channel itself still wins: a weather that says snow snows.
+	FDreamWeatherValues SaysSnow = W.Weather->GetGlobalValues();
+	SaysSnow.Values[FDreamWeatherChannels::FreezingRain] = 1.0f;
+	SaysSnow.Values[FDreamWeatherChannels::SnowRatio] = 1.0f;
+	TestTrue(TEXT("a weather that says snow snows"), W.Weather->SampleWeatherAt(P, SaysSnow, W.Clock->GetWorldSeconds()).SnowRatio > 0.99f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherSelectorTest, "DreamWeather.Selector.Deterministic", DreamWeather::Tests::Flags)
 bool FDreamWeatherSelectorTest::RunTest(const FString& Parameters)
 {

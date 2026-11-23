@@ -170,6 +170,8 @@ struct DREAMWEATHER_API FDreamWeatherSample
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float CloudDarkness = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Precipitation = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float SnowRatio = 0.0f;
+	/** The share of the rain that is supercooled, 0..1 (the FreezingRain channel): it stays rain below freezing. */
+	UPROPERTY(BlueprintReadOnly, Category = "Weather") float FreezingRain = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Fog = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Dust = 0.0f;
 	UPROPERTY(BlueprintReadOnly, Category = "Weather") float Wind = 0.0f;

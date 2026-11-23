@@ -18,6 +18,7 @@ namespace DreamWeather::Tags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_Temperature, "Dream.Weather.Channel.Temperature", "Temperature offset the weather brings, degrees Celsius.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_Wetness, "Dream.Weather.Channel.Wetness", "How wet surfaces become, 0..1.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_SnowCover, "Dream.Weather.Channel.SnowCover", "How much snow settles, 0..1.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Channel_FreezingRain, "Dream.Weather.Channel.FreezingRain", "The share of the rain that is supercooled, 0..1: it stays rain below freezing (it is not turned to snow) and freezes where it lands on frozen ground.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Clear, "Dream.Weather.State.Clear", "Little or no cloud.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Cloudy, "Dream.Weather.State.Cloudy", "Broken cloud.");

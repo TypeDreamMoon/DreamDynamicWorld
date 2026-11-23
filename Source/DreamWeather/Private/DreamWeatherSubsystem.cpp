@@ -397,8 +397,10 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	S.Wetness = Values.Get(C::Wetness);
 	S.SnowCover = Values.Get(C::SnowCover);
 	S.Temperature = TemperatureFor(Position, Values.Get(C::Temperature), S.CloudCoverage, WorldSeconds);
-	// What falls turns to snow near freezing, whatever the weather says (a mountain top snows in the rain).
-	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), 1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature));
+	// What falls turns to snow near freezing, whatever the weather says (a mountain top snows in the rain), all but the
+	// supercooled part of the rain: freezing rain stays rain below freezing.
+	S.FreezingRain = FMath::Clamp(Values.Get(C::FreezingRain), 0.0f, 1.0f);
+	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
 	S.Rain = S.Precipitation * (1.0f - S.SnowRatio);
 	S.Snow = S.Precipitation * S.SnowRatio;
 	S.Exposure = ExposureAt(Position);

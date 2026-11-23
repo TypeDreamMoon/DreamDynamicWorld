@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceHlslShim.h"
 #include "DreamSurfaceInteraction.h"
 #include "DreamSurfaceMaps.h"
@@ -7,6 +8,7 @@
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
+#include "DreamSurfaceVehicleGlass.h"
 
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
@@ -316,6 +318,33 @@ bool FDreamSurfaceColdTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceFreezingRainTest, "DreamSurface.FreezingRain", DreamSurface::Tests::Flags)
+bool FDreamSurfaceFreezingRainTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	// Rain with the air some degrees below freezing: ordinary rain falls as snow and lies; freezing rain stays rain and
+	// glazes the ground, wetting nothing.
+	auto After = [this](bool bFreezing)
+	{
+		UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+		Fixed->Preset = MakePreset(TEXT("SurfFreezingRain"), { { Channel_CloudCoverage, 1.0f }, { Channel_Precipitation, 0.6f },
+			{ Channel_FreezingRain, bFreezing ? 1.0f : 0.0f }, { Channel_Temperature, -30.0f } });
+		FSurfaceWorld W(Fixed);
+		W.GoTo(At(12.0));
+		const FDreamSurfaceState S = W.Surface ? W.Surface->SampleSurface(FVector(0, 0, 0)) : FDreamSurfaceState();
+		AddInfo(FString::Printf(TEXT("%s, air %.1f C: %s"), bFreezing ? TEXT("freezing rain") : TEXT("ordinary rain"),
+			W.Weather ? W.Weather->SampleWeather(FVector(0, 0, 0)).Temperature : 0.0f, *Describe(S)));
+		return S;
+	};
+	const FDreamSurfaceState Ordinary = After(false);
+	const FDreamSurfaceState Freezing = After(true);
+	TestTrue(TEXT("ordinary rain below freezing falls as snow and lies"), Ordinary.Snow > 0.3f && Ordinary.Ice < 0.05f);
+	TestTrue(TEXT("freezing rain glazes the ground"), Freezing.Ice > 0.8f);
+	TestTrue(TEXT("and lays no snow"), Freezing.Snow < 0.01f);
+	TestTrue(TEXT("nor wets it"), Freezing.Wetness < 0.05f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceColdNightTest, "DreamSurface.ColdNight", DreamSurface::Tests::Flags)
 bool FDreamSurfaceColdNightTest::RunTest(const FString& Parameters)
 {
@@ -466,6 +495,147 @@ bool FDreamSurfaceGlassRainTest::RunTest(const FString& Parameters)
 		}
 	}
 	TestTrue(TEXT("a running drop was found to measure"), bMeasured);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceVehicleGlassTest, "DreamSurface.VehicleGlass", DreamSurface::Tests::Flags)
+bool FDreamSurfaceVehicleGlassTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	// The flow: on a still pane the drops run down; at speed the air pushes them up a windscreen, and a side wind across.
+	const float4 Still = DSF_GlassFlow(float2(0.0f, 0.0f), 1.0f);
+	TestTrue(TEXT("still: they run straight down at gravity's speed"), FMath::IsNearlyEqual(Still.y, -1.0f, 1.0e-4f) && FMath::IsNearlyEqual(Still.z, 1.0f, 1.0e-4f) && Still.w < 1.0e-4f);
+	const float4 Slow = DSF_GlassFlow(float2(0.0f, 300.0f), 0.5f);
+	TestTrue(TEXT("a light air up the pane does not move them"), FMath::IsNearlyEqual(Slow.y, -1.0f, 1.0e-4f));
+	const float4 Motorway = DSF_GlassFlow(float2(0.0f, 2400.0f * 0.87f), 0.5f);   // 86 km/h on a windscreen raked 30 degrees
+	AddInfo(FString::Printf(TEXT("86 km/h on a raked windscreen: flow (%.2f, %.2f), speed %.2f, stretch %.2f"), Motorway.x, Motorway.y, Motorway.z, Motorway.w));
+	TestTrue(TEXT("at speed the drops go up the windscreen"), Motorway.y > 0.5f);
+	TestTrue(TEXT("and streak"), Motorway.w > 0.4f);
+	const float4 Side = DSF_GlassFlow(float2(1800.0f, 0.0f), 1.0f);
+	TestTrue(TEXT("a wind across a side window drives them across and down"), Side.x > 0.3f && Side.y < -0.3f);
+	TestNearlyEqual(TEXT("a windscreen meeting the rain at 97 km/h catches four times as much"), DSF_GlassRainGain(1.0f, 2700.0f), 4.0f, 1.0e-4f);
+	TestNearlyEqual(TEXT("a rear window none more"), DSF_GlassRainGain(0.0f, 2700.0f), 1.0f, 1.0e-4f);
+
+	// The wipers: a blade swinging from 0 to 180 degrees once a second, started at 0: the top of its arc (90 degrees) is
+	// swept a quarter of the way through each swing and again three quarters through.
+	const float Half = 3.14159265f * 0.5f;
+	TestTrue(TEXT("not swept before the blade gets there"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.2f, 0.0f, 1.0f) > 1.0e5f);
+	TestNearlyEqual(TEXT("swept on the way out"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.3f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestNearlyEqual(TEXT("and on the way back"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.8f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestNearlyEqual(TEXT("the next swing"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 1.3f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestTrue(TEXT("beyond its arc never"), DSF_WiperSince(-0.3f, 0.0f, 3.14159265f, 5.0f, 0.0f, 1.0f) > 1.0e5f);
+	TestTrue(TEXT("parked never"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 5.0f, 0.0f, 0.0f) > 1.0e5f);
+	TestNearlyEqual(TEXT("just swept: clear"), DSF_WiperClear(0.0f, 1.0f).x, 1.0f, 1.0e-4f);
+	TestTrue(TEXT("a heavy rain lays the drops again within seconds"), DSF_WiperClear(4.0f, 1.0f).x < 0.01f);
+	TestTrue(TEXT("a drizzle more slowly"), DSF_WiperClear(4.0f, 0.1f).x > 0.3f);
+
+	// What a wiper clears holds no water; elsewhere the rain lies on the pane.
+	const float4 Flow = DSF_GlassFlow(float2(0.0f, 0.0f), 0.5f);
+	float Wiped = 0.0f, Rained = 0.0f;
+	for (int32 i = 0; i < 400; ++i)
+	{
+		const float2 At(float(i % 20) * 0.731f, float(i / 20) * 0.917f);
+		Wiped += DSF_GlassRainFlow(At, 1.0f, 1.0f, 1.0f, Flow, 1.0f).z;
+		Rained += DSF_GlassRainFlow(At, 1.0f, 1.0f, 1.0f, Flow, 0.0f).z;
+	}
+	TestTrue(TEXT("a pane just wiped is clear"), Wiped < 1.0e-4f);
+	TestTrue(TEXT("one in the rain is not"), Rained > 20.0f);
+
+	// The component writes the glass's velocity in each glass mesh's own frame and the wipers' state.
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	if (!TestNotNull(TEXT("world"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT { World->DestroyWorld(false); };
+	AActor* Car = World->SpawnActor<AActor>(FVector::ZeroVector, FRotator(0.0, 90.0, 0.0));
+	USceneComponent* Root = NewObject<USceneComponent>(Car, TEXT("Root"));
+	Car->SetRootComponent(Root);
+	Root->RegisterComponent();
+	Root->SetWorldRotation(FRotator(0.0, 90.0, 0.0));
+	UStaticMeshComponent* Screen = NewObject<UStaticMeshComponent>(Car, TEXT("Screen"));
+	Screen->SetupAttachment(Root);
+	Screen->SetRelativeRotation(FRotator(-30.0, 0.0, 0.0));
+	Screen->ComponentTags.Add(TEXT("DreamGlass"));
+	Screen->RegisterComponent();
+	UStaticMeshComponent* Body = NewObject<UStaticMeshComponent>(Car, TEXT("Body"));
+	Body->SetupAttachment(Root);
+	Body->RegisterComponent();
+	UDreamSurfaceVehicleGlassComponent* Glass = NewObject<UDreamSurfaceVehicleGlassComponent>(Car, TEXT("Glass"));
+	Glass->ExtraVelocity = FVector(1000.0, 0.0, 0.0);
+	Glass->RegisterComponent();
+	TestEqual(TEXT("it writes to the tagged glass only"), Glass->GetGlass().Num(), 1);
+	Glass->TickComponent(0.016f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("the car's forward speed, in its world"), Glass->GetGlassVelocity().Equals(FVector(0.0, 1000.0, 0.0), 0.5));
+	const TArray<float>& Data = Screen->GetCustomPrimitiveData().Data;
+	if (TestTrue(TEXT("the glass has the data"), Data.Num() >= UDreamSurfaceVehicleGlassComponent::DataIndex + 8))
+	{
+		const FVector Local(Data[24], Data[25], Data[26]);
+		const FVector Expected = Screen->GetComponentTransform().InverseTransformVectorNoScale(FVector(0.0, 1000.0, 0.0));
+		AddInfo(FString::Printf(TEXT("velocity in the windscreen's frame (%.0f, %.0f, %.0f)"), Local.X, Local.Y, Local.Z));
+		TestTrue(TEXT("in the windscreen's own frame"), Local.Equals(Expected, 0.5));
+		TestEqual(TEXT("wipers parked"), Data[28], 0.0f);
+	}
+	Glass->WiperPeriod = 1.5f;
+	Glass->SetWipers(true);
+	const TArray<float>& Wiping = Screen->GetCustomPrimitiveData().Data;
+	TestTrue(TEXT("wipers running"), Wiping.Num() > 29 && FMath::IsNearlyEqual(Wiping[28], 1.5f));
+	TestTrue(TEXT("the body has none"), Body->GetCustomPrimitiveData().Data.Num() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceEaveDripTest, "DreamSurface.EaveDrips", DreamSurface::Tests::Flags)
+bool FDreamSurfaceEaveDripTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	{
+		using namespace DreamWind::Hlsl;
+		TestNearlyEqual(TEXT("in a downpour the eave runs"), DSF_EaveDrip(1.0f, 1.0f, 0.0f, 0.55f), 1.0f, 1.0e-4f);
+		TestNearlyEqual(TEXT("a soaked roof after the rain drips as hard"), DSF_EaveDrip(0.0f, 1.0f, 0.0f, 0.55f), 1.0f, 1.0e-4f);
+		const float Drying = DSF_EaveDrip(0.0f, 0.7f, 0.0f, 0.55f);
+		TestTrue(TEXT("a drying roof drips less"), Drying > 0.0f && Drying < 0.3f);
+		TestNearlyEqual(TEXT("a damp one not at all"), DSF_EaveDrip(0.0f, 0.5f, 0.0f, 0.55f), 0.0f, 1.0e-4f);
+		TestNearlyEqual(TEXT("a frozen one not at all"), DSF_EaveDrip(0.0f, 1.0f, 0.6f, 0.55f), 0.0f, 1.0e-4f);
+	}
+
+	// An eave in a world: an afternoon's rain, then the sky clears.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamSurfaceDripLine* Eave = W.World->SpawnActor<ADreamSurfaceDripLine>(FVector(0.0, 0.0, 300.0), FRotator::ZeroRotator, Params);
+	Eave->Drips->Length = 400.0f;
+	W.GoTo(At(11.0));
+	W.Weather->ForceWeather(Rain(), 0.0f);
+	W.RunTo(At(13.0));
+	Eave->Drips->Refresh();
+	const float Raining = Eave->Drips->GetDripStrength();
+	W.Weather->ForceWeather(Clear(), 0.0f);
+	W.RunTo(At(13.25));
+	Eave->Drips->Refresh();
+	const float JustAfter = Eave->Drips->GetDripStrength();
+	W.RunTo(At(17.0));
+	Eave->Drips->Refresh();
+	const float Later = Eave->Drips->GetDripStrength();
+	AddInfo(FString::Printf(TEXT("drip strength: in the rain %.2f, a quarter hour after %.2f, four hours after %.2f"), Raining, JustAfter, Later));
+	TestTrue(TEXT("the eave runs in the rain"), Raining > 0.8f);
+	TestTrue(TEXT("and drips on just after it"), JustAfter > 0.2f);
+	TestTrue(TEXT("dry hours later"), Later < 0.01f);
+	TestNearlyEqual(TEXT("drops a second: strength x per metre x length"), Eave->Drips->GetDropRate(), Later * Eave->Drips->DropsPerMetre * 4.0f, 1.0e-3f);
+
+	// Dripping, it stirs the puddles below (the view is close).
+	W.RunTo(At(13.25));
+	W.Weather->ForceWeather(Rain(), 0.0f);
+	W.RunTo(At(14.0));
+	Eave->Drips->Refresh();
+	const int32 Before = W.Surface->GetPendingStamps().Num();
+	Eave->Drips->TickComponent(1.0f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("the drops ring the puddles below"), W.Surface->GetPendingStamps().Num() > Before);
 	return true;
 }
 
@@ -1221,6 +1391,15 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 	Fog->Zone->Channels.Add(Channel_CloudCoverage, 0.9f);
 	// Cloud keeps a night milder (less of the daily swing): well below the clear night's air, so freezing.
 	Fog->Zone->Channels.Add(Channel_Temperature, Offset - 10.0f);
+	// And a freezing rain 40 m west: its supercooled share reaches the maps per texel as the query has it.
+	ADreamWeatherZone* Glaze = W.World->SpawnActor<ADreamWeatherZone>(FVector(-4000, 0, 0), FRotator::ZeroRotator, Params);
+	Glaze->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Glaze->Zone->Extent = FVector2D(1500, 1500);
+	Glaze->Zone->BlendDistance = 600.0f;
+	Glaze->Zone->Channels.Add(Channel_CloudCoverage, 1.0f);
+	Glaze->Zone->Channels.Add(Channel_Precipitation, 0.6f);
+	Glaze->Zone->Channels.Add(Channel_FreezingRain, 1.0f);
+	Glaze->Zone->Channels.Add(Channel_Temperature, Offset - 10.0f);
 
 	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
 	W.GoTo(At(Day - 6.0));
@@ -1248,6 +1427,8 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 		const FDreamSurfaceState FarHere = Read(false, FVector2D(0, 0), TEXT("far at the view"));
 		Read(true, FVector2D(4000, 0), TEXT("near in the freezing fog"));
 		Read(true, FVector2D(5800, 0), TEXT("near at the fog's edge"));
+		Read(true, FVector2D(-4000, 0), TEXT("near in the freezing rain"));
+		Read(true, FVector2D(-5800, 0), TEXT("near at the freezing rain's edge"));
 		TestTrue(FString::Printf(TEXT("%s: near and far agree on the cold at the view"), When), NearHere.ToIceVector().Equals(FarHere.ToIceVector(), 0.1f));
 	};
 
@@ -1255,6 +1436,8 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 	CheckMaps(TEXT("at 3:00"));
 	TestTrue(TEXT("frost at the view"), W.Surface->SampleSurface(FVector(0, 0, 0)).Frost > 0.5f);
 	TestTrue(TEXT("rime in the freezing fog"), W.Surface->SampleSurface(FVector(4000, 0, 0)).Rime > 0.5f);
+	const FDreamSurfaceState Glazed = W.Surface->SampleSurface(FVector(-4000, 0, 0));
+	TestTrue(TEXT("a glaze, not snow, in the freezing rain"), Glazed.Ice > 0.5f && Glazed.Snow < 0.01f);
 	// Into the morning's thaw, values between the ends; then a jump.
 	W.RunTo(At(Day + 9.5));
 	CheckMaps(TEXT("at 9:30"));

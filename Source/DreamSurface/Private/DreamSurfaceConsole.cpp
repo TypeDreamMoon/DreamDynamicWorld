@@ -1,5 +1,6 @@
 // Copyright DreamMoon. All Rights Reserved.
 
+#include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceMaps.h"
 #include "DreamSurfaceModule.h"
 #include "DreamSurfaceSubsystem.h"
@@ -10,6 +11,7 @@
 #include "HAL/IConsoleManager.h"
 #include "ImageCore.h"
 #include "ImageUtils.h"
+#include "UObject/UObjectIterator.h"
 #include "Misc/Paths.h"
 #include "RenderingThread.h"
 #include "TextureResource.h"
@@ -65,6 +67,17 @@ namespace DreamSurface::Console
 				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater,
 				Maps ? Maps->GetNearCenter().X : 0.0, Maps ? Maps->GetNearCenter().Y : 0.0, Maps ? Maps->GetNearExtent() : 0.0f,
 				Maps ? Maps->GetDrawCount() : 0u, Maps ? Maps->GetIntegrateCount() : 0u);
+			for (TObjectIterator<UDreamSurfaceDripLineComponent> It; It; ++It)
+			{
+				if (It->GetWorld() == World && It->IsRegistered())
+				{
+					FVector Start, End;
+					It->GetLine(Start, End);
+					UE_LOG(LogDreamSurface, Display, TEXT("Drip line %s: strength %.2f, %.1f drops/s, effect %s, %d particles, floors %.0f / %.0f, from (%.0f, %.0f, %.0f) to (%.0f, %.0f, %.0f)"),
+						*It->GetOwner()->GetActorNameOrLabel(), It->GetDripStrength(), It->GetDropRate(), It->HasEffect() ? TEXT("on") : TEXT("off"),
+						It->GetParticleCount(), It->GetFloors().X, It->GetFloors().Y, Start.X, Start.Y, Start.Z, End.X, End.Y, End.Z);
+				}
+			}
 		}));
 
 	static FAutoConsoleCommandWithWorldAndArgs RemapCommand(
