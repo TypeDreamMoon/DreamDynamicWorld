@@ -3,6 +3,7 @@
 #include "DreamTerrainFog.h"
 
 #include "Components/LocalFogVolumeComponent.h"
+#include "DreamGroundFog.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWorldCelestial.h"
@@ -11,6 +12,8 @@
 #include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
 #include "Math/RandomStream.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 // ---- The model --------------------------------------------------------------------------------------------------
 
@@ -114,6 +117,65 @@ ADreamTerrainFog::ADreamTerrainFog()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	FogVolume = CreateDefaultSubobject<UDreamGroundFogComponent>(TEXT("FogVolume"));
+	FogVolume->SetupAttachment(RootComponent);
+}
+
+void ADreamTerrainFog::UpdateFogLayer()
+{
+	if (!FogVolume)
+	{
+		return;
+	}
+	// The hollows as deep as the pool lets the fog get.
+	TArray<float> Capped;
+	Capped.SetNum(Hollows.Num());
+	for (int32 i = 0; i < Hollows.Num(); ++i)
+	{
+		Capped[i] = FMath::Min(Hollows[i], PoolDepth);
+	}
+	FogVolume->SetLayer(GetActorLocation(), FVector2D(Extent.X, Extent.Y), FMath::Clamp(Cells, 4, 128), Heights, Capped, DreamWeatherFX::TerrainFogActor::NoGround);
+}
+
+void ADreamTerrainFog::ApplyVolumetric()
+{
+	using DreamWeatherFX::TerrainFogActor::NoGround;
+	if (!FogVolume)
+	{
+		return;
+	}
+	FDreamGroundFogParams P;
+	const FDreamTerrainFogState Now = GetFogState();
+	if (Lowest == NoGround || Heights.Num() != Hollows.Num())
+	{
+		FogVolume->SetFog(P);
+		return;
+	}
+	const float Z0 = float(GetActorLocation().Z);
+	P.Radiation = Now.Radiation;
+	P.Advection = Rules.bAdvection || bForce ? Now.Advection : 0.0f;
+	P.Lowest = Lowest - Z0;
+	P.AdvectionDepth = AdvectionDepth;
+	P.MistThickness = MistThickness;
+	P.PoolExtinction = Density * DreamWeatherFX::GroundFog::ExtinctionPerDensity;
+	P.MistExtinction = MistDensity * DreamWeatherFX::GroundFog::ExtinctionPerDensity;
+	P.NoiseSize = NoiseSize > 0.0f ? NoiseSize : FMath::Max(5.0f * CellSize(), 600.0f);
+	P.NoiseAmount = Patchiness;
+	P.Churn = 0.004f * P.NoiseSize;
+	P.EdgeFade = FMath::Clamp(3.0f / FMath::Clamp(Cells, 4, 128), 0.2f, 0.4f);
+	// The box: from the lowest ground to above the highest the fog reaches (its billows lift it by half again).
+	float High = Lowest;
+	const float Mist = Now.Radiation * MistThickness;
+	for (int32 Cell = 0; Cell < Heights.Num(); ++Cell)
+	{
+		if (Heights[Cell] != NoGround)
+		{
+			High = FMath::Max(High, Heights[Cell] + 1.6f * FMath::Max(DepthInCell(Cell), 2.5f * Mist));
+		}
+	}
+	P.BoxLow = Lowest - 20.0f;
+	P.BoxHigh = High + 20.0f;
+	FogVolume->SetFog(P);
 }
 
 float ADreamTerrainFog::CellSize() const
@@ -151,8 +213,57 @@ void ADreamTerrainFog::ReadTerrain()
 			}
 		}
 	}
+	// Off with what stands on the ground narrower than the filter: the lowest within it, then the highest of those.
+	const int32 K = FMath::Clamp(GroundFilter, 0, 4);
+	if (K > 0)
+	{
+		using DreamWeatherFX::TerrainFogActor::NoGround;
+		auto Filter = [N, K](const TArray<float>& In, bool bMin)
+		{
+			TArray<float> Out = In;
+			for (int32 Y = 0; Y < N; ++Y)
+			{
+				for (int32 X = 0; X < N; ++X)
+				{
+					if (In[Y * N + X] == NoGround)
+					{
+						continue;
+					}
+					float Best = In[Y * N + X];
+					for (int32 V = FMath::Max(Y - K, 0); V <= FMath::Min(Y + K, N - 1); ++V)
+					{
+						for (int32 U = FMath::Max(X - K, 0); U <= FMath::Min(X + K, N - 1); ++U)
+						{
+							const float H = In[V * N + U];
+							if (H != NoGround)
+							{
+								Best = bMin ? FMath::Min(Best, H) : FMath::Max(Best, H);
+							}
+						}
+					}
+					Out[Y * N + X] = Best;
+				}
+			}
+			return Out;
+		};
+		Heights = Filter(Filter(Heights, true), false);
+	}
 	SetTerrainHeights(TArray<float>(Heights));
 	bHeightsGiven = false;
+}
+
+void ADreamTerrainFog::DumpCells(const FString& Path) const
+{
+	const int32 N = FMath::Clamp(Cells, 4, 128);
+	FString Out = TEXT("x,y,ground,hollow\n");
+	for (int32 Cell = 0; Cell < Heights.Num(); ++Cell)
+	{
+		const FVector P = CellCenter(Cell);
+		const float H = Heights[Cell] == DreamWeatherFX::TerrainFogActor::NoGround ? -1.0e6f : Heights[Cell];
+		Out += FString::Printf(TEXT("%.0f,%.0f,%.1f,%.1f\n"), P.X, P.Y, H, Hollows.IsValidIndex(Cell) ? Hollows[Cell] : 0.0f);
+	}
+	FFileHelper::SaveStringToFile(Out, *Path);
+	UE_LOG(LogTemp, Display, TEXT("%s: %d cells written to %s"), *GetActorNameOrLabel(), N * N, *Path);
 }
 
 void ADreamTerrainFog::SetTerrainHeights(const TArray<float>& InHeights)
@@ -171,6 +282,7 @@ void ADreamTerrainFog::SetTerrainHeights(const TArray<float>& InHeights)
 		Lowest = FMath::Min(Lowest, H);
 	}
 	FindHollows();
+	UpdateFogLayer();
 	// The cells in an order of their own (the same for the same box where it stands), so the patches spread over what
 	// the fog covers and keep their cells as it grows.
 	FRandomStream Random(int32(GetTypeHash(GetActorLocation())));
@@ -485,6 +597,27 @@ namespace DreamWeatherFX::TerrainFogActor
 
 void ADreamTerrainFog::Apply(float RealSeconds)
 {
+	// The marched fog, or the local fog volumes (the low quality level's).
+	if (DreamWeatherFX::GroundFog::UseVolumetric() && FogVolume)
+	{
+		for (ULocalFogVolumeComponent* Volume : Volumes)
+		{
+			if (Volume)
+			{
+				Volume->SetVisibility(false);
+			}
+		}
+		for (FSlot& Slot : Slots)
+		{
+			Slot = FSlot();
+		}
+		ApplyVolumetric();
+		return;
+	}
+	if (FogVolume)
+	{
+		FogVolume->SetVisibility(false);
+	}
 	using DreamWeatherFX::TerrainFogActor::Layer;
 	const int32 Pool = FMath::Min(Slots.Num(), Volumes.Num());
 	const float Size = CellSize();
@@ -622,6 +755,7 @@ void ADreamTerrainFog::Tick(float DeltaSeconds)
 void ADreamTerrainFog::PostEditChangeProperty(FPropertyChangedEvent& Event)
 {
 	Super::PostEditChangeProperty(Event);
+	UpdateFogLayer();
 	BuildVolumes();
 	if (!bHeightsGiven || Heights.Num() != FMath::Square(FMath::Clamp(Cells, 4, 128)))
 	{
@@ -636,8 +770,8 @@ namespace DreamWeatherFX::TerrainFogConsole
 {
 	static FAutoConsoleCommandWithWorldAndArgs Command(
 		TEXT("DreamWeather.TerrainFog"),
-		TEXT("DreamWeather.TerrainFog [radiation [advection] | auto]: list the terrain fogs (the air, the fog now, its patches); ")
-		TEXT("hold them at the given radiation / advection fog (0..1), or give them back to the air."),
+		TEXT("DreamWeather.TerrainFog [radiation [advection] | auto | dump]: list the terrain fogs (the air, the fog now, its patches); ")
+		TEXT("hold them at the given radiation / advection fog (0..1), or give them back to the air; dump writes each one's cells to Saved/DreamTerrainFog_<name>.csv."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
 		{
 			if (!World)
@@ -649,6 +783,10 @@ namespace DreamWeatherFX::TerrainFogConsole
 				if (Args.Num() >= 1 && Args[0].Equals(TEXT("auto"), ESearchCase::IgnoreCase))
 				{
 					It->bForce = false;
+				}
+				else if (Args.Num() >= 1 && Args[0].Equals(TEXT("dump"), ESearchCase::IgnoreCase))
+				{
+					It->DumpCells(FPaths::ProjectSavedDir() / FString::Printf(TEXT("DreamTerrainFog_%s.csv"), *It->GetActorNameOrLabel()));
 				}
 				else if (Args.Num() >= 1)
 				{

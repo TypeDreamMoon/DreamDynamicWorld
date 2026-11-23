@@ -3,6 +3,7 @@
 #include "DreamWeatherFog.h"
 
 #include "Components/LocalFogVolumeComponent.h"
+#include "DreamGroundFog.h"
 #include "Components/PostProcessComponent.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWindSubsystem.h"
@@ -18,6 +19,37 @@ ADreamFogBank::ADreamFogBank()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	FogVolume = CreateDefaultSubobject<UDreamGroundFogComponent>(TEXT("FogVolume"));
+	FogVolume->SetupAttachment(RootComponent);
+}
+
+void ADreamFogBank::ApplyVolumetric()
+{
+	if (!FogVolume)
+	{
+		return;
+	}
+	// A flat layer on the box's floor (again when the bank moved or changed size).
+	const FVector Floor = GetActorLocation();
+	const FVector Key(Floor.X + Extent.X * 1.0e-3, Floor.Y + Extent.Y * 1.0e-3, Floor.Z);
+	if (!LayerAt.Equals(Key, 0.01))
+	{
+		FogVolume->SetFlatLayer(Floor, FVector2D(Extent.X, Extent.Y));
+		LayerAt = Key;
+	}
+	// Its mist: as thick as the weather makes it, thinning upward over HeightFalloff.
+	FDreamGroundFogParams P;
+	P.Radiation = 1.0f;
+	P.MistThickness = 2.0f * HeightFalloff;
+	P.PoolExtinction = 0.0f;
+	P.MistExtinction = DensityNow * DreamWeatherFX::GroundFog::ExtinctionPerDensity;
+	P.NoiseSize = 2.5f * PatchRadius;
+	P.NoiseAmount = 0.9f;
+	P.Churn = 0.01f * PatchRadius;
+	P.EdgeFade = 0.35f;
+	P.BoxLow = float(Floor.Z) - 10.0f;
+	P.BoxHigh = float(Floor.Z + Extent.Z);
+	FogVolume->SetFog(P);
 }
 
 FVector ADreamFogBank::GetPatchLocation(int32 Index) const
@@ -111,6 +143,23 @@ void ADreamFogBank::Drift(float Seconds)
 
 void ADreamFogBank::Apply()
 {
+	// The marched fog, or the local fog volumes (the low quality level's).
+	if (DreamWeatherFX::GroundFog::UseVolumetric() && FogVolume)
+	{
+		for (ULocalFogVolumeComponent* Volume : Volumes)
+		{
+			if (Volume)
+			{
+				Volume->SetVisibility(false);
+			}
+		}
+		ApplyVolumetric();
+		return;
+	}
+	if (FogVolume)
+	{
+		FogVolume->SetVisibility(false);
+	}
 	for (int32 i = 0; i < Volumes.Num() && i < PatchStates.Num(); ++i)
 	{
 		ULocalFogVolumeComponent* Volume = Volumes[i];

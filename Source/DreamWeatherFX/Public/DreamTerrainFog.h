@@ -7,6 +7,7 @@
 #include "DreamTerrainFog.generated.h"
 
 class ULocalFogVolumeComponent;
+class UDreamGroundFogComponent;
 
 /** The air over a piece of land, as terrain fog reads it. */
 USTRUCT(BlueprintType)
@@ -114,6 +115,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog")
 	FVector Extent = FVector(5000.0, 5000.0, 2000.0);
 
+	/**
+	 * Traced ground: things narrower than this many cells either side (trees, posts, props) are taken off it, so the fog
+	 * lies on the ground under them rather than on their tops (a morphological opening of the heights).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog", meta = (ClampMin = "0", ClampMax = "4"))
+	int32 GroundFilter = 1;
+
 	/** Cells along each side of the box the ground is read in. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog", meta = (ClampMin = "4", ClampMax = "128"))
 	int32 Cells = 32;
@@ -169,6 +177,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog", meta = (ClampMin = "0.5", UIMax = "6"))
 	float PatchCells = 2.5f;
 
+	/** The size of the noise that breaks the marched fog up, cm (0: five cells, at least 6 m). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog", meta = (ClampMin = "0", Units = "cm"))
+	float NoiseSize = 0.0f;
+
+	/** How patchy the marched fog is, 0 smooth layers .. 1 billows and patches. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog", meta = (ClampMin = "0", ClampMax = "1"))
+	float Patchiness = 0.8f;
+
+	/** The marched fog (DreamWeather.Fog.Volumetric 1); the local fog volumes draw instead at 0. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Terrain Fog")
+	TObjectPtr<UDreamGroundFogComponent> FogVolume;
+
 	/** Holds the fog at ForcedState instead of the air's (the showcase, cinematics). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain Fog")
 	bool bForce = false;
@@ -211,6 +231,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dream Weather")
 	void SetTerrainHeights(const TArray<float>& Heights);
 
+	/** Writes the cells (x, y, ground, hollow) to a CSV file, for a look at what the fog was given. */
+	void DumpCells(const FString& Path) const;
+
 	/** Reads the air and moves the fog on to the world's time (it does every tick; a jump of the clock settles it). */
 	void Refresh();
 
@@ -245,6 +268,8 @@ private:
 	FVector CellCenter(int32 Cell) const;
 	void BuildVolumes();
 	void Apply(float RealSeconds);
+	void UpdateFogLayer();
+	void ApplyVolumetric();
 
 	FDreamTerrainFogState State;
 	FDreamTerrainFogAir Air;

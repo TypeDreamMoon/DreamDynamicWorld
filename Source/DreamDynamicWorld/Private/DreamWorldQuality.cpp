@@ -42,6 +42,8 @@ namespace DreamWorld::Quality
 	};
 	static const FDreamWorldQualitySetting Fog[] = {
 		{ TEXT("DreamSky.VolumetricFog"),               { TEXT("0"), TEXT("0"), TEXT("-1"), TEXT("-1"), TEXT("-1") } },
+		{ TEXT("DreamWeather.Fog.Volumetric"),          { TEXT("0"), TEXT("1"), TEXT("1"), TEXT("1"), TEXT("1") } },
+		{ TEXT("DreamWeather.Fog.Samples"),             { TEXT("16"), TEXT("16"), TEXT("24"), TEXT("32"), TEXT("64") } },
 	};
 
 	static int32 Applied[5] = { -2, -2, -2, -2, -2 };
