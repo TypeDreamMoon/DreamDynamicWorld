@@ -181,6 +181,15 @@ bool FDreamWeatherHailSleetTest::RunTest(const FString& Parameters)
 	TestNearlyEqual(TEXT("all sleet: no rain, no snow"), Sleet.Rain + Sleet.Snow, 0.0f, 1.0e-4f);
 	TestTrue(TEXT("tagged as sleet"), Sleet.Tags.HasTag(DreamWeather::Tags::State_Sleet));
 	TestNearlyEqual(TEXT("landing in the open as it falls"), Sleet.SleetHere, Sleet.Sleet * Sleet.Exposure, 1.0e-5f);
+	// The split is DreamWeatherShared.h's, the one the surfaces run on the GPU.
+	{
+		using namespace DreamWind::Hlsl;
+		const float4 K = DWX_SplitPrecipitation(Mixed.Precipitation, Mixed.SnowRatio, 0.5f, 0.5f);
+		TestTrue(TEXT("the sample's split is the shared one"), FMath::IsNearlyEqual(K.x, Mixed.Rain, 1.0e-6f) && FMath::IsNearlyEqual(K.y, Mixed.Snow, 1.0e-6f)
+			&& FMath::IsNearlyEqual(K.z, Mixed.Hail, 1.0e-6f) && FMath::IsNearlyEqual(K.w, Mixed.Sleet, 1.0e-6f));
+		const float4 Cold = DWX_SplitPrecipitation(1.0f, 0.75f, 0.0f, 0.0f);
+		TestTrue(TEXT("no hail, no sleet: rain and snow by the ratio"), FMath::IsNearlyEqual(Cold.x, 0.25f, 1.0e-6f) && FMath::IsNearlyEqual(Cold.y, 0.75f, 1.0e-6f));
+	}
 	return true;
 }
 

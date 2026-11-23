@@ -4,6 +4,7 @@
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
 #include "DreamWeatherCloudPaint.h"
+#include "DreamWeatherHlslShim.h"
 #include "DreamWeatherMapRenderer.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -464,13 +465,12 @@ FDreamWeatherSample UDreamWeatherSubsystem::MakeSample(const FVector& Position, 
 	S.SnowRatio = FMath::Max(Values.Get(C::SnowRatio), (1.0f - FMath::SmoothStep(-1.0f, 2.0f, S.Temperature)) * (1.0f - S.FreezingRain));
 	// The precipitation's kinds: its hail share first (at any temperature), the sleet's of what is left, the rest rain
 	// and snow by the snow ratio.
-	const float HailShare = FMath::Clamp(Values.Get(C::Hail), 0.0f, 1.0f);
-	const float SleetShare = FMath::Clamp(Values.Get(C::Sleet), 0.0f, 1.0f) * (1.0f - HailShare);
-	const float Left = 1.0f - HailShare - SleetShare;
-	S.Hail = S.Precipitation * HailShare;
-	S.Sleet = S.Precipitation * SleetShare;
-	S.Rain = S.Precipitation * Left * (1.0f - S.SnowRatio);
-	S.Snow = S.Precipitation * Left * S.SnowRatio;
+	// (DreamWeatherShared.h: the surfaces split what lands on them the same way.)
+	const DreamWind::Hlsl::float4 Kinds = DreamWind::Hlsl::DWX_SplitPrecipitation(S.Precipitation, S.SnowRatio, Values.Get(C::Hail), Values.Get(C::Sleet));
+	S.Rain = Kinds.x;
+	S.Snow = Kinds.y;
+	S.Hail = Kinds.z;
+	S.Sleet = Kinds.w;
 	S.Exposure = ExposureAt(Position);
 	S.bSheltered = S.Exposure < 0.5f;
 	S.RainHere = S.Rain * S.Exposure;
