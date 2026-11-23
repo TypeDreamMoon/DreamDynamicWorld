@@ -426,6 +426,7 @@ struct FDSkyCloudSample
 	FDCloudAnchor Anchor; // what samples near this one may take from it (DCS_ShapeNear)
 	float StormDistance; // cm: FDCloudShape.StormDistance (a full sample only)
 	float Volume;        // FDCloudShape.Density: the density a volume march integrates
+	float Funnel;        // 0..1: how much of this is a tornado's funnel, its wall cloud or its dust (the looks darken it)
 };
 
 // The planet the cloud layer curves over (the engine's cloud layer uses the same without a sky atmosphere).
@@ -514,35 +515,41 @@ float3 DSky_HazeDirection(float3 V)
 
 #ifdef DSKY_FUNNEL_A
 // The tornadoes' funnel clouds (DreamSkyFunnels.h), over the clouds' shape at a world point at an altitude (cm, over the
-// planet's curve) under a cloud base at Base. Each hangs from the base down toward its root on the ground, narrowing to a
-// rope, as far down as its strength takes it (1: on the ground, a whirl of dust at its foot); a bell where it meets the
-// base; leaning with the wind aloft, wavering a little; striated by the noise in a frame that turns with it, twisted with
-// height. Its funnel is the shape's where it is the more solid; it is dark as a storm's base. Every funnel brings the
-// nearest cloud (StormDistance) at most as far as its reach, so a march below the base does not skip it.
+// planet's curve) under a cloud base at Base (DSky_Funnels).
 //   DSKY_FUNNEL_A(i) = (root x, y (cm), radius at the base (cm), strength x the spin's sign)
 //   DSKY_FUNNEL_B(i) = (how far it has turned (radians), the ground's height at the root (cm), the lean x, y (cm))
-// A funnel's axis across at a height (Hn: 0 its root .. 1 the base), and its radius there (cm).
+// A funnel's axis across at a height (Hn: 0 its root .. 1 the base): leaning toward the top, wavering (whole multiples of
+// the turn, so a full turn is seamless).
 float2 DSky_FunnelAxis(float4 A, float4 B, float Hn)
 {
 	float H = saturate(Hn);
 	return A.xy + B.zw * pow(H, 1.5) + A.z * 0.12 * saturate(1.2 - Hn) * float2(sin(Hn * 9.0 + B.x), cos(Hn * 7.0 + B.x));
 }
 
+// A funnel's profile, from its size (so a tornado keeps its own as it moves): 1.3 a wide cone tapering all the way down
+// .. 3.2 a rope that widens only near the base.
+float DSky_FunnelProfile(float4 A)
+{
+	return lerp(1.3, 3.2, frac(sin(A.z * 0.0731 + 1.7) * 43758.5453));
+}
+
+// A funnel's radius at a height (cm), before its lobes: from a rope at its tip to its radius at the base, down as far as
+// its strength takes it.
 float DSky_FunnelRadius(float4 A, float Hn)
 {
 	float Strength = abs(A.w);
 	float H = saturate(Hn);
 	float Tip = 1.0 - Strength;
-	float R = A.z * (0.08 + 0.92 * H * H) * smoothstep(Tip - 0.03, Tip + 0.12, Hn);
-	// On up into the cloud over the base, a cone widening gently (merging with the cloud whatever its depth there), and the
-	// dust whirled up at its foot once it touches down.
-	R += A.z * 0.8 * max(Hn - 1.0, 0.0);
-	R += A.z * 0.55 * smoothstep(0.85, 1.0, Strength) * (1.0 - smoothstep(0.0, 0.07, Hn));
-	return R;
+	return A.z * (0.06 + 0.94 * pow(H, DSky_FunnelProfile(A))) * smoothstep(Tip - 0.03, Tip + 0.12, Hn);
 }
 
+// The widest a funnel, its wall cloud and the dust at its foot reach from its axis (cm), and how far up over the base
+// the wall cloud stands (of the root's height under the base).
+static const float DSky_FunnelReach = 3.8;
+static const float DSky_FunnelTop = 1.6;
+
 // The longest step a march may take at a world point so as not to step over a funnel's narrow column there (cm): a
-// fifth of its width where the point is near it, no limit elsewhere.
+// tenth of its width where the point is near it (the funnel is opaque within a few steps: longer ones drew the jitter's grid on it), no limit elsewhere.
 float DSky_FunnelStep(float3 World, float Altitude, float Base)
 {
 	float Step = 1.0e9;
@@ -556,7 +563,7 @@ float DSky_FunnelStep(float3 World, float Altitude, float Base)
 			continue;
 		}
 		float Hn = (Altitude - B.y) / max(Base - B.y, 1000.0);
-		if (Hn < -0.05 || Hn > 2.2)
+		if (Hn < -0.05 || Hn > DSky_FunnelTop)
 		{
 			continue;
 		}
@@ -564,17 +571,18 @@ float DSky_FunnelStep(float3 World, float Altitude, float Base)
 		float Dist = length(World.xy - DSky_FunnelAxis(A, B, Hn));
 		if (Dist < R * 1.6 + A.z * 0.4)
 		{
-			Step = min(Step, max(R * 0.4, 400.0));
+			Step = min(Step, max(R * 0.2, 300.0));
 		}
 	}
 	return Step;
 }
 
-// How much denser than the cloud's measure a funnel is to the eye at a world point (1 elsewhere): a column some ten
-// metres to a hundred across, as dense as a cloud kilometres deep, so the realistic look's integration sees it opaque.
-float DSky_FunnelBoost(float3 World, float Altitude, float Base)
+// The extinction a funnel and its dust have to the eye at a world point (per cm; 0 elsewhere): some six optical depths
+// across, however narrow -- a rope ten metres across as opaque as the wide top -- for the realistic and painted looks,
+// whose clouds' measure would leave a column a hundred metres across half seen through.
+float DSky_FunnelSigma(float3 World, float Altitude, float Base)
 {
-	float Boost = 1.0;
+	float Sigma = 0.0;
 	[unroll]
 	for (int i = 0; i < 4; ++i)
 	{
@@ -585,19 +593,40 @@ float DSky_FunnelBoost(float3 World, float Altitude, float Base)
 			continue;
 		}
 		float Hn = (Altitude - B.y) / max(Base - B.y, 1000.0);
-		if (Hn < -0.05 || Hn > 2.2)
+		if (Hn < -0.05 || Hn > 1.0)
 		{
 			continue;
 		}
-		float R = max(DSky_FunnelRadius(A, Hn), 1.0);
+		float R = max(DSky_FunnelRadius(A, Hn), A.z * 0.03);
 		float Dist = length(World.xy - DSky_FunnelAxis(A, B, Hn));
-		float Inside = saturate((R - Dist) / R * 3.0) * (1.0 - smoothstep(1.0, 1.4, Hn));
-		Boost = max(Boost, lerp(1.0, clamp(A.z * 1.5 / max(R, A.z * 0.05), 1.0, 20.0), Inside));
+		float Inside = saturate((R * 1.2 - Dist) / R * 2.0) * (1.0 - smoothstep(0.8, 1.0, Hn));
+		Sigma = max(Sigma, Inside * 3.0 / R);
+		// The dust at its foot, once it touches down.
+		float Down = smoothstep(0.85, 1.0, abs(A.w));
+		float Low = 1.0 - smoothstep(0.04, 0.12, Hn);
+		Sigma = max(Sigma, Down * Low * saturate((A.z * 1.3 - Dist) / (A.z * 0.4)) * 2.0 / A.z);
 	}
-	return Boost;
+	return Sigma;
 }
 
-void DSky_Funnels(float3 World, float Altitude, float Base, Texture3D Noise, SamplerState NoiseSampler, inout FDCloudShape C)
+// A smooth union of two shapes (k: how wide the seam is blended), so the funnel grows out of its wall cloud and its dust
+// with no line between.
+float DSky_SmoothMax(float A, float B, float K)
+{
+	float H = saturate(0.5 + 0.5 * (A - B) / K);
+	return lerp(B, A, H) + K * H * (1.0 - H);
+}
+
+// The funnels over the clouds' shape at a world point. Each is three shapes, blended smoothly:
+//   the funnel   hanging from the base down toward its root, as far as its strength takes it; its own profile (a cone or
+//                a rope, DSky_FunnelProfile), three lobes twisting with height and turning with it, long streaks up its
+//                wall in a frame that turns with it
+//   a wall cloud a dark round lowering of the base round the funnel's top, which the funnel grows out of
+//   its dust    once it touches down, a low tumbling ring of dark dust and debris at its foot
+// Where they are the more solid the shape is theirs, dark (FunnelOut: how much, for the looks' darker tones). Every
+// funnel brings the nearest cloud (StormDistance) at most as far as its reach, so a march below the base does not skip it.
+void DSky_Funnels(float3 World, float Altitude, float Base, Texture3D Noise, SamplerState NoiseSampler, inout FDCloudShape C,
+	inout float FunnelOut)
 {
 	[unroll]
 	for (int i = 0; i < 4; ++i)
@@ -614,38 +643,57 @@ void DSky_Funnels(float3 World, float Altitude, float Base, Texture3D Noise, Sam
 		float Span = max(Base - B.y, 1000.0);
 		float Hn = (Altitude - B.y) / Span;
 		float H = saturate(Hn);
-		// The axis: leaning toward the top, wavering (whole multiples of the turn, so a full turn is seamless).
 		float2 D = World.xy - DSky_FunnelAxis(A, B, Hn);
 		float Dist = length(D);
-		// (How near a cloud may be: the funnel's widest reach, wherever along its lean.)
-		C.StormDistance = min(C.StormDistance, max(Dist - R0 * 2.9 - length(B.zw), 0.0) + max(Altitude - (Base + 1.2 * Span), 0.0)
-			+ max(B.y - Altitude, 0.0));
-		if (Hn < -0.02 || Hn > 2.2 || Dist > R0 * 2.9)
+		// (How near a cloud may be: the widest reach, wherever along its lean.)
+		C.StormDistance = min(C.StormDistance, max(Dist - R0 * DSky_FunnelReach - length(B.zw), 0.0)
+			+ max(Altitude - (Base + (DSky_FunnelTop - 1.0) * Span), 0.0) + max(B.y - Altitude, 0.0));
+		if (Hn < -0.02 || Hn > DSky_FunnelTop || Dist > R0 * DSky_FunnelReach)
 		{
 			continue;
 		}
-		float R = DSky_FunnelRadius(A, Hn);
-		// (Fading out up in the cloud over the base, where the cloud hides it.)
-		// (By its own width where it is: a rope tens of metres across is as solid at its core as the wide top.)
-		float Signed = (R - Dist) / max(R * 0.6, R0 * 0.05) * 0.25 - 0.4 * smoothstep(1.7, 2.2, Hn);
-		// The striations, in a frame turning with the funnel and twisted with height: long streaks up its wall.
-		float Angle = -Spin * (B.x + Hn * 2.5);
-		float CosA = cos(Angle);
-		float SinA = sin(Angle);
+		// The funnel, in a frame turning with it: its lobes and streaks twist with height.
+		float Turn = Spin * B.x;
+		float CosA = cos(-Turn - Spin * Hn * 2.5);
+		float SinA = sin(-Turn - Spin * Hn * 2.5);
 		float2 Q = float2(D.x * CosA - D.y * SinA, D.x * SinA + D.y * CosA) / R0;
-		float N = Noise.SampleLevel(NoiseSampler, float3(Q * 0.35, Hn * 0.6 + float(i) * 0.37), 0).r;
-		float Noisy = Signed + (N - 0.5) * 0.12;
-		C.Conservative = max(C.Conservative, Signed + 0.07);
-		if (Noisy > C.Signed)
+		float Lobes = sin(3.0 * (atan2(D.y, D.x) - Turn) + Spin * Hn * 7.0);
+		float R = DSky_FunnelRadius(A, Hn) * (1.0 + 0.22 * Lobes * (1.0 - smoothstep(0.85, 1.0, Hn)));
+		float N = Noise.SampleLevel(NoiseSampler, float3(Q * 0.22, Hn * 0.18 + float(i) * 0.37), 0).r;
+		// (By its own width where it is: a rope tens of metres across is as solid at its core as the wide top.)
+		float Funnel = (R - Dist) / max(R * 0.6, R0 * 0.05) * 0.25 + (N - 0.5) * 0.22;
+		// The wall cloud round its top: an oblate lowering of the base some third of its height deep.
+		float2 DW = World.xy - DSky_FunnelAxis(A, B, 1.0);
+		float Rw = R0 * 3.2;
+		float Ew = sqrt(dot(DW, DW) / (Rw * Rw) + ((Hn - 1.22) / 0.34) * ((Hn - 1.22) / 0.34));
+		float NW = Noise.SampleLevel(NoiseSampler, float3(DW / R0 * 0.22, Hn * 0.5 + 0.71 + float(i) * 0.13), 0).g;
+		float Forming = smoothstep(0.05, 0.35, Strength);
+		float Wall = (1.0 - Ew) * 0.45 + (NW - 0.5) * 0.2 - (1.0 - Forming) * 0.5;
+		// The dust at its foot once it touches down: low, wide, tumbling.
+		float Down = smoothstep(0.85, 1.0, Strength);
+		float ND = Noise.SampleLevel(NoiseSampler, float3(Q * 0.8, Hn * 1.5 + 0.29 + float(i) * 0.53), 0).b;
+		float Rd = R0 * (1.0 + 0.6 * ND);
+		float Ed = sqrt((Dist / Rd) * (Dist / Rd) + (max(Hn, 0.0) / 0.1) * (max(Hn, 0.0) / 0.1));
+		float Dust = (1.0 - Ed) * 0.4 + (ND - 0.5) * 0.3 - (1.0 - Down) * 0.6;
+		float Signed = DSky_SmoothMax(DSky_SmoothMax(Funnel, Wall, 0.06), Dust, 0.06);
+		// (An upper bound whatever the noise: each shape at its noise's most, and the blends' bulge.)
+		float Bound = max(max((R - Dist) / max(R * 0.6, R0 * 0.05) * 0.25 + 0.11, (1.0 - Ew) * 0.45 + 0.1), (1.0 - Ed) * 0.4 + 0.15) + 0.04;
+		C.Conservative = max(C.Conservative, Bound);
+		if (Signed > C.Signed)
 		{
-			float W = saturate(Noisy * 8.0 + 0.5);
-			C.Signed = Noisy;
-			C.Solid = max(C.Solid, saturate(Noisy));
-			C.Density = max(C.Density, saturate(Noisy * 5.0) * (0.55 + 0.35 * Strength));
+			float W = saturate(Signed * 8.0 + 0.5);
+			C.Signed = Signed;
+			C.Solid = max(C.Solid, saturate(Signed));
+			// The streaks show in its density: denser and thinner bands up its wall.
+			C.Density = max(C.Density, saturate(Signed * 5.0) * (0.6 + 0.3 * Strength) * (0.55 + 0.9 * N));
 			C.Dark = max(C.Dark, 0.85 * W);
 			C.Column = Span;
-			C.Height = H;
+			// (The wall cloud is the base's own underside, half as dark as the funnel; the funnel and its dust stand from the
+			// ground.)
+			bool bWall = Wall >= Funnel && Wall >= Dust;
+			C.Height = bWall ? 0.0 : H;
 			C.Deck *= 1.0 - W;
+			FunnelOut = max(FunnelOut, bWall ? 0.3 * W : W);
 		}
 	}
 }
@@ -672,8 +720,9 @@ FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, bool bNear, FDCloudAn
 		C = DCS_Shape(P, World, Z, F.Cloud0, F.Cloud1, F.Cloud2, F.CloudLayer, MapParams, Detail, Map, MapSampler, Noise,
 			NoiseSampler);
 	}
+	float Funnel = 0.0;
 #ifdef DSKY_FUNNEL_A
-	DSky_Funnels(World, Z + F.Base, F.Base, Noise, NoiseSampler, C);
+	DSky_Funnels(World, Z + F.Base, F.Base, Noise, NoiseSampler, C, Funnel);
 #endif
 	// The clearing round the sun and the moon: the shape eaten back from its edges (the thicker cores last) and the
 	// volume thinned -- only ever less cloud, so the march's bounds hold.
@@ -698,6 +747,7 @@ FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, bool bNear, FDCloudAn
 	S.Anchor = C.Anchor;
 	S.StormDistance = C.StormDistance;
 	S.Volume = C.Density;
+	S.Funnel = Funnel;
 	return S;
 }
 
@@ -1190,11 +1240,14 @@ float4 DSky_PaintSurface(FDSkySurfaceWalk W, float3 V, FDSkyCloudField F, float3
 	Color += CloudLit.rgb * CloudLit.a * Rim * pow(saturate(dot(V, LightDir)), DSKY_TOON_RIM) * ToonKey2.w;
 	// Storm clouds are dark below; their lit tops much less so.
 	Color *= saturate(1.0 - CloudLayer.z * Here.Dark * lerp(ToonKey.w, 1.0, 1.0 - Light) * lerp(1.0, Adv5.z, Here.Height));
+	// A funnel, its wall cloud and its dust: the underside's dark tones, the side toward the light a little lighter, the
+	// foot darkest.
+	Color = lerp(Color, Shadow * ToonDeep.rgb * lerp(0.72, 1.0, saturate(Light)) * lerp(0.85, 1.0, saturate(Here.Height)), Here.Funnel);
 	// The air between: far clouds sink into the sky's colour, their bases (in the hazy low air) before their tops. Painted,
 	// the near ones keep their tones (a base a few kilometres overhead stays dark, not the sky's grey) and the haze closes
 	// in with distance: the veil eases in, the more slowly under a storm (its low dark base looms through the rain).
 	float Veil = DCS_AirVeil(SurfaceT, V.z, Camera.z, Cloud0.x, Cloud3);
-	Color = lerp(Color, SkyBehind, pow(Veil, Adv6.x + Adv6.y * Deep));
+	Color = lerp(Color, SkyBehind, pow(Veil, Adv6.x + Adv6.y * Deep) * (1.0 - 0.8 * Here.Funnel));
 	// Where the ray only clips a thin sliver of a deck (its thin gaps, the specks a breaking deck leaves) or of an anvil
 	// (its thinning rim) it is see-through: the specks fade instead of sparkling, an anvil's edge thins out. Round a crack
 	// in a deck (the ray goes into a deck there, not thin, and straight out into the crack) the deck tears instead, the
