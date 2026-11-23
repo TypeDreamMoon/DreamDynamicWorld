@@ -399,14 +399,7 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	const float Dust = FMath::Clamp(Env.Dust, 0.0f, 1.0f);
 	if (Dust > 0.0f)
 	{
-		auto Luma = [](const FLinearColor& C) { return 0.2126f * C.R + 0.7152f * C.G + 0.0722f * C.B; };
-		const FLinearColor Sand = DustColor / FMath::Max(Luma(DustColor), 1.0e-3f);   // the dust's hue at unit brightness
-		auto Tint = [&](const FLinearColor& C, float Amount)
-		{
-			FLinearColor Out = FMath::Lerp(C, Sand * Luma(C), Amount);
-			Out.A = C.A;
-			return Out;
-		};
+		auto Tint = [this](const FLinearColor& C, float Amount) { return DustTinted(C, Amount); };
 		L.FogColor = Tint(L.FogColor, Dust);
 		L.FogDensity *= FMath::Lerp(1.0f, DustFogScale, Dust * Dust);
 		Look.Zenith = Tint(Look.Zenith, 0.5f * Dust);
@@ -424,11 +417,21 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	}
 
 	// The dome is past the height fog's cutoff: it is hazed in the fog's own colour, so the fogged ground meets it.
-	const float Haze = FMath::Clamp(FogSkyHaze * Fog + DustSkyHaze * Dust, 0.0f, 1.0f);
+	// (Dust by its square root: a storm's dust hides the sky well before the storm is at its height.)
+	const float Haze = FMath::Clamp(FogSkyHaze * Fog + DustSkyHaze * FMath::Sqrt(Dust), 0.0f, 1.0f);
 	Look.Haze = FLinearColor(L.FogColor.R, L.FogColor.G, L.FogColor.B, Haze);
 	// The lift keeps a grey day from going murky; a storm's darkness is meant to show, so it fades out with it.
 	L.ExposureEV100 -= OvercastExposureLift * Overcast * (1.0f - Dark);
 	L.ExposureEV100 -= FogExposureLift * FMath::Clamp(Env.Fog, 0.0f, 1.0f) + DustExposureLift * FMath::Clamp(Env.Dust, 0.0f, 1.0f);
+}
+
+FLinearColor UDreamSkyStyle::DustTinted(const FLinearColor& Color, float Amount) const
+{
+	auto Luma = [](const FLinearColor& C) { return 0.2126f * C.R + 0.7152f * C.G + 0.0722f * C.B; };
+	const FLinearColor Sand = DustColor / FMath::Max(Luma(DustColor), 1.0e-3f);   // the dust's hue at unit brightness
+	FLinearColor Out = FMath::Lerp(Color, Sand * Luma(Color), FMath::Clamp(Amount, 0.0f, 1.0f));
+	Out.A = Color.A;
+	return Out;
 }
 
 FDreamSkyLighting UDreamSkyStyle::EvaluateLighting(const FDreamCelestialState& Celestial) const
