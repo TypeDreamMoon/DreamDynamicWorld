@@ -125,8 +125,10 @@ the optical depth toward the sun round the view shades them and casts their shad
 the sky puts on its sun, `M_DreamCloudShadow`): they take all of the sun off the ground under every look; the style's
 `StylizedCloudShadow` lowers that between broken clouds under the toon and painted ones (say 0.55: a painted
 background's cloud shadows lie light and warm), rising to all of it as the cover closes (an overcast casts no sun
-shadows); the `GroundShadow` override sets it for any look. A panorama of them every fourth frame (`RT_DreamCloudPanorama`) is what the dome shows
-in the sky light capture, so the sky light and reflections see them. Seen from above the layer's base the clouds
+shadows); the `GroundShadow` override sets it for any look. A panorama of them (`RT_DreamCloudPanorama`, 512 × 128 over the upper
+hemisphere and a little under the horizon -- the clouds are seen from below -- some 0.7° a texel; half its rows every
+fourth frame, the whole every eighth, at what a whole 256 × 128 one cost) is what the dome shows in the sky light
+capture, so the sky light and reflections see them: a still pond reflects the cumulus, not blocks of them. Seen from above the layer's base the clouds
 between the view and the ground are drawn over the scene too, just before the post processing: there they cover
 whatever translucency stands in front of them (rain, particles, glass). It does not draw clouds in front of nearer
 scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome

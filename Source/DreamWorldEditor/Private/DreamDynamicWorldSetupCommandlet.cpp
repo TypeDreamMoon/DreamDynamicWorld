@@ -110,7 +110,7 @@ namespace DreamWorld::Setup
 
 	/**
 	 * The sky cloud renderer's panorama of the clouds round the view, which the dome shows in the sky light capture
-	 * (RGBA16F, UAV, 256 x 128, longitude by latitude).
+	 * (RGBA16F, UAV, 512 x 128, longitude by latitude over the upper hemisphere: DSky_PanoramaUV).
 	 */
 	static bool EnsureCloudPanorama()
 	{
@@ -123,14 +123,14 @@ namespace DreamWorld::Setup
 			Package->FullyLoad();
 			RT = NewObject<UTextureRenderTarget2D>(Package, TEXT("RT_DreamCloudPanorama"), RF_Public | RF_Standalone);
 		}
-		if (bCreated || RT->SizeX != 256 || RT->SizeY != 128 || !RT->bSupportsUAV || RT->GetFormat() != PF_FloatRGBA)
+		if (bCreated || RT->SizeX != 512 || RT->SizeY != 128 || !RT->bSupportsUAV || RT->GetFormat() != PF_FloatRGBA)
 		{
 			RT->PreEditChange(nullptr);
 			RT->ClearColor = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
 			RT->AddressX = TA_Wrap;
 			RT->AddressY = TA_Clamp;
 			RT->bSupportsUAV = true;
-			RT->InitCustomFormat(256, 128, PF_FloatRGBA, true);
+			RT->InitCustomFormat(512, 128, PF_FloatRGBA, true);
 			RT->PostEditChange();
 			if (bCreated)
 			{
