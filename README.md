@@ -315,11 +315,19 @@ toward the centre and cooler along the arms, and the Magellanic Clouds in the so
 photograph: Setup bakes it into `T_DreamMilkyWay` (2048 x 1024 in galactic longitude and latitude, the dust's depth in
 its alpha). It shows only on a dark night -- from the sun at `ShowsBelow` (-10 degrees) to all of it by `FullBelow`
 (-18) -- and the moon's light (`MoonWash`: a full moon high up leaves some 8% of it), a city's light (`CityWash`: the
-dome's light pollution that leaves a third), haze, fog and cloud wash it out; `UDreamSkySubsystem::GetMilkyWayVisibility`
-says how much shows. It looks the same under every cloud look. The style's `MilkyWay` sets how bright it is
+dome's light pollution that leaves a third), haze, fog and cloud wash it out (the night sky's share, below);
+`UDreamSkySubsystem::GetMilkyWayVisibility` says how much shows. It looks the same under every cloud look. The style's `MilkyWay` sets how bright it is
 (`Intensity`, on the stars' night intensity curve), its `Contrast`, how dark its `Dust` lanes are, its `Saturation` and
 `Tint`; a sky modifier's *Milky Way* scales it. It is read in the dome with the stars, one texture sample, nothing
 while it does not show.
+
+**The weather over the night sky.** The weather's haze, fog and cloud hide the whole night sky by one share
+(`UDreamSkyStyle::NightSkyThrough`, `UDreamSkySubsystem::GetNightSkyThrough`): the stars, the Milky Way, the aurora,
+meteors and satellites and noctilucent clouds are all drawn that much fainter, the moon's disk and glow down to
+`MoonThroughHaze` (0.6) of themselves at none -- a dull disk in a dust storm, over what the dome's own haze already takes.
+The haze leaves `(1 - haze)` to the power `NightSkyHazeExponent` (2: a light haze of 0.3 half the sky, a dust storm's
+0.95 next to none of it); the weather's fog and its cloud cover take `NightSkyFogHides` (0.9) and `NightSkyCloudHides`
+(0.4) more at their thickest (the clouds themselves cover what is behind them besides).
 
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,

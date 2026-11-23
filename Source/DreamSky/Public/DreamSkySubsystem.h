@@ -181,6 +181,8 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
 	float GetMilkyWayVisibility() const { return MilkyWayVisibility; }
+	/** How much of the night sky the weather lets through now (UDreamSkyStyle::NightSkyThrough), 0..1. */
+	float GetNightSkyThrough() const { return NightSkyThroughShare; }
 
 	/** The meteor shower active on the world's date (the style's showers; none in the gaps), its rate and radiant. */
 	UFUNCTION(BlueprintPure, Category = "Dream Sky")
@@ -281,6 +283,7 @@ private:
 	float RainInAir = 0.0f;
 	float Rainbow = 0.0f;
 	float MilkyWayVisibility = 0.0f;
+	float NightSkyThroughShare = 1.0f;
 	FDreamSkyShowerActivity MeteorShower;
 	float MeteorRate = 0.0f;
 	bool bHasApplied = false;
