@@ -1295,6 +1295,22 @@ level, band, turbidity, the rain over them) and sets or holds them. `DreamWater.
 the brim, the drain, the mud settling, a dry spell, the bands); `DreamWater.Body` a pond in steady rain (high, muddy,
 told, its mesh lifted, found, the view under it, the snapshot).
 
+**Caustics.** With *Caustics* on, a water body throws the sun's caustics on what lies under its water -- its bottom, its
+walls, what stands in it -- through a decal from just over its surface down past its bottom (`M_DreamWaterCaustics`):
+a moving net of light (two layers of wandering cells, *Caustic Size* across, bent by a slow swell, *Caustic Speed*),
+shifted along the light by the depth (it lies where the light that made it lands), added to what it lands on without
+changing its material (only the decal's emissive is written). How bright: the main light's colour and illuminance
+(`DDW_MainLight`, so it follows the sun, the overcast and the night) times *Caustic Strength*, fading with depth over
+*Caustic Fade Depth*, with the turbidity, toward the surface (none on it) and as the sun goes low. It shows through a
+clear water surface (the demo's `M_DreamWaterClearDemo`, translucent) and under the water of a cut-away; a decal knows
+nothing of shadows, so the net also lies in the shade a basin's own wall casts. The decal moves only when the level has
+moved half a cm.
+
+The showcase has two: the pond (its mesh rides on its level and reaches out under the bank, so the risen water spreads
+over the hollow's sides and joins the next hollow; its brim 30 cm up) and a raised basin of clear water in the sun with
+the caustics on its floor, walls and a stone. The forced tour shoots the basin at noon, then the pond dry, after six
+hours of rain (at its brim, muddy) and after a dry day (`Caustics`, `PondDry`, `PondRain`, `PondAfter`).
+
 **Driving the engine's Water plugin.** DreamWater does not depend on the Water plugin; drive its bodies from the offset
 in your project (a Blueprint or a small component next to the Dream Water Body):
 
