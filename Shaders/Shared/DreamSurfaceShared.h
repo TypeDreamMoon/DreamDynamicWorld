@@ -16,9 +16,14 @@
 //   y  Frost  hoarfrost: white crystals growing on cold ground under a clear, still night sky
 //   z  Rime   white ice built up from freezing fog, faster in a wind
 //   w  Frozen how much of the standing water (y) is frozen over
-// What drives it over a step, two float4s:
-//   D0 = (rain landing 0..1, snow landing 0..1, air temperature in Celsius, wind 0..1)
+// and the hail lying on it (S3, DSF_StepHail):
+//   x  Hail   hailstones lying on it: white pellets that heap up fast in a hailstorm and melt within minutes to an hour
+//   yzw       (unused)
+// What drives it over a step, three float4s:
+//   D0 = (rain landing 0..1, snow landing 0..1, air temperature in Celsius, wind 0..1); sleet counts half as rain, half
+//        as snow
 //   D1 = (sunlight on it 0..1, dust in the air 0..1, open sky 0..1, fog 0..1)
+//   D2 = (hail landing 0..1, -, -, -)
 // The landing amounts are the weather's times the exposure there: under a roof nothing lands, and the shade there keeps
 // the sun off too. The open sky is the clear part of the sky the surface sees (no cloud, no roof): what it loses its
 // warmth to at night. The rates, five float4s, in game hours (DSF_Rates):
@@ -33,6 +38,8 @@
 //   R4 = (thaw, sun warming, sky cooling, -)   thaw: hours for a full glaze to melt with the ground at 5 Celsius in
 //                                           the sun; how much warmer than the air the ground gets in a full sun, and
 //                                           how much colder under a clear, still night sky (Celsius)
+//   R5 = (hail settle, hail melt, hail melt to water, -)   hours to a full cover of hail in a full hailstorm, for it to
+//                                           melt with the ground at 10 Celsius, how much of the melt wets
 //
 // The rates are linear in the step, so a long step and many short ones come out close while the drive holds still
 // (they part only where one amount waits on another: the hollows on a soaked film, the water on the melt).
@@ -42,8 +49,11 @@
 #ifndef DREAMSURFACE_SHARED_H
 #define DREAMSURFACE_SHARED_H
 
-// DSF_FN prefixes every function: empty in HLSL, `inline` in C++ (DreamSurfaceHlslShim.h defines it).
+// DSF_FN prefixes every function: empty in HLSL, `inline` in C++ (DreamSurfaceHlslShim.h defines it). The weather's
+// shared header comes first (the split of what falls, DWX_SplitPrecipitation): HLSL includes it here, C++ through
+// DreamWeatherHlslShim.h.
 #ifndef DSF_FN
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWeatherShared.h"
 #define DSF_FN
 #endif
 
@@ -113,8 +123,20 @@ DSF_FN float DSF_IceMeltWater(float4 S2, float4 C)
 	return min(saturate(S2.x), C.z) + 0.3f * min(saturate(S2.y), C.z * 3.0f) + 0.5f * min(saturate(S2.z), C.z * 2.0f);
 }
 
-// The state after Hours of this weather (S2: the ice's side, as it stood at the start of the step).
-DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 D0, float4 D1, float4 R0, float4 R1, float4 R2, float4 R3, float4 R4, float Hours)
+// How much of the lying hail melts over Hours (0..1 of a full cover): with the ground above freezing (a little even at
+// it), faster in the sun and the rain; a cover melts within minutes on warm summer ground, within an hour or two near
+// freezing, not at all on frozen ground.
+DSF_FN float DSF_HailMelt(float4 D0, float4 D1, float4 R4, float4 R5, float Hours)
+{
+	float Ground = DSF_GroundTemperature(D0, D1, R4);
+	float Degrees = max(Ground + 0.5f, 0.0f);
+	float Sun = 0.6f + 0.8f * saturate(D1.x);
+	float Rain = 1.0f + 2.0f * saturate(D0.x);
+	return Hours * Degrees / (10.0f * max(R5.y, 1.0e-3f)) * Sun * Rain / 1.4f;
+}
+
+// The state after Hours of this weather (S2: the ice's side, S3 the hail's, as they stood at the start of the step).
+DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 S3, float4 D0, float4 D1, float4 R0, float4 R1, float4 R2, float4 R3, float4 R4, float4 R5, float Hours)
 {
 	// The cold first: on frozen ground the film freezes into glaze and the rain freezes as it lands; what thaws runs back
 	// into the film. Frozen puddles neither fill nor dry.
@@ -134,9 +156,12 @@ DSF_FN float4 DSF_Step(float4 S, float4 S2, float4 D0, float4 D1, float4 R0, flo
 	float MeltWater = Melted * R1.z;
 	Rain = saturate(Rain + SnowFall * (1.0f - Settle) * (1.0f - C.y));
 
+	// The hail melting wets the surface too.
+	float HailWater = min(saturate(S3.x), DSF_HailMelt(D0, D1, R4, R5, Hours)) * R5.z;
+
 	// The film wets fast and dries by the weather (not under lying snow); the hollows fill once the film is soaked and
 	// drain slower.
-	float Wet = saturate(S.x + Rain * Hours / max(R0.x, 1.0e-3f) + MeltWater + DSF_IceMeltWater(S2, C) - Dry * (1.0f - Snow) / max(R0.y, 1.0e-3f));
+	float Wet = saturate(S.x + Rain * Hours / max(R0.x, 1.0e-3f) + MeltWater + HailWater + DSF_IceMeltWater(S2, C) - Dry * (1.0f - Snow) / max(R0.y, 1.0e-3f));
 	float Soaked = saturate((Wet - 0.8f) * 5.0f);
 	float Water = saturate(S.y + ((Rain * Soaked * Hours + MeltWater * 0.5f) / max(R0.z, 1.0e-3f) - Dry / max(R0.w, 1.0e-3f)) * (1.0f - Frozen));
 
@@ -169,6 +194,15 @@ DSF_FN float4 DSF_StepIce(float4 S, float4 S2, float4 D0, float4 D1, float4 R0, 
 	return float4(Ice, Frost, Rime, Frozen);
 }
 
+// The hail's side after Hours of this weather: it heaps up as fast as it lands (a full hailstorm whitens the ground in
+// minutes) and melts as DSF_HailMelt has it (the melt wets the water's side, DSF_Step).
+DSF_FN float4 DSF_StepHail(float4 S3, float4 D0, float4 D1, float4 D2, float4 R4, float4 R5, float Hours)
+{
+	float Hail = saturate(S3.x);
+	float In = saturate(D2.x) * Hours / max(R5.x, 1.0e-3f);
+	return float4(saturate(Hail + In - min(Hail, DSF_HailMelt(D0, D1, R4, R5, Hours))), 0.0f, 0.0f, 0.0f);
+}
+
 // How slippery a surface is, as a multiplier on its grip (1 as dry .. near 0 on black ice): the worst of what lies on it,
 // each by how much of it there is. Grip = (ice, a frozen puddle, frost or rime, snow), Grip2 = (standing water, a wet
 // film, -, -), each the grip at full cover; Cover = (ice, the frozen puddle there, frost or rime, snow) and Cover2 =
@@ -187,11 +221,18 @@ DSF_FN float DSF_Grip(float4 Grip, float4 Grip2, float4 Cover, float4 Cover2)
 // A step's drive in the open from the weather there (what the surface map does per texel; a query's DriveAt gets the
 // same from the weather's sample): Weather = (cloud coverage, -, precipitation after the cloud gate, snow ratio
 // channel), Air = (temperature, wind, dust, the sun's Z), Freezing = the FreezingRain channel there, Fog = the fog
-// channel there.
-DSF_FN float4 DSF_OpenD0(float4 Weather, float4 Air, float Freezing)
+// channel there, Kinds = the Hail and Sleet channels there. What falls is split as the weather's samples split it
+// (DWX_SplitPrecipitation); the sleet lands half as rain, half as snow, the hail on its own (D2).
+DSF_FN float4 DSF_OpenD0(float4 Weather, float4 Air, float Freezing, float2 Kinds)
 {
-	float Ratio = DSF_SnowRatio(Weather.w, Air.x, Freezing);
-	return float4(Weather.z * (1.0f - Ratio), Weather.z * Ratio, Air.x, Air.y);
+	float4 K = DWX_SplitPrecipitation(Weather.z, DSF_SnowRatio(Weather.w, Air.x, Freezing), Kinds.x, Kinds.y);
+	return float4(K.x + 0.5f * K.w, K.y + 0.5f * K.w, Air.x, Air.y);
+}
+
+DSF_FN float4 DSF_OpenD2(float4 Weather, float4 Air, float Freezing, float2 Kinds)
+{
+	float4 K = DWX_SplitPrecipitation(Weather.z, DSF_SnowRatio(Weather.w, Air.x, Freezing), Kinds.x, Kinds.y);
+	return float4(K.z, 0.0f, 0.0f, 0.0f);
 }
 
 DSF_FN float4 DSF_OpenD1(float4 Weather, float4 Air, float Fog)

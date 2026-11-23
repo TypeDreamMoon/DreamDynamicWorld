@@ -43,10 +43,17 @@ struct DREAMSURFACE_API FDreamSurfaceState
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface|Cold")
 	float FrozenWater = 0.0f;
 
+	/** Hailstones lying on it, 0 none .. 1 a white cover: heaps up fast in a hailstorm, melts within minutes on warm ground. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface|Hail")
+	float Hail = 0.0f;
+
 	/** Wet, water, snow, dust (DreamSurfaceShared.h's S). */
 	FVector4f ToVector() const { return FVector4f(Wetness, Water, Snow, Dust); }
 	/** Ice, frost, rime, frozen water (DreamSurfaceShared.h's S2). */
 	FVector4f ToIceVector() const { return FVector4f(Ice, Frost, Rime, FrozenWater); }
+
+	/** Hail, -, -, - (DreamSurfaceShared.h's S3). */
+	FVector4f ToHailVector() const { return FVector4f(Hail, 0.0f, 0.0f, 0.0f); }
 	static FDreamSurfaceState FromVector(const FVector4f& V)
 	{
 		FDreamSurfaceState S;
@@ -66,9 +73,17 @@ struct DREAMSURFACE_API FDreamSurfaceState
 		return S;
 	}
 
+	static FDreamSurfaceState FromVectors(const FVector4f& V, const FVector4f& Cold, const FVector4f& HailVector)
+	{
+		FDreamSurfaceState S = FromVectors(V, Cold);
+		S.Hail = HailVector.X;
+		return S;
+	}
+
 	bool Equals(const FDreamSurfaceState& Other, float Tolerance = 1.0e-4f) const
 	{
-		return ToVector().Equals(Other.ToVector(), Tolerance) && ToIceVector().Equals(Other.ToIceVector(), Tolerance);
+		return ToVector().Equals(Other.ToVector(), Tolerance) && ToIceVector().Equals(Other.ToIceVector(), Tolerance)
+			&& FMath::IsNearlyEqual(Hail, Other.Hail, Tolerance);
 	}
 };
 
@@ -88,9 +103,12 @@ struct DREAMSURFACE_API FDreamSurfaceDrive
 	float OpenSky = 0.0f;
 	/** Fog there, 0..1 (rime grows from a freezing fog). */
 	float Fog = 0.0f;
+	/** Hail landing on it, 0..1 (the sleet is in Rain and Snow, half each). */
+	float Hail = 0.0f;
 
 	FVector4f D0() const { return FVector4f(Rain, Snow, Temperature, Wind); }
 	FVector4f D1() const { return FVector4f(Sunlight, Dust, OpenSky, Fog); }
+	FVector4f D2() const { return FVector4f(Hail, 0.0f, 0.0f, 0.0f); }
 };
 
 /** How fast the weather changes a surface, game hours (DreamSurfaceShared.h's R0..R2). */
@@ -170,11 +188,24 @@ struct DREAMSURFACE_API FDreamSurfaceRates
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cold", meta = (ClampMin = "0", UIMax = "10"))
 	float SkyCooling = 4.0f;
 
+	/** Hours a full hailstorm takes to whiten a surface with hail. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hail", meta = (ClampMin = "0.005", Units = "Hours"))
+	float HailSettleHours = 0.08f;
+
+	/** Hours a full cover of hail takes to melt with the ground at 10 Celsius (faster warmer, in the sun and the rain). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hail", meta = (ClampMin = "0.01", Units = "Hours"))
+	float HailMeltHours = 0.5f;
+
+	/** How much the melting hail wets the surface: the film rises by this much for a full cover melted. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hail", meta = (ClampMin = "0", ClampMax = "4"))
+	float HailMeltToWater = 0.6f;
+
 	FVector4f R0() const { return FVector4f(WetHours, DryHours, FillHours, DrainHours); }
 	FVector4f R1() const { return FVector4f(SettleHours, MeltHours, MeltToWater, 0.0f); }
 	FVector4f R2() const { return FVector4f(DustHours, DustWashHours, DustClearHours, 0.0f); }
 	FVector4f R3() const { return FVector4f(FreezeHours, PuddleFreezeHours, FrostHours, RimeHours); }
 	FVector4f R4() const { return FVector4f(ThawHours, SunWarming, SkyCooling, 0.0f); }
+	FVector4f R5() const { return FVector4f(HailSettleHours, HailMeltHours, HailMeltToWater, 0.0f); }
 };
 
 /** What a foot (a wheel, a blast) met on a surface, the dominant of it. */
@@ -190,6 +221,8 @@ enum class EDreamSurfaceContactKind : uint8
 	Ice,
 	/** Hoarfrost or rime. */
 	Frost,
+	/** Hailstones lying there. */
+	Hail,
 };
 
 /** How much grip each thing lying on a surface leaves at full cover, a multiplier on the surface's own (1 as dry). */
@@ -222,9 +255,13 @@ struct DREAMSURFACE_API FDreamSurfaceGrip
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grip", meta = (ClampMin = "0", ClampMax = "1"))
 	float Wet = 0.85f;
 
-	/** DreamSurfaceShared.h's DSF_Grip: (ice, frozen puddle, frost, snow), (puddle, wet, -, -). */
+	/** A full cover of hail (the stones roll underfoot). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grip", meta = (ClampMin = "0", ClampMax = "1"))
+	float Hail = 0.55f;
+
+	/** DreamSurfaceShared.h's DSF_Grip: (ice, frozen puddle, frost, snow), (puddle, wet, hail, -). */
 	FVector4f G0() const { return FVector4f(Ice, FrozenPuddle, Frost, Snow); }
-	FVector4f G1() const { return FVector4f(Puddle, Wet, 1.0f, 1.0f); }
+	FVector4f G1() const { return FVector4f(Puddle, Wet, Hail, 1.0f); }
 };
 
 /** What a contact with a surface found there: for footstep sounds, splashes, puffs of snow. */

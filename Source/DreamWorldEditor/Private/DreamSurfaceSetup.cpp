@@ -93,6 +93,8 @@ bool DreamWorld::Setup::EnsureSurfaceMaps()
 	// The ice, frost, rime and frozen water beside them, the same sizes.
 	bOk &= SurfaceSetup::EnsureTarget(S->NearIceMapTexture, 256, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	bOk &= SurfaceSetup::EnsureTarget(S->FarIceMapTexture, 128, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	bOk &= SurfaceSetup::EnsureTarget(S->NearHailMapTexture, 256, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	bOk &= SurfaceSetup::EnsureTarget(S->FarHailMapTexture, 128, PF_FloatRGBA, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 	// The cover map clears to "nothing overhead": (cover height, how fully, the ground's low, -).
 	bOk &= SurfaceSetup::EnsureTarget(S->CoverMapTexture, 256, PF_A32B32G32R32F, FLinearColor(-1.0e9f, 0.0f, 0.0f, 0.0f));
 	// The mask map clears to "no brush" (every multiplier 1).

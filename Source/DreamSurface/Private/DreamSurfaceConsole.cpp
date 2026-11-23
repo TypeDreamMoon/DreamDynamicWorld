@@ -63,8 +63,8 @@ namespace DreamSurface::Console
 			}
 			const FDreamSurfaceState& S = Surface->GetViewState();
 			const FDreamSurfaceMaps* Maps = Surface->GetMaps();
-			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f frozen %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
-				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater,
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface: active %d, view wet %.3f water %.3f snow %.3f dust %.3f ice %.3f frost %.3f rime %.3f frozen %.3f hail %.3f; near map at (%.0f, %.0f) %.0f cm; %u draws, %u integrations"),
+				Surface->IsActive() ? 1 : 0, S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater, S.Hail,
 				Maps ? Maps->GetNearCenter().X : 0.0, Maps ? Maps->GetNearCenter().Y : 0.0, Maps ? Maps->GetNearExtent() : 0.0f,
 				Maps ? Maps->GetDrawCount() : 0u, Maps ? Maps->GetIntegrateCount() : 0u);
 			for (TObjectIterator<UDreamSurfaceDripLineComponent> It; It; ++It)
@@ -148,5 +148,7 @@ namespace DreamSurface::Console
 			SaveMap(Maps->GetNearMap(), Dir / (Name + TEXT("_Dust.png")), [](const FLinearColor& C) { return FColor(Byte(C.A), Byte(C.A), Byte(C.A), 255); });
 			// The cold beside it: ice red, frost green, rime blue.
 			SaveMap(Maps->GetNearIceMap(), Dir / (Name + TEXT("_Ice.png")), [](const FLinearColor& C) { return FColor(Byte(C.R), Byte(C.G), Byte(C.B), 255); });
+			// The hail lying, grey.
+			SaveMap(Maps->GetNearHailMap(), Dir / (Name + TEXT("_Hail.png")), [](const FLinearColor& C) { return FColor(Byte(C.R), Byte(C.R), Byte(C.R), 255); });
 		}));
 }
