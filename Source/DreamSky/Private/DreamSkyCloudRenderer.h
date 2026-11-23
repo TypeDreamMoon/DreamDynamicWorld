@@ -86,6 +86,8 @@ private:
 		 *  whole at once). */
 		int32 SunMapSlices = 6;
 		bool bSunMapsWhole = false;
+		/** A cinematic frame: full resolution, more samples, no history (DreamSky.CloudRender.Cinematic). */
+		bool bCinematic = false;
 		uint32 TimeJumpSerial = 0;
 	};
 
