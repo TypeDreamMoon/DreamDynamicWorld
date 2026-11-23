@@ -23,6 +23,7 @@ public class DreamSurface : ModuleRules
 			"DreamDynamicWorld",
 			"DreamWind",
 			"DreamWeather",
+			"DreamWater",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

@@ -11,6 +11,7 @@
 #include "DreamSurfaceVehicleGlass.h"
 #include "DreamSurfaceWalker.h"
 
+#include "DreamWaterBody.h"
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
 #include "DreamWeatherModule.h"
@@ -1831,6 +1832,76 @@ bool FDreamSurfaceGpuHailTest::RunTest(const FString& Parameters)
 	CheckMaps(TEXT("melting"));
 	W.GoTo(At(Day + 17.0));
 	CheckMaps(TEXT("after a jump"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceFloodTest, "DreamSurface.Flood", DreamSurface::Tests::Flags)
+bool FDreamSurfaceFloodTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	// The shared formula: under water the film and the hollows are full, snow, dust and hail gone; the silt builds.
+	{
+		using namespace DreamWind::Hlsl;
+		const float4 Wet = DSF_FloodWater(float4(0.1f, 0.0f, 0.8f, 0.5f), DSF_Flooded(20.0f));
+		TestTrue(TEXT("formula: flooded, full and washed"), Wet.x == 1.0f && Wet.y == 1.0f && Wet.z == 0.0f && Wet.w == 0.0f);
+		TestEqual(TEXT("formula: dry land untouched"), DSF_FloodWater(float4(0.1f, 0.2f, 0.3f, 0.4f), DSF_Flooded(0.0f)).z, 0.3f);
+		const float4 S3 = DSF_StepFlood(float4(0.6f, 0.0f, 0.0f, 0.0f), 1.0f, 1.0f, float4(0.0f, 0.0f, 15.0f, 0.0f), 3.0f);
+		TestTrue(TEXT("formula: the hail floats off, the silt builds"), S3.x == 0.0f && S3.y > 0.99f && FMath::IsNearlyEqual(S3.z, 0.5f, 1.0e-4f));
+	}
+
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	W.GoTo(At(10.0));
+	// A muddy pond 20 m square, its surface at 0, held where it is.
+	FActorSpawnParameters Spawn;
+	Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AActor* Pond = W.World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, Spawn);
+	USceneComponent* Root = NewObject<USceneComponent>(Pond, TEXT("Root"));
+	Pond->SetRootComponent(Root);
+	Root->RegisterComponent();
+	UDreamWaterBodyComponent* Body = NewObject<UDreamWaterBodyComponent>(Pond, TEXT("Water"));
+	Body->Extent = FVector2D(1000.0, 1000.0);
+	Body->Depth = 100.0f;
+	Body->bHold = true;
+	Body->bCaustics = false;
+	Body->SetupAttachment(Root);
+	Body->RegisterComponent();
+	FDreamWaterState Muddy;
+	Muddy.Turbidity = 0.8f;
+	Body->SetState(Muddy);
+
+	const FVector Under(200, 0, -30);
+	const FVector Bank(200, 0, 40);
+	const FVector Beside(5000, 0, -30);
+	W.RunTo(At(12.0));
+	const FDreamSurfaceState Flooded = W.Surface->SampleSurface(Under);
+	AddInfo(FString::Printf(TEXT("under 30 cm of water for two hours: flooded %.2f, wet %.2f, water %.2f, silt %.2f"), Flooded.Flooded, Flooded.Wetness, Flooded.Water, Flooded.Silt));
+	TestTrue(TEXT("under the water: flooded"), Flooded.Flooded > 0.95f);
+	TestTrue(TEXT("soaked and the hollows full"), Flooded.Wetness > 0.99f && Flooded.Water > 0.99f);
+	TestTrue(TEXT("the muddy water leaves silt"), Flooded.Silt > 0.2f);
+	TestTrue(TEXT("the bank above it stays dry"), W.Surface->SampleSurface(Bank).Flooded < 0.01f && W.Surface->SampleSurface(Bank).Wetness < 0.05f);
+	TestTrue(TEXT("beside the pond, dry"), W.Surface->SampleSurface(Beside).Flooded < 0.01f);
+
+	// The water goes down 60 cm: the place comes out of it, wet, and dries in the sun over the afternoon.
+	FDreamWaterState Down = Body->GetState();
+	Down.LevelOffset = -60.0f;
+	Body->SetState(Down);
+	W.RunTo(At(12.75));
+	const FDreamSurfaceState After = W.Surface->SampleSurface(Under);
+	AddInfo(FString::Printf(TEXT("45 min after the water went down: flooded %.2f, wet %.2f, water %.2f, silt %.2f"), After.Flooded, After.Wetness, After.Water, After.Silt));
+	TestTrue(TEXT("out of the water"), After.Flooded < 0.5f);
+	TestTrue(TEXT("a wet mark where it stood"), After.Wetness > 0.7f && After.Water > 0.5f);
+	W.RunTo(At(20.0));
+	const FDreamSurfaceState Evening = W.Surface->SampleSurface(Under);
+	AddInfo(FString::Printf(TEXT("by the evening: flooded %.2f, wet %.2f, water %.2f, silt %.2f"), Evening.Flooded, Evening.Wetness, Evening.Water, Evening.Silt));
+	TestTrue(TEXT("dried by the evening"), Evening.Wetness < After.Wetness && Evening.Flooded < 0.01f);
+	TestTrue(TEXT("the silt stays a while"), Evening.Silt > 0.1f);
+	TestTrue(TEXT("asked again, the same"), Evening.Equals(W.Surface->SampleSurface(Under), 0.0f));
 	return true;
 }
 

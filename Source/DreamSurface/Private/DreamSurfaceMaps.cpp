@@ -368,6 +368,22 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	}
 	Args.Zones = LastZones;
 	Args.NumZones = LastNumZones;
+	// The floods over the steps (the whole steps' only when integrating: the shader reads the last block either way).
+	const int32 BlockFloats = Steps.NumFloodBodies * 2;
+	const int32 WholeSteps = Steps.Steps.Num() / FDreamSurfaceMapSteps::FloatsPerStep;
+	if (BlockFloats > 0 && Steps.Floods.Num() == (WholeSteps + 1) * BlockFloats)
+	{
+		Args.NumFloodBodies = Steps.NumFloodBodies;
+		if (bIntegrate)
+		{
+			Args.Floods = Steps.Floods;
+		}
+		else
+		{
+			// Only the step in progress counts: put it where the shader looks for it (block NumSteps = 0).
+			Args.Floods.Append(Steps.Floods.GetData() + WholeSteps * BlockFloats, BlockFloats);
+		}
+	}
 	if (bIntegrate)
 	{
 		Args.ZoneTracks = LastZoneTracks;
