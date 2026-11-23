@@ -84,6 +84,13 @@ Function float2 DreamSurfaceToon_Drops(in float3 WorldPos, in float Time, in flo
 	return float2(Rings, Rain > 0.0f ? DSM_WetSpots(WorldPos.xy, Time, Rain) : 0.0f);
 }
 
+Function float4 DreamSurfaceToon_Wave(in float3 WorldPos, in float4 TrailPlace, in Texture2D TrailMap)
+{
+	// The water pushed away by a step (x: -1 to the bottom) and the waves' slope (y, z).
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	return DSM_Wave(WorldPos, TrailPlace, TrailMap, TrailMapSampler);
+}
+
 Function float4 DreamSurfaceToon_Trail(in float3 WorldPos, in float4 TrailPlace, in Texture2D TrailMap)
 {
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
@@ -140,6 +147,8 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 			ScalarParameter ToonPuddleRimWidth     = 0.2  [Slider(0, 0.5); Description="How far outside the puddle's edge its bright rim reaches (on the cover)."];
 			VectorParameter ToonPuddleRimColor     = float4(0.12, 0.12, 0.12, 1.0) [Description="Added at the rim."];
 			ScalarParameter ToonRippleBrightness   = 0.18 [Slider(0, 1); Description="How bright the rain's rings on the puddles are."];
+			ScalarParameter ToonWaveThreshold      = 0.15 [Slider(0, 1); Description="How steep a wave a step sends across a puddle must be to draw its bright line."];
+			ScalarParameter ToonWaveBrightness     = 0.2  [Slider(0, 1); Description="How bright that line is."];
 		}
 		Group("Toon Weather Look|Snow") {
 			ScalarParameter ToonSnowThreshold      = 0.5  [Slider(0, 1); Description="Where the snow's edge falls on its cover: lower, the snow reaches further."];
@@ -191,6 +200,7 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		// The rain landing now: hard-edged wet dots where the surface is not soaked yet, rings on the puddles.
 		float Rain = DreamSurfaceToon_RainHere(WP, NearPlace, Params, Weather0, CoverMap);
 		float4 Trail = DreamSurfaceToon_Trail(WP, TrailPlace, TrailMap);
+		float4 Wave = DreamSurfaceToon_Wave(WP, TrailPlace, TrailMap);
 		float2 Drops = DreamSurfaceToon_Drops(WP, UE.Time(), Rain, Trail.y);
 		float W = ToonEdgeWidth;
 		float Wet = max(State.x, smoothstep(0.5 - W, 0.5 + W, Drops.y) * 0.8 * saturate(Up * 2.0));
@@ -199,13 +209,15 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		Color = DreamSurfaceToon_Shift(Color, Wet, ToonWetValueDrop, ToonWetSaturationBoost);
 		Rough = lerp(Rough, Rough * ToonWetRoughnessScale, Wet);
 
-		// Puddles: a hard edge, the sky's colour for a reflection, a bright ring at the rim.
-		float Puddle = smoothstep(ToonPuddleThreshold - W, ToonPuddleThreshold + W, Covers.x);
+		// Puddles: a hard edge, the sky's colour for a reflection, a bright ring at the rim; opened where a step pushed the
+		// water away, a hard bright line on a wave's front.
+		float Puddle = smoothstep(ToonPuddleThreshold - W, ToonPuddleThreshold + W, Covers.x * (1.0 - smoothstep(0.65, 0.95, -Wave.x)));
 		float RimStart = ToonPuddleThreshold - ToonPuddleRimWidth;
 		float Rim = smoothstep(RimStart, RimStart + 0.12, Covers.x) - Puddle;
 		float3 Sky = lerp(Horizon.rgb, Zenith.rgb, 0.5);
 		Color = lerp(Color, lerp(Color * ToonPuddleValue, Sky, ToonPuddleSkyReflection), Puddle);
 		Color = Color + Rim * ToonPuddleRimColor.rgb + smoothstep(0.4, 0.6, Drops.x) * Puddle * ToonRippleBrightness;
+		Color = Color + smoothstep(ToonWaveThreshold - W, ToonWaveThreshold + W, length(Wave.yz)) * Puddle * ToonWaveBrightness;
 		Rough = lerp(Rough, ToonPuddleRoughness, Puddle);
 
 		// Snow: a hard-edged cover.

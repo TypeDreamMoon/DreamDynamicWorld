@@ -23,7 +23,7 @@ namespace DreamWorld::SurfaceLookTests
 	/** The realistic look's parameters (MF_DreamSurfaceWeather, MF_DreamSurfaceWeatherTerrain) and their defaults. */
 	const FScalar RealisticScalars[] = {
 		{ TEXT("WetValueHard"), 0.85f }, { TEXT("WetValuePorous"), 0.4f }, { TEXT("WetRoughHard"), 0.2f }, { TEXT("WetRoughPorous"), 0.35f },
-		{ TEXT("PuddleValue"), 0.35f }, { TEXT("PuddleRoughness"), 0.02f }, { TEXT("RippleStrength"), 0.35f },
+		{ TEXT("PuddleValue"), 0.35f }, { TEXT("PuddleRoughness"), 0.02f }, { TEXT("RippleStrength"), 0.35f }, { TEXT("WaveStrength"), 0.6f },
 		{ TEXT("SnowRoughness"), 0.6f }, { TEXT("SnowCoverGain"), 1.0f }, { TEXT("PrintDarken"), 0.12f },
 		{ TEXT("DustAmount"), 0.85f }, { TEXT("DustRoughness"), 0.95f },
 		{ TEXT("IceRoughness"), 0.06f }, { TEXT("IceValue"), 0.8f }, { TEXT("FrozenPuddleRoughness"), 0.15f },
@@ -41,7 +41,7 @@ namespace DreamWorld::SurfaceLookTests
 		{ TEXT("ToonWetValueDrop"), 0.18f }, { TEXT("ToonWetSaturationBoost"), 0.35f }, { TEXT("ToonWetRoughnessScale"), 0.35f },
 		{ TEXT("ToonEdgeWidth"), 0.05f }, { TEXT("ToonRoughnessFloor"), 0.4f },
 		{ TEXT("ToonPuddleThreshold"), 0.5f }, { TEXT("ToonPuddleValue"), 0.45f }, { TEXT("ToonPuddleSkyReflection"), 0.55f },
-		{ TEXT("ToonPuddleRoughness"), 0.05f }, { TEXT("ToonPuddleRimWidth"), 0.2f }, { TEXT("ToonRippleBrightness"), 0.18f },
+		{ TEXT("ToonPuddleRoughness"), 0.05f }, { TEXT("ToonPuddleRimWidth"), 0.2f }, { TEXT("ToonRippleBrightness"), 0.18f }, { TEXT("ToonWaveThreshold"), 0.15f }, { TEXT("ToonWaveBrightness"), 0.2f },
 		{ TEXT("ToonSnowThreshold"), 0.5f }, { TEXT("ToonSnowRoughness"), 0.7f }, { TEXT("ToonPrintThreshold"), 0.5f },
 		{ TEXT("ToonDustThreshold"), 0.4f }, { TEXT("ToonDustAmount"), 0.8f }, { TEXT("ToonDustRoughness"), 0.95f },
 		{ TEXT("ToonIceThreshold"), 0.5f }, { TEXT("ToonIceTintAmount"), 0.35f }, { TEXT("ToonIceRoughnessScale"), 0.25f },
