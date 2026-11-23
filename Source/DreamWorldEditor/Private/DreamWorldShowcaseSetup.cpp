@@ -27,6 +27,7 @@
 #include "DreamWindGlobalActor.h"
 #include "DreamWindPassThroughComponent.h"
 #include "DreamWindTestMap.h"
+#include "DreamWindVortex.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldInterior.h"
 #include "DreamWorldTracks.h"
@@ -1070,6 +1071,13 @@ namespace DreamWorld::ShowcaseSetup
 		AddCar(*World, Kit, FVector(-200.0, -1000.0, SurfaceSetup::GroundHeight(-200.0, -1000.0)), 90.0f, FVector(1670.0, 0.0, 0.0), true, TEXT("DrivingCar"));
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
 		AddHailField(*World, FVector(-900.0, 2300.0, 0.0));
+		// A dust devil turning on the open ground west of the square: its dust, its pull on the grass, the leaves and the
+		// rain are the wind's. A tornado is a spawner's or the console's (DreamWeather.Vortex Tornado x y).
+		if (ADreamWindVortex* Devil = World->SpawnActor<ADreamWindVortex>(FVector(-2200.0, -2000.0, 0.0), FRotator::ZeroRotator))
+		{
+			Devil->SetKind(EDreamVortexKind::DustDevil);
+			Devil->SetActorLabel(TEXT("DustDevil"));
+		}
 		AddStorm(*World);
 
 		// The wind, with level heights baked over the set: roofs keep the rain off, puddles follow the dips. The bake
