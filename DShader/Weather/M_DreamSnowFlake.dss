@@ -25,7 +25,7 @@ float SnowDot(float2 UV)
 export void M_DreamSnowFlake(inout material m)
 {
     float2 UV = UE.TexCoord(Index = 0);
-    float4 Particle = UE.VertexColor();
+    float4 Particle = UE.ParticleColor();   // (not VertexColor: a Niagara sprite carries none, it reads white and opaque)
     float4 Ambient   = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AmbientSky");
     float4 MainLight = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
     float4 MainColor = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLightColor");
