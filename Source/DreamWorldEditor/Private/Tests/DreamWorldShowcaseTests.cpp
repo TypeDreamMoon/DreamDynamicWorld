@@ -223,6 +223,12 @@ bool FDreamWorldShowcaseContentsTest::RunTest(const FString& Parameters)
 			&& Zone->Zone->Channels.FindRef(DreamWeather::Tags::Channel_SnowRatio) > 0.5f;
 	}
 	TestTrue(TEXT("an irregular snow field"), bSnowField);
+	bool bHailField = false;
+	for (ADreamWeatherZone* Zone : ActorsOf<ADreamWeatherZone>(World))
+	{
+		bHailField |= Zone->Zone->Channels.FindRef(DreamWeather::Tags::Channel_Hail) > 0.5f;
+	}
+	TestTrue(TEXT("a patch where it hails"), bHailField);
 	TestTrue(TEXT("a storm that drifts through"), Storm && Storm->Zone->Motion.bEnabled && Storm->Zone->Motion.StartSeconds >= 0.0);
 
 	bool bCampfire = false;
