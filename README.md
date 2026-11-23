@@ -1215,8 +1215,8 @@ the horizon. (Steep slopes take no dust and hold no standing water, so on the ho
 dusty or flooded plain before it: it keeps its own colour while the plain greys -- under the aerial perspective and the
 fog it hardly shows.) `DDW_SurfaceViewHail.w` says whether the maps may hold hail or silt at all (hail in some step of the
 memory or a zone, a muddy water body); while it is 0 the materials do not read the hail maps. GPU cost: some 0.03 ms a
-frame (both maps and the cover); an integration (a step going by) costs the near map some 0.6 ms and the far one 0.2 ms
-on the showcase, the far map a frame after the near one so no frame pays both. The hail's part of the integral is left
+frame (both maps and the cover); an integration (a step going by) costs the near map some 0.54 ms and the far one 0.18 ms
+on the showcase (2026-11-23, its pond flooding), the far map a frame after the near one so no frame pays both. The hail's part of the integral is left
 alone without hail in any step or zone, the flood's outside the box the water bodies reach; a material skips the hail,
 the silt and the cold's patterns where there is none of them.
 
