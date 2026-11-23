@@ -9,6 +9,8 @@
 #include "DreamWindEditorLibrary.h"
 #include "DreamWindGlobalActor.h"
 #include "DreamWindImpulseEmitter.h"
+#include "DreamWindMoverComponent.h"
+#include "DreamSurfaceWalker.h"
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -31,6 +33,19 @@ namespace DreamWorld::WindTestMapImpl
 	{
 		return FBox(Center - Size * 0.5 - FVector(Margin, Margin, 1000.0), Center + Size * 0.5 + FVector(Margin, Margin, 1000.0));
 	}
+}
+
+UDreamWindMoverComponent* DreamWorld::Setup::AddWindMover(AActor& Actor, float Radius, float HalfHeight, float Push)
+{
+	UDreamWindMoverComponent* Mover = NewObject<UDreamWindMoverComponent>(&Actor, TEXT("WindMover"));
+	Mover->Radius = Radius;
+	Mover->HalfHeight = HalfHeight;
+	Mover->Push = Push;
+	Mover->SetupAttachment(Actor.GetRootComponent());
+	Mover->SetRelativeLocation(FVector(0.0, 0.0, HalfHeight + Radius));
+	Actor.AddInstanceComponent(Mover);
+	Mover->RegisterComponent();
+	return Mover;
 }
 
 bool DreamWorld::Setup::BuildWindTestMap(UDreamSkyStyle* Style)
@@ -107,6 +122,17 @@ bool DreamWorld::Setup::BuildWindTestMap(UDreamSkyStyle* Style)
 		Burst->Duration = 0.4f;
 		Burst->FadeOutTime = 0.25f;
 		Burst->SetActorLabel(TEXT("ClearingBurst"));
+	}
+
+	// A walker going round over the grass upwind of the house, a body in the wind fluid: its wake parts the grass.
+	if (ADreamSurfaceWalker* Walker = World->SpawnActor<ADreamSurfaceWalker>(FVector(WalkerCenter.X + WalkerRadii.X, WalkerCenter.Y, 0.0), FRotator::ZeroRotator))
+	{
+		Walker->Body->SetStaticMesh(SurfaceSetup::EnsureFigure());
+		Walker->Center = WalkerCenter;
+		Walker->Radii = WalkerRadii;
+		Walker->Speed = 150.0f;
+		Walker->SetActorLabel(TEXT("Walker"));
+		AddWindMover(*Walker);
 	}
 
 	// The wind: steady along +x, the terrain map baked over the set (its collision first, a moment-old world may lack it).

@@ -12,6 +12,7 @@
 
 #include "Editor.h"
 #include "Editor/EditorPerformanceSettings.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "LevelEditorViewport.h"
@@ -435,6 +436,200 @@ bool FDreamWindFluidFlowTest::RunTest(const FString& Parameters)
 		SetCVar(TEXT("DreamWind.Fluid"), -1);
 		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
 		SetCVar(TEXT("DreamWind.Occlusion"), -1);
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(FVector::ZeroVector, false);
+		}
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	return true;
+}
+
+// The fluid's disturbances in a calm (what is read is all theirs): a body walking leaves a wake; an explosion before the
+// long wall pushes the air out on the open side and far less behind the wall; a rotor's downwash goes down under it and
+// spreads out over the ground in a ring.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindFluidDisturbanceTest, "DreamWind.Gpu.FluidDisturbances", DreamWindFluidTests::Flags)
+bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWindFluidTests;
+	using namespace DreamWorld::Setup::WindTest;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	if (!FPackageName::DoesPackageExist(DreamWorld::Setup::WindTestMapPackage))
+	{
+		AddError(TEXT("The wind field test level is missing: run Setup -WindFieldTestMap."));
+		return false;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	SetCVar(TEXT("DreamWind.Fluid"), 1);
+	SetCVar(TEXT("DreamWind.Fluid.DistanceField"), 1);
+	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
+	WaitFrames(10);
+
+	// Where each part happens: the grid is centred there, the view above it.
+	auto LookAt = [](const FVector& Center)
+	{
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective())
+			{
+				C->SetRealtime(true);
+				C->SetViewLocation(Center + FVector(-2000.0, 0.0, 1500.0));
+				C->SetViewRotation(FRotator(-35.0, 0.0, 0.0));
+				C->Invalidate();
+			}
+		}
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(Center, true);
+		}
+	};
+	Then([LookAt]()
+	{
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			FDreamWindGlobalWind Calm = W->GetGlobalWind();
+			Calm.Speed = 0.0f;
+			Calm.GustStrength = 0.0f;
+			Calm.TurbulenceStrength = 0.0f;
+			W->SetGlobalWind(Calm, 0.0f);
+		}
+		LookAt(FVector(-1500.0, 0.0, 200.0));
+		GShaderCompilingManager->FinishAllCompilation();
+	});
+	WaitFrames(200);
+
+	// A body walking 3 m/s along +x, 0.9 m up: behind it the air follows, before it barely.
+	struct FWalk
+	{
+		TWeakObjectPtr<AActor> Actor;
+		double Travelled = 0.0;
+	};
+	TSharedRef<FWalk> Walk = MakeShared<FWalk>();
+	const FVector WalkStart(-3000.0, 0.0, 0.0);
+	const double WalkSpeed = 300.0;
+	Then([Walk, WalkStart]()
+	{
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		AActor* Body = EditorWorld()->SpawnActor<AActor>(AActor::StaticClass(), FTransform(WalkStart), Spawn);
+		USceneComponent* Root = NewObject<USceneComponent>(Body, TEXT("Root"));
+		Body->SetRootComponent(Root);
+		Root->RegisterComponent();
+		Body->SetActorLocation(WalkStart);
+		DreamWorld::Setup::AddWindMover(*Body);
+		Walk->Actor = Body;
+	});
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Walk, WalkStart, WalkSpeed]()
+	{
+		Walk->Travelled += WalkSpeed * FApp::GetDeltaTime();
+		if (AActor* Body = Walk->Actor.Get())
+		{
+			Body->SetActorLocation(WalkStart + FVector(Walk->Travelled, 0.0, 0.0));
+		}
+		return Walk->Travelled >= 1500.0;
+	}));
+	Then([this, Walk, WalkStart]()
+	{
+		FVolume V;
+		if (!TestTrue(TEXT("walk: the near volume reads back"), V.Read()))
+		{
+			return;
+		}
+		const FVector Body = WalkStart + FVector(Walk->Travelled, 0.0, 90.0);
+		auto AlongAt = [&V](const FVector& P)
+		{
+			const int32 I = V.IndexOf(P);
+			return I != INDEX_NONE ? V.Deviation[I].X : 0.0f;
+		};
+		const float Behind = FMath::Max3(AlongAt(Body - FVector(150.0, 0.0, 0.0)), AlongAt(Body - FVector(250.0, 0.0, 0.0)), AlongAt(Body - FVector(350.0, 0.0, 0.0)));
+		const float Ahead = AlongAt(Body + FVector(350.0, 0.0, 0.0));
+		const float Aside = AlongAt(Body + FVector(-250.0, 600.0, 0.0));
+		AddInfo(FString::Printf(TEXT("walk at 300 cm/s: the air 1.5 .. 3.5 m behind the body follows at %.0f cm/s, 3.5 m before it %.0f, 6 m aside %.0f"), Behind, Ahead, Aside));
+		TestTrue(TEXT("walk: the body leaves a wake behind it"), Behind > 40.0f);
+		TestTrue(TEXT("walk: far less before it and off to the side"), Behind > 3.0f * FMath::Abs(Ahead) && Behind > 3.0f * FMath::Abs(Aside));
+		if (AActor* Actor = Walk->Actor.Get())
+		{
+			Actor->Destroy();
+		}
+	});
+
+	// An explosion 3 m before the long wall (its upwind face), 1 m up.
+	const FVector Blast(WallCenter.X - WallSize.X * 0.5 - 300.0, WallCenter.Y, 100.0);
+	Then([LookAt, Blast]() { LookAt(Blast + FVector(300.0, 0.0, 100.0)); });
+	WaitFrames(200);
+	Then([Blast]()
+	{
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->AddExplosion(Blast, 400.0f, 2000.0f, 0.25f);
+		}
+	});
+	WaitFrames(6);
+	Then([this, Blast]()
+	{
+		FVolume V;
+		if (!TestTrue(TEXT("explosion: the near volume reads back"), V.Read()))
+		{
+			return;
+		}
+		auto At = [&V](const FVector& P)
+		{
+			const int32 I = V.IndexOf(P);
+			return I != INDEX_NONE ? FVector(V.Deviation[I]) : FVector::ZeroVector;
+		};
+		// 7 m out: away from the wall (upwind, -x), along it (+y), and behind it (+x: 3.5 m past the wall, off the cells beside it)
+		const FVector Open = At(Blast + FVector(-700.0, 0.0, 50.0));
+		const FVector Along = At(Blast + FVector(0.0, 700.0, 50.0));
+		const FVector Behind = At(Blast + FVector(700.0, 0.0, 50.0));
+		AddInfo(FString::Printf(TEXT("explosion (4 m, 2000 cm/s), 7 m out: away from the wall %.0f cm/s outward, along it %.0f, behind the wall %.0f cm/s (%s)"),
+			-Open.X, Along.Y, Behind.Size(), *Behind.ToCompactString()));
+		TestTrue(TEXT("explosion: the air bursts out on the open side"), -Open.X > 200.0f && Along.Y > 200.0f);
+		TestTrue(TEXT("explosion: the wall shelters what is behind it"), Behind.Size() < 0.5f * -Open.X);
+	});
+
+	// A rotor 8 m up, 3 m across... its downwash down under it, out over the ground round it.
+	const FVector Rotor(-500.0, 600.0, 800.0);
+	Then([LookAt, Rotor]()
+	{
+		LookAt(FVector(Rotor.X, Rotor.Y, 200.0));
+		GEngine->Exec(EditorWorld(), *FString::Printf(TEXT("DreamWind.Rotor %.0f %.0f %.0f 300 1500 1000"), Rotor.X, Rotor.Y, Rotor.Z));
+	});
+	WaitFrames(240);
+	Then([this, Rotor]()
+	{
+		FVolume V;
+		if (!TestTrue(TEXT("rotor: the near volume reads back"), V.Read()))
+		{
+			return;
+		}
+		auto At = [&V](const FVector& P)
+		{
+			const int32 I = V.IndexOf(P);
+			return I != INDEX_NONE ? FVector(V.Deviation[I]) : FVector::ZeroVector;
+		};
+		const FVector Under = At(FVector(Rotor.X, Rotor.Y, 350.0));
+		double Out = 0.0;
+		for (int32 k = 0; k < 8; ++k)
+		{
+			const FVector Dir(FMath::Cos(k * UE_PI / 4.0), FMath::Sin(k * UE_PI / 4.0), 0.0);
+			Out += FVector::DotProduct(At(FVector(Rotor.X, Rotor.Y, 50.0) + Dir * 500.0), Dir) / 8.0;
+		}
+		AddInfo(FString::Printf(TEXT("rotor (8 m up, 1500 cm/s): 3.5 m up under it %.0f cm/s down; 5 m out over the ground, %.0f cm/s outward on average"), -Under.Z, Out));
+		TestTrue(TEXT("rotor: the downwash goes down under it"), -Under.Z > 300.0f);
+		TestTrue(TEXT("rotor: over the ground it spreads out in a ring"), Out > 100.0);
+		GEngine->Exec(EditorWorld(), TEXT("DreamWind.Rotor off"));
+	});
+
+	Then([]()
+	{
+		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
+		SetCVar(TEXT("DreamWind.Fluid"), -1);
 		if (UDreamWindSubsystem* W = Wind())
 		{
 			W->OverrideVolumeCenter(FVector::ZeroVector, false);

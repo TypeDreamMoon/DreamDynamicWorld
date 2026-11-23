@@ -25,6 +25,7 @@
 #include "DreamWindForceComponent.h"
 #include "DreamWindGlobalActor.h"
 #include "DreamWindPassThroughComponent.h"
+#include "DreamWindTestMap.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldTracks.h"
 
@@ -939,6 +940,8 @@ namespace DreamWorld::ShowcaseSetup
 			Walker->Center = FVector2D(1350.0, 430.0);
 			Walker->Radii = FVector2D(520.0, 360.0);
 			Walker->SetActorLabel(TEXT("Walker"));
+			// and a body in the wind fluid: the grass parts behind it
+			DreamWorld::Setup::AddWindMover(*Walker);
 		}
 		// Two cars south of the set, side by side facing north: one parked (the snow lies on its windscreen, the drops sit), one shown as if it drove at
 		// 60 km/h with its wipers running.

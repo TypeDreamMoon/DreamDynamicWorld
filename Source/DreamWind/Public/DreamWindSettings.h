@@ -199,6 +199,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.3", ClampMax = "1", EditCondition = "bFluid"))
 	float FluidWallThickness = 0.45f;
 
+	/** Moving bodies the fluid takes each frame (UDreamWindMoverComponent), the nearest to the camera. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "256", EditCondition = "bFluid"))
+	int32 MaxMovers = 32;
+
 	/** Cells of each level below the ground under the camera (the grids sit on the ground, rising with a camera high above it). */
 	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "16", EditCondition = "bFluid"))
 	int32 FluidCellsBelowGround = 4;

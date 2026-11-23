@@ -73,6 +73,50 @@ bool IsWall(int3 C)
 	return Wall.Load(int4(C, 0)) > 0.5f;
 }
 
+// ---- Sources ------------------------------------------------------------------------------------------------------
+// The sources and the moving bodies' records (DreamWindShared.h), each listed only in the 8x8x8-cell tiles its footprint
+// reaches (built on the CPU), so a cell evaluates the few near it, not every one. A source smaller than a cell is spread
+// over one (or it would fall between the cell centres) and weakened by as much as it was spread.
+
+#define DW_FLUID_TILE 8
+
+StructuredBuffer<float4> Sources;
+StructuredBuffer<uint2> TileRanges;   // per tile: the first index in TileSources, the count
+StructuredBuffer<uint> TileSources;
+int3 Tiles;
+
+uint2 TileRangeOf(int3 C)
+{
+	const int3 T = C / DW_FLUID_TILE;
+	return TileRanges[(T.z * Tiles.y + T.y) * Tiles.x + T.x];
+}
+
+FDreamWindSourceData LoadSource(uint Index, out float Scale)
+{
+	FDreamWindSourceData S;
+	S.PositionRadius    = Sources[Index * DW_SOURCE_FLOAT4S + 0];
+	S.DirectionStrength = Sources[Index * DW_SOURCE_FLOAT4S + 1];
+	S.Misc              = Sources[Index * DW_SOURCE_FLOAT4S + 2];
+	S.BoxExtent         = Sources[Index * DW_SOURCE_FLOAT4S + 3];
+	S.BoxRotation       = Sources[Index * DW_SOURCE_FLOAT4S + 4];
+	Scale = 1.0f;
+	if (int(S.Misc.x) == DW_SOURCE_SHELTER)
+	{
+		const float3 Extent = max(S.BoxExtent.xyz, 1.0f);
+		const float3 Spread = max(Extent, 0.6f * CellSize);
+		Scale = (Extent.x * Extent.y * Extent.z) / (Spread.x * Spread.y * Spread.z);
+		S.BoxExtent.xyz = Spread;
+	}
+	else
+	{
+		const float Radius = max(S.PositionRadius.w, 1.0f);
+		const float Spread = max(Radius, 0.75f * CellSize);
+		Scale = pow(Radius / Spread, 3.0f);
+		S.PositionRadius.w = Spread;
+	}
+	return S;
+}
+
 // ---- Advect -------------------------------------------------------------------------------------------------------
 
 Texture3D<float4> DPrev;       // last frame's D (in last frame's grid)
@@ -247,9 +291,7 @@ void CurlCS(uint3 Id : SV_DispatchThreadID)
 // ---- Forces -------------------------------------------------------------------------------------------------------
 
 Texture3D<float4> Curl;
-StructuredBuffer<float4> Sources;
-uint NumSources;
-float Vorticity;       // confinement strength (0: off)
+float Vorticity;      // confinement strength (0: off)
 float Smoothing;       // 0..1 toward the neighbours' mean, per step
 float NudgeTime;       // s, inside
 float SpongeTime;      // s, at the border
@@ -311,17 +353,19 @@ void ForcesCS(uint3 Id : SV_DispatchThreadID)
 		}
 	}
 
-	// Sources blend the whole wind toward their own velocity (a full-weight source reads back as itself).
-	for (uint i = 0; i < NumSources; ++i)
+	// Sources blend the whole wind toward their own velocity (a full-weight source reads back as itself). A radial one
+	// is an expansion instead: the pressure pushes it out, round the walls (DivergenceCS).
+	const uint2 Range = TileRangeOf(C);
+	for (uint k = 0; k < Range.y; ++k)
 	{
-		FDreamWindSourceData S;
-		S.PositionRadius    = Sources[i * DW_SOURCE_FLOAT4S + 0];
-		S.DirectionStrength = Sources[i * DW_SOURCE_FLOAT4S + 1];
-		S.Misc              = Sources[i * DW_SOURCE_FLOAT4S + 2];
-		S.BoxExtent         = Sources[i * DW_SOURCE_FLOAT4S + 3];
-		S.BoxRotation       = Sources[i * DW_SOURCE_FLOAT4S + 4];
+		float Scale;
+		const FDreamWindSourceData S = LoadSource(TileSources[Range.x + k], Scale);
+		if (int(S.Misc.x) == DW_SOURCE_RADIAL)
+		{
+			continue;
+		}
 		const FDreamWindSourceEval E = DW_EvalSource(S, X);
-		const float Weight = saturate(E.Weight * saturate(S.Misc.y * DeltaTime));
+		const float Weight = saturate(E.Weight * saturate(S.Misc.y * DeltaTime * Scale));
 		Dc = lerp(Dc, E.Velocity - Bc, Weight);
 	}
 
@@ -381,6 +425,34 @@ float DivergenceAt(int3 C)
 	return Sum * (0.5f / CellSize);
 }
 
+/**
+ * The divergence the radial sources ask for here (1/s): air appearing in their spheres, Strength cm/s out through the
+ * surface (3 S / R over a uniform sphere, more at the middle as the footprint falls off toward the edge).
+ */
+float ExpansionAt(int3 C)
+{
+	if (IsWall(C))
+	{
+		return 0.0f;
+	}
+	const float3 X = CellCenter(C);
+	float Sum = 0.0f;
+	const uint2 Range = TileRangeOf(C);
+	for (uint k = 0; k < Range.y; ++k)
+	{
+		float Scale;
+		const FDreamWindSourceData S = LoadSource(TileSources[Range.x + k], Scale);
+		if (int(S.Misc.x) != DW_SOURCE_RADIAL)
+		{
+			continue;
+		}
+		const float Inner = saturate(S.Misc.z);
+		const float Fill = 0.2f + 0.8f * Inner * Inner * Inner;   // the footprint's weight over the sphere, against a uniform one
+		Sum += DW_EvalSource(S, X).Weight * Scale * 3.0f * S.DirectionStrength.w / (S.PositionRadius.w * Fill);
+	}
+	return Sum;
+}
+
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
 void DivergenceCS(uint3 Id : SV_DispatchThreadID)
 {
@@ -389,7 +461,8 @@ void DivergenceCS(uint3 Id : SV_DispatchThreadID)
 	{
 		return;
 	}
-	OutDivergence[C] = DivergenceAt(C);
+	// what the pressure removes: the deviation's divergence beyond what the expansions ask for
+	OutDivergence[C] = DivergenceAt(C) - ExpansionAt(C);
 }
 
 // ---- Pressure -----------------------------------------------------------------------------------------------------

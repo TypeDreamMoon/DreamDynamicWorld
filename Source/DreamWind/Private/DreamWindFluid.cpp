@@ -26,6 +26,13 @@ BEGIN_SHADER_PARAMETER_STRUCT(FDreamWindFluidGrid, )
 	SHADER_PARAMETER(int32, SpongeCells)
 END_SHADER_PARAMETER_STRUCT()
 
+BEGIN_SHADER_PARAMETER_STRUCT(FDreamWindFluidSources, )
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Sources)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, TileRanges)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, TileSources)
+	SHADER_PARAMETER(FIntVector, Tiles)
+END_SHADER_PARAMETER_STRUCT()
+
 class FDreamWindFluidShader : public FGlobalShader
 {
 public:
@@ -121,8 +128,7 @@ class FDreamWindFluidForcesCS : public FDreamWindFluidShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, B)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, D)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, Curl)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Sources)
-		SHADER_PARAMETER(uint32, NumSources)
+		SHADER_PARAMETER_STRUCT_INCLUDE(FDreamWindFluidSources, SourceLists)
 		SHADER_PARAMETER(float, Vorticity)
 		SHADER_PARAMETER(float, Smoothing)
 		SHADER_PARAMETER(float, NudgeTime)
@@ -142,6 +148,7 @@ class FDreamWindFluidDivergenceCS : public FDreamWindFluidShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, Wall)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, B)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float4>, D)
+		SHADER_PARAMETER_STRUCT_INCLUDE(FDreamWindFluidSources, SourceLists)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture3D<float>, OutDivergence)
 	END_SHADER_PARAMETER_STRUCT()
 };
@@ -249,6 +256,71 @@ namespace DreamWindFluidImpl
 	{
 		return FComputeShaderUtils::GetGroupCount(Cells, FDreamWindFluidShader::GroupSize);
 	}
+
+	/** Cells per side of a tile of the source lists (DW_FLUID_TILE in DreamWindFluid.usf). */
+	constexpr int32 TileSize = 8;
+
+	/**
+	 * Which records reach which tiles of a grid: each record's bounding sphere (as the shader spreads small ones over a
+	 * cell; a stretched one reaches its stretch ahead) against the tiles' boxes, as boxes of tiles.
+	 */
+	FDreamWindFluidSources BuildSourceLists(FRDGBuilder& GraphBuilder, FRDGBufferSRVRef Sources, TConstArrayView<DreamWind::Hlsl::FDreamWindSourceData> Records,
+		const FIntVector& Res, float CellSize, const FVector3f& Origin)
+	{
+		using namespace DreamWind::Hlsl;
+		const FIntVector Tiles((Res.X + TileSize - 1) / TileSize, (Res.Y + TileSize - 1) / TileSize, (Res.Z + TileSize - 1) / TileSize);
+		TArray<TArray<uint32, TInlineAllocator<8>>> Lists;
+		Lists.SetNum(Tiles.X * Tiles.Y * Tiles.Z);
+		const float TileWidth = CellSize * TileSize;
+		for (int32 i = 0; i < Records.Num(); ++i)
+		{
+			const FDreamWindSourceData& S = Records[i];
+			const FVector3f Center(S.PositionRadius.x, S.PositionRadius.y, S.PositionRadius.z);
+			const int32 Type = int32(S.Misc.x);
+			float Reach;
+			if (Type == DW_SOURCE_SHELTER)
+			{
+				const FVector3f Spread(FMath::Max(S.BoxExtent.x, 0.6f * CellSize), FMath::Max(S.BoxExtent.y, 0.6f * CellSize), FMath::Max(S.BoxExtent.z, 0.6f * CellSize));
+				Reach = FMath::Max(S.PositionRadius.w, Spread.Size());
+			}
+			else
+			{
+				Reach = FMath::Max(S.PositionRadius.w, 0.75f * CellSize) * (Type == DW_SOURCE_RADIAL ? 1.0f : FMath::Max(S.Misc.w, 1.0f));
+			}
+			const FVector3f Lo = (Center - FVector3f(Reach) - Origin) / TileWidth;
+			const FVector3f Hi = (Center + FVector3f(Reach) - Origin) / TileWidth;
+			const FIntVector Min(FMath::Max(FMath::FloorToInt(Lo.X), 0), FMath::Max(FMath::FloorToInt(Lo.Y), 0), FMath::Max(FMath::FloorToInt(Lo.Z), 0));
+			const FIntVector Max(FMath::Min(FMath::FloorToInt(Hi.X), Tiles.X - 1), FMath::Min(FMath::FloorToInt(Hi.Y), Tiles.Y - 1), FMath::Min(FMath::FloorToInt(Hi.Z), Tiles.Z - 1));
+			for (int32 Z = Min.Z; Z <= Max.Z; ++Z)
+			{
+				for (int32 Y = Min.Y; Y <= Max.Y; ++Y)
+				{
+					for (int32 X = Min.X; X <= Max.X; ++X)
+					{
+						Lists[(Z * Tiles.Y + Y) * Tiles.X + X].Add(uint32(i));
+					}
+				}
+			}
+		}
+		TArray<FUintVector2> Ranges;
+		TArray<uint32> Indices;
+		Ranges.Reserve(Lists.Num());
+		for (const auto& List : Lists)
+		{
+			Ranges.Add(FUintVector2(uint32(Indices.Num()), uint32(List.Num())));
+			Indices.Append(List);
+		}
+		if (Indices.Num() == 0)
+		{
+			Indices.Add(0);   // (never read: every count is 0)
+		}
+		FDreamWindFluidSources Out;
+		Out.Sources = Sources;
+		Out.TileRanges = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.FluidTileRanges"), Ranges));
+		Out.TileSources = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.FluidTileSources"), Indices));
+		Out.Tiles = Tiles;
+		return Out;
+	}
 }
 
 void FDreamWindFluid::FLevel::Release()
@@ -299,11 +371,13 @@ void FDreamWindFluid::Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepAr
 	FDreamWindBackgroundParameters Background;
 	DreamWind::Background::Fill(GraphBuilder, Background, Args.Frame, Args.Background);
 
-	// Sources: five float4 per record, at least one dummy element so the buffer is never empty.
+	// The records: the sources, then the moving bodies' (five float4 each; at least one so the buffer is never empty).
 	using namespace DreamWind::Hlsl;
+	TArray<FDreamWindSourceData> Records(Args.Frame.Sources);
+	Records.Append(Args.Frame.Movers);
 	TArray<FVector4f> SourceData;
-	SourceData.Reserve(FMath::Max(Args.Frame.Sources.Num(), 1) * DW_SOURCE_FLOAT4S);
-	for (const FDreamWindSourceData& S : Args.Frame.Sources)
+	SourceData.Reserve(FMath::Max(Records.Num(), 1) * DW_SOURCE_FLOAT4S);
+	for (const FDreamWindSourceData& S : Records)
 	{
 		SourceData.Add(ToVector4f(S.PositionRadius));
 		SourceData.Add(ToVector4f(S.DirectionStrength));
@@ -311,15 +385,18 @@ void FDreamWindFluid::Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepAr
 		SourceData.Add(ToVector4f(S.BoxExtent));
 		SourceData.Add(ToVector4f(S.BoxRotation));
 	}
+	if (SourceData.Num() == 0)
+	{
+		SourceData.Init(FVector4f::Zero(), DW_SOURCE_FLOAT4S);
+	}
 	FRDGBufferSRVRef Sources = GraphBuilder.CreateSRV(CreateStructuredBuffer(GraphBuilder, TEXT("DreamWind.FluidSources"), SourceData));
-	const uint32 NumSources = uint32(Args.Frame.Sources.Num());
 
 	// The far level first: the near one's background carries its deviation.
 	FRDGTextureRef FarVolume = nullptr;
 	if (Args.Far.bEnabled)
 	{
 		RDG_EVENT_SCOPE(GraphBuilder, "Far");
-		FarVolume = StepLevel(GraphBuilder, Far, Args.Far, Args, Background, Sources, NumSources, nullptr, nullptr);
+		FarVolume = StepLevel(GraphBuilder, Far, Args.Far, Args, Background, Sources, Records, nullptr, nullptr);
 	}
 	else
 	{
@@ -328,7 +405,7 @@ void FDreamWindFluid::Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepAr
 	if (Args.Near.bEnabled)
 	{
 		RDG_EVENT_SCOPE(GraphBuilder, "Near");
-		StepLevel(GraphBuilder, Near, Args.Near, Args, Background, Sources, NumSources, FarVolume, FarVolume ? &Args.Far : nullptr);
+		StepLevel(GraphBuilder, Near, Args.Near, Args, Background, Sources, Records, FarVolume, FarVolume ? &Args.Far : nullptr);
 	}
 	else
 	{
@@ -338,7 +415,8 @@ void FDreamWindFluid::Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepAr
 }
 
 FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Level, const FLevelArgs& LevelArgs, const FStepArgs& Args,
-	const FDreamWindBackgroundParameters& Background, FRDGBufferSRVRef Sources, uint32 NumSources, FRDGTextureRef FarVolume, const FLevelArgs* FarArgs)
+	const FDreamWindBackgroundParameters& Background, FRDGBufferSRVRef Sources, TConstArrayView<DreamWind::Hlsl::FDreamWindSourceData> Records,
+	FRDGTextureRef FarVolume, const FLevelArgs* FarArgs)
 {
 	using namespace DreamWindFluidImpl;
 	FRHITexture* TargetRHI = LevelArgs.Target ? LevelArgs.Target->GetRenderTargetTexture() : nullptr;
@@ -394,6 +472,7 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 	FRHISamplerState* Trilinear = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 	const FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(GMaxRHIFeatureLevel);
 	const FIntVector Cells = Groups(Res);
+	const FDreamWindFluidSources SourceLists = BuildSourceLists(GraphBuilder, Sources, Records, Res, LevelArgs.CellSize, LevelArgs.Origin);
 
 	{
 		auto* P = GraphBuilder.AllocParameters<FDreamWindFluidAdvectCS::FParameters>();
@@ -455,14 +534,13 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 		P->B = B;
 		P->D = DIntoForces;
 		P->Curl = Curl ? Curl : GraphBuilder.RegisterExternalTexture(GSystemTextures.VolumetricBlackDummy);
-		P->Sources = Sources;
-		P->NumSources = NumSources;
+		P->SourceLists = SourceLists;
 		P->Vorticity = Curl ? LevelArgs.Vorticity : 0.0f;
 		P->Smoothing = FMath::Clamp(Args.Smoothing, 0.0f, 1.0f);
 		P->NudgeTime = FMath::Max(Args.NudgeTime, 0.01f);
 		P->SpongeTime = FMath::Max(Args.SpongeTime, 0.001f);
 		P->OutD = GraphBuilder.CreateUAV(DForced);
-		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Forces %d sources", NumSources), TShaderMapRef<FDreamWindFluidForcesCS>(ShaderMap), P, Cells);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Forces %d records", Records.Num()), TShaderMapRef<FDreamWindFluidForcesCS>(ShaderMap), P, Cells);
 	}
 
 	if (LevelArgs.PressureIterations > 0)
@@ -473,6 +551,7 @@ FRDGTextureRef FDreamWindFluid::StepLevel(FRDGBuilder& GraphBuilder, FLevel& Lev
 			P->Wall = Wall;
 			P->B = B;
 			P->D = DForced;
+			P->SourceLists = SourceLists;
 			P->OutDivergence = GraphBuilder.CreateUAV(Divergence);
 			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Divergence"), TShaderMapRef<FDreamWindFluidDivergenceCS>(ShaderMap), P, Cells);
 		}
