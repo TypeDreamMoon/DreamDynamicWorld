@@ -95,10 +95,14 @@ The clouds are drawn by the plugin's own cloud renderer (`Source/DreamSky/Privat
 `Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute pass marches the field at
 reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march (`DreamCloudMarch.ush`) —
 skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer than a billow near a
-surface, each ray's steps offset per pixel and frame — a second pass blends the frames before, reprojected by the
+surface (by the distance alone through cumulus and for the toon surface, however much of the layer is left: stretched to
+the samples left, thin fringes fell between the steps in rows of dashes), each ray's steps offset per pixel and frame —
+a second pass blends the frames before, reprojected by the
 clouds' depth and the wind's drift since (`DreamSky.CloudRender.History`, 0.9; less of it the further the world's clock
 ran since, `1 / (1 + game seconds / 60)`: all of it in real time, 0.6 in a sequence that runs six hours in twenty
-seconds, none across a jump), and the clouds are laid over the sky pixels behind the scene,
+seconds, none across a jump; in the world's cinematic mode and a Movie Render Queue render none at all: every frame is
+drawn on its own at full resolution with twice the samples, `DreamSky.CloudRender.Cinematic`, 1), and the clouds are
+laid over the sky pixels behind the scene,
 under the sky's height fog as the engine fogs its own clouds; they take the dome's weather haze and lightning. Three
 looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
 normal and its shadow toward the light and painted in the style's few tones), **realistic** (the density lit by
@@ -134,7 +138,8 @@ whatever translucency stands in front of them (rain, particles, glass). It does 
 scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome
 stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
 the sky pixels, `2` the rays that found no cloud, `3` how each ray took the frames before (green its history, yellow
-none this frame, red its history off screen, blue this frame alone); `DreamSky.CloudRender.GroundShadowReference <steps>`
+none this frame, red its history off screen, blue this frame alone), `4` the march's per-pixel jitter held still;
+`DreamSky.CloudRender.GroundShadowReference <steps>`
 works the ground shadow out by an even march per texel, a reference for the sun map's ground maps. The sun maps
 (the optical depth toward the sun round the view, a near and a far cascade) are redrawn a slice a frame, the
 cascades taking turns (`DreamSky.CloudRender.SunMapSlices`, 6: each redrawn whole every twelfth frame; 1 a whole
