@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSurfaceMaps.h"
+#include "DreamWorldQuality.h"
 #include "DreamSurfaceMapRenderer.h"
 #include "DreamSurfaceMask.h"
 #include "DreamSurfaceRoofCapture.h"
@@ -32,6 +33,32 @@ namespace DreamSurface::Maps
 	constexpr int32 ZoneFloat4s = 5;
 
 	/** Loads a map's render target and makes it something a compute pass can write. */
+	/**
+	 * The state maps sized for the surfaces' quality level (UDreamWorldQuality, r.DreamSurface.Quality) as the world
+	 * starts: half their authored size at low and medium, three quarters at high, as authored above. Only then -- a level
+	 * changed while the game runs takes effect at the next load: resizing would drop what the maps have gathered (the
+	 * wetness, the snow) and show as a jump. A game's world only (the editor's assets are left as authored).
+	 */
+	void SizeForQuality(UTextureRenderTarget2D* RT, EPixelFormat Format)
+	{
+		static TMap<TWeakObjectPtr<UTextureRenderTarget2D>, FIntPoint> Authored;
+		if (!RT)
+		{
+			return;
+		}
+		const FIntPoint* Known = Authored.Find(RT);
+		const FIntPoint Size = Known ? *Known : Authored.Add(RT, FIntPoint(RT->SizeX, RT->SizeY));
+		const int32 Level = UDreamWorldQuality::GetLevel(EDreamWorldQualityGroup::Surface);
+		const float Scale = Level <= 1 ? 0.5f : (Level == 2 ? 0.75f : 1.0f);
+		const FIntPoint Want(FMath::Max(16, FMath::RoundToInt(Size.X * Scale)), FMath::Max(16, FMath::RoundToInt(Size.Y * Scale)));
+		if (RT->SizeX != Want.X || RT->SizeY != Want.Y)
+		{
+			UE_LOG(LogDreamSurface, Display, TEXT("Surface map %s: %dx%d for quality level %d"), *RT->GetName(), Want.X, Want.Y, Level);
+			RT->InitCustomFormat(Want.X, Want.Y, Format, true);
+			RT->UpdateResourceImmediate(false);
+		}
+	}
+
 	UTextureRenderTarget2D* LoadTarget(const FSoftObjectPath& Path, EPixelFormat Format)
 	{
 		UTextureRenderTarget2D* RT = Cast<UTextureRenderTarget2D>(Path.TryLoad());
@@ -151,7 +178,7 @@ uint32 FDreamSurfaceMaps::GetIntegrateCount() const
 	return Renderer ? Renderer->GetIntegrateCount() : 0;
 }
 
-bool FDreamSurfaceMaps::Resolve()
+bool FDreamSurfaceMaps::Resolve(bool bGameWorld)
 {
 	if (Near.Target && Far.Target && Near.IceTarget && Far.IceTarget && Cover && Mask && Trails)
 	{
@@ -172,6 +199,13 @@ bool FDreamSurfaceMaps::Resolve()
 	Cover = LoadTarget(S->CoverMapTexture, PF_A32B32G32R32F);
 	Mask = LoadTarget(S->MaskMapTexture, PF_FloatRGBA);
 	Trails = LoadTarget(S->TrailMapTexture, PF_FloatRGBA);
+	if (bGameWorld)
+	{
+		SizeForQuality(Near.Target, PF_FloatRGBA);
+		SizeForQuality(Far.Target, PF_FloatRGBA);
+		SizeForQuality(Near.IceTarget, PF_FloatRGBA);
+		SizeForQuality(Far.IceTarget, PF_FloatRGBA);
+	}
 	if (!Near.Target || !Far.Target || !Near.IceTarget || !Far.IceTarget || !Cover)
 	{
 		UE_LOG(LogDreamSurface, Warning, TEXT("Surface maps missing (run the DreamDynamicWorld Setup): near %s, far %s, ice %s, cover %s"),
@@ -230,7 +264,7 @@ void FDreamSurfaceMaps::Update(UDreamSurfaceSubsystem& Surface, UDreamWorldSubsy
 	{
 		ForgetDrawn();
 	}
-	if (!bCanRender || !Resolve())
+	if (!bCanRender || !Resolve(Surface.GetWorld() && Surface.GetWorld()->IsGameWorld()))
 	{
 		Clock.SetVectorParameter(MPC_SurfaceNear, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 		Clock.SetVectorParameter(MPC_SurfaceFar, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));

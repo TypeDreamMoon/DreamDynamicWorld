@@ -635,8 +635,10 @@ game runs swaps them in place -- the clouds keep drawing, their history starting
 | Epic | half resolution, 160 samples, 6 slices (as tuned) | on, 24 samples | all | 100% | the sky's |
 | Cinematic | full resolution, 256 samples, the sun maps whole | on, 48 samples | all | 100% | the sky's |
 
-The wind takes its level from `r.DreamWind.Quality` (-1 = as above) and the surface maps theirs from
-`r.DreamSurface.Quality`; `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
+The wind takes its level from `r.DreamWind.Quality` (-1 = as above). The surface maps take theirs from
+`r.DreamSurface.Quality` (-1 = as above) as the world starts -- their state maps at half their size at low and medium,
+three quarters at high, as authored above -- and keep that size while the game runs: a level changed then takes effect
+at the next load (resizing would drop the wetness and snow they have gathered, a visible jump); `UDreamWorldQuality::GetLevel` gives any group's, and `QualityTable` the console variables
 each group's levels set.
 
 ### Weather radar
