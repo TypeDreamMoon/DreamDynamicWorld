@@ -71,8 +71,8 @@ atmosphere sun, index 0) and the moon, a sky light that captures the dome, a hei
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
 `Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
 moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
-dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full,
-`DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full; its
+maria `MoonMaria` (0.45) darker than its highlands, large dark patches over the near side, `DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
@@ -96,7 +96,9 @@ The clouds are drawn by the plugin's own cloud renderer (`Source/DreamSky/Privat
 reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march (`DreamCloudMarch.ush`) —
 skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer than a billow near a
 surface, each ray's steps offset per pixel and frame — a second pass blends the frames before, reprojected by the
-clouds' depth (`DreamSky.CloudRender.History`, 0.9), and the clouds are laid over the sky pixels behind the scene,
+clouds' depth and the wind's drift since (`DreamSky.CloudRender.History`, 0.9; less of it the further the world's clock
+ran since, `1 / (1 + game seconds / 60)`: all of it in real time, 0.6 in a sequence that runs six hours in twenty
+seconds, none across a jump), and the clouds are laid over the sky pixels behind the scene,
 under the sky's height fog as the engine fogs its own clouds; they take the dome's weather haze and lightning. Three
 looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
 normal and its shadow toward the light and painted in the style's few tones), **realistic** (the density lit by
@@ -327,7 +329,12 @@ meteors and satellites and noctilucent clouds are all drawn that much fainter, t
 `MoonThroughHaze` (0.6) of themselves at none -- a dull disk in a dust storm, over what the dome's own haze already takes.
 The haze leaves `(1 - haze)` to the power `NightSkyHazeExponent` (2: a light haze of 0.3 half the sky, a dust storm's
 0.95 next to none of it); the weather's fog and its cloud cover take `NightSkyFogHides` (0.9) and `NightSkyCloudHides`
-(0.4) more at their thickest (the clouds themselves cover what is behind them besides).
+(0.4) more at their thickest (the clouds themselves cover what is behind them besides). The moon's light goes with it:
+what of it comes straight through the haze and the fog under an open sky (`FDreamSkyLighting::MoonShadow`) still casts
+the moon's shadows; the rest is spread over the whole sky, so the moon light dims down to `MoonThroughHaze` of itself,
+its source widens toward `MoonDiffuseSourceAngle` (20 degrees: the shadows blur) and its shadows fade, gone under a closed
+cover or in a dust storm. Through dust the moon reddens -- its disk, its glow and its light take `MoonDustTint` as far as
+the haze hides it (the dust takes the blue first); a fog's droplets leave it white.
 
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
@@ -1089,7 +1096,7 @@ up, to the south-west) at noon, in the evening, overcast and in fog with the aer
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
 <screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's, the far land's and the tornado's own sheets). The tour is plain `DreamWorld.Script`
-files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `fov`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
 `DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above (the
