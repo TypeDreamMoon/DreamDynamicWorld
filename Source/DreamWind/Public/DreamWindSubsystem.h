@@ -7,6 +7,7 @@
 #include "DreamWindTypes.h"
 #include "DreamWindHlslShim.h"
 #include "DreamWorldSharedTargets.h"
+#include "Math/Float16Color.h"
 #include "DreamWindSubsystem.generated.h"
 
 class UDreamWindSourceComponent;
@@ -343,6 +344,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
 	bool IsVolumeActive() const { return FrameData.V1.W > 0.5f; }
 
+	/** True when the volumes are solved as a fluid this frame (else the residual volume, or nothing). */
+	UFUNCTION(BlueprintPure, Category = "DreamWind|Volume")
+	bool IsFluidActive() const { return bFluidActive; }
+
+	/** The fluid's steps and its wall lookups in the global distance field so far (tests, stats). */
+	uint32 GetFluidStepCount() const;
+	uint32 GetFluidWallPassCount() const;
+
+	/**
+	 * Read a volume back (tests, stats; flushes rendering, slow): its texels, x fastest, and the window it covered (the
+	 * consumers' V0 / V1, or V2 / V3 for the far level). False when the level does not run here.
+	 */
+	bool ReadVolume(bool bFar, TArray<FFloat16Color>& OutTexels, FIntVector& OutSize, FVector4f& OutV0, FVector4f& OutV1) const;
+
 	/** Packs a source description into the record the shared model (CPU and GPU) evaluates. */
 	static DreamWind::Hlsl::FDreamWindSourceData PackSource(const FDreamWindSourceDesc& Desc, float StrengthScale);
 
@@ -363,6 +378,12 @@ private:
 	void UpdateEngineWindSource();
 	void UpdateMaterialParameterCollection();
 	void UpdateVolume(float DeltaTime);
+	/** The fluid's step (UpdateVolume, once this world owns the volumes); false when it cannot run. */
+	bool UpdateFluid(float WindDelta, bool bRedrawAll);
+	/** A fluid level's window: on the ground under the camera, rising with a camera high above it; whole cells. */
+	FVector ChooseFluidCenter(const FVector& Camera, const FIntVector& Res, float CellSize, double& InOutFloorZ) const;
+	/** The top surface under a point as the terrain maps know it (cm); false where none does. */
+	bool FindGroundHeight(const FVector& Position, double& OutZ) const;
 	void UpdateTerrainTexture();
 	/** Applies the terrain map (if any) to an analytic sample on the CPU. */
 	DreamWind::Hlsl::FDreamWindSample ApplyTerrain(DreamWind::Hlsl::FDreamWindSample S, DreamWind::Hlsl::float3 Pos) const;
@@ -416,6 +437,14 @@ private:
 	FVector VolumeCenterFar = FVector::ZeroVector;
 	FVector PrevVolumeCenterFar = FVector::ZeroVector;
 	bool bVolumeHistoryDirtyFar = true;
+	/** The wind fluid (null until it first runs) and its windows' floors (they move only by two cells or more). */
+	TSharedPtr<class FDreamWindFluid, ESPMode::ThreadSafe> Fluid;
+	double FluidFloorZ = 0.0;
+	double FluidFloorZFar = 0.0;
+	bool bFluidFloorValid = false;
+	bool bFluidActive = false;
+	bool bFluidHistoryDirty = true;
+	bool bFluidDistanceFieldRequested = false;
 
 	// terrain
 	UPROPERTY(Transient)

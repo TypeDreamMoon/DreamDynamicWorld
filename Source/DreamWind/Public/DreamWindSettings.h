@@ -129,6 +129,80 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Volume", meta = (ClampMin = "1", ClampMax = "256"))
 	int32 MaxGpuSources = 64;
 
+	/**
+	 * Solve the volume as a fluid: the air flows round buildings, eddies at their corners and turns back in their lee.
+	 * Off: the residual volume (sources' wakes carried by the wind and decaying, no walls). The volumes then hold the
+	 * fluid's deviation from the background wind (analytic + terrain map), which consumers add as before.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid")
+	bool bFluid = true;
+
+	/** Pressure iterations of the near level (red-black Gauss-Seidel, starting from last frame's pressure). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "64", EditCondition = "bFluid"))
+	int32 FluidPressureIterations = 8;
+
+	/** Pressure iterations of the far level (0: it is only carried and pulled toward the background, not projected). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "64", EditCondition = "bFluid"))
+	int32 FluidFarPressureIterations = 4;
+
+	/** Over-relaxation of the pressure iterations (1 = plain Gauss-Seidel; up to 1.9 converges faster). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "1.9", EditCondition = "bFluid"))
+	float FluidPressureRelaxation = 1.5f;
+
+	/** Vorticity confinement of the near level: gives back the eddies the coarse grid smears out (0 = none). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "bFluid"))
+	float FluidVorticity = 0.4f;
+
+	/**
+	 * Seconds over which a grid-scale checkerboard in the fluid dies out (0: never). The collocated grid's projection
+	 * cannot see one; this smooths only at that scale (longer is less viscous).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", UIMax = "5", EditCondition = "bFluid"))
+	float FluidCheckerboardDamping = 0.5f;
+
+	/** Second-order advection for the near level (MacCormack, one more pass): sharp enough shear for eddies and the lee's backflow. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (EditCondition = "bFluid"))
+	bool bFluidMacCormack = true;
+
+	/**
+	 * Seconds over which the fluid's deviation inside the grid fades back to the background wind. The background's gusts
+	 * pass through regardless (consumers add it at every point): this only keeps wakes from lasting for ever.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.1", UIMax = "60", EditCondition = "bFluid"))
+	float FluidNudgeTime = 10.0f;
+
+	/** Cells along the sides and the top over which the pull tightens to FluidSpongeTime, so the border does not reflect. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0", ClampMax = "16", EditCondition = "bFluid"))
+	int32 FluidSpongeCells = 4;
+
+	/** The pull's time at the very border, seconds. */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.01", UIMax = "2", EditCondition = "bFluid"))
+	float FluidSpongeTime = 0.1f;
+
+	/** The fastest the fluid may blow, cm/s (blasts included). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "100", EditCondition = "bFluid"))
+	float FluidMaxSpeed = 8000.0f;
+
+	/**
+	 * Take the walls from the engine's global distance field (3D: air passes under bridges and through arches), asking
+	 * the renderer to keep it up to date (DreamWind.DistanceField); the project needs Generate Mesh Distance Fields.
+	 * Where it has none, the walls come from the terrain map's heights (2.5D).
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (EditCondition = "bFluid"))
+	bool bFluidDistanceField = true;
+
+	/**
+	 * A cell is a wall when a surface lies within this fraction of a cell of its centre. Just under half keeps a wall
+	 * thinner than a cell watertight (along the axes and on the diagonal, from 10 cm thick at 1 m cells) and leaves a face
+	 * on a cell boundary (flat ground under the grid, which sits on whole cells) where it is, the cells beside it air.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "0.3", ClampMax = "1", EditCondition = "bFluid"))
+	float FluidWallThickness = 0.45f;
+
+	/** Cells of each level below the ground under the camera (the grids sit on the ground, rising with a camera high above it). */
+	UPROPERTY(Config, EditAnywhere, Category = "Volume|Fluid", meta = (ClampMin = "1", ClampMax = "16", EditCondition = "bFluid"))
+	int32 FluidCellsBelowGround = 4;
+
 	// ---- Terrain modulation (L1) --------------------------------------------------------------
 
 	/** Modulate the wind by a baked terrain map (ridges faster, hollows sheltered, steering toward valleys). */

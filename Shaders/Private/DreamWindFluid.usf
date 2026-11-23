@@ -1,0 +1,570 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The wind fluid (L2), one level's step. See FDreamWindFluid.
+//
+// Each level is a grid of cells around the camera, rebased every frame by whole cells. A cell holds D, the fluid's
+// deviation from a background B, so u = B + D. B is the wind without the terrain maps' shadow (DreamWindBackground.ush:
+// the walls here make the lee), and across the near level's sponge the far level's wind, which brings in what lies
+// outside the near grid. B is evaluated afresh every frame, so the analytic wind's gusts and eddies pass through the grid
+// unblurred and D is only what the walls, the sources and the fluid's own motion add.
+//
+//   AdvectCS      rebase (last frame's cells shifted by whole cells), B, the walls, D carried along u (semi-Lagrangian)
+//   CorrectCS     the MacCormack correction of that step (near level)
+//   CurlCS        the vorticity of u
+//   ForcesCS      grid-scale smoothing, vorticity confinement, the sources, the pull toward the background (tighter in the
+//                 sponge), walls at rest
+//   DivergenceCS  the divergence of D (the analytic wind's own is left alone: its gusts pass through)
+//   PressureCS    one colour of a red-black Gauss-Seidel sweep of the pressure, over-relaxed (from last frame's pressure)
+//   ProjectCS     u -= grad p, free slip beside the walls, walls at rest, the speed limit and the NaN guard: next frame's D
+//   OutputCS      the shared volume: u against the background the consumers evaluate themselves (with the terrain maps'
+//                 shadow); wall cells take what the air beside them does; w = wall (or the residual divergence, a debug view)
+//
+// Boundaries: the sides and the top are open (the pressure is 0 beyond them, the velocity continues), the ground below
+// the grid and wall cells are solid (no flow into them, the pressure's gradient into them is 0).
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Private/DreamWindBackground.ush"
+
+int3 Resolution;
+float CellSize;        // cm
+float3 Origin;         // the grid's lowest corner, world space (cm)
+float DeltaTime;       // s
+int SpongeCells;       // cells along the sides and the top where the grid hands over to what lies outside it
+
+static const int3 Axes[3] = { int3(1, 0, 0), int3(0, 1, 0), int3(0, 0, 1) };
+
+float3 CellCenter(int3 C)
+{
+	return Origin + (float3(C) + 0.5f) * CellSize;
+}
+
+bool InGrid(int3 C)
+{
+	return all(C >= 0) && all(C < Resolution);
+}
+
+int3 ClampToGrid(int3 C)
+{
+	return clamp(C, int3(0, 0, 0), Resolution - 1);
+}
+
+// What lies at a neighbouring cell.
+#define DW_FLUID 0
+#define DW_WALL  1
+#define DW_OPEN  2
+
+Texture3D<float> Wall;
+
+uint NeighborKind(int3 N)
+{
+	if (N.z < 0)
+	{
+		return DW_WALL;   // the ground below the grid
+	}
+	if (any(N < 0) || any(N >= Resolution))
+	{
+		return DW_OPEN;   // the sides and the top
+	}
+	return Wall.Load(int4(N, 0)) > 0.5f ? DW_WALL : DW_FLUID;
+}
+
+bool IsWall(int3 C)
+{
+	return Wall.Load(int4(C, 0)) > 0.5f;
+}
+
+// ---- Advect -------------------------------------------------------------------------------------------------------
+
+Texture3D<float4> DPrev;       // last frame's D (in last frame's grid)
+SamplerState DPrevSampler;
+Texture3D<float> ThetaPrev;    // last frame's walls from the distance field (-1: not known)
+Texture3D<float> PPrev;        // last frame's pressure
+float3 PrevOrigin;
+float PrevValid;
+int3 Shift;                    // (Origin - PrevOrigin) / CellSize
+float KeepWalls;               // 0: the distance field's walls are dropped (it is not used), every cell falls back to the heights
+float WallThickness;           // a surface within this fraction of a cell of a cell's centre makes it a wall
+float4 FarV0;                  // the far level's window (near level only; FarV1.w = 0 otherwise)
+float4 FarV1;
+Texture3D<float4> FarVolume;   // the far level's deviation, this frame
+SamplerState FarSampler;
+
+RWTexture3D<float4> OutB;
+RWTexture3D<float4> OutBC;     // the background consumers evaluate (with the terrain maps' shadow)
+RWTexture3D<float4> OutD;
+RWTexture3D<float> OutTheta;
+RWTexture3D<float> OutWall;
+RWTexture3D<float> OutP;
+
+float3 SamplePrevD(float3 WorldPos)
+{
+	const float3 UVW = (WorldPos - PrevOrigin) / (float3(Resolution) * CellSize);
+	// half a cell inside the border, so the clamp sampler never repeats the edge cell
+	const float3 Margin = 0.5f / float3(Resolution);
+	if (any(UVW < Margin) || any(UVW > 1.0f - Margin))
+	{
+		return 0.0f;   // from outside last frame's grid: the background
+	}
+	return DPrev.SampleLevel(DPrevSampler, UVW, 0).xyz;
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void AdvectCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const float3 X = CellCenter(C);
+	// The pull's target: the wind without the terrain maps' shadow (the walls here make the lee). For the near level,
+	// across its sponge the far level's wind (its output is measured against the shadowed background): the far level
+	// brings in what lies outside the near grid, while inside it the near level solves its walls itself (the far one's
+	// coarse picture of the same walls would count them twice).
+	float3 Bc, Shadowed;
+	DW_BackgroundSplit(X, Bc, Shadowed);
+	const FDreamWindVolumeParams FV = DW_UnpackVolume(FarV0, FarV1);
+	if (FV.Enabled > 0.5f && SpongeCells > 0)
+	{
+		const int ToBorder = min(min(min(C.x, Resolution.x - 1 - C.x), min(C.y, Resolution.y - 1 - C.y)), Resolution.z - 1 - C.z);
+		const float Border = (1.0f - saturate(float(ToBorder) / float(SpongeCells))) * DW_VolumeMask(X, FV);
+		if (Border > 0.0f)
+		{
+			Bc = lerp(Bc, Shadowed + FarVolume.SampleLevel(FarSampler, DW_VolumeUVW(X, FV), 0).xyz, Border);
+		}
+	}
+
+	const int3 PC = C + Shift;
+	const bool bOld = PrevValid > 0.5f && InGrid(PC);
+	const float Theta = (bOld && KeepWalls > 0.5f) ? ThetaPrev.Load(int4(PC, 0)) : -1.0f;
+	float3 Dc = 0.0f;
+	if (PrevValid > 0.5f)
+	{
+		// where did the air that is here now come from?
+		const float3 Here = bOld ? DPrev.Load(int4(PC, 0)).xyz : 0.0f;
+		Dc = SamplePrevD(X - (Bc + Here) * DeltaTime);
+	}
+
+	// The walls: the distance field's where it knows, else the terrain map's heights (a cell under the top surface).
+	float W = Theta;
+	if (W < 0.0f)
+	{
+		const float Ground = DW_BackgroundGround(X, CellSize);
+		W = saturate((Ground + WallThickness * CellSize - X.z) / CellSize + 0.5f);
+	}
+
+	OutB[C] = float4(Bc, 0.0f);
+	OutBC[C] = float4(Shadowed, 0.0f);
+	OutD[C] = float4(Dc, 0.0f);
+	OutTheta[C] = Theta;
+	OutWall[C] = W;
+	OutP[C] = bOld ? PPrev.Load(int4(PC, 0)) : 0.0f;
+}
+
+// ---- Correct (MacCormack) -----------------------------------------------------------------------------------------
+// Selle et al. 2008 (GPU Gems 3, ch. 30): carry the advected field back along the same velocity and correct the forward
+// result by half the error, clamped to the cells the forward step read, so it never overshoots. Far less smearing than
+// the plain step: the shear layers off a building's corners stay sharp enough to roll up.
+
+Texture3D<float4> B;
+Texture3D<float4> D;           // here: the forward step's result, in this frame's grid
+SamplerState DSampler;
+RWTexture3D<float4> OutCorrected;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void CorrectCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const float3 Forward = D.Load(int4(C, 0)).xyz;
+	const int3 PC = C + Shift;
+	if (PrevValid < 0.5f || !InGrid(PC))
+	{
+		OutCorrected[C] = float4(Forward, 0.0f);
+		return;
+	}
+	const float3 X = CellCenter(C);
+	const float3 Old = DPrev.Load(int4(PC, 0)).xyz;
+	const float3 Velocity = B.Load(int4(C, 0)).xyz + Old;
+	// where the forward step read from, in last frame's cells: the clamp's range is its eight corners
+	const float3 From = (X - Velocity * DeltaTime - PrevOrigin) / CellSize - 0.5f;
+	const int3 Base = int3(floor(From));
+	if (any(Base < 0) || any(Base + 1 >= Resolution))
+	{
+		OutCorrected[C] = float4(Forward, 0.0f);   // from outside last frame's grid: as the plain step had it
+		return;
+	}
+	float3 Lo = 1.0e30f;
+	float3 Hi = -1.0e30f;
+	[unroll]
+	for (int k = 0; k < 8; ++k)
+	{
+		const float3 Corner = DPrev.Load(int4(Base + int3(k & 1, (k >> 1) & 1, (k >> 2) & 1), 0)).xyz;
+		Lo = min(Lo, Corner);
+		Hi = max(Hi, Corner);
+	}
+	// back along the same velocity through the forward result
+	const float3 To = (X + Velocity * DeltaTime - Origin) / (float3(Resolution) * CellSize);
+	const float3 Margin = 0.5f / float3(Resolution);
+	if (any(To < Margin) || any(To > 1.0f - Margin))
+	{
+		OutCorrected[C] = float4(Forward, 0.0f);
+		return;
+	}
+	const float3 Back = D.SampleLevel(DSampler, To, 0).xyz;
+	OutCorrected[C] = float4(clamp(Forward + 0.5f * (Old - Back), Lo, Hi), 0.0f);
+}
+
+// ---- Curl ---------------------------------------------------------------------------------------------------------
+
+RWTexture3D<float4> OutCurl;
+
+float3 VelocityAt(int3 C)
+{
+	const int3 K = ClampToGrid(C);
+	return B.Load(int4(K, 0)).xyz + D.Load(int4(K, 0)).xyz;
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void CurlCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const float Inv2h = 0.5f / CellSize;
+	const float3 dX = (VelocityAt(C + Axes[0]) - VelocityAt(C - Axes[0])) * Inv2h;
+	const float3 dY = (VelocityAt(C + Axes[1]) - VelocityAt(C - Axes[1])) * Inv2h;
+	const float3 dZ = (VelocityAt(C + Axes[2]) - VelocityAt(C - Axes[2])) * Inv2h;
+	const float3 Omega = float3(dY.z - dZ.y, dZ.x - dX.z, dX.y - dY.x);
+	OutCurl[C] = float4(Omega, length(Omega));
+}
+
+// ---- Forces -------------------------------------------------------------------------------------------------------
+
+Texture3D<float4> Curl;
+StructuredBuffer<float4> Sources;
+uint NumSources;
+float Vorticity;       // confinement strength (0: off)
+float Smoothing;       // 0..1 toward the neighbours' mean, per step
+float NudgeTime;       // s, inside
+float SpongeTime;      // s, at the border
+
+float CurlMagnitudeAt(int3 C)
+{
+	return Curl.Load(int4(ClampToGrid(C), 0)).w;
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void ForcesCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const float3 X = CellCenter(C);
+	const float3 Bc = B.Load(int4(C, 0)).xyz;
+	float3 Dc = D.Load(int4(C, 0)).xyz;
+
+	// A touch of smoothing toward the air beside: the collocated grid's projection cannot see a checkerboard, so nothing
+	// else would damp one (it barely touches anything smoother than two cells).
+	if (Smoothing > 0.0f && !IsWall(C))
+	{
+		float3 Sum = 0.0f;
+		float Count = 0.0f;
+		[unroll]
+		for (int a = 0; a < 3; ++a)
+		{
+			[unroll]
+			for (int s = -1; s <= 1; s += 2)
+			{
+				const int3 N = C + Axes[a] * s;
+				if (InGrid(N) && !IsWall(N))
+				{
+					Sum += D.Load(int4(N, 0)).xyz;
+					Count += 1.0f;
+				}
+			}
+		}
+		if (Count > 0.5f)
+		{
+			Dc = lerp(Dc, Sum / Count, Smoothing);
+		}
+	}
+
+	if (Vorticity > 0.0f)
+	{
+		// Fedkiw, Stam, Jensen 2001: push along N x omega, N pointing toward stronger vorticity
+		const float3 G = float3(
+			CurlMagnitudeAt(C + Axes[0]) - CurlMagnitudeAt(C - Axes[0]),
+			CurlMagnitudeAt(C + Axes[1]) - CurlMagnitudeAt(C - Axes[1]),
+			CurlMagnitudeAt(C + Axes[2]) - CurlMagnitudeAt(C - Axes[2])) * (0.5f / CellSize);
+		const float GL = length(G);
+		if (GL > 1.0e-6f)
+		{
+			Dc += Vorticity * CellSize * cross(G / GL, Curl.Load(int4(C, 0)).xyz) * DeltaTime;
+		}
+	}
+
+	// Sources blend the whole wind toward their own velocity (a full-weight source reads back as itself).
+	for (uint i = 0; i < NumSources; ++i)
+	{
+		FDreamWindSourceData S;
+		S.PositionRadius    = Sources[i * DW_SOURCE_FLOAT4S + 0];
+		S.DirectionStrength = Sources[i * DW_SOURCE_FLOAT4S + 1];
+		S.Misc              = Sources[i * DW_SOURCE_FLOAT4S + 2];
+		S.BoxExtent         = Sources[i * DW_SOURCE_FLOAT4S + 3];
+		S.BoxRotation       = Sources[i * DW_SOURCE_FLOAT4S + 4];
+		const FDreamWindSourceEval E = DW_EvalSource(S, X);
+		const float Weight = saturate(E.Weight * saturate(S.Misc.y * DeltaTime));
+		Dc = lerp(Dc, E.Velocity - Bc, Weight);
+	}
+
+	// The pull toward the background: slow inside, tight along the open sides and the top (no reflections there).
+	const int ToBorder = min(min(min(C.x, Resolution.x - 1 - C.x), min(C.y, Resolution.y - 1 - C.y)), Resolution.z - 1 - C.z);
+	float Tau = NudgeTime;
+	if (ToBorder < SpongeCells)
+	{
+		Tau = exp(lerp(log(SpongeTime), log(NudgeTime), float(ToBorder) / float(SpongeCells)));
+	}
+	Dc *= exp(-DeltaTime / max(Tau, 1.0e-3f));
+
+	if (IsWall(C))
+	{
+		Dc = -Bc;   // the air in a wall is at rest
+	}
+	OutD[C] = float4(Dc, 0.0f);
+}
+
+// ---- Divergence ---------------------------------------------------------------------------------------------------
+
+RWTexture3D<float> OutDivergence;
+
+// The divergence the pressure removes is the DEVIATION's, not the whole wind's: the analytic wind's gust fronts (bands of
+// speed travelling downwind) are not divergence free, and projecting them away would cancel the gusts inside the grid
+// (and show its edge). What the walls demand still comes through: at a wall the deviation is the one that stops the air
+// there (D = -B), so the flow into it shows as the deviation's divergence beside it.
+
+/** The deviation's component along an axis at a neighbouring cell: a wall's stops the air, past an open border the cell's own continues. */
+float NeighborDeviation(int3 N, int Axis, float3 Here)
+{
+	const uint Kind = NeighborKind(N);
+	if (Kind == DW_WALL)
+	{
+		return InGrid(N) ? -B.Load(int4(N, 0))[Axis] : -B.Load(int4(ClampToGrid(N), 0))[Axis];
+	}
+	if (Kind == DW_OPEN)
+	{
+		return Here[Axis];
+	}
+	return D.Load(int4(N, 0))[Axis];
+}
+
+float DivergenceAt(int3 C)
+{
+	if (IsWall(C))
+	{
+		return 0.0f;
+	}
+	const float3 Here = D.Load(int4(C, 0)).xyz;
+	float Sum = 0.0f;
+	[unroll]
+	for (int a = 0; a < 3; ++a)
+	{
+		Sum += NeighborDeviation(C + Axes[a], a, Here) - NeighborDeviation(C - Axes[a], a, Here);
+	}
+	return Sum * (0.5f / CellSize);
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void DivergenceCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	OutDivergence[C] = DivergenceAt(C);
+}
+
+// ---- Pressure -----------------------------------------------------------------------------------------------------
+
+Texture3D<float> Divergence;
+RWTexture3D<float> Pressure;
+int Parity;            // 0 or 1: which colour this pass updates
+float Relaxation;      // 1 = Gauss-Seidel
+
+// One thread per cell of the colour: x is doubled, offset by the row's parity.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void PressureCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(int(Id.x) * 2 + ((int(Id.y) + int(Id.z) + Parity) & 1), int(Id.y), int(Id.z));
+	if (!InGrid(C))
+	{
+		return;
+	}
+	if (IsWall(C))
+	{
+		Pressure[C] = 0.0f;
+		return;
+	}
+	// sum over the neighbours that are not walls (a wall's or the ground's pressure equals this cell's: they drop out)
+	float Sum = 0.0f;
+	float Count = 0.0f;
+	[unroll]
+	for (int a = 0; a < 3; ++a)
+	{
+		[unroll]
+		for (int s = -1; s <= 1; s += 2)
+		{
+			const int3 N = C + Axes[a] * s;
+			const uint Kind = NeighborKind(N);
+			if (Kind == DW_FLUID)
+			{
+				Sum += Pressure[N];
+				Count += 1.0f;
+			}
+			else if (Kind == DW_OPEN)
+			{
+				Count += 1.0f;   // the pressure beyond an open border is 0
+			}
+		}
+	}
+	if (Count < 0.5f)
+	{
+		Pressure[C] = 0.0f;
+		return;
+	}
+	const float GaussSeidel = (Sum - CellSize * CellSize * Divergence.Load(int4(C, 0))) / Count;
+	Pressure[C] = lerp(Pressure[C], GaussSeidel, Relaxation);
+}
+
+// ---- Project ------------------------------------------------------------------------------------------------------
+
+Texture3D<float> P;
+float MaxSpeed;        // cm/s
+
+float NeighborPressure(int3 N, float Here)
+{
+	const uint Kind = NeighborKind(N);
+	if (Kind == DW_WALL)
+	{
+		return Here;
+	}
+	if (Kind == DW_OPEN)
+	{
+		return 0.0f;
+	}
+	return P.Load(int4(N, 0));
+}
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void ProjectCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const float3 Bc = B.Load(int4(C, 0)).xyz;
+	float3 Dc = D.Load(int4(C, 0)).xyz;
+	const bool bWall = IsWall(C);
+	if (bWall)
+	{
+		Dc = -Bc;
+	}
+	else
+	{
+		const float Here = P.Load(int4(C, 0));
+		float3 Grad;
+		[unroll]
+		for (int a = 0; a < 3; ++a)
+		{
+			Grad[a] = NeighborPressure(C + Axes[a], Here) - NeighborPressure(C - Axes[a], Here);
+		}
+		Dc -= Grad * (0.5f / CellSize);
+	}
+	// Free slip at the walls (GPU Gems 3, ch. 30): beside a wall the air does not blow into it. (The central-difference
+	// divergence never sees a cell's own velocity: without this the cells next to a wall keep pouring into it and the
+	// walls swallow the flow instead of turning it.)
+	float3 U = Bc + Dc;
+	if (!bWall)
+	{
+		[unroll]
+		for (int a = 0; a < 3; ++a)
+		{
+			if (NeighborKind(C + Axes[a]) == DW_WALL || NeighborKind(C - Axes[a]) == DW_WALL)
+			{
+				U[a] = 0.0f;
+			}
+		}
+	}
+	Dc = U - Bc;
+	// the speed limit, and a NaN never survives a frame
+	const float Speed = length(U);
+	if (Speed > MaxSpeed)
+	{
+		U *= MaxSpeed / Speed;
+		Dc = U - Bc;
+	}
+	if (any(isnan(Dc)) || any(isinf(Dc)))
+	{
+		Dc = 0.0f;
+	}
+	OutD[C] = float4(Dc, bWall ? 1.0f : 0.0f);
+}
+
+// ---- Output -------------------------------------------------------------------------------------------------------
+
+int ShowDivergence;
+Texture3D<float4> BC;          // the background consumers evaluate
+RWTexture3D<float4> OutVolume;
+
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, THREADGROUP_SIZE)]
+void OutputCS(uint3 Id : SV_DispatchThreadID)
+{
+	const int3 C = int3(Id);
+	if (!InGrid(C))
+	{
+		return;
+	}
+	const bool bWall = IsWall(C);
+	float3 U = B.Load(int4(C, 0)).xyz + D.Load(int4(C, 0)).xyz;
+	if (bWall)
+	{
+		// Grass on the ground and leaves on a wall sit in wall cells: give them what the air beside them does (or the
+		// background, deep inside).
+		float3 Sum = 0.0f;
+		float Count = 0.0f;
+		[unroll]
+		for (int a = 0; a < 3; ++a)
+		{
+			[unroll]
+			for (int s = -1; s <= 1; s += 2)
+			{
+				const int3 N = C + Axes[a] * s;
+				if (InGrid(N) && !IsWall(N))
+				{
+					Sum += B.Load(int4(N, 0)).xyz + D.Load(int4(N, 0)).xyz;
+					Count += 1.0f;
+				}
+			}
+		}
+		U = Count > 0.5f ? Sum / Count : BC.Load(int4(C, 0)).xyz;
+	}
+	// measured against the background the consumers evaluate themselves (analytic + terrain maps, shadow included)
+	const float3 Dc = U - BC.Load(int4(C, 0)).xyz;
+	float W = bWall ? 1.0f : 0.0f;
+	if (ShowDivergence != 0)
+	{
+		// what the pressure iterations left: |div D| * h relative to the speed (0 = divergence free); walls -1
+		const float Speed = length(B.Load(int4(C, 0)).xyz + D.Load(int4(C, 0)).xyz);
+		W = bWall ? -1.0f : abs(DivergenceAt(C)) * CellSize / max(Speed, 100.0f);
+	}
+	OutVolume[C] = float4(Dc, W);
+}

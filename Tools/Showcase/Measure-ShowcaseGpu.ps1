@@ -34,7 +34,8 @@ param(
     [string]$Project,
     # -Scene Showcase: the showcase level's features (above). WindField: the wind's on the wind field test level
     # (Setup -WindFieldTestMap): WindVolume, WindOcclusion, WindOcclusionVolume, WindTerrainRuntime, WindTerrainShadow,
-    # WindTerrainPasses, WindVolumeAll, WindGrass.
+    # WindTerrainPasses, WindFluid, WindFluidNear, WindFluidFar, WindFluidWalls, WindFluidFrame, WindFluidDistanceField,
+    # WindDistanceFieldUpdate, WindVolumeAll, WindGrass.
     [ValidateSet('Showcase', 'WindField')]
     [string]$Scene = 'Showcase',
     [string[]]$Only = @(),
@@ -131,6 +132,15 @@ if ($Scene -eq 'WindField')
         (Feature WindTerrainShadow 'Wind shadow from the runtime terrain map (materials + volume + its passes, frame)' 'yes' toggle 11 '' Grass `
             -Off @('DreamWind.RuntimeTerrain 0', 'DreamWind.Occlusion 0') -On @('DreamWind.RuntimeTerrain 1', 'DreamWind.Occlusion 1') -Reset @('DreamWind.Occlusion -1', 'DreamWind.RuntimeTerrain -1'))
         (Feature WindTerrainPasses 'Runtime terrain map (its capture scatter and derive passes)' 'yes' events 11 '' Grass -Event 'RenderGraphExecute - DreamWind\.Terrain')
+        (Feature WindFluid 'Wind fluid (near + far step, compute)' 'yes' events 11 '' Grass -Event 'RenderGraphExecute - DreamWind\.Fluid$')
+        (Feature WindFluidNear 'Wind fluid, near level (64 x 64 x 32 at 1 m)' 'yes' events 11 '' Grass -Event '^Near$' -Under 'DreamWind\.Fluid$')
+        (Feature WindFluidFar 'Wind fluid, far level (64 x 64 x 32 at 4 m)' 'yes' events 11 '' Grass -Event '^Far$' -Under 'DreamWind\.Fluid$')
+        (Feature WindFluidWalls 'Wind fluid walls from the global distance field (in the view)' 'yes' events 11 '' Grass -Event '^DreamWind\.FluidWalls')
+        (Feature WindFluidFrame 'Wind fluid instead of the residual volume (everything, frame)' 'yes' toggle 11 '' Grass `
+            -Off @('DreamWind.Fluid 0') -On @('DreamWind.Fluid 1') -Reset @('DreamWind.Fluid -1'))
+        (Feature WindFluidDistanceField 'The global distance field kept up for the fluid''s walls (frame)' 'yes (no software Lumen here)' toggle 11 '' Grass `
+            -Off @('DreamWind.Fluid.DistanceField 0') -On @('DreamWind.Fluid.DistanceField 1') -Reset @('DreamWind.Fluid.DistanceField -1'))
+        (Feature WindDistanceFieldUpdate 'The global distance field''s update (its passes)' 'with the fluid' events 11 '' Grass -Event 'GlobalDistanceField|DistanceFields')
         (Feature WindVolumeAll 'Wind volume (update + material reads, frame)' 'yes' toggle 11 '' Grass `
             -Off @('DreamWind.Volume 0') -On @('DreamWind.Volume 1') -Reset @('DreamWind.Volume -1'))
         (Feature WindGrass 'Wind grass, 40 000 blades (all its draws, frame)' 'per level' toggle 11 '' Grass `

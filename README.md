@@ -1217,7 +1217,7 @@ the analytic model above, plus a small camera-following volume for local air.
 | :-- | :-- | :-- | :-- |
 | **L0 analytic** | direction · speed · travelling gust fronts · curl turbulence, a pure function of (position, time) | ALU only, 3 (cheap) or 6 (full) noise evaluations; 0.05 µs / 0.09 µs on the CPU | everyone |
 | **L1 terrain** | a baked 2D map over the level: ridges blow harder, hollows are sheltered, wind steers toward valleys, and level geometry casts a **wind shadow** (walls, rocks, hill crests; calm inside solids) | 1 bilinear fetch + 25 for the shadow march, ~1 MB per 256² map (2 MB with its max-height chain) | everyone |
-| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); residual wind, impulses, wakes; advected and decayed each frame | two compute passes, 2 MB | materials (on by default), Niagara GPU |
+| **L2 volume** | two 64×64×32 RGBA16F windows that follow the camera (near: 1 m voxels / 64 m, far: 4 m voxels / 256 m); a fluid round walls (flow round buildings, corner eddies, backflow in the lee), sources' impulses and wakes; or, with the fluid off, the residual wind advected and decayed | 0.2 ms for both grids (fluid), ~8 MB | materials (on by default), Niagara GPU |
 | **L3 sources** | velocity fields with a footprint: directional / radial / vortex spheres (directional and vortex can be **stretched** into a jet along their axis) and **shelter** boxes (calm interiors, wind zones); transient impulses or components that follow an actor | per source, ≤ 64 uploaded | CPU sample, volume, Niagara |
 
 Consumers, all fed from the same `UDreamWindSubsystem`:
@@ -1353,6 +1353,44 @@ turning the wind moves every shadow — the CPU sample, materials, Niagara and t
 same way. It is 2.5D: overhangs, bridges and roofed rooms need a `Shelter` box for the space
 underneath. Things that must not shade — see the pass-through component above.
 
+**The wind fluid.** The dynamic volumes are solved as a fluid round the camera (*Project Settings ▸ Dream Wind ▸
+Volume | Fluid*, `bFluid`, on by default): the air flows round buildings and speeds up past their sides, eddies spin
+off their corners and fill an L's pocket, and behind them it turns back toward the wall. It is the visual wind —
+materials and Niagara read it (`MF_DreamWindSample`, the wind DI) as before; the CPU sample does not (gameplay stays
+deterministic, a dedicated server has none).
+
+* Two grids, the volumes' (`VolumeResolution` 64×64×32): **near** at 1 m cells (64 m across, 32 m tall), **far** at 4 m
+  (256 m, 128 m). They sit on the ground under the camera (`FluidCellsBelowGround` cells into it; they rise with a camera
+  high above it) and follow it by whole cells; a jump of more than a quarter of a grid starts it afresh.
+* Each frame, per grid: carry the air along itself (semi-Lagrangian; on the near grid MacCormack, `bFluidMacCormack`,
+  sharp enough for the shear off a corner to roll up), vorticity confinement on the near grid (`FluidVorticity`, 0.4),
+  the sources, the pull back toward the background, then the pressure: red-black Gauss-Seidel from last frame's pressure
+  (`FluidPressureIterations` 8 near, `FluidFarPressureIterations` 4 far, over-relaxed by `FluidPressureRelaxation` 1.5),
+  free slip along the walls, a speed limit (`FluidMaxSpeed`) and a NaN guard.
+* What the grids hold is the fluid's deviation from the background wind (analytic + terrain maps). The background is
+  evaluated afresh at every cell and every point, so its gusts pass through unblurred; the fluid pulls toward it without
+  the terrain maps' wind shadow (its walls make the lee) over `FluidNudgeTime` (10 s) inside, tightening to
+  `FluidSpongeTime` over the `FluidSpongeCells` (4) along the sides and the top, so the open borders do not reflect.
+  Across that sponge the near grid takes the far grid's wind (what lies outside it comes in); inside, it solves its own
+  walls. The volumes' deviation is measured against the shadowed background consumers evaluate, so they add it as before.
+* **Walls.** From the engine's global distance field (`bFluidDistanceField`): 3D, so air passes under bridges and
+  through arches. The wind asks the renderer to keep the field up to date while the fluid runs (the project needs
+  *Generate Mesh Distance Fields*; see *Global distance field* below), and its views look the walls up after the scene
+  (new cells at once, the others an eighth a frame, so a moved building shows within eight frames). A cell is a wall when
+  a surface lies within `FluidWallThickness` (0.45) of a cell of its centre — a wall thinner than a cell stays watertight,
+  a face on a cell boundary stays where it is; the far grid uses the same thickness in cm. Where the field has nothing
+  (outside its clipmaps, `DreamWind.Fluid.DistanceField 0`, no distance fields), the walls come from the terrain maps'
+  heights (2.5D: the runtime map's texel under the cell, or the baked map's max heights over it). Actors whose meshes do
+  not affect distance field lighting are not walls in 3D (the grass field's are off). A sheet has no inside for the
+  distance field, so a ground made of a plane mesh is invisible to the fluid (the air runs under it to the grid's
+  floor): give the ground thickness (a landscape, a slab).
+* Wall cells hand consumers what the air beside them does (grass on the ground, leaves on a wall sit in them).
+* The residual volume (sources' wakes carried and decaying, no walls) remains with `bFluid` off.
+* Measured on the wind field test level (RTX 4070 Ti SUPER, 1920×1080, `Measure-ShowcaseGpu.ps1 -Scene WindField`):
+  near grid **0.13 ms**, far grid 0.09 ms, the walls' lookup 0.01 ms; the distance field's own update about 0.09 ms
+  (paid only by projects that would not keep it anyway: not with software Lumen or distance field AO). Fluid instead of
+  the residual volume: +0.2 ms of the frame. What the pressure leaves of the divergence: 0.2 % of the speed on average.
+
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, and the debug view:
 
@@ -1373,11 +1411,16 @@ tests), `DreamWind.TimeScale`, and the debug view:
   [size] [yaw]` lays a plane under the camera (`ADreamWindSliceActor`, also placeable): `0` the whole wind (hue =
   direction, brightness = speed; the runtime terrain map where it runs), `1` the baked terrain map alone (grey = how
   much wind its shadow leaves, red inside a solid, warm where it speeds the wind up, cool where it slows it), `2` the
-  dynamic volume alone (its residual, and the near window's edge), `3` the engine's global distance field (red on a
-  surface, white near one, blue farther off, magenta where the view had none), `4` the runtime terrain map alone (as
-  `1`). A yaw stands the plane up, 15 m ahead of the camera, across that yaw. `DreamWind.Slice off`.
+  dynamic volume alone (its residual — the fluid's deviation — the near window's edge, the fluid's walls grey), `3` the
+  engine's global distance field (red on a surface, white near one, blue farther off, magenta where the view had none),
+  `4` the runtime terrain map alone (as `1`), `5` what the fluid's pressure left of the divergence (black none, red 5 %,
+  yellow 10 % of the speed; walls grey; it turns `DreamWind.Fluid.ShowDivergence` on). A yaw stands the plane up, 15 m
+  ahead of the camera, across that yaw. `DreamWind.Slice off`.
 * `DreamWind.Occlusion 0|1|-1` switches the terrain maps' wind shadow off for every consumer (to time it, or to compare);
   `DreamWind.RuntimeTerrain 0|1|-1` the runtime terrain map (off: back to the baked map).
+* `DreamWind.Fluid 0|1|-1` the fluid (0: the residual volume), `DreamWind.Fluid.DistanceField 0|1|-1` its walls from the
+  global distance field (0: the terrain maps' heights), `DreamWind.Fluid.Stats` reads the volumes back and logs the
+  largest and mean deviation, the walls and any NaN.
 * **Global distance field.** The renderer keeps it up to date only while something uses it: Lumen *with software
   tracing* (with hardware ray tracing Lumen never asks for it), distance field AO, or a material or Niagara system that
   reads it. `DreamWind.DistanceField 1` asks for it on the wind's behalf (`r.AOGlobalDistanceField.DetailedNecessityCheck
@@ -1415,11 +1458,12 @@ usable in your own levels; none of the runtime depends on them.
 
 **Wind field test level.** `/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindFieldTest` is generated (`Setup -WindFieldTestMap`)
 for measuring and comparing the wind field itself: flat ground with 40 000 blades of wind grass, a 10 x 8 x 6 m house, a
-24 m wall across the wind, an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
-4 s, a steady 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is
-in `DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on
-it (the volume update, the wind shadow's march in the materials and in the volume, the volume's material reads, the
-grass).
+24 m wall across the wind off to its side (in the fluid a wall's wake runs tens of metres: nothing stands right behind
+it but the hill, 40 m on), an L-shaped corner opening downwind, a conical hill, a clearing with a radial burst every
+4 s, a 900 cm/s wind along +x with no weather actor, and the terrain map baked over it. Where its pieces stand is in
+`DreamWindTestMap.h` (`DreamWorld::Setup::WindTest`). `Measure-ShowcaseGpu.ps1 -Scene WindField` times the wind on it
+(the volume update, the wind shadow, the runtime terrain map, the fluid's grids and walls, the distance field's update,
+the volume's material reads, the grass).
 
 ## Architecture notes
 
@@ -1516,8 +1560,11 @@ shelters, packing, terrain, occlusion: max-height atlas, tap levels, wall shadow
 subsystem tick with an impulse in whichever editor/game world is up, `DreamWind.Terrain.GridShadow` the runtime
 terrain map's CPU grid (a wall's lee and its wedge, the wind turning, unswept cells). With a renderer, on the wind
 field test level: `DreamWind.Gpu.RuntimeTerrain` (the GPU's map has the house's lee where the wedge says and none
-upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone) and
-`DreamWind.Gpu.DistanceFieldProbe`.
+upwind, the CPU grid agrees, and the lee follows the house when it moves, found by the refresh strips alone),
+`DreamWind.Gpu.Fluid` (in a steady wind, averaged over six reads: the air turns back in the house's lee, blows faster
+past its sides than in the open, spins opposite ways behind its two downwind corners, turns back in the L's pocket and
+not in the open, stays still in the house's walls, with the walls from the distance field — twice, 300 frames apart —
+and from the heights; and the residual divergence) and `DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
