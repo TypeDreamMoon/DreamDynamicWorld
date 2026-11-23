@@ -52,6 +52,8 @@ int2 Resolution;
 StructuredBuffer<float4> Steps;
 StructuredBuffer<float4> Zones;
 StructuredBuffer<float4> ZoneTracks;
+StructuredBuffer<float4> Floods;      // the water bodies over each whole step, then the step in progress: NumFloodBodies records of two float4
+uint NumFloodBodies;
 RWTexture2D<float4> StepStart;
 RWTexture2D<float4> IceStepStart;
 RWTexture2D<float4> HailStepStart;
@@ -181,6 +183,46 @@ float WindFactorAt(float2 P)
 	return Speed * Open;
 }
 
+// The ground's height at a point for the floods: the runtime terrain map's top surface (the finer level's), below -1e6
+// where it knows none (no flood there).
+float GroundAt(float2 P)
+{
+	const FDreamWindL1Level LN = DW_UnpackL1Level(WindL1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level(WindL1Far);
+	const float3 P0 = float3(P.x, P.y, 0.0f);
+	if (DW_L1Weight(P0, LN) > 0.0f)
+	{
+		return WindTopAt(WindL1NearHeight, P0, LN);
+	}
+	return DW_L1Weight(P0, LF) > 0.0f ? WindTopAt(WindL1FarHeight, P0, LF) : -1.0e7f;
+}
+
+// A step's flood at the point (Step: its block in Floods, NumSteps for the step in progress): how flooded (DSF_Flooded of
+// the deepest water body's water over the ground there) and that water's turbidity.
+float2 FloodHere(uint Step, float2 P, float Ground)
+{
+	float Depth = 0.0f;
+	float Turbidity = 0.0f;
+	if (Ground < -1.0e6f)
+	{
+		return float2(0.0f, 0.0f);
+	}
+	for (uint b = 0; b < NumFloodBodies; ++b)
+	{
+		const float4 A = Floods[(Step * NumFloodBodies + b) * 2];
+		const float4 B = Floods[(Step * NumFloodBodies + b) * 2 + 1];
+		const float2 D = P - A.xy;
+		const float2 L = float2(D.x * A.z + D.y * A.w, -D.x * A.w + D.y * A.z);
+		const float Here = B.z - Ground;
+		if (abs(L.x) <= B.x && abs(L.y) <= B.y && Here > Depth)
+		{
+			Depth = Here;
+			Turbidity = B.w;
+		}
+	}
+	return float2(DSF_Flooded(Depth), Turbidity);
+}
+
 [numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
 void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
@@ -191,6 +233,7 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	float2 P = TexelWorld(DispatchThreadId.xy);
 	// (the terrain map as it stands now, for every step of the memory: its lees move only as the wind turns)
 	const float WindFactor = WindFactorAt(P);
+	const float Ground = NumFloodBodies > 0 ? GroundAt(P) : -1.0e7f;
 	float4 S;
 	float4 S2;
 	float4 S3;
@@ -207,6 +250,10 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			float4 Next = DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, StepHours);
 			float4 NextIce = DSF_StepIce(S, S2, D.D0, D.D1, Rates0, Rates3, Rates4, StepHours);
 			S3 = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, StepHours);
+			// Then a water body's flood over it (DreamWater), as UDreamSurfaceSubsystem::Step has it.
+			const float2 Flood = FloodHere(k, P, Ground);
+			Next = DSF_FloodWater(Next, Flood.x);
+			S3 = DSF_StepFlood(S3, Flood.x, Flood.y, D.D0, StepHours);
 			S2 = NextIce;
 			S = Next;
 		}
@@ -221,9 +268,10 @@ void StateCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		S3 = HailStepStart[DispatchThreadId.xy];
 	}
 	FDreamSurfaceTexelDrive D = DriveHere(PartialWeather, PartialChannels, PartialAir, PartialKinds, P, -1, WindFactor);
-	OutMap[DispatchThreadId.xy] = DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, PartialHours);
+	const float2 Flood = FloodHere(NumSteps, P, Ground);
+	OutMap[DispatchThreadId.xy] = DSF_FloodWater(DSF_Step(S, S2, S3, D.D0, D.D1, D.D2, Rates0, Rates1, Rates2, Rates3, Rates4, Rates5, PartialHours), Flood.x);
 	OutIce[DispatchThreadId.xy] = DSF_StepIce(S, S2, D.D0, D.D1, Rates0, Rates3, Rates4, PartialHours);
-	OutHail[DispatchThreadId.xy] = DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, PartialHours);
+	OutHail[DispatchThreadId.xy] = DSF_StepFlood(DSF_StepHail(S3, D.D0, D.D1, D.D2, Rates4, Rates5, PartialHours), Flood.x, Flood.y, D.D0, PartialHours);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

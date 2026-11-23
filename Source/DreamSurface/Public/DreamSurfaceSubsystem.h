@@ -31,6 +31,14 @@ struct FDreamSurfaceMapSteps
 	FVector4f PartialAir = FVector4f::Zero();
 	FVector4f PartialKinds = FVector4f::Zero();
 	float PartialHours = 0.0f;
+	/**
+	 * The water bodies over each whole step and then the step in progress (DreamWater): NumFloodBodies records of two
+	 * float4 each, (centre x, y, cos yaw, sin yaw), (half x, half y, surface z, turbidity); the surface map floods the
+	 * ground under a body's surface.
+	 */
+	TArray<FVector4f> Floods;
+	int32 NumFloodBodies = 0;
+	static constexpr int32 MaxFloodBodies = 8;
 };
 
 /**
@@ -165,6 +173,12 @@ private:
 
 	/** The global weather at each step this session saw, by step index (world seconds / StepSeconds). */
 	TMap<int64, FDreamWeatherValues> History;
+
+	/** The water bodies at each step this session ran through (FDreamSurfaceMapSteps::Floods' records); a step not seen takes them as they are now. */
+	TMap<int64, TArray<FVector4f>> WaterHistory;
+	TArray<FVector4f> WaterNow() const;
+	const TArray<FVector4f>& WaterAtStep(int64 StepIndex) const;
+	mutable TArray<FVector4f> WaterNowCache;
 
 	FDreamSurfaceState ViewState;
 	/** The view's open-sky state at the start of ViewStep, at ViewAnchor: a frame inside that step only adds its part. */

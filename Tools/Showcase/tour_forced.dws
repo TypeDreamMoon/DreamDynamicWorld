@@ -265,4 +265,17 @@ DreamWater.Bodies
 settle 20
 wait 30
 shot SHOW_PondAfter_Pond
+DreamWater.Bodies 0 0.9
+DreamWater.Bodies hold
+DreamWorld.Pause 0
+wait 112
+DreamWorld.Pause 1
+settle 20
+wait 20
+move 1700 -1250 90
+aim -12 165
+wait 3
+settle 8
+shot SHOW_PondReceded_Ring
+DreamWater.Bodies release
 DreamWeather.Clear

@@ -62,6 +62,8 @@ class FDreamSurfaceStateCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Steps)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Zones)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, ZoneTracks)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float4>, Floods)
+		SHADER_PARAMETER(uint32, NumFloodBodies)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, StepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, IceStepStart)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, HailStepStart)
@@ -208,6 +210,11 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	FRDGBufferRef ZoneBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Zones"), NonEmpty(Args.Zones, NoZone));
 	const TArray<FVector4f> NoTrack = { FVector4f::Zero() };
 	FRDGBufferRef TrackBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.ZoneTracks"), NonEmpty(Args.ZoneTracks, NoTrack));
+	// The floods: every block (the whole steps and the one in progress) must be there, else none.
+	const int32 FloodSteps = Args.Steps.Num() / FDreamSurfaceMapSteps::FloatsPerStep + 1;
+	const bool bFloods = Args.NumFloodBodies > 0 && Args.Floods.Num() >= FloodSteps * Args.NumFloodBodies * 2;
+	const TArray<FVector4f> NoFlood = { FVector4f::Zero(), FVector4f::Zero() };
+	FRDGBufferRef FloodBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("DreamSurface.Floods"), bFloods ? Args.Floods : NoFlood);
 
 	FDreamSurfaceStateCS::FParameters* Params = GraphBuilder.AllocParameters<FDreamSurfaceStateCS::FParameters>();
 	Params->Rates0 = Args.Rates[0];
@@ -232,6 +239,8 @@ void FDreamSurfaceMapRenderer::State_RenderThread(FRDGBuilder& GraphBuilder, int
 	Params->Steps = GraphBuilder.CreateSRV(StepBuffer);
 	Params->Zones = GraphBuilder.CreateSRV(ZoneBuffer);
 	Params->ZoneTracks = GraphBuilder.CreateSRV(TrackBuffer);
+	Params->Floods = GraphBuilder.CreateSRV(FloodBuffer);
+	Params->NumFloodBodies = bFloods ? uint32(Args.NumFloodBodies) : 0u;
 	Params->StepStart = GraphBuilder.CreateUAV(Start);
 	Params->IceStepStart = GraphBuilder.CreateUAV(IceStart);
 	Params->HailStepStart = GraphBuilder.CreateUAV(HailStart);

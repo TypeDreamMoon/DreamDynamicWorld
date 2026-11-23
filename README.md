@@ -347,6 +347,23 @@ curve over the light's elevation, `SunStrength` and `MoonStrength` (by default p
 overhead); a sky modifier's *Cloud Clearing* turns all four toward its own. `DreamSky.CloudClearing <scale>` scales it
 whatever the style says (0 to compare; -1 = the style's).
 
+**Funnel clouds.** A tornado's funnel hangs from the cloud base, drawn by the sky cloud renderer into the clouds' own
+shape (`DSky_Funnels`), so the toon, realistic and painted looks each draw it their way: a column narrowing from its
+radius at the base to a rope at the ground, as far down as the tornado's strength takes it (0.5 half way, 1 on the
+ground, a whirl of dust at its foot), widening on up into the cloud over the base, leaning with the wind aloft,
+wavering a little, striated by streaks that turn with it, twisted with height, dark as a storm's base. Whatever makes a
+whirlwind registers it with the world clock, `UDreamWorldSubsystem::SetVortex` (an `FDreamWorldVortex`: where it stands
+on the ground, the funnel's radius at the base, its strength, spin, wall speed, lean and when it formed; `bFunnel` false
+for a dust devil, which has none), updates it every frame and removes it (`RemoveVortex`); the four nearest the view are
+drawn (`DreamSkyFunnels.h` packs them into `DDW_Funnel0..3`, `DDW_FunnelShape0..3`). How far a funnel has turned is
+reckoned from when it formed, in real seconds at the clock's rate, so a jump in time, a loaded snapshot or a second
+picture of the same moment shows it the same. The march reaches down to every funnel below the base and steps finely
+near its column, the realistic look sees the narrow column as dense as a cloud kilometres deep, and the history weighs
+little where it is (it turns and moves within seconds). `DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX]
+[LeanY] [Speed]` registers one by hand (Id 0 a new one), `DreamWorld.Vortex.Remove Id` removes it;
+`Tools/Showcase/tour_funnel.dws` (`-Parts funnel`) shows one forming, touching down, moving off and dissipating. Only
+the cloud renderer draws them (not the dome alone).
+
 **Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
 sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
 sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light
@@ -1365,6 +1382,23 @@ over the hollow's sides and joins the next hollow; its brim 30 cm up) and a rais
 the caustics on its floor, walls and a stone. The forced tour shoots the basin at noon, then the pond dry, after six
 hours of rain (at its brim, muddy) and after a dry day (`Caustics`, `PondDry`, `PondRain`, `PondAfter`).
 
+**Floods on the surfaces.** Where a water body's water stands over the ground the surfaces are under water
+(DreamSurface, `DSF_FloodWater` / `DSF_StepFlood` in `DreamSurfaceShared.h`, the CPU and the surface maps alike): the
+film and the hollows full, the snow, the dust and the hail gone with the water. Each step of the surfaces' memory
+records the bodies as they stood (their area, yaw, surface and turbidity; a step this session never saw takes them as
+they are now), so a flood is integrated like any weather: when the water goes down the ground is left wet, its dips
+full, and dries as wet ground does -- a wet mark that outlasts the flood by hours. A muddy flood leaves silt (the state's
+`Silt`, S3.z; `Flooded` is S3.y): it builds while the water stands (full in six hours of the muddiest), settles into the
+ground once it has gone (half every two days) and washes off in the rain (a full rain takes it in four hours). The
+surface materials show it under the weather's layers -- the colour toward *Silt Color* by *Silt Amount* (full from half
+the silt), the roughness toward *Silt Roughness*, on what faces up, thinner in patches --, so it is dark wet mud while the
+ground is wet and a pale crust of dried mud after. A query asks at its own point (under the surface, inside a body's
+area, is under its water); the maps ask the ground's height from the wind's runtime terrain map (no flood where it knows
+no surface: keep a water body's own mesh out of collision, or its top hides the ground). `DreamSurface.At x y z` prints
+the state at a point, `DreamSurface.SaveMaps` adds the flood (flooded red, silt green). The forced tour shoots the pond's
+flooded ring a few hours after the water went down (`PondReceded`). `DreamSurface.Flood` checks it under water, out of
+it, drying and the silt staying.
+
 **Driving the engine's Water plugin.** DreamWater does not depend on the Water plugin; drive its bodies from the offset
 in your project (a Blueprint or a small component next to the Dream Water Body):
 
@@ -1881,6 +1915,10 @@ as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a wa
 with a blue zenith, the haze along the ground: its closed-form transmittance, blue, building up with distance, bright
 toward a low sun); `DreamAtmosphere.Gpu.*` (with a renderer) the GPU's tables and aerial perspective volume to the
 CPU's integrals, and that the tables are rebuilt only when the air changes.
+`DreamSurface.Flood` holds a flood to the CPU's state only (under the water, on the bank, beside the pond, the wet mark
+drying, the silt staying). The surface maps' flood has no test of its own: they take the ground's height from the wind's
+runtime terrain map, which the test world does not build, so where they flood is checked on the showcase instead -- the
+forced tour's `PondReceded` shot and `DreamSurface.SaveMaps`' flood map after a flood.
 
 ## Verification (2026-08-18)
 

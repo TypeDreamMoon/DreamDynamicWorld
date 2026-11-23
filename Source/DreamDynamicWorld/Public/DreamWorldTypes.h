@@ -320,3 +320,47 @@ struct DREAMDYNAMICWORLD_API FDreamDayPhase
 	UPROPERTY(BlueprintReadOnly, Category = "Day Phase")
 	float Night = 0.0f;
 };
+
+/**
+ * A whirlwind the world knows of (UDreamWorldSubsystem::SetVortex): where it stands, how big and strong it is, which way
+ * it turns. Whatever makes the wind of one (a tornado, a dust devil) registers it; the sky draws a tornado's funnel
+ * cloud from it (DreamSky).
+ */
+USTRUCT(BlueprintType)
+struct DREAMDYNAMICWORLD_API FDreamWorldVortex
+{
+	GENERATED_BODY()
+
+	/** Its centre on the ground (cm): the funnel's root. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	FVector Location = FVector::ZeroVector;
+
+	/** The funnel's radius where it meets the cloud base (cm); it narrows toward the ground. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "100"))
+	float Radius = 15000.0f;
+
+	/** 0 none .. 0.5 the funnel half way down .. 1 on the ground. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0", ClampMax = "1"))
+	float Strength = 1.0f;
+
+	/** +1 counter-clockwise seen from above, -1 clockwise. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	float Spin = 1.0f;
+
+	/** The wind round the funnel's wall (cm/s): how fast it turns. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex", meta = (ClampMin = "0"))
+	float TangentialSpeed = 3000.0f;
+
+	/** Where the funnel's top (at the cloud base) stands from its root, across (cm): it leans with the wind aloft. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	FVector2D Lean = FVector2D::ZeroVector;
+
+	/** The world time it formed (UDreamWorldSubsystem::GetWorldSeconds): its turning is reckoned from it, so the same
+	 *  moment looks the same however it is reached. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	double BornSeconds = 0.0;
+
+	/** A tornado's funnel cloud is drawn; false for a dust devil (no funnel). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Vortex")
+	bool bFunnel = true;
+};

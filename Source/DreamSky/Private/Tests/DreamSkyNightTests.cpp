@@ -1,6 +1,8 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamSky.h"
+#include "DreamSkyCloudRenderer.h"
+#include "DreamSkyFunnels.h"
 #include "DreamSkyModifier.h"
 #include "DreamSkyEclipse.h"
 #include "DreamSkyModule.h"
@@ -1056,6 +1058,82 @@ bool FDreamWorldQualityTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("cinematic: the sun maps whole"), Int(TEXT("DreamSky.CloudRender.SunMapSlices")), 1);
 	UDreamWorldQuality::SetQualityOverride(Saved);
 	UDreamWorldQuality::Apply(true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSkyFunnelsTest, "DreamSky.Funnels", DreamSky::NightTests::Flags)
+bool FDreamSkyFunnelsTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSky::NightTests;
+	using namespace DreamSky::Names;
+	auto Vortex = [](double X, double Y, float Strength, float Spin, bool bFunnel)
+	{
+		FDreamWorldVortex V;
+		V.Location = FVector(X, Y, 120.0);
+		V.Radius = 10000.0f;
+		V.Strength = Strength;
+		V.Spin = Spin;
+		V.TangentialSpeed = 3000.0f;
+		V.Lean = FVector2D(4000.0, -2000.0);
+		V.bFunnel = bFunnel;
+		return V;
+	};
+
+	// How far a funnel has turned: its wall's speed over its radius, in real seconds at the clock's rate, from when it formed.
+	FDreamWorldVortex Turning = Vortex(0.0, 0.0, 1.0f, 1.0f, true);
+	Turning.BornSeconds = 1000.0;
+	TestNearlyEqual(TEXT("100 game seconds at 10x: 10 real seconds at 0.3 rad/s"), DreamSky::Funnels::Turned(Turning, 1100.0, 10.0f), 3.0f, 1e-4f);
+	TestNearlyEqual(TEXT("wrapped to a turn"), DreamSky::Funnels::Turned(Turning, 1000.0 + 300.0, 1.0f), float(FMath::Fmod(90.0, UE_DOUBLE_TWO_PI)), 1e-3f);
+	TestNearlyEqual(TEXT("nothing before it formed (a turn back, wrapped)"), DreamSky::Funnels::Turned(Turning, 1000.0, 1.0f), 0.0f, 1e-6f);
+
+	// Which are drawn: tornadoes with a strength (not a dust devil, not a spent one), the nearest four, the spin in the
+	// strength's sign.
+	TMap<int32, FDreamWorldVortex> Vortices;
+	Vortices.Add(1, Vortex(50000.0, 0.0, 0.8f, 1.0f, true));
+	Vortices.Add(2, Vortex(10000.0, 0.0, 0.5f, -1.0f, true));
+	Vortices.Add(3, Vortex(5000.0, 0.0, 1.0f, 1.0f, false));
+	Vortices.Add(4, Vortex(6000.0, 0.0, 0.0f, 1.0f, true));
+	Vortices.Add(5, Vortex(90000.0, 0.0, 1.0f, 1.0f, true));
+	Vortices.Add(6, Vortex(20000.0, 0.0, 1.0f, 1.0f, true));
+	Vortices.Add(7, Vortex(70000.0, 0.0, 1.0f, 1.0f, true));
+	FLinearColor Funnel[DreamSky::Funnels::MaxFunnels];
+	FLinearColor Shape[DreamSky::Funnels::MaxFunnels];
+	const int32 Count = DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape);
+	TestEqual(TEXT("four of the five tornadoes"), Count, 4);
+	TestTrue(TEXT("the nearest first: 100 m, a clockwise one at half strength"), FMath::IsNearlyEqual(Funnel[0].R, 10000.0f) && FMath::IsNearlyEqual(Funnel[0].A, -0.5f));
+	TestTrue(TEXT("then 200 m, 500 m, 700 m"), FMath::IsNearlyEqual(Funnel[1].R, 20000.0f) && FMath::IsNearlyEqual(Funnel[2].R, 50000.0f) && FMath::IsNearlyEqual(Funnel[3].R, 70000.0f));
+	TestTrue(TEXT("its radius, the ground's height and the lean"), FMath::IsNearlyEqual(Funnel[0].B, 10000.0f) && FMath::IsNearlyEqual(Shape[0].G, 120.0f)
+		&& FMath::IsNearlyEqual(Shape[0].B, 4000.0f) && FMath::IsNearlyEqual(Shape[0].A, -2000.0f));
+	Vortices.Reset();
+	Vortices.Add(1, Vortex(1000.0, 0.0, 1.0f, 1.0f, true));
+	TestEqual(TEXT("one tornado"), DreamSky::Funnels::Pack(Vortices, FVector::ZeroVector, 0.0, 1.0f, Funnel, Shape), 1);
+	TestTrue(TEXT("the other slots empty"), Funnel[1] == FLinearColor(0.0f, 0.0f, 0.0f, 0.0f) && Shape[3] == FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+
+	// The renderer reads them after its other parameters, as DreamSkyCloudRender.usf's DSKY_FUNNEL_A / _B have them.
+	const TArray<FName>& Names = FDreamSkyCloudViewExtension::GetParameterNames();
+	TestTrue(TEXT("the renderer's parameters: the funnels at 31..34, their shapes at 35..38"), Names.Num() == 39 && Names[31] == MPC_Funnel[0]
+		&& Names[34] == MPC_Funnel[3] && Names[35] == MPC_FunnelShape[0] && Names[38] == MPC_FunnelShape[3]);
+
+	// In a world: registered with the clock, updated and removed by id; written to the shared parameters each frame.
+	FNightWorld W(FDateTime(2026, 6, 21, 16, 0, 0), 35.0, 139.7, 9.0f);
+	if (TestTrue(TEXT("world"), W.IsValid()))
+	{
+		FDreamWorldVortex Tornado = Vortex(30000.0, -12000.0, 0.9f, 1.0f, true);
+		Tornado.BornSeconds = W.Clock->GetWorldSeconds() - 600.0;
+		const int32 Id = W.Clock->SetVortex(0, Tornado);
+		TestTrue(TEXT("a new id"), Id > 0 && W.Clock->GetVortices().Contains(Id));
+		Tornado.Location.X = 32000.0;
+		TestEqual(TEXT("updated under the same id"), W.Clock->SetVortex(Id, Tornado), Id);
+		TestEqual(TEXT("one registered"), W.Clock->GetVortices().Num(), 1);
+		W.Clock->Tick(0.016f);
+		const FLinearColor F0 = W.Parameter(MPC_Funnel[0]);
+		const FLinearColor S0 = W.Parameter(MPC_FunnelShape[0]);
+		TestTrue(TEXT("the shared parameters carry it"), FMath::IsNearlyEqual(F0.R, 32000.0f, 1.0f) && FMath::IsNearlyEqual(F0.A, 0.9f, 1e-4f));
+		TestNearlyEqual(TEXT("turned as far as the time says"), S0.R, DreamSky::Funnels::Turned(Tornado, W.Clock->GetWorldSeconds(), W.Clock->GetTimeScale()), 1e-3f);
+		W.Clock->RemoveVortex(Id);
+		W.Clock->Tick(0.016f);
+		TestNearlyEqual(TEXT("removed: no funnel"), W.Parameter(MPC_Funnel[0]).A, 0.0f, 1e-6f);
+	}
 	return true;
 }
 

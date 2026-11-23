@@ -966,6 +966,8 @@ namespace DreamWorld::ShowcaseSetup
 		if (AStaticMeshActor* Pond = SurfaceSetup::AddMesh(*World, Kit.Pond, Kit.Water, FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FVector(1.0), FRotator::ZeroRotator, TEXT("Pond")))
 		{
 			Pond->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);   // it rides on the level
+			// Out of collision: the wind's terrain map then sees the ground under it, which the surfaces flood by.
+			Pond->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			UDreamWaterBodyComponent* Body = NewObject<UDreamWaterBodyComponent>(Pond, TEXT("PondWater"));
 			Body->Extent = FVector2D(900.0, 900.0);
 			Body->Depth = 45.0f;
