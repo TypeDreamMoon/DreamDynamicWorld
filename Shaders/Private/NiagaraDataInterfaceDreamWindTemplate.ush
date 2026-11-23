@@ -24,6 +24,12 @@ Texture3D<float4> {ParameterName}_VolumeFarTexture;
 SamplerState      {ParameterName}_VolumeFarSampler;
 Texture2D<float4> {ParameterName}_TerrainTexture;
 SamplerState      {ParameterName}_TerrainSampler;
+float4  {ParameterName}_L1Near;
+float4  {ParameterName}_L1Far;
+float4  {ParameterName}_L1Params;
+Texture2D<float4> {ParameterName}_L1NearMap;
+Texture2D<float4> {ParameterName}_L1FarMap;
+SamplerState      {ParameterName}_L1Sampler;
 
 void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, out float Out_Gust)
 {
@@ -31,6 +37,18 @@ void SampleWind_{ParameterName}(in float3 In_Position, out float3 Out_Velocity, 
 
 	const FDreamWindParams P = DW_UnpackParams({ParameterName}_P0, {ParameterName}_P1, {ParameterName}_P2);
 	FDreamWindSample S = {AnalyticFunction}(P, WorldPos);
+	const FDreamWindL1Level LN = DW_UnpackL1Level({ParameterName}_L1Near);
+	const FDreamWindL1Level LF = DW_UnpackL1Level({ParameterName}_L1Far);
+	if (LN.Mode > 0.5f || LF.Mode > 0.5f)
+	{
+		// the runtime terrain wind map: one texel per level
+		const float WN = DW_L1Weight(WorldPos, LN);
+		const float WF = DW_L1Weight(WorldPos, LF);
+		const float4 TN = WN > 0.0f ? {ParameterName}_L1NearMap.SampleLevel({ParameterName}_L1Sampler, DW_L1UV(WorldPos, LN), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		const float4 TF = WF > 0.0f ? {ParameterName}_L1FarMap.SampleLevel({ParameterName}_L1Sampler, DW_L1UV(WorldPos, LF), 0) : float4(1.0f, 0.0f, 0.0f, -1.0e7f);
+		S = DW_ApplyL1(S, WorldPos, TN, WN, TF, WF, DW_UnpackL1Params({ParameterName}_L1Params));
+	}
+	else
 	{
 		const FDreamWindTerrainParams TP = DW_UnpackTerrain({ParameterName}_T0, {ParameterName}_T1, {ParameterName}_T2);
 		const float2 TUV = DW_TerrainUV(WorldPos, TP);

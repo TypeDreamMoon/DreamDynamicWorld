@@ -164,11 +164,23 @@ float UDreamWeatherSubsystem::ExposureAt(const FVector& Position) const
 	const UWorld* World = GetWorld();
 	const UDreamWindSubsystem* Wind = World && S->bUseWindTerrainHeights ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
 	const FDreamWindTerrainCpuData* Terrain = Wind ? Wind->GetFrameData().TerrainCpu.Get() : nullptr;
-	if (Terrain && Terrain->IsInside(Position.X, Position.Y))
+	// The runtime terrain map's CPU grid where it has swept (its heights are the level as it stands now), else the baked map.
+	const FDreamWindTerrainGridData* Grid = Wind ? Wind->GetFrameData().TerrainGrid.Get() : nullptr;
+	const auto GridHeight = [Grid](double X, double Y)
 	{
-		const auto CoveredAt = [Terrain, &Position, S](double X, double Y)
+		return Grid ? Grid->HeightAt(X, Y) : FDreamWindTerrainGridData::NotSwept;
+	};
+	const auto Known = [](float Height) { return Height > FDreamWindTerrainGridData::NotSwept * 0.75f; };
+	if (Known(GridHeight(Position.X, Position.Y)) || (Terrain && Terrain->IsInside(Position.X, Position.Y)))
+	{
+		const auto CoveredAt = [Terrain, &Position, S, &GridHeight, &Known](double X, double Y)
 		{
-			return Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
+			const float FromGrid = GridHeight(X, Y);
+			if (Known(FromGrid))
+			{
+				return double(FromGrid) > Position.Z + S->RoofClearance;
+			}
+			return Terrain && Terrain->IsInside(X, Y) && double(Terrain->HeightBase) + Terrain->HeightBilinear(X, Y, 0) > Position.Z + S->RoofClearance;
 		};
 		if (CoveredAt(Position.X, Position.Y))
 		{
