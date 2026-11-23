@@ -358,22 +358,29 @@ of the wall cloud, narrowing toward the ground as far down as the tornado's stre
 ground), with its own profile (from its size: a wide cone tapering all the way, or a rope widening only near the base),
 three lobes twisting with height and turning with it, broad streaks up its wall, leaning with the wind aloft and
 wavering a little; at its top it flares out and thins softly into the base, as dark as the wall cloud there. Once it
-touches down a low tumbling ring of **dust** stands at its foot. The funnel and its dust are dark: grey to dark grey
+touches down a low tumbling ring of **dust** stands at its foot. As it dies it **ropes out**, not drawn back up into
+the cloud: by its `Decay` (0..1) the funnel stays down to the ground and thins to a rope, a fifth as wide at the base
+and nearly as narrow all the way down, swaying in a longer curve and leaning up to three times as far with the wind
+aloft, while its wall cloud, the darkened base and the dust fade; at some 0.8 a gap opens low on the rope and widens,
+and what is left thins out and goes (`DSky_FunnelRope`, `DSky_FunnelBreak`). The funnel and its dust are dark: grey to dark grey
 under the storm's shade, the foot darkest, the side toward the light only a little lighter -- the realistic look
 lights them by the sky as a cloud's base is, the painted look in its shade tone, the toon in its undersides' deep
 shade -- and not veiled as far clouds (the rain still hides one far off). Whatever makes a
 whirlwind registers it with the world clock, `UDreamWorldSubsystem::SetVortex` (an `FDreamWorldVortex`: where it stands
-on the ground, the funnel's radius at the base, its strength, spin, wall speed, lean and when it formed; `bFunnel` false
-for a dust devil, which has none), updates it every frame and removes it (`RemoveVortex`); the four nearest the view are
-drawn (`DreamSkyFunnels.h` packs them into `DDW_Funnel0..3`, `DDW_FunnelShape0..3`). How far a funnel has turned is
+on the ground, the funnel's radius at the base, its strength, spin, wall speed, lean, when it formed and how far it has
+roped out; `bFunnel` false for a dust devil, which has none), updates it every frame and removes it (`RemoveVortex`);
+the four nearest the view are drawn (`DreamSkyFunnels.h` packs them into `DDW_Funnel0..3`, `DDW_FunnelShape0..3` and
+`DDW_FunnelDecay`). `ADreamWindVortex` ropes a tornado out over the last quarter of its life, as its strength falls
+(`FDreamVortexPlan::DecayAt`; placed by hand, its `Decay`), and registers its wall's speed whole (the funnel's turn is
+reckoned from it, so a speed falling with the strength turned it backwards). How far a funnel has turned is
 reckoned from when it formed, in real seconds at the clock's rate, so a jump in time, a loaded snapshot or a second
 picture of the same moment shows it the same. The march reaches down to every funnel below the base and steps finely
 near its column and through its flared top, the realistic and painted looks give the column its own extinction (some
 six optical depths across, however narrow), and the history weighs less on the column (it turns and moves within
 seconds), not on the base round it. `DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX]
-[LeanY] [Speed]` registers one by hand (Id 0 a new one), `DreamWorld.Vortex.Remove Id` removes it;
-`Tools/Showcase/tour_funnel.dws` (`-Parts funnel`) shows one forming, touching down, moving off and dissipating. Only
-the cloud renderer draws them (not the dome alone).
+[LeanY] [Speed] [Decay]` registers one by hand (Id 0 a new one), `DreamWorld.Vortex.Remove Id` removes it;
+`Tools/Showcase/tour_funnel.dws` (`-Parts funnel`) shows one forming, touching down, moving off, roping out and
+breaking. Only the cloud renderer draws them (not the dome alone).
 
 *Known limitations of the funnels.* Realistic, seen from a few kilometres, the wall cloud and the funnel's top are a
 dark wedge hanging under the base line: its top is where the lighter base in front hides it, not an outline of its
