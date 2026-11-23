@@ -8,6 +8,7 @@
 #include "DreamSkyStyle.h"
 #include "DreamSurfaceMask.h"
 #include "DreamSurfaceRoofCapture.h"
+#include "DreamSurfaceDripLine.h"
 #include "DreamSurfaceSetup.h"
 #include "DreamSurfaceVehicleGlass.h"
 #include "DreamWeather.h"
@@ -426,6 +427,27 @@ namespace DreamWorld::ShowcaseSetup
 		}
 	}
 
+	/** Drip lines along the lower edges of a flat roof (HalfX, HalfY: its half sizes; Z: its underside), all four but the
+	 *  one numbered Skip (0 -X, 1 +X, 2 -Y, 3 +Y; -1 none): an edge against a wall or another roof does not drip. */
+	void AddEaves(UWorld& World, const FVector& Center, double HalfX, double HalfY, double Z, const TCHAR* Label, int32 Skip = -1)
+	{
+		const struct { FVector At; double Yaw; double Length; } Edges[] = {
+			{ FVector(-HalfX, 0.0, 0.0), 90.0, 2.0 * HalfY }, { FVector(HalfX, 0.0, 0.0), 90.0, 2.0 * HalfY },
+			{ FVector(0.0, -HalfY, 0.0), 0.0, 2.0 * HalfX }, { FVector(0.0, HalfY, 0.0), 0.0, 2.0 * HalfX },
+		};
+		for (int32 i = 0; i < 4; ++i)
+		{
+			if (i == Skip)
+			{
+				continue;
+			}
+			const auto& Edge = Edges[i];
+			ADreamSurfaceDripLine* Line = World.SpawnActor<ADreamSurfaceDripLine>(FVector(Center.X, Center.Y, Z) + Edge.At, FRotator(0.0, Edge.Yaw, 0.0));
+			Line->Drips->Length = float(Edge.Length);
+			Line->SetActorLabel(Label);
+		}
+	}
+
 	/**
 	 * A hut to step into: stone walls, a doorway on the -X side, a wide window on the -Y side, a wooden roof (the rain's
 	 * roof); a table and a stool inside, and a dim warm lamp over the table. The walls block the view probe's rays, so
@@ -454,6 +476,7 @@ namespace DreamWorld::ShowcaseSetup
 		{
 			Roof->Tags.Add(FDreamWeatherFallPaths::RoofTag);
 		}
+		AddEaves(World, Center, Half + 30.0, Half + 30.0, Center.Z + Height, TEXT("Hut_Eave"));
 		PassThrough(AddBox(World, Kit, Kit.Wood, Center + FVector(80.0, 60.0, 40.0), FVector(140.0, 90.0, 80.0), TEXT("Hut_Table")));
 		PassThrough(SurfaceSetup::AddMesh(World, Kit.Cylinder, Kit.Wood, Center + FVector(-20.0, 60.0, 22.0), FVector(0.4, 0.4, 0.45), FRotator::ZeroRotator, TEXT("Hut_Stool")));
 
@@ -486,6 +509,8 @@ namespace DreamWorld::ShowcaseSetup
 		{
 			Roof->Tags.Add(FDreamWeatherFallPaths::RoofTag);
 		}
+		// Its back edge runs under the hut's roof.
+		AddEaves(World, Center, HalfX + 30.0, HalfY + 30.0, Center.Z + Height, TEXT("Porch_Eave"), 1);
 		ADreamSurfaceRoofCapture* Capture = World.SpawnActor<ADreamSurfaceRoofCapture>(Center + FVector(0.0, 0.0, 180.0), FRotator::ZeroRotator);
 		Capture->Roof->Extent = FVector(HalfX + 60.0, HalfY + 60.0, 180.0);
 		Capture->SetActorLabel(TEXT("Porch_RoofCapture"));
