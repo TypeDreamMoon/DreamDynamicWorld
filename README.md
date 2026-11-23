@@ -631,7 +631,7 @@ carries each (`Rain`, `Snow`, `Hail`, `Sleet`, and what lands on the point, `...
 | Freezing rain | FreezingRain (of the rain) | as rain | as rain | 1 (as rain) | as rain |
 | Snow | SnowRatio (of the rest) | `NS_DreamSnow`: swaying flakes | 130 cm/s | 1 | snow |
 | Sleet | Sleet | `NS_DreamSleet`: short wet streaks, slush splashes | 450 cm/s | 0.5 | half as rain, half as snow |
-| Hail | Hail | `NS_DreamHail`: pellets, bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
+| Hail | Hail | `NS_DreamHail`: bright icy pellets, a little stretched along the fall, scattered off the paths; bouncing off the surface | 1800 cm/s | 0.05 | its own slot (empty: the rain on a roof's) |
 
 Each layer's `WindResponse` goes to its effect (`User.WindResponse`): how much of the wind field's per-particle
 deviation its particles take. Hail and sleet count as precipitation on the surfaces for now (their own layer, hail
