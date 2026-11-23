@@ -641,6 +641,28 @@ void UDreamWindSubsystem::ReportViewOrigin(const FVector& ViewOrigin, bool bIsGa
 	bHasGameViewOrigin |= bIsGameView;
 }
 
+uint32 UDreamWindSubsystem::RequestDistanceFieldProbe(UTextureRenderTarget2D* Target, FVector Center, float Size)
+{
+	FTextureRenderTargetResource* Resource = Target ? Target->GameThread_GetRenderTargetResource() : nullptr;
+	if (!Resource || !ViewExtension.IsValid() || !FApp::CanEverRender())
+	{
+		return 0;
+	}
+	DreamWind::DistanceField::FProbeRequest Request;
+	Request.Target = Resource;
+	Request.Resolution = FIntPoint(Target->SizeX, Target->SizeY);
+	Request.Center = Center;
+	Request.Size = FMath::Max(Size, 1.0f);
+	ViewExtension->QueueDistanceProbe(Request);
+	// (One probe at a time: a second request before the first is written replaces it.)
+	return ViewExtension->GetDistanceProbeCount() + 1;
+}
+
+uint32 UDreamWindSubsystem::GetDistanceProbeCount() const
+{
+	return ViewExtension.IsValid() ? ViewExtension->GetDistanceProbeCount() : 0;
+}
+
 void UDreamWindSubsystem::OverrideVolumeCenter(FVector Center, bool bEnable)
 {
 	VolumeCenterOverride = Center;
