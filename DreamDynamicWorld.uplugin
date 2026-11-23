@@ -51,6 +51,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "DreamWater",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DreamCloud",
 			"Type": "Runtime",
 			"LoadingPhase": "PostConfigInit"
