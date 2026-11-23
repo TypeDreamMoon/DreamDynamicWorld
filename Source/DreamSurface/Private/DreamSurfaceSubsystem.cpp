@@ -36,9 +36,10 @@ namespace DreamSurface::Private
 		const FVector4f V = State.ToVector();
 		const FVector4f C = State.ToIceVector();
 		auto Unit = [](float X) { return FMath::Clamp(X, 0.0f, 1.0f); };
-		// (The hail with the snow, a white cover a brush keeping the snow off keeps off too: DSM_HailShown.)
+		// (The hail with the snow, a white cover a brush keeping the snow off keeps off too: DSM_HailShown. A flood and the
+		// silt it leaves are no weather a brush keeps off.)
 		return FDreamSurfaceState::FromVectors(FVector4f(Unit(V.X * Mask.X), Unit(V.Y * Mask.Y), Unit(V.Z * Mask.Z), Unit(V.W * Mask.W)),
-			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)), FVector4f(Unit(State.Hail * Mask.Z), 0.0f, 0.0f, 0.0f));
+			FVector4f(Unit(C.X * Mask.X), Unit(C.Y * Mask.Z), Unit(C.Z * Mask.Z), Unit(C.W)), FVector4f(Unit(State.Hail * Mask.Z), State.Flooded, State.Silt, 0.0f));
 	}
 }
 
