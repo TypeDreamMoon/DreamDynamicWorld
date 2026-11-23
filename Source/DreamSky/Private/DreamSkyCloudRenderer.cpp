@@ -44,9 +44,9 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDownsample(
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderCinematic(
 	TEXT("DreamSky.CloudRender.Cinematic"), 1,
-	TEXT("1 = in the world's cinematic mode (DreamWorld.CinematicMode, a Movie Render Queue render) every frame of the clouds")
-	TEXT(" stands on its own and is drawn for its looks: every ray at full resolution, twice the samples, no history. 0 = as")
-	TEXT(" in play."),
+	TEXT("1 = in the world's cinematic mode (DreamWorld.CinematicMode, a Movie Render Queue render) and while a sequence drives")
+	TEXT(" the clock (its time track) every frame of the clouds stands on its own and is drawn for its looks: every ray at full")
+	TEXT(" resolution, twice the samples, no history, no per-pixel jitter. 0 = as in play."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderSamples(
@@ -732,11 +732,12 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.WorldSeconds = Clock->GetWorldSeconds();
 		Settings.SunMapSlices = FMath::Clamp(CVarDreamSkyCloudRenderSunMapSlices.GetValueOnGameThread(), 1, 8);
 		Settings.bSunMapsWhole = Clock && Clock->IsCinematicMode();
-		// A cinematic frame (the world's cinematic mode, a Movie Render Queue render) stands on its own and is drawn for its
-		// looks, whatever it costs: every ray at full resolution, twice the samples, no history -- a sequence runs the clock
-		// hours in seconds, and the frame before's clouds are not this frame's. The temporal pass then gives this frame's
-		// neighbourhood mean (a render's own temporal samples average on top).
-		Settings.bCinematic = Settings.bSunMapsWhole && CVarDreamSkyCloudRenderCinematic.GetValueOnGameThread() > 0;
+		// A cinematic frame (the world's cinematic mode, a Movie Render Queue render; a sequence driving the clock, its time
+		// track) stands on its own and is drawn for its looks, whatever it costs: every ray at full resolution, twice the
+		// samples, no history -- a sequence runs the clock hours in seconds, and the frame before's clouds are not this
+		// frame's. The temporal pass then gives this frame's neighbourhood mean (a render's own temporal samples average
+		// on top).
+		Settings.bCinematic = (Settings.bSunMapsWhole || Clock->IsDrivenExternally()) && CVarDreamSkyCloudRenderCinematic.GetValueOnGameThread() > 0;
 		if (Settings.bCinematic)
 		{
 			Settings.Downsample = 1;
@@ -915,7 +916,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->CloudNoise = CloudNoise;
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
-			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : (Settings.DebugMode == 4 ? 2u : 0u);
+			// (A cinematic frame, on its own, takes no per-pixel jitter: one frame of it was a grain of specks over a
+			// cloud's thin edges, where the history had averaged it away.)
+			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : (Settings.DebugMode == 4 || Settings.bCinematic ? 2u : 0u);
 			const DreamSkyCloudRender::FGraphClouds& Graph = GraphBuilder.Blackboard.GetChecked<DreamSkyCloudRender::FGraphClouds>();
 			Params->NearTau = Graph.SunMaps[0];
 			Params->FarTau = Graph.SunMaps[1];

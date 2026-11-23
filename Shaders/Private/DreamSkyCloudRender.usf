@@ -164,7 +164,8 @@ SamplerState WeatherMapSampler;
 Texture3D CloudNoise;
 SamplerState CloudNoiseSampler;
 int MaxSamples;
-uint MarchDebug;     // 1: the rays that found no cloud red, the others green; 2: the per-pixel jitter held still
+uint MarchDebug;     // 1: the rays that found no cloud red, the others green; 2: the per-pixel jitter held still (Debug 4, a
+                     // cinematic frame)
 Texture3D<float> NearTau;
 Texture3D<float> FarTau;
 SamplerState TauSampler;

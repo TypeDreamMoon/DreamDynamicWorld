@@ -100,9 +100,10 @@ surface (by the distance alone through cumulus and for the toon surface, however
 the samples left, thin fringes fell between the steps in rows of dashes), each ray's steps offset per pixel and frame —
 a second pass blends the frames before, reprojected by the
 clouds' depth and the wind's drift since (`DreamSky.CloudRender.History`, 0.9; less of it the further the world's clock
-ran since, `1 / (1 + game seconds / 60)`: all of it in real time, 0.6 in a sequence that runs six hours in twenty
-seconds, none across a jump; in the world's cinematic mode and a Movie Render Queue render none at all: every frame is
-drawn on its own at full resolution with twice the samples, `DreamSky.CloudRender.Cinematic`, 1), and the clouds are
+ran since, `1 / (1 + game seconds / 60)`: all of it in real time, less of it as the day runs faster, none across a
+jump; in the world's cinematic mode, a Movie Render Queue render and while a sequence drives the clock (its time track:
+six hours in twenty seconds) none at all: every frame is drawn on its own at full resolution with twice the samples
+and no per-pixel jitter, `DreamSky.CloudRender.Cinematic`, 1), and the clouds are
 laid over the sky pixels behind the scene,
 under the sky's height fog as the engine fogs its own clouds; they take the dome's weather haze and lightning. Three
 looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
