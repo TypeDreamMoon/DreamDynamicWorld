@@ -1,6 +1,7 @@
 // Copyright DreamMoon. All Rights Reserved.
 
 #include "DreamWeather.h"
+#include "DreamGroundFog.h"
 #include "DreamWeatherFog.h"
 #include "DreamWeatherFXSubsystem.h"
 #include "DreamWeatherModule.h"
@@ -97,6 +98,15 @@ bool FDreamWeatherFogTest::RunTest(const FString& Parameters)
 	Frame(0.016f);
 	Bank->Refresh();
 	TestNearlyEqual(TEXT("no fog: the clear share of it"), Bank->GetDensityNow(), 0.1f, 1.0e-3f);
+	// Drawn marched (the default): its mist over the box's floor, as thick as its density now.
+	if (DreamWeatherFX::GroundFog::UseVolumetric() && TestNotNull(TEXT("the bank's fog volume"), Bank->FogVolume.Get()))
+	{
+		Bank->Tick(0.0f);
+		const FDreamGroundFogParams& P = Bank->FogVolume->GetFogParams();
+		TestTrue(TEXT("marched: the bank's fog draws"), Bank->FogVolume->IsVisible());
+		TestNearlyEqual(TEXT("marched: its mist as thick as the bank now"), P.MistExtinction, 0.1f * DreamWeatherFX::GroundFog::ExtinctionPerDensity, 1.0e-5f);
+		TestNearlyEqual(TEXT("marched: on the box's floor, as high as the box"), P.BoxHigh - P.BoxLow, float(Bank->Extent.Z) + 10.0f, 0.5f);
+	}
 	// Its patches drift with the wind and stay in the box.
 	if (TestTrue(TEXT("it has its patches"), Bank->GetPatchCount() == Bank->Patches))
 	{

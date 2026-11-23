@@ -530,8 +530,11 @@ are saved in the world snapshot; the schedule needs nothing saved.
   volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
   taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
   or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
-  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
-  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+  bank, down to *Clear Weather Share* of it with none. Drawn marched (see *Marched ground fog* below) it is a mist over
+  the box's floor thinning upward over *Height Falloff*, broken into patches some two and a half *Patch Radius* across
+  by a noise drifting on the wind, thinning out toward the box's sides; at the low quality level the patches draw as
+  local fog volumes (with or without the scene's volumetric fog). `DreamWeather.FogBank [density] [clear share]` lists
+  the banks and sets them.
 - **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
   actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
   the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
@@ -541,6 +544,75 @@ Both drift with the wind summed at the view, frame by frame (`DDW_FogDrift`: xy 
 the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of wind never jumps the fog. The showcase has
 a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
 (`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
+
+**Terrain fog.** Morning, valley and advection fog that come by themselves (`ADreamTerrainFog`, module
+`DreamWeatherFX`). The actor reads the ground in its box (*Extent*, *Cells* along a side; traces, or heights handed in
+with `SetTerrainHeights` and kept with the level, for land without collision) and finds its hollows: a closed basin up
+to where it would spill over, a valley up to the mean height of the land round it (*Hollow Radius*, a quarter of the
+box by default). It reads the air over the lowest ground: the weather's temperature, cloud, what falls and wetness
+(*Humidity*, plus *Wet Ground Humidity* times the wetness and a quarter of the weather's fog), the wind there (the
+wind subsystem's `SampleWindVelocity`), the sun's elevation. Two amounts, 0..1 each (`GetFogState`):
+
+- **radiation fog** (morning and valley fog): under a clear, calm sky the ground radiates its warmth away and the air at
+  it cools by *Sky Cooling* degrees; once that closes the gap to the dew point (some two degrees a tenth of humidity
+  short of saturation) it fogs. It builds over the night (*Build Hours*), is deepest about sunrise, and the sun burns
+  it off (a full fog within *Clear Hours* of the sun at 15 degrees in a clear sky; cloud slows it); a wind over
+  *Calm Wind* (half of it already thins it), cloud or rain stop it forming, and below *Driest Cold* the air is too
+  dry. It fills each hollow toward its brim, no deeper than *Pool Depth*, with a thin mist (*Mist Thickness*) over the
+  rest;
+- **advection fog** (with *Advection* on, beside cold water or snow): moist air warmer than *Cold Surface Temperature*
+  carried in on a wind within *Advection Wind* (a gale lifts it as low cloud) lays a fog over all the low ground,
+  *Advection Depth* over the lowest, at any hour; the sun only thins it.
+
+Traced ground has what stands on it narrower than *Ground Filter* cells either side taken off (trees, posts, props, a
+shelter at 3: a morphological opening of the heights), so the fog lies on the ground under them, not on their tops.
+The fog draws marched (below), *Noise Size* (five cells by default) and *Patchiness* shaping its billows. At the low
+quality level it draws with local fog volumes instead: *Patches* of them laid on the cells under the pooled fog (each
+*Patch Cells* across, keeping its cell while that stays under the fog and fading over to a new one), *Mist Patches*
+spread over the box. A local fog volume is a sphere (the engine makes its scale uniform), so each layer is its height
+fog, thinning from the ground to a seventh at the fog's top, with as much radial fog to soften its sides; the engine
+draws at most 32 of them a view (`r.LocalFogVolume.TileMaxInstanceCount`, up to 256). A jump of the clock settles the
+fog (the last twelve hours run through, the
+weather as it is now). Gameplay can ask `GetFogDepthAt`, `IsInFog`, `GetHollowAt`, `GetGroundHeightAt`; *Force* holds
+a given state (cinematics). `DreamWeather.TerrainFog [radiation [advection] | auto | dump]` lists them and holds or
+releases them (`dump` writes each one's cells, ground and hollow, to `Saved/DreamTerrainFog_<name>.csv`). The showcase has a morning mist over the set (pooling in the dip by the pond) and valley fog in the hills to
+the south-west; the forced tour shoots both just after sunrise after a clear, still night (`TerrainFog`).
+`DreamWeather.FX.TerrainFog.Model` checks when each fog forms, builds and clears; `.Actor` the hollows, the depth, the
+marched fog's layer and box and the local fog volumes in a bowl at dawn, and their going by mid-morning.
+
+**Marched ground fog.** The terrain fog and the fog bank draw their fog as a participating medium marched over their
+box (`UDreamGroundFogComponent`, `M_DreamGroundFog`, on the clouds' march and light: `DreamCloudMarch.ush`,
+`DreamCloudLight.ush`, the fog's own field in `Shaders/Private/DreamGroundFog.ush`). The owner hands the component a
+small map over the box (one texel a cell: the ground's height, how deep the hollow may fill, where there is ground)
+and each frame the fog's state; the material fills the layer that deep -- the pooled fog dense to near its top and
+thinning over its upper half, the mist over all the ground --, breaks it up with the clouds' 3D noise drifting with the
+wind (`DDW_FogDrift`) and churning slowly (which also lifts and lowers its top, so it lies in billows and patches), and
+thins it out to nothing toward the map's rim. Light: the main light through the fog above each sample -- for a layer
+the depth to its top over the light's sine, averaged over each step in closed form, so the thin skin a low sun lights
+on a thick fog's top is not stepped past --, with the clouds' phase and multiple scattering octaves; the sky above
+(and the ground's bounce below) and the sunlight diffused down through the fog above, some 1 / (1 + 0.3 tau) of it.
+The light is cut by the terrain and the clouds: the terrain fog works out, per cell, how high the ray toward the light
+stands under the ground on its way out of its map (one cell a step over its heights, again when the light has moved a
+quarter of a degree; kept in the layer map's alpha), so a valley's fog in the hills' shadow stays grey while the fog in
+the open glows; and where the sky draws its clouds, the cloud renderer's shadow on the ground (ADreamSky's cloud shadow
+map, read where the light's ray meets the cloud layer) is multiplied in. At sunrise the top of a fog sea glows in the
+low sun and its depths go grey; inside it the sun is a dim disc.
+
+The engine's unit cube is drawn over the box, its back faces only with the depth test off (as the cloud volumes are),
+so the fog shows from outside and from in it, and the scene cuts the march where its depth says; it draws under the
+other translucency (rain, snow). No limit on how many: each is one translucent draw over the part of the screen its box
+covers, the box kept round the fog there is. A ray takes `DreamWeather.Fog.Samples` fine steps (never longer than an
+optical depth of 1.5 in the densest fog; clear air above the fog is skipped; the noise read at a level of detail to the
+step); `DreamWeather.Fog.Volumetric 0` draws the local fog volumes instead. The fog quality level (`sg.ShadowQuality`, or
+`r.DreamWorld.Quality`) sets both: low the local fog volumes, then 16, 24, 32 (epic) and 64 samples. An actor's
+*Density* (and *Mist Density*) times 0.04 is the extinction per metre (1: some 75 m of sight inside it).
+`DreamWeather.Fog.Debug 1` paints the map under what each ray meets (ground in 2 m bands, hollow, ground there), `2` the
+fog's opacity alone.
+
+What it costs (1400 x 788 internal, the showcase's morning mist with the camera in it, so every pixel marches): 0.41,
+0.53, 0.68 and 0.94 ms at 16, 24, 32 and 48 samples; the valley fog seen from the set 0.11 ms; the local fog volumes
+0.06 ms. `M_DreamGroundFog`'s shaders are keyed on its own code, not on the include: a change to `DreamGroundFog.ush`
+bumps *IncludeRevision* in `M_DreamGroundFog.dss` with it, or the old shaders stay in the derived data cache.
 
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
@@ -1018,7 +1090,7 @@ and the cover), 0.2 ms for an integration.
 
 | Function | For | What the weather does |
 | :-- | :-- | :-- |
-| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into a white crust on every face; both break up in fine clumps as they thin |
+| `MF_DreamSurfaceWeather` | props, buildings | wet: a porous surface darkens and a hard one turns glossier, down to a roughness of 0.2–0.35 (blurred highlights and reflections, never a mirror); metal does not darken; puddles where it lies low on what faces up (dark, mirror-smooth, flat); snow on what faces up first, steep slopes last, thinning out softly over metres; dust under the snow; the cold under the snow: a glaze darkens a surface as water does and turns it glossy with a cold tint, a frozen puddle is milky, flat and cracked, frost whitens a surface with matte, sparkling crystals without hiding it (most on what faces up), rime builds into fine white feathers on what faces up and on rounded edges and corners (where a mesh's smoothed normal bends away from its flat facets), little on a broad upright face; frost breaks up in fine clumps as it thins |
 | `MF_DreamSurfaceWeatherTerrain` | ground | the same, and the snow stands up off the ground: World Position Offset by default, or Displacement with the *Nanite Tessellation* switch (set the displacement magnitude to *Max Snow Depth*) |
 | `MF_DreamSurfaceWeatherToon` | toon surfaces | colour bands shift instead of darkening: the block's value drops a little and its saturation rises, the roughness drops (a toon material reads it as a wider highlight band); the roughness never drops below 0.4, so a lit toon material keeps the engine's reflections blurred; hard-edged puddles with a cheap sky reflection and a bright rim; hard-edged snow with an irregular edge, and dust; a glaze shifts the block toward a pale ice tint and widens the highlight band, a frozen puddle is a hard-edged pale block with crack lines, frost and rime a hard-edged white-blue cover with sparse glint dots |
 | `MF_DreamGlassRain` | window glass, vehicle glass | drops gather on the pane while it rains on it and come and go; now and then one runs down a wandering path, leaving a thin trail and a few beads and wiping the drops it passes; after the rain the sitting drops stay while the pane is wet and go as it dries; a flat pane (a skylight) gets sitting drops only, and snow; on a vehicle's glass the air pushes the drops along and the wipers sweep them away (below) |

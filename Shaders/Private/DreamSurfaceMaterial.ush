@@ -181,7 +181,8 @@ float4 DSM_IceShown(float4 Ice, float4 Mask, float Exposure)
 //   glaze          on every face (freezing rain coats all of it), most on what faces up, where the film was
 //   frozen puddle  where the puddle is (Puddle: its cover, DSF_PuddleCover)
 //   frost          on what sees the sky, most on what faces up; fine clumps of crystals break it up as it thins
-//   rime           on every face, most on upright ones, breaking up the same way
+//   rime           on what stands out into the fog: edges and rounded corners (where the shading normal bends away
+//                  from the flat facet) and what faces up, little on broad flat upright faces; in fine feathers
 // Gain = how readily frost and rime cover (above 1 sooner). Normal = the face's world normal: the patterns lie in the
 // face's own plane (projected along its main axis), so an upright face's frost does not streak.
 float2 DSM_FacePlane(float3 WorldPos, float3 Normal)
@@ -199,7 +200,14 @@ float4 DSM_ColdCovers(float4 Ice, float Puddle, float3 Normal, float3 WorldPos, 
 	float Glaze = saturate(Ice.x * 1.5f) * (0.5f + 0.5f * Up);
 	float Frozen = saturate(Puddle) * saturate(Ice.w * 1.2f);
 	float Frost = saturate((Ice.y * Gain * (0.3f + 0.7f * Up) * 1.4f - (1.0f - Fine) * 0.35f - (1.0f - Patch) * 0.15f) * 2.0f);
-	float Rime = saturate((Ice.z * Gain * (0.6f + 0.4f * (1.0f - Up)) * 1.4f - (1.0f - Fine) * 0.3f) * 2.0f);
+	// Rime grows where the fog streams past an edge: toward a mesh's rounded edges and corners, where the smoothed normal
+	// bends away from the flat facet the pixel lies on (a facet's middle has them alike), and on what faces up; a broad
+	// flat upright face gets a fifth (a sparse sprinkle). Its feathers are a centimetre or two across, not patches.
+	float3 Facet = cross(ddx(WorldPos), ddy(WorldPos));
+	float Bend = 1.0f - abs(dot(Facet * rsqrt(max(dot(Facet, Facet), 1.0e-12f)), Normal));
+	float Exposed = max(0.2f + 0.8f * Up * Up, smoothstep(0.015f, 0.12f, Bend));
+	float Feather = DSF_Hollow(P.x + 1.3f, P.y - 2.9f, 2.5f) * 0.6f + DSF_Hollow(P.x - 7.1f, P.y + 4.3f, 1.2f) * 0.4f;
+	float Rime = saturate((Ice.z * Gain * Exposed * 2.0f - (1.0f - Feather) * 0.55f) * 2.5f);
 	return float4(Glaze, Frozen, Frost, Rime);
 }
 

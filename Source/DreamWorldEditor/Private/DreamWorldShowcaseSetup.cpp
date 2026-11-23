@@ -14,6 +14,7 @@
 #include "DreamSurfaceWalker.h"
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
+#include "DreamTerrainFog.h"
 #include "DreamWeatherFog.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -329,17 +330,19 @@ namespace DreamWorld::ShowcaseSetup
 	 * the ground's edge meets it without a step; from a few hundred metres out it rises into the far ranges. For the
 	 * air between the eye and the land (aerial perspective, fog) and the snow on the far peaks.
 	 */
+	/** The far land's height at a point (cm): the set's ground near it, the ranges beyond, a little under the set's ground where they overlap. */
+	double FarLandHeight(double X, double Y)
+	{
+		const double R = (FVector2D(X, Y) - FVector2D(Setup::ShowcaseFarCenter)).Size();
+		return FMath::Lerp(SurfaceSetup::GroundHeight(X, Y) - 20.0, FarHeight(X, Y) - 3.0, FMath::SmoothStep(15000.0, 250000.0, R));
+	}
+
 	UStaticMesh* EnsureFarLand()
 	{
 		constexpr int32 Rings = 150, Sides = 360;
-		const double Inner = 3900.0, Outer = 3500000.0, Below = 20.0;
+		const double Inner = 3900.0, Outer = 3500000.0;
 		const FVector2D Middle(Setup::ShowcaseFarCenter);
-		auto HeightAt = [&](double X, double Y, double R)
-		{
-			// The set's ground near it, the far land beyond; a little under the set's ground where they overlap.
-			const double Blend = FMath::SmoothStep(15000.0, 250000.0, R);
-			return FMath::Lerp(SurfaceSetup::GroundHeight(X, Y) - Below, FarHeight(X, Y) - 3.0, Blend);
-		};
+		auto HeightAt = [&](double X, double Y, double R) { return FarLandHeight(X, Y); };
 		auto Build = [&](bool bFlip)
 		{
 			FMeshDescription Description;
@@ -881,6 +884,51 @@ namespace DreamWorld::ShowcaseSetup
 		if (ADreamWindFog* Wisps = World->SpawnActor<ADreamWindFog>(FVector(1300.0, 400.0, -20.0), FRotator::ZeroRotator))
 		{
 			Wisps->SetActorLabel(TEXT("WindFog"));
+		}
+		// Terrain fog that comes by itself after a clear, calm night: a morning mist over the set, pooling in the dip and
+		// the low ground, and valley fog in the hills to the south-west (seen from the set, lit by the sunrise). Between
+		// them they keep within the engine's 32 local fog volumes a view (the fog bank's draw only in a foggy weather).
+		if (ADreamTerrainFog* Mist = World->SpawnActor<ADreamTerrainFog>(FVector(Setup::ShowcaseFarCenter, 0.0), FRotator::ZeroRotator))
+		{
+			Mist->Extent = FVector(3800.0, 3800.0, 600.0);
+			Mist->Cells = 48;
+			Mist->GroundFilter = 3;   // the shelter, the board and the props off the ground the mist lies on
+			Mist->Humidity = 0.92f;
+			Mist->PoolDepth = 400.0f;
+			Mist->MistThickness = 200.0f;
+			Mist->Density = 2.0f;
+			Mist->MistDensity = 1.5f;
+			Mist->Patches = 12;
+			Mist->MistPatches = 2;
+			Mist->PatchCells = 3.0f;
+			Mist->SetActorLabel(TEXT("MorningMist"));
+		}
+		{
+			const double Azimuth = FMath::DegreesToRadians(230.0), Out = 625000.0;
+			const FVector2D Valley = Setup::ShowcaseFarCenter + FVector2D(FMath::Cos(Azimuth), FMath::Sin(Azimuth)) * Out;
+			if (ADreamTerrainFog* Valleys = World->SpawnActor<ADreamTerrainFog>(FVector(Valley, 30000.0), FRotator::ZeroRotator))
+			{
+				Valleys->Extent = FVector(180000.0, 180000.0, 60000.0);
+				Valleys->Cells = 40;
+				Valleys->Humidity = 0.9f;
+				Valleys->PoolDepth = 8000.0f;
+				Valleys->MistThickness = 0.0f;
+				Valleys->MistPatches = 0;
+				Valleys->Patches = 16;
+				Valleys->PatchCells = 3.0f;
+				// The far land has no collision: its heights handed in, kept with the level.
+				TArray<float> Land;
+				for (int32 Y = 0; Y < Valleys->Cells; ++Y)
+				{
+					for (int32 X = 0; X < Valleys->Cells; ++X)
+					{
+						const double Step = 2.0 * Valleys->Extent.X / Valleys->Cells;
+						Land.Add(float(FarLandHeight(Valley.X - Valleys->Extent.X + (X + 0.5) * Step, Valley.Y - Valleys->Extent.Y + (Y + 0.5) * Step)));
+					}
+				}
+				Valleys->SetTerrainHeights(Land);
+				Valleys->SetActorLabel(TEXT("ValleyFog"));
+			}
 		}
 		// A walker going round the square and its puddles, its feet stepping in turn: prints in the snow and the dust,
 		// the puddles pushed away and ringing, whatever the weather.
