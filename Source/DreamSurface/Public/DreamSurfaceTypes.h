@@ -105,10 +105,13 @@ struct DREAMSURFACE_API FDreamSurfaceDrive
 	float Fog = 0.0f;
 	/** Hail landing on it, 0..1 (the sleet is in Rain and Snow, half each). */
 	float Hail = 0.0f;
+	/** How much of the weather's wind the place is sheltered from, and how much harder it blows there than in the open, 0..1 (DSF_LocalD2). */
+	float Lee = 0.0f;
+	float Exposed = 0.0f;
 
 	FVector4f D0() const { return FVector4f(Rain, Snow, Temperature, Wind); }
 	FVector4f D1() const { return FVector4f(Sunlight, Dust, OpenSky, Fog); }
-	FVector4f D2() const { return FVector4f(Hail, 0.0f, 0.0f, 0.0f); }
+	FVector4f D2() const { return FVector4f(Hail, Lee, Exposed, 0.0f); }
 };
 
 /** How fast the weather changes a surface, game hours (DreamSurfaceShared.h's R0..R2). */

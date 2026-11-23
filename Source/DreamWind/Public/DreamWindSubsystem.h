@@ -260,6 +260,13 @@ public:
 	FVector SampleWindVelocity(FVector WorldPosition) const;
 
 	/**
+	 * How much of the wind reaches the top surface at a point, as the runtime terrain map's CPU grid has it: its speed-up
+	 * and wind shadow (1 in the open, under 1 in a lee, over 1 on a ridge), 1 where the grid does not reach. What the
+	 * surfaces' snow and dust drift by; the surface map reads the same from the GPU's map.
+	 */
+	float GetTerrainWindFactor(const FVector& Position) const;
+
+	/**
 	 * The wind as the eye sees it, for sound, the camera and decorative physics: the CPU sample with the wind fluid's
 	 * eddies, wakes and blasts at the point, read back from the GPU two or three frames late. Key names the asker (one
 	 * point each; up to 16 a frame). The plain CPU sample until an answer arrives, without the fluid, and on a server.

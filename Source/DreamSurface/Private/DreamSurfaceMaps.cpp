@@ -351,6 +351,21 @@ void FDreamSurfaceMaps::DrawState(int32 Slot, FMap& Map, const FVector2D& Center
 	Args.Rates[4] = Rates.R4();
 	Args.Rates[5] = Rates.R5();
 	Args.PrecipitationGate = FVector2f(UDreamWeatherSettings::Get()->PrecipitationCloudCover);
+	// The wind where the surface lies, from the wind's runtime terrain map (UDreamSurfaceSubsystem::DriveAt asks the CPU's).
+	UWorld* World = Surface.GetWorld();
+	const UDreamWindSubsystem* Wind = World && UDreamSurfaceSettings::Get()->bWindDrift ? World->GetSubsystem<UDreamWindSubsystem>() : nullptr;
+	if (Wind)
+	{
+		const FDreamWindFrameData& Frame = Wind->GetFrameData();
+		auto Resource = [](const TWeakObjectPtr<UTextureRenderTarget2D>& Texture) { return Texture.IsValid() ? Texture->GameThread_GetRenderTargetResource() : nullptr; };
+		Args.WindL1Near = Frame.L1Near;
+		Args.WindL1Far = Frame.L1Far;
+		Args.WindL1Params = Frame.L1Params;
+		Args.WindL1NearDerived = Resource(Frame.L1NearDerived);
+		Args.WindL1FarDerived = Resource(Frame.L1FarDerived);
+		Args.WindL1NearHeight = Resource(Frame.L1NearHeight);
+		Args.WindL1FarHeight = Resource(Frame.L1FarHeight);
+	}
 	Args.Zones = LastZones;
 	Args.NumZones = LastNumZones;
 	if (bIntegrate)

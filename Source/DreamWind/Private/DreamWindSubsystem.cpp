@@ -1492,6 +1492,24 @@ DreamWind::Hlsl::FDreamWindSample UDreamWindSubsystem::ApplyTerrain(DreamWind::H
 	return FrameData.TerrainCpu->ApplyAll(S, FrameData.GetTerrainParams(), Pos);
 }
 
+float UDreamWindSubsystem::GetTerrainWindFactor(const FVector& Position) const
+{
+	using namespace DreamWind::Hlsl;
+	const FDreamWindTerrainGridData* Grid = FrameData.TerrainGrid.Get();
+	const float Weight = Grid ? Grid->Weight(Position.X, Position.Y) : 0.0f;
+	if (Weight <= 0.0f)
+	{
+		return 1.0f;
+	}
+	const float Top = Grid->HeightAt(Position.X, Position.Y);
+	const double Z = Top > FDreamWindTerrainGridData::Unknown * 0.5f ? double(Top) + 30.0 : Position.Z;
+	FDreamWindSample S;
+	S.Velocity = float3(1.0f, 0.0f, 0.0f);
+	S.Gust = 1.0f;
+	S = Grid->Apply(S, float3(float(Position.X), float(Position.Y), float(Z)));
+	return FVector3f(S.Velocity.x, S.Velocity.y, S.Velocity.z).Size();   // (Apply weighs it by the window)
+}
+
 void UDreamWindSubsystem::DrawDebug()
 {
 	UWorld* World = GetWorld();
@@ -1966,6 +1984,24 @@ static FAutoConsoleCommandWithWorldAndArgs GDreamWindSetWindCommand(
 			W.Direction = FVector(FMath::Cos(Yaw), FMath::Sin(Yaw), 0.0);
 		}
 		Wind->SetGlobalWind(W, 0.0f);
+	}));
+
+// DreamWind.TerrainFactor X Y: how much of the wind reaches the top surface there (what the surfaces' drifts follow).
+static FAutoConsoleCommandWithWorldAndArgs GDreamWindTerrainFactorCommand(
+	TEXT("DreamWind.TerrainFactor"),
+	TEXT("DreamWind.TerrainFactor <x> <y>: how much of the wind reaches the top surface at a point, as the runtime terrain map's CPU grid has it (1 open, under 1 a lee, over 1 a ridge), and its speed-up, wind shadow height and top there."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		const UDreamWindSubsystem* Wind = UDreamWindSubsystem::Get(World);
+		if (!Wind || Args.Num() < 2)
+		{
+			return;
+		}
+		const FVector P(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), 0.0);
+		const FDreamWindTerrainGridData* Grid = Wind->GetFrameData().TerrainGrid.Get();
+		const FVector4f D = Grid ? Grid->SampleDerived(P.X, P.Y) : FVector4f(1.0f, 0.0f, 0.0f, 0.0f);
+		UE_LOG(LogDreamWind, Display, TEXT("Terrain factor at (%.0f, %.0f): %.2f (speed-up %.2f, wind shadow height %.0f cm, top %.0f cm, grid weight %.2f)"),
+			P.X, P.Y, Wind->GetTerrainWindFactor(P), D.X, D.W, Grid ? Grid->HeightAt(P.X, P.Y) : 0.0f, Grid ? Grid->Weight(P.X, P.Y) : 0.0f);
 	}));
 
 // DreamWind.Explode X Y Z [radius] [strength]: an explosion there (the wind fluid pushes it out round the walls).

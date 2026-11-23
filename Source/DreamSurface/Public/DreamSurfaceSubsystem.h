@@ -91,6 +91,9 @@ public:
 	/** What drives a surface at this point over the step starting at WorldSeconds (bOpenSky: as if nothing covered it). */
 	FDreamSurfaceDrive DriveAt(const FVector& Position, double WorldSeconds, bool bOpenSky = false) const;
 
+	/** How much of the weather's wind reaches the surface at a point (UDreamWindSubsystem::GetTerrainWindFactor; 1 with bWindDrift off). */
+	float WindFactorAt(const FVector& Position) const;
+
 	/** One step of the shared formula (pure). */
 	static FDreamSurfaceState Step(const FDreamSurfaceState& State, const FDreamSurfaceDrive& Drive, const FDreamSurfaceRates& Rates, float Hours);
 

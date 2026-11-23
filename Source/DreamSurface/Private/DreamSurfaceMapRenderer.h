@@ -25,6 +25,17 @@ public:
 		FTextureRenderTargetResource* IceTarget = nullptr;
 		/** The hail lying beside it (the state's third part). */
 		FTextureRenderTargetResource* HailTarget = nullptr;
+		/**
+		 * The wind's runtime terrain map, for the wind where the surface lies (snow and dust drift into its lees): its
+		 * levels (DW_UnpackL1Level, w = 0: off), its params, and each level's derived map and top-surface heights.
+		 */
+		FVector4f WindL1Near = FVector4f::Zero();
+		FVector4f WindL1Far = FVector4f::Zero();
+		FVector4f WindL1Params = FVector4f::Zero();
+		FTextureRenderTargetResource* WindL1NearDerived = nullptr;
+		FTextureRenderTargetResource* WindL1FarDerived = nullptr;
+		FTextureRenderTargetResource* WindL1NearHeight = nullptr;
+		FTextureRenderTargetResource* WindL1FarHeight = nullptr;
 		FVector2f Center = FVector2f::ZeroVector;
 		float Extent = 12800.0f;
 		/** Integrate the whole steps first (a step went by, the map moved, the zones changed). */
