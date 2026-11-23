@@ -1721,6 +1721,34 @@ deterministic, a dedicated server has none).
   (paid only by projects that would not keep it anyway: not with software Lumen or distance field AO). Fluid instead of
   the residual volume: +0.2 ms of the frame. What the pressure leaves of the divergence: 0.2 % of the speed on average.
 
+**Whirlwinds** (`ADreamWindVortex`, module `DreamWeatherFX`): a dust devil or a tornado standing on the ground.
+* **Its wind** is a source of its own (`EDreamWindSourceType::Twister`, the shared model: the same on the CPU and the
+  GPU, so gameplay forces feel it as the grass and the rain do): the air turns round its core as a Rankine vortex
+  (`TangentialSpeed` at the core's edge, `CoreRadius`; solid body inside, falling off as 1/r out to `Radius`), rises in
+  the core's wall (`Updraft`, a hollow tube of rising air: the axis rises less) and is drawn in along the ground
+  (`Inflow`), up to `Height`; it is added to the wind it stands in (it is carried along) rather than blended toward.
+  The fluid takes it on top of its background, and its core near the ground is a sink there, so the pressure draws the
+  air round it in along the ground and round the walls near it.
+* **Its dust and debris** (`NS_DreamWindVortex`, `M_DreamWindVortexDust`): puffs lifted from inside its core and
+  pieces thrown round it, both carried by the wind field (`DreamWindForce`), so the column turns, rises, leans and
+  wanders as the wind does.
+* **A tornado's funnel** is the sky's: the vortex registers itself with the clock (`UDreamWorldSubsystem::SetVortex`:
+  where it stands, how far it reaches, how strong, which way it turns, how fast, its lean with the wind aloft, when it
+  formed) and the cloud renderer draws the funnel down from the cloud base. A dust devil is not registered.
+* `Kind` (`SetKind`) fills the sizes, speeds and looks: a dust devil 8 m across, 40 m high, 12 m/s round its core; a
+  tornado 120 m across, 600 m high, 50 m/s. `Intensity` (0..1) scales it all; `bClockwise`.
+* **They come by themselves** (`ADreamWindVortexSpawner`), as the storms do: time is cut into `SlotHours` slots, each
+  holding a whirlwind or not by the season's chances (`DustDevilChance`, `TornadoChance`: most in summer, none in
+  winter by default), drawn from the world seed and the slot alone -- every machine, load and replay has the same ones.
+  A dust devil only starts in the afternoon (`DustDevilHours`, 11..17). Each lives some minutes (`DustDevilMinutes`,
+  `TornadoMinutes`), crosses the area on a straight line through a point within `PassRadius` of the spawner (from
+  `PrevailingYaw`, give or take `DirectionVariation`), spins up over its first sixth and dies out over its last quarter.
+* The showcase has a dust devil on the open ground west of the square. `DreamWeather.Vortex <DustDevil|Tornado> x y
+  [intensity] [scale]` stands one anywhere (`DreamWeather.Vortex off` takes them away); `DreamWind.DebugDraw 1` draws
+  the column and its core.
+* Measured (`DreamWind.Gpu.FluidTwister`, a dust devil in a calm): the fluid turns at 1120 cm/s round its core's edge,
+  rises at 720 up its wall and draws the air in along the ground at 310.
+
 **Console.** `DreamWind.Enable 0|1|-1`, `DreamWind.Volume 0|1|-1` (override the settings for A/B
 tests), `DreamWind.TimeScale`, and the debug view:
 
@@ -1908,7 +1936,10 @@ cinematic, medium, low and back while it runs: the volume fades and never jumps,
 high at once on epic's grids, the flow round the house as at epic at high and cinematic, medium's one coarse grid, low
 without volume or runtime map),
 `DreamWind.Gpu.FluidPlayInEditor` (while a play session runs only it solves the volumes; back in the editor none of its
-blast is left in them) and `DreamWind.Gpu.DistanceFieldProbe`.
+blast is left in them), `DreamWind.Twister.*` (a whirlwind's wind: Rankine, the hollow updraft, the inflow along the
+ground, added to the wind; one standing in the CPU's wind and in the clock's register; a year of the spawner's
+whirlwinds: the same for the same seed, in their seasons and hours, spinning up and dying out), `DreamWind.Gpu.FluidTwister`
+(the fluid turns, rises and draws in round a dust devil) and `DreamWind.Gpu.DistanceFieldProbe`.
 `DreamAtmosphere.Model.*` hold the shared model on the CPU to closed forms and to what skies do (the transmittance
 overhead, the red sun on the horizon, the earth's shadow, the tables' coordinates both ways, a blue noon zenith about
 as bright as a clear sky's, a paler horizon, the haze's glow round the sun, a warm sunset, twilight dimming to night
