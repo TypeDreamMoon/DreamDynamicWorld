@@ -3,6 +3,7 @@
 #include "DreamWeatherTestListener.h"
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
+#include "DreamWeatherCloudPaint.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamWeatherHlslShim.h"
 #include "DreamWeatherModule.h"
@@ -12,6 +13,8 @@
 #include "DreamWeatherShelter.h"
 #include "DreamWeatherSubsystem.h"
 #include "DreamWeatherZone.h"
+#include "DreamWorldConfig.h"
+#include "DreamWorldWidgets.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWorldCelestial.h"
 #include "DreamWorldSubsystem.h"
@@ -19,7 +22,10 @@
 #include "Components/BoxComponent.h"
 #include "Components/SplineComponent.h"
 #include "Engine/CollisionProfile.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "Framework/Application/SlateApplication.h"
+#include "HAL/IConsoleManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/ScopeExit.h"
 #include "UObject/Package.h"
@@ -1179,6 +1185,195 @@ bool FDreamWeatherSkyModifiersTest::RunTest(const FString& Parameters)
 	W.Clock->Tick(0.0f);
 	TestNearlyEqual(TEXT("a quarter-weight zone, a quarter of its sky"), Weight(W.Clock->GetEnvironment(), StormSky), 0.25f, 1e-4f);
 	TestNearlyEqual(TEXT("and three quarters of the forced weather's"), Weight(W.Clock->GetEnvironment(), WetSky), 0.75f, 1e-4f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWeatherCloudPaintTest, "DreamWeather.CloudPaint", DreamWeather::Tests::Flags)
+bool FDreamWeatherCloudPaintTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	// The painting: a brush stroke pulls the middle all the way, nothing past its rim; erasing gives it back.
+	UDreamCloudPainting* Paint = NewObject<UDreamCloudPainting>();
+	Paint->Initialize(64);
+	TestTrue(TEXT("a blank painting"), Paint->IsValidPainting() && Paint->Sample(FVector2D(0.5, 0.5)).Equals(FVector2f::ZeroVector));
+	TestTrue(TEXT("a stroke changes it"), Paint->PaintAt(FVector2D(0.5, 0.5), 0.1f, 1.0f, 1.0f));
+	TestTrue(TEXT("overcast and pulled all the way in the middle"), Paint->Sample(FVector2D(0.5, 0.5)).Equals(FVector2f(1.0f, 1.0f), 0.04f));
+	TestNearlyEqual(TEXT("nothing past the brush's rim"), Paint->Sample(FVector2D(0.8, 0.5)).Y, 0.0f, 1e-4f);
+	TestNearlyEqual(TEXT("nothing outside the footprint"), Paint->Sample(FVector2D(1.2, 0.5)).Y, 0.0f, 1e-6f);
+	Paint->PaintAt(FVector2D(0.5, 0.5), 0.1f, 0.0f, 1.0f, true);
+	TestTrue(TEXT("erased in the middle"), Paint->Sample(FVector2D(0.5, 0.5)).Y < 0.05f);
+	// Paint over paint: a bare texel takes the colour outright, a half painted one mixes in the share added.
+	Paint->Fill(0.0f, 0.0f);
+	Paint->PaintAt(FVector2D(0.5, 0.5), 0.2f, 0.0f, 0.5f);
+	TestTrue(TEXT("a bare texel: clear sky at half"), Paint->Sample(FVector2D(0.5, 0.5)).Equals(FVector2f(0.0f, 0.5f), 0.02f));
+	Paint->PaintAt(FVector2D(0.5, 0.5), 0.2f, 1.0f, 0.5f);
+	TestTrue(TEXT("clouds over it: three quarters pulled, two thirds overcast"), Paint->Sample(FVector2D(0.5, 0.5)).Equals(FVector2f(2.0f / 3.0f, 0.75f), 0.02f));
+	Paint->Resize(128);
+	TestTrue(TEXT("resized, the painting kept"), Paint->Resolution == 128 && Paint->Sample(FVector2D(0.5, 0.5)).Equals(FVector2f(2.0f / 3.0f, 0.75f), 0.03f));
+	const uint32 Before = Paint->GetRevision();
+	Paint->Fill(1.0f, 1.0f);
+	TestTrue(TEXT("every change a new revision"), Paint->GetRevision() != Before);
+	TestTrue(TEXT("its texture"), !FApp::CanEverRender() || (Paint->GetTexture() && Paint->GetTexture()->GetSizeX() == 128));
+
+	// In the world: the painting over a clear sky, inside its footprint only, scaled by its strength.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->Tick(0.0f);
+	const float Own = W.Weather->SampleWeather(FVector::ZeroVector).CloudCoverage;
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamCloudPaint* Actor = W.World->SpawnActor<ADreamCloudPaint>(FVector(10000.0, 0.0, 0.0), FRotator::ZeroRotator, Params);
+	if (!TestNotNull(TEXT("the painting's actor"), Actor))
+	{
+		return false;
+	}
+	TestNull(TEXT("no painting yet: none in use"), W.Weather->GetActiveCloudPaint());
+	Actor->CloudPaint->Paint = Paint;
+	Actor->CloudPaint->Size = 100000.0;
+	TestTrue(TEXT("in use"), W.Weather->GetActiveCloudPaint() == Actor->CloudPaint);
+	TestNearlyEqual(TEXT("overcast where it is painted"), W.Weather->SampleWeather(FVector(10000.0, 0.0, 0.0)).CloudCoverage, 1.0f, 1e-3f);
+	TestNearlyEqual(TEXT("the weather's own outside its footprint"), W.Weather->SampleWeather(FVector(200000.0, 0.0, 0.0)).CloudCoverage, Own, 1e-4f);
+	TestTrue(TEXT("its footprint's record"), Actor->CloudPaint->GetFootprintRecord().Equals(FVector4f(-40000.0f, -50000.0f, 1.0e-5f, 1.0e-5f), 1e-3f));
+	Actor->CloudPaint->Strength = 0.5f;
+	TestNearlyEqual(TEXT("half strength: half way"), W.Weather->SampleWeather(FVector(10000.0, 0.0, 0.0)).CloudCoverage, FMath::Lerp(Own, 1.0f, 0.5f), 1e-3f);
+	Paint->Fill(0.0f, 1.0f);
+	Actor->CloudPaint->Strength = 1.0f;
+	W.AddZone(FVector(10000.0, 0.0, 0.0), 1000.0f, 1000.0f, 100, { { DreamWeather::Tags::Channel_CloudCoverage, 1.0f }, { DreamWeather::Tags::Channel_Precipitation, 1.0f } });
+	W.Clock->Tick(0.0f);
+	const FDreamWeatherSample Under = W.Weather->SampleWeather(FVector(10000.0, 0.0, 0.0));
+	TestNearlyEqual(TEXT("over the zones: clear sky painted over a storm zone"), Under.CloudCoverage, 0.0f, 1e-3f);
+	TestNearlyEqual(TEXT("and no rain under the clear sky"), Under.Precipitation, 0.0f, 1e-4f);
+	IConsoleVariable* Switch = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamWeather.CloudPaint"));
+	if (TestNotNull(TEXT("the painting's switch"), Switch))
+	{
+		Switch->Set(0, ECVF_SetByCode);
+		TestNull(TEXT("switched off: none in use"), W.Weather->GetActiveCloudPaint());
+		Switch->Set(1, ECVF_SetByCode);
+	}
+	Actor->CloudPaint->bEnabled = false;
+	TestNull(TEXT("turned off: none in use"), W.Weather->GetActiveCloudPaint());
+
+	// The weather showing: a forced one over the schedule's (what the widgets name, what a config keeps).
+	UDreamWeatherPreset* Wet = Rain();
+	TestTrue(TEXT("the schedule's when nothing is forced"), W.Weather->GetForcedWeather() == nullptr && W.Weather->GetWeatherShown() == W.Weather->GetCurrentWeather());
+	W.Weather->ForceWeather(Wet, 0.0f);
+	TestTrue(TEXT("the forced one showing"), W.Weather->GetForcedWeather() == Wet && W.Weather->GetWeatherShown() == Wet);
+	W.Weather->ClearForcedWeather(0.0f);
+	TestNull(TEXT("none forced once cleared"), W.Weather->GetForcedWeather());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldConfigTest, "DreamWeather.WorldConfig", DreamWeather::Tests::Flags)
+bool FDreamWorldConfigTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWeather::Tests;
+	// Every settings object of the plugin found, the weather's among them.
+	const TArray<UClass*> Classes = UDreamWorldConfig::GetSettingsClasses();
+	TestTrue(TEXT("the weather's settings found"), Classes.Contains(UDreamWeatherSettings::StaticClass()));
+	TestTrue(TEXT("seven or more settings objects"), Classes.Num() >= 7);
+
+	UDreamWeatherSettings* Settings = GetMutableDefault<UDreamWeatherSettings>();
+	const float Saved = Settings->MeanTemperature;
+	IConsoleVariable* Meteors = IConsoleManager::Get().FindConsoleVariable(TEXT("DreamSky.Meteors"));
+	const FString SavedMeteors = Meteors ? Meteors->GetString() : FString();
+	ON_SCOPE_EXIT
+	{
+		Settings->MeanTemperature = Saved;
+		if (Meteors)
+		{
+			Meteors->Set(*SavedMeteors, ECVF_SetByConsole);
+		}
+	};
+
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FWeatherWorld W(Fixed);
+	if (!TestNotNull(TEXT("weather"), W.Weather))
+	{
+		return false;
+	}
+	W.Clock->SetTimeOfDay(9.5f);
+	W.Clock->Tick(0.0f);
+	Settings->MeanTemperature = 21.5f;
+	if (Meteors)
+	{
+		Meteors->Set(Meteors->GetInt() != 0 ? 0 : 1, ECVF_SetByConsole);
+	}
+	const FString Shown = Meteors ? Meteors->GetString() : FString();
+
+	UDreamWorldConfig* Config = NewObject<UDreamWorldConfig>();
+	Config->Capture(W.World);
+	TestTrue(TEXT("the settings captured"), Config->Settings.Num() == Classes.Num());
+	TestTrue(TEXT("the time of day captured"), Config->WorldState.Contains(TEXT("TimeOfDay")));
+	TestEqual(TEXT("nothing differs right after"), Config->DescribeDifferences(W.World).Num(), 0);
+	// (A console variable at its default value is not set by hand: only one moved off it is kept.)
+	const bool bMeteorsKept = Meteors && Config->ConsoleVariables.Contains(TEXT("DreamSky.Meteors"));
+	TestTrue(TEXT("a console variable set off its default by hand captured"), !Meteors || Shown == Meteors->GetDefaultValue() || bMeteorsKept);
+
+	// Changed afterwards: the differences listed, and Apply puts it all back.
+	Settings->MeanTemperature = 3.0f;
+	if (bMeteorsKept)
+	{
+		Meteors->Set(Shown == TEXT("0") ? 1 : 0, ECVF_SetByConsole);
+	}
+	W.Clock->SetTimeOfDay(20.0f);
+	TestTrue(TEXT("the differences listed"), Config->DescribeDifferences(W.World).Num() >= 2);
+	const int32 Changed = Config->Apply(W.World, false);
+	TestTrue(TEXT("the values changed back"), Changed >= 2);
+	TestNearlyEqual(TEXT("the setting back"), Settings->MeanTemperature, 21.5f, 1e-4f);
+	TestTrue(TEXT("the console variable back"), !bMeteorsKept || Meteors->GetString() == Shown);
+	TestNearlyEqual(TEXT("the time of day back"), W.Clock->GetTimeOfDay(), 9.5f, 0.01f);
+	TestTrue(TEXT("the config applied last"), UDreamWorldConfig::GetLastApplied() == Config);
+	TestEqual(TEXT("nothing differs after"), Config->DescribeDifferences(W.World).Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWorldWidgetsTest, "DreamWeather.Widgets", DreamWeather::Tests::Flags)
+bool FDreamWorldWidgetsTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("24 hour time"), UDreamClockWidget::FormatTime(7.0833f, true).ToString(), FString(TEXT("07:04")));
+	TestEqual(TEXT("12 hour time"), UDreamClockWidget::FormatTime(19.5f, false).ToString(), FString(TEXT("7:30 PM")));
+	TestEqual(TEXT("midnight on a 12 hour clock"), UDreamClockWidget::FormatTime(0.25f, false).ToString(), FString(TEXT("12:15 AM")));
+	TestEqual(TEXT("wraps past midnight"), UDreamClockWidget::FormatTime(25.0f, true).ToString(), FString(TEXT("01:00")));
+	TestEqual(TEXT("Celsius"), UDreamWeatherWidget::FormatTemperature(17.6f, false).ToString(), FString(TEXT("18°C")));
+	TestEqual(TEXT("Fahrenheit"), UDreamWeatherWidget::FormatTemperature(20.0f, true).ToString(), FString(TEXT("68°F")));
+	FDreamWeatherSample S;
+	S.CloudCoverage = 0.1f;
+	TestTrue(TEXT("clear"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Clear);
+	S.CloudCoverage = 0.5f;
+	TestTrue(TEXT("partly cloudy"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::PartlyCloudy);
+	S.CloudCoverage = 0.9f;
+	TestTrue(TEXT("cloudy"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Cloudy);
+	S.Fog = 0.8f;
+	TestTrue(TEXT("fog"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Fog);
+	S.Rain = 0.5f;
+	S.Precipitation = 0.5f;
+	TestTrue(TEXT("rain over fog"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Rain);
+	S.Snow = 0.3f;
+	TestTrue(TEXT("snow over rain"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Snow);
+	S.Hail = 0.3f;
+	TestTrue(TEXT("hail over snow"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Hail);
+	S.Lightning = 0.8f;
+	TestTrue(TEXT("a storm over all"), UDreamWeatherWidget::IconFor(S) == EDreamWeatherIcon::Storm);
+	// The widgets build their Slate (with no world: the designer's placeholders).
+	UDreamClockWidget* Clock = NewObject<UDreamClockWidget>();
+	UDreamWeatherWidget* Weather = NewObject<UDreamWeatherWidget>();
+	if (FSlateApplication::IsInitialized())
+	{
+		TestTrue(TEXT("the clock builds"), Clock->TakeWidget() != SNullWidget::NullWidget);
+		TestTrue(TEXT("the weather badge builds"), Weather->TakeWidget() != SNullWidget::NullWidget);
+	}
+	EDreamWeatherIcon Icon;
+	bool bDay;
+	FText Name;
+	float Celsius;
+	Weather->GetShown(Icon, bDay, Name, Celsius);
+	TestTrue(TEXT("without a world: a fair day"), Icon == EDreamWeatherIcon::PartlyCloudy && bDay);
 	return true;
 }
 
