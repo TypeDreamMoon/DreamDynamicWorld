@@ -33,12 +33,20 @@ static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDebug(
 	TEXT(" (right after the base pass: lighting, fog and translucency land on top of it); 2 = the clouds' rays that found")
 	TEXT(" no cloud red, the others green; 3 = how each ray took the frames before: green its history, yellow none this frame")
 	TEXT(" (a cut, a view first drawn: its neighbours' mean), red its history off screen or not drawn (the mean), blue this frame")
-	TEXT(" alone (brighter where the clouds cover more). 0 = off."),
+	TEXT(" alone (brighter where the clouds cover more); 4 = the march's per-pixel jitter held still (each ray's steps where the")
+	TEXT(" others are). 0 = off."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderDownsample(
 	TEXT("DreamSky.CloudRender.Downsample"), 2,
 	TEXT("The sky cloud renderer marches one ray per this many pixels across and down (1..4)."),
+	ECVF_RenderThreadSafe);
+
+static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderCinematic(
+	TEXT("DreamSky.CloudRender.Cinematic"), 1,
+	TEXT("1 = in the world's cinematic mode (DreamWorld.CinematicMode, a Movie Render Queue render) and while a sequence drives")
+	TEXT(" the clock (its time track) every frame of the clouds stands on its own and is drawn for its looks: every ray at full")
+	TEXT(" resolution, twice the samples, no history, no per-pixel jitter. 0 = as in play."),
 	ECVF_RenderThreadSafe);
 
 static TAutoConsoleVariable<int32> CVarDreamSkyCloudRenderSamples(
@@ -346,6 +354,7 @@ class FDreamSkyCloudPanoramaCS : public FGlobalShader
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D, CloudNoise)
 		SHADER_PARAMETER_SAMPLER(SamplerState, CloudNoiseSampler)
 		SHADER_PARAMETER(int32, MaxSamples)
+		SHADER_PARAMETER(uint32, MarchDebug)   // (the marches it shares read it; always 0 here)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, NearTau)
 		SHADER_PARAMETER_RDG_TEXTURE(Texture3D<float>, FarTau)
 		SHADER_PARAMETER_SAMPLER(SamplerState, TauSampler)
@@ -385,6 +394,8 @@ class FDreamSkyCloudTemporalCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, HistorySampler)
 		SHADER_PARAMETER(FVector2f, HistoryInvExtent)
 		SHADER_PARAMETER(float, HistoryWeight)
+		SHADER_PARAMETER(FVector2f, CloudDrift)
+		SHADER_PARAMETER(float, HistoryFresh)
 		SHADER_PARAMETER(uint32, TemporalDebug)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, HistoryRaySize)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
@@ -720,8 +731,20 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
+		Settings.WorldSeconds = Clock->GetWorldSeconds();
 		Settings.SunMapSlices = FMath::Clamp(CVarDreamSkyCloudRenderSunMapSlices.GetValueOnGameThread(), 1, 8);
 		Settings.bSunMapsWhole = Clock && Clock->IsCinematicMode();
+		// A cinematic frame (the world's cinematic mode, a Movie Render Queue render; a sequence driving the clock, its time
+		// track) stands on its own and is drawn for its looks, whatever it costs: every ray at full resolution, twice the
+		// samples, no history -- a sequence runs the clock hours in seconds, and the frame before's clouds are not this
+		// frame's. The temporal pass then gives this frame's neighbourhood mean (a render's own temporal samples average
+		// on top).
+		Settings.bCinematic = (Settings.bSunMapsWhole || Clock->IsDrivenExternally()) && CVarDreamSkyCloudRenderCinematic.GetValueOnGameThread() > 0;
+		if (Settings.bCinematic)
+		{
+			Settings.Downsample = 1;
+			Settings.MaxSamples = FMath::Clamp(Settings.MaxSamples * 2, 320, 512);
+		}
 		Settings.TimeJumpSerial = Clock ? Clock->GetTimeJumpSerial() : 0;
 
 		// The light shafts, where the clouds break the sun and their shadow is drawn.
@@ -895,7 +918,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->CloudNoise = CloudNoise;
 			Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 			Params->MaxSamples = Settings.MaxSamples;
-			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : 0u;
+			// (A cinematic frame, on its own, takes no per-pixel jitter: one frame of it was a grain of specks over a
+			// cloud's thin edges, where the history had averaged it away.)
+			Params->MarchDebug = Settings.DebugMode == 2 ? 1u : (Settings.DebugMode == 4 || Settings.bCinematic ? 2u : 0u);
 			const DreamSkyCloudRender::FGraphClouds& Graph = GraphBuilder.Blackboard.GetChecked<DreamSkyCloudRender::FGraphClouds>();
 			Params->NearTau = Graph.SunMaps[0];
 			Params->FarTau = Graph.SunMaps[1];
@@ -915,6 +940,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 
 		// The previous frames, where this view has any (scene captures without a view state have none).
 		const uint32 Key = InView.GetViewKey();
+		// (How far the wind has carried the clouds' field, as DCS_Shape reads it: DDW_Cloud1's x, y in 2.2 km times the
+		// scale, DDW_Cloud0's z.)
+		const FVector2f Drift = FVector2f(Settings.Parameters[6].X, Settings.Parameters[6].Y) * 220000.0f * FMath::Max(Settings.Parameters[5].Z, 0.05f);
 		TSharedPtr<FHistory> History;
 		if (Key != 0 && Settings.HistoryWeight > 0.0f)
 		{
@@ -959,7 +987,19 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->HistoryRaySize = GraphBuilder.CreateSRV(HistoryRaySize);
 			Params->OutRaySize = GraphBuilder.CreateUAV(OutRaySize);
 			// (Without one, the temporal pass puts out the neighbourhood's mean: a smooth frame, not one march's grain.)
-			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f);
+			Params->HistoryWeight = Settings.bCinematic ? -1.0f : (bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f));
+			// How far the wind has carried the clouds since the history was drawn: a cloud there stood that much further
+			// on (a jump of the clock or the drift's wrap, tens of kilometres, none: the neighbourhood then holds it).
+			const FVector2f Moved = Drift - (bHistory ? History->Drift : Drift);
+			Params->CloudDrift = Moved.Size() < 5.0e6f ? Moved : FVector2f::ZeroVector;
+			// And how much of the history still holds by how far the world's clock ran since: the clouds form, dissolve
+			// and light up within the game seconds a frame spans, which the drift does not follow. Held at the still
+			// view's weight, the neighbourhood's range cut the old frames into blocks round the clouds' edges, a darker rim
+			// with them (the dusk sequence: six hours in twenty seconds). All of it in real time, 0.94 of it at the
+			// showcase's twelve-minute day, 0.6 in the dusk sequence, half at a game minute a frame, none across a jump of
+			// the clock.
+			const double Ran = bHistory ? FMath::Abs(Settings.WorldSeconds - History->WorldSeconds) : 0.0;
+			Params->HistoryFresh = float(1.0 / (1.0 + Ran / 60.0));
 			Params->TemporalDebug = Settings.DebugMode == 3 ? 1u : 0u;
 			Params->OutColor = GraphBuilder.CreateUAV(OutColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(OutDepth);
@@ -976,6 +1016,8 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			History->Downsample = Downsample;
 			History->Look = Settings.Look;
 			History->LastFrame = GFrameCounterRenderThread;
+			History->Drift = Drift;
+			History->WorldSeconds = Settings.WorldSeconds;
 		}
 		Clouds = OutColor;
 
@@ -1192,6 +1234,7 @@ void FDreamSkyCloudViewExtension::UpdateSunMaps(FRDGBuilder& GraphBuilder, const
 		Params->CloudNoise = CloudNoise;
 		Params->CloudNoiseSampler = TStaticSamplerState<SF_Trilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 		Params->MaxSamples = FMath::Max(RenderSettings.MaxSamples / 2, 16);
+		Params->MarchDebug = 0u;
 		Params->NearTau = Graph.SunMaps[0];
 		Params->FarTau = Graph.SunMaps[1];
 		Params->TauSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();

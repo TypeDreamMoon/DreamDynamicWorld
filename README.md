@@ -71,8 +71,9 @@ atmosphere sun, index 0) and the moon, a sky light that captures the dome, a hei
 process for exposure — and a dome drawn by `M_DreamSky` (`DShader/Sky/M_DreamSky.dss`, drawing in
 `Shaders/Private/DreamSkyStylized.ush`): gradient, sun and halo, moon with its phase (its lit side shaded as the
 moon's dust shades it, evenly bright to the limb at the full; the terminator soft over `MoonTerminatorSoftness`; the
-dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full,
-`DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
+dark side in the earthshine, `MoonEarthshine` of the lit side near the new moon and fading to none at the full; its face
+NASA's map of the moon, below, or, as far as the style's `MoonFace` is below 1, procedural maria `MoonMaria` (0.45)
+darker than its highlands, `DDW_MoonLook`), stars, high cloud and rain shafts; the cumulus are drawn by the sky cloud renderer (below). A `UDreamSkyStyle` (default `DS_DreamSkyStylized`)
 says how everything looks: colour and intensity curves keyed by the **sun's elevation** (so one style fits any day
 length or latitude), the clouds, and the exposure from an EV100 curve — fixed (no eye-adaptation lag when time
 jumps) or with eye adaptation held around it. An overcast dims the moon (`OvercastLightDimming`), and the sun too
@@ -95,8 +96,16 @@ The clouds are drawn by the plugin's own cloud renderer (`Source/DreamSky/Privat
 `Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute pass marches the field at
 reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march (`DreamCloudMarch.ush`) —
 skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer than a billow near a
-surface, each ray's steps offset per pixel and frame — a second pass blends the frames before, reprojected by the
-clouds' depth (`DreamSky.CloudRender.History`, 0.9), and the clouds are laid over the sky pixels behind the scene,
+surface (by the distance alone for the toon surface and through cumulus until a fifth of the way is covered, however
+much of the layer is left: stretched to the samples left, thin fringes fell between the steps in rows of dashes), each
+ray's steps offset per pixel and frame —
+a second pass blends the frames before, reprojected by the
+clouds' depth and the wind's drift since (`DreamSky.CloudRender.History`, 0.9; less of it the further the world's clock
+ran since, `1 / (1 + game seconds / 60)`: all of it in real time, less of it as the day runs faster, none across a
+jump; in the world's cinematic mode, a Movie Render Queue render and while a sequence drives the clock (its time track:
+six hours in twenty seconds) none at all: every frame is drawn on its own at full resolution with twice the samples
+and no per-pixel jitter, `DreamSky.CloudRender.Cinematic`, 1), and the clouds are
+laid over the sky pixels behind the scene,
 under the sky's height fog as the engine fogs its own clouds; they take the dome's weather haze and lightning. Three
 looks (`ADreamSky.CloudLook`, or the console's `DreamSky.CloudRender.Look`): **toon** (the surface, lit once by its
 normal and its shadow toward the light and painted in the style's few tones), **realistic** (the density lit by
@@ -134,12 +143,15 @@ whatever translucency stands in front of them (rain, particles, glass). It does 
 scenery seen from under the layer, nor the view flying into them (cloud volumes are for clouds close by). The dome
 stands 1000 km out (`DomeRadius`), beyond any terrain. `DreamSky.CloudRender.Debug 1` shows where the clouds go into
 the sky pixels, `2` the rays that found no cloud, `3` how each ray took the frames before (green its history, yellow
-none this frame, red its history off screen, blue this frame alone); `DreamSky.CloudRender.GroundShadowReference <steps>`
+none this frame, red its history off screen, blue this frame alone), `4` the march's per-pixel jitter held still;
+`DreamSky.CloudRender.GroundShadowReference <steps>`
 works the ground shadow out by an even march per texel, a reference for the sun map's ground maps. The sun maps
 (the optical depth toward the sun round the view, a near and a far cascade) are redrawn a slice a frame, the
 cascades taking turns (`DreamSky.CloudRender.SunMapSlices`, 6: each redrawn whole every twelfth frame; 1 a whole
 cascade a frame), and whole when the view moves a texel or the light turns a quarter of a degree (on the cascade's
-turn), at once on a jump of the clock, and every frame in the cinematic mode.
+turn), at once on a jump of the clock, and every frame in the cinematic mode. On the showcase's cloudy view at
+1280×720 (rays at half resolution) the clouds take some 0.83 ms toon and 0.97 ms realistic (the march 0.68 and 0.82 of
+it, a sun map slice 0.08), `ProfileGPU` on an RTX 4070 Ti SUPER.
 
 The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
 editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as
@@ -309,6 +321,18 @@ Center for Astrophysics' Telescope Data Center or the CDS as V/50); with no file
 a file that does not read as the catalogue (far from its 9110 records, or places and magnitudes out of their ranges) is
 an error and leaves it as it is too. The catalogue's file itself is not part of the plugin; the map is.
 
+**The moon's face.** The moon's disk is drawn with NASA's colour map of the moon: `lroc_color_2k.jpg` from the CGI Moon
+Kit of NASA's Scientific Visualization Studio (https://svs.gsfc.nasa.gov/4720; credit: NASA's Scientific Visualization
+Studio), made from the Lunar Reconnaissance Orbiter's LROC WAC colour mosaic (Arizona State University). Each point of
+the disk takes its selenographic longitude and latitude -- the near side toward the earth, the moon's north toward the
+celestial pole (no libration), its east (Mare Crisium) on the right as seen from the north -- and the phase, the
+earthshine, an eclipse, the weather's dimming and reddening and the disk's growing near the horizon all go on over it.
+Setup bakes the map into `T_DreamMoonMap` (1024 x 512, averaged down, its bright highlands at about 1 and the maria
+some 0.6 of them, block compressed with mips) from the downloaded image: `-MoonMap=<path>`, by default
+`<project>/Saved/MoonSource/lroc_color_2k.jpg`; with no image there Setup leaves the map as it is (`-ForceMoonMap` bakes
+it again). The image itself is not part of the plugin; the map is. The style's `MoonFace` (1) is how much of the face the
+map draws; at 0 the procedural maria stand in.
+
 **Milky Way.** Behind the stars the dome draws the Milky Way on the same celestial sphere, so it turns with them and
 stands where it does for the latitude, the season and the hour (low in the south on a northern summer night with its
 bright centre in Sagittarius, the fainter Perseus and Auriga stretch on a winter one): a band widening and brightening
@@ -329,7 +353,12 @@ meteors and satellites and noctilucent clouds are all drawn that much fainter, t
 `MoonThroughHaze` (0.6) of themselves at none -- a dull disk in a dust storm, over what the dome's own haze already takes.
 The haze leaves `(1 - haze)` to the power `NightSkyHazeExponent` (2: a light haze of 0.3 half the sky, a dust storm's
 0.95 next to none of it); the weather's fog and its cloud cover take `NightSkyFogHides` (0.9) and `NightSkyCloudHides`
-(0.4) more at their thickest (the clouds themselves cover what is behind them besides).
+(0.4) more at their thickest (the clouds themselves cover what is behind them besides). The moon's light goes with it:
+what of it comes straight through the haze and the fog under an open sky (`FDreamSkyLighting::MoonShadow`) still casts
+the moon's shadows; the rest is spread over the whole sky, so the moon light dims down to `MoonThroughHaze` of itself,
+its source widens toward `MoonDiffuseSourceAngle` (20 degrees: the shadows blur) and its shadows fade, gone under a closed
+cover or in a dust storm. Through dust the moon reddens -- its disk, its glow and its light take `MoonDustTint` as far as
+the haze hides it (the dust takes the blue first); a fog's droplets leave it white.
 
 **Rainbow.** In the same pass, the rain beyond shows a rainbow round the point straight away from the main light: the
 first bow violet inside at 40.6 degrees to red outside at 42.3, a glow inside it, the fainter second bow (`SecondBow`,
@@ -1093,7 +1122,7 @@ up, to the south-west) at noon, in the evening, overcast and in fog with the aer
 on and off (`-Parts far`), and takes a frame every three seconds of the dusk sequence:
 `Tools/Showcase/Invoke-ShowcaseTour.ps1 -Project <host>.uproject`, then `python Tools/Showcase/Make-ShowcaseSheet.py
 <screenshots> <out>` for the overviews (rows the weathers, columns the views — the cars and the walker going round the square among them; the cold's, the far land's and the tornado's own sheets). The tour is plain `DreamWorld.Script`
-files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `settle`, `shot` lines). After each jump of the clock they
+files (`Tools/Showcase/tour_*.dws`: `time`, `move`, `aim`, `fov`, `settle`, `shot` lines). After each jump of the clock they
 wait four seconds, for the drops of the weather before to land; inside the hut, two seconds before the shot, for the
 indoor exposure to settle. `DreamWorld.ShotTour Hours=8/12/16/22` takes a quick round from the level's camera.
 `DreamWorld.Showcase.Contents` and `DreamWorld.Showcase.DuskSequence` check that the levels hold all of the above (the

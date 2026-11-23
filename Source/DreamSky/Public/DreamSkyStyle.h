@@ -970,6 +970,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "0.3"))
 	float MoonEarthshine = 0.06f;
 
+	/** How wide the moon light's source grows (degrees) as its light comes from all over the sky instead of from the moon
+	 *  -- a closing cover, a dust storm (FDreamSkyLighting::MoonShadow) -- so its shadows blur, and go once none of it
+	 *  comes straight. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "45", Units = "Degrees"))
+	float MoonDiffuseSourceAngle = 20.0f;
+
+	/** How much of the moon's face is NASA's map of it (T_DreamMoonMap, which Setup bakes), 1 .. 0 the procedural maria
+	 *  (MoonMaria): the map's near side toward the earth, its north toward the celestial pole. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonFace = 1.0f;
+
+	/** How much darker the procedural maria are than the highlands (where MoonFace is below 1), 0 none .. 1 black (the
+	 *  real ones some half as bright). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonMaria = 0.45f;
+
+	/** The moon's colour through a dust storm's haze -- its disk, its glow and its light -- as far as the haze hides the
+	 *  night sky (NightSkyThrough): the dust takes the blue first. A fog's droplets leave it white. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (HideAlphaChannel))
+	FLinearColor MoonDustTint = FLinearColor(1.0f, 0.6f, 0.35f, 1.0f);
+
 	/** How much of the moonlight's hue (MoonLightColor) the toon clouds' moonlit side takes, 0 .. 1: by moonlight the eye
 	 *  sees little colour (low, a grey-blue; 1, the moonlight's blue as it is). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
