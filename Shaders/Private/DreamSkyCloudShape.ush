@@ -234,6 +234,7 @@ float DCS_Cumulonimbus(float2 Offset, float Z, float Size, float2 Downwind, floa
 struct FDCloudAnchor
 {
 	float2 Weather;       // the weather map's (cover, darkness), read where the point's weather wanders to
+	float2 Wander;        // how far off the point that is (cm): the samples near it read the map as far off
 	float4 Storm;         // the nearest cumulonimbus: its middle in the drifting field (cm, x, y), its size (0 = none), its seed
 	float4 Storm2;        // the next nearest, the same way
 };
@@ -297,6 +298,7 @@ FDCloudShape DCS_Field(float2 P, float2 World2, float3 Rel, float Z, float2 Weat
 	S.Column = 1.0;
 	S.Signed = -1.0;
 	S.Anchor.Weather = Weather;
+	S.Anchor.Wander = Wander;
 	S.Dark = saturate(Weather.y * 1.3 - 0.2);
 	// (No anvil tops 9.8 km.)
 	S.StormDistance = Z <= 0.0 ? -Z : max(Z - 980000.0, 0.0);
@@ -686,17 +688,21 @@ FDCloudShape DCS_Shape(float3 Rel, float3 World, float Z, float4 Cloud0, float4 
 }
 
 // The clouds at a point near one DCS_Shape has sampled (Anchor = that sample's S.Anchor): for the samples around a
-// surface -- its normal's taps, the shadow's samples toward the light, a few kilometres at most. It takes the weather
-// and the two nearest cumulonimbus from the anchor instead of reading the weather map (no wandering read, no 3 x 3 storm
-// search) and leaves out the fine fraying near the view; otherwise it is the same field, so the normals and shadows
-// fit the surface. Texture reads: 2 noise; 1 more where a deck closes, 1 more with a cumulonimbus, 1 more inside the
-// shape; no map reads. (MapParams, Map and MapSampler go unread; they keep the call like DCS_Shape's.)
+// surface -- the walk refining it, its normal's taps, the shadow's samples toward the light, a few kilometres at most.
+// It takes the two nearest cumulonimbus from the anchor instead of searching for them (no 3 x 3 storm search), reads
+// the weather map as far off as the anchor's was read (the wandering changes over tens of kilometres) and leaves out
+// the fine fraying near the view; otherwise it is the same field, so the normals and shadows fit the surface. (With
+// the anchor's own weather for all of them, a cover changing within a few hundred metres -- a painted bank's edge --
+// shaped the surface the march found but not the one the walk refined: that snapped to the march's steps, in blocks,
+// and the shadows took the wrong cover, a dark rim round them.) Texture reads: 2 noise and 1 map; 1 noise more where a
+// deck closes, 1 more with a cumulonimbus, 1 more inside the shape.
 FDCloudShape DCS_ShapeNear(float3 World, float Z, FDCloudAnchor Anchor, float4 Cloud0, float4 Cloud1, float4 Cloud2, float4 CloudLayer,
 	float4 MapParams, Texture2D Map, SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
 {
 	float Scale = max(Cloud0.z, 0.05);
 	float2 P = World.xy + Cloud1.xy * 220000.0 * Scale;
-	return DCS_Field(P, World.xy, float3(0, 0, 0), Z, Anchor.Weather, false, Anchor.Storm, Anchor.Storm2, float2(0, 0), Scale, Cloud0, Cloud1,
+	float2 Weather = DCS_MapAt(World.xy + Anchor.Wander, float3(Anchor.Weather, 0.0), MapParams, Map, MapSampler).xy;
+	return DCS_Field(P, World.xy, float3(0, 0, 0), Z, Weather, false, Anchor.Storm, Anchor.Storm2, Anchor.Wander, Scale, Cloud0, Cloud1,
 		Cloud2, CloudLayer, MapParams, 0.0, Map, MapSampler, Noise, NoiseSampler);
 }
 
