@@ -591,7 +591,12 @@ thins it out to nothing toward the map's rim. Light: the main light through the 
 the depth to its top over the light's sine, averaged over each step in closed form, so the thin skin a low sun lights
 on a thick fog's top is not stepped past --, with the clouds' phase and multiple scattering octaves; the sky above
 (and the ground's bounce below) and the sunlight diffused down through the fog above, some 1 / (1 + 0.3 tau) of it.
-At sunrise the top of a fog sea glows in the low sun and its depths go grey; inside it the sun is a dim disc.
+The light is cut by the terrain and the clouds: the terrain fog works out, per cell, how high the ray toward the light
+stands under the ground on its way out of its map (one cell a step over its heights, again when the light has moved a
+quarter of a degree; kept in the layer map's alpha), so a valley's fog in the hills' shadow stays grey while the fog in
+the open glows; and where the sky draws its clouds, the cloud renderer's shadow on the ground (ADreamSky's cloud shadow
+map, read where the light's ray meets the cloud layer) is multiplied in. At sunrise the top of a fog sea glows in the
+low sun and its depths go grey; inside it the sun is a dim disc.
 
 The engine's unit cube is drawn over the box, its back faces only with the depth test off (as the cloud volumes are),
 so the fog shows from outside and from in it, and the scene cuts the march where its depth says; it draws under the
