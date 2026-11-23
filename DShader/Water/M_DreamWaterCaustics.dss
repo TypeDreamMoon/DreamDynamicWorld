@@ -1,0 +1,81 @@
+// M_DreamWaterCaustics.dss -- the light a water body's surface throws on what lies under it (its bottom, its walls, what
+// stands in it): a decal the water body (UDreamWaterBodyComponent) projects down from its surface to its bottom.
+//
+// The surface's small waves focus the sunlight into a moving net of bright lines. The net is two layers of cells whose
+// points wander (the lines are where a point's cell meets its neighbour's), at CausticLook.x across, shifted along the
+// light by the depth (so the net lies where the light that made it lands). It is added light: the main light's colour and
+// illuminance (the plugin's shared parameter collection) times Strength, fading with depth (CausticLook.z), with how
+// muddy the water is, and toward the surface (nothing on the surface itself), and as the light goes low. The decal only
+// adds emissive light (only the emissive is written, added at full opacity): it does not change the materials it lands
+// on.
+#pragma material(Domain = DeferredDecal, BlendMode = AlphaComposite)
+
+/// @group Water   @sort 10   @desc The surface's height (world cm), the turbidity (0..1), Strength, the bottom's height (world cm)
+uniform float4 WaterSurface = float4(0.0, 0.0, 1.0, -200.0);
+
+/// @group Water   @sort 20   @desc The net's size (cm across a cell), how fast it moves, the depth it fades over (cm), -
+uniform float4 CausticLook = float4(45.0, 0.6, 250.0, 0.0);
+
+/// @custom
+float CausticCells(float2 P, float Seconds, float Seed)
+{
+	// Distance to the edge between the nearest cell point and the next (F2 - F1), the points wandering in small circles.
+	float2 I = floor(P);
+	float2 F = P - I;
+	float D1 = 8.0;
+	float D2 = 8.0;
+	for (int Y = -1; Y <= 1; ++Y)
+	{
+		for (int X = -1; X <= 1; ++X)
+		{
+			float2 C = float2(X, Y);
+			float2 H = frac(sin(float2(dot(I + C, float2(127.1, 311.7)) + Seed, dot(I + C, float2(269.5, 183.3)) - Seed)) * 43758.5453);
+			float2 Point = C + 0.5 + 0.38 * sin(Seconds * (0.7 + 0.6 * H) + 6.2831 * H);
+			float D = length(Point - F);
+			if (D < D1)
+			{
+				D2 = D1;
+				D1 = D;
+			}
+			else if (D < D2)
+			{
+				D2 = D;
+			}
+		}
+	}
+	return D2 - D1;
+}
+
+/// @custom
+float3 DreamWaterCaustics_Light(float3 World, float4 MainLight, float4 MainLightColor, float4 Surface, float4 Look, float Seconds)
+{
+	float Depth = Surface.x - World.z;
+	if (Depth <= 0.0 || World.z < Surface.w - 20.0)
+	{
+		return 0.0;
+	}
+	float3 L = normalize(MainLight.xyz);
+	// Where the light that lands here crossed the surface: back up along it by the depth.
+	float2 At = World.xy + L.xy / max(L.z, 0.2) * Depth;
+	float2 P = At / max(Look.x, 1.0);
+	float T = Seconds * Look.y;
+	// The surface's long, slow swell bends the net (wavy lines, not tiles); the two layers' lines brighten where they
+	// cross, and thin out where they part.
+	P += 0.28 * float2(sin(P.y * 1.3 + T * 0.9), sin(P.x * 1.1 - T * 0.7));
+	float A = CausticCells(P, T, 0.0);
+	float B = CausticCells(P * 1.37 + float2(5.2, 1.3), T * 1.21, 17.0);
+	float LineA = pow(saturate(1.0 - A / 0.2), 2.5);
+	float LineB = pow(saturate(1.0 - B / 0.16), 2.5);
+	float Net = 0.6 * LineA + 0.35 * LineB + 0.9 * LineA * LineB;
+	float Fade = exp(-Depth / max(Look.z, 1.0)) * smoothstep(0.0, 8.0, Depth) * (1.0 - 0.85 * saturate(Surface.y)) * saturate(L.z * 4.0);
+	// Light added on a surface of some 0.3 albedo, as a share of the sunlight it already gets.
+	return MainLightColor.rgb * MainLight.w * (Surface.z * 0.3 / 3.14159) * Net * Fade;
+}
+
+export void M_DreamWaterCaustics(inout material m)
+{
+	float4 MainLight      = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLight");
+	float4 MainLightColor = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MainLightColor");
+	m.EmissiveColor = DreamWaterCaustics_Light(UE.WorldPosition().XYZ, MainLight, MainLightColor, WaterSurface, CausticLook, UE.Time());
+	m.Opacity = 1.0;
+}

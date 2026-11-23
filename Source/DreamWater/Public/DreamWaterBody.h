@@ -7,6 +7,8 @@
 #include "DreamWaterBody.generated.h"
 
 class UDreamWaterBodyComponent;
+class UDecalComponent;
+class UMaterialInstanceDynamic;
 
 /** Where a water body's level stands against its usual one. */
 UENUM(BlueprintType)
@@ -147,6 +149,30 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
 	bool bMoveOwner = false;
 
+	/** Throw the sun's caustics on what lies under the water (a decal from its surface down to its bottom). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water|Caustics")
+	bool bCaustics = true;
+
+	/** How bright the caustics are, as a share of the sunlight a surface of some 0.3 albedo already gets. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water|Caustics", meta = (ClampMin = "0", UIMax = "4"))
+	float CausticStrength = 1.0f;
+
+	/** The caustics' net, cm across a cell. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water|Caustics", meta = (ClampMin = "1", Units = "cm"))
+	float CausticSize = 45.0f;
+
+	/** How fast the net moves (the surface's waves). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water|Caustics", meta = (ClampMin = "0"))
+	float CausticSpeed = 0.6f;
+
+	/** The depth the caustics fade over, cm (clear water: metres; turbidity takes more of them). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water|Caustics", meta = (ClampMin = "1", Units = "cm"))
+	float CausticFadeDepth = 250.0f;
+
+	/** The caustics' decal (when bCaustics), and its material. */
+	UDecalComponent* GetCausticsDecal() const { return CausticsDecal; }
+	UMaterialInstanceDynamic* GetCausticsMaterial() const { return CausticsMaterial; }
+
 	/** Hold the state where it is (cinematics, a level set by hand). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
 	bool bHold = false;
@@ -200,12 +226,24 @@ public:
 	virtual void OnRegister() override;
 	virtual void OnUnregister() override;
 
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
+#endif
+
 private:
 	void ApplyLevel();
+	void UpdateCaustics();
+
+	UPROPERTY(Transient)
+	TObjectPtr<UDecalComponent> CausticsDecal;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> CausticsMaterial;
 
 	FDreamWaterState State;
 	EDreamWaterBand Band = EDreamWaterBand::Normal;
 	float BaseHeight = 0.0f;
 	float OwnerBaseZ = 0.0f;
+	FVector4f CausticsDrawn = FVector4f(-1.0e9f);   // surface, turbidity, strength, bottom last given to the decal
 	bool bBaseKnown = false;
 };

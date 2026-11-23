@@ -3,6 +3,8 @@
 #include "DreamWaterBody.h"
 
 #include "DreamWaterSubsystem.h"
+#include "Components/DecalComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 
@@ -83,10 +85,73 @@ void UDreamWaterBodyComponent::OnRegister()
 	{
 		Water->RegisterBody(this);
 	}
+	UpdateCaustics();
+}
+
+#if WITH_EDITOR
+void UDreamWaterBodyComponent::PostEditChangeProperty(FPropertyChangedEvent& Event)
+{
+	Super::PostEditChangeProperty(Event);
+	CausticsDrawn = FVector4f(-1.0e9f);
+	UpdateCaustics();
+}
+#endif
+
+void UDreamWaterBodyComponent::UpdateCaustics()
+{
+	UWorld* World = GetWorld();
+	if (!bCaustics || !World || World->IsNetMode(NM_DedicatedServer))
+	{
+		if (CausticsDecal)
+		{
+			CausticsDecal->SetVisibility(false);
+		}
+		return;
+	}
+	if (!CausticsDecal)
+	{
+		UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Water/M_DreamWaterCaustics.M_DreamWaterCaustics"));
+		if (!Base || !GetOwner())
+		{
+			return;
+		}
+		CausticsMaterial = UMaterialInstanceDynamic::Create(Base, this);
+		CausticsDecal = NewObject<UDecalComponent>(GetOwner(), NAME_None, RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+		CausticsDecal->SetupAttachment(this);
+		CausticsDecal->SetUsingAbsoluteLocation(true);
+		CausticsDecal->SetUsingAbsoluteRotation(true);
+		CausticsDecal->SetUsingAbsoluteScale(true);
+		CausticsDecal->SetDecalMaterial(CausticsMaterial);
+		CausticsDecal->SetFadeScreenSize(0.0f);
+		CausticsDecal->RegisterComponent();
+	}
+	// From just above the surface down past the bottom, over the water's area (the decal's X is its depth, pointing down);
+	// again only when the level has moved half a cm or the water's look changed.
+	const float Surface = GetSurfaceHeight();
+	const float Bottom = GetBottomHeight();
+	const FVector4f Now(Surface, State.Turbidity, CausticStrength, Bottom);
+	if (FMath::Abs(Now.X - CausticsDrawn.X) < 0.5f && FMath::Abs(Now.Y - CausticsDrawn.Y) < 0.01f && Now.Z == CausticsDrawn.Z && Now.W == CausticsDrawn.W)
+	{
+		return;
+	}
+	CausticsDrawn = Now;
+	const FVector At = GetComponentLocation();
+	CausticsDecal->SetWorldLocationAndRotation(FVector(At.X, At.Y, 0.5 * (Surface + Bottom)), FRotator(-90.0, GetComponentRotation().Yaw, 0.0));
+	CausticsDecal->DecalSize = FVector(0.5 * (Surface - Bottom) + 30.0, Extent.Y, Extent.X);
+	CausticsDecal->MarkRenderStateDirty();
+	CausticsDecal->SetVisibility(true);
+	CausticsMaterial->SetVectorParameterValue(TEXT("WaterSurface"), FLinearColor(Surface, State.Turbidity, CausticStrength, Bottom));
+	CausticsMaterial->SetVectorParameterValue(TEXT("CausticLook"), FLinearColor(CausticSize, CausticSpeed, CausticFadeDepth, 0.0f));
 }
 
 void UDreamWaterBodyComponent::OnUnregister()
 {
+	if (CausticsDecal)
+	{
+		CausticsDecal->DestroyComponent();
+		CausticsDecal = nullptr;
+		CausticsDrawn = FVector4f(-1.0e9f);
+	}
 	if (UDreamWaterSubsystem* Water = UDreamWaterSubsystem::Get(GetWorld()))
 	{
 		Water->UnregisterBody(this);
@@ -120,6 +185,7 @@ void UDreamWaterBodyComponent::ApplyLevel()
 		OnBandChangedNative.Broadcast(this, Was, Band);
 		OnBandChanged.Broadcast(this, Was, Band);
 	}
+	UpdateCaustics();
 	// The actor it is on rides on the level (not by less than half a cm a move).
 	AActor* Owner = bMoveOwner ? GetOwner() : nullptr;
 	if (Owner && bBaseKnown)
