@@ -56,6 +56,8 @@ private:
 		int32 Downsample = 2;
 		int32 MaxSamples = 160;
 		float HistoryWeight = 0.9f;
+		/** The world's clock (UDreamWorldSubsystem::GetWorldSeconds): how far it ran since a view's history. */
+		double WorldSeconds = 0.0;
 		FVector4f Parameters[NumParameters];
 		FVector4f LookParameters[NumLookParameters];
 		FTextureResource* Noise = nullptr;
@@ -97,6 +99,8 @@ private:
 		int32 Downsample = 0;
 		int32 Look = -1;
 		uint64 LastFrame = 0;
+		FVector2f Drift = FVector2f::ZeroVector;   // how far the wind had carried the clouds' field then (cm, DCS_Shape's)
+		double WorldSeconds = 0.0;                 // the world's clock then
 	};
 
 	/**

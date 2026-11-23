@@ -209,6 +209,8 @@ float2 HistoryInvExtent;
 StructuredBuffer<uint2> HistoryRaySize;   // the ray grid the history was drawn at
 RWStructuredBuffer<uint2> OutRaySize;
 float HistoryWeight;
+float2 CloudDrift;                        // how far the wind has carried the clouds since the history (cm, world x, y)
+float HistoryFresh;                       // how much of the history still holds by how far the world's clock ran since
 
 // The light shafts (FDreamSkyCloudViewExtension::DrawLightShafts).
 float4 ShaftParameters[2];
@@ -1345,10 +1347,11 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 		DSkyR_TemporalOut(Ray, Mean, float3(1.0, 0.9, 0.1));
 		return;
 	}
-	// Where this ray's clouds were on screen the frame before: at their depth, or (none) the sky at infinity.
+	// Where this ray's clouds were on screen the frame before: at their depth, where the wind had them then (CloudDrift:
+	// read where they stand now, the history lagged clouds the wind carries), or (none) the sky at infinity.
 	float3 V = DSkyR_ViewDir(DSkyR_FullPixel(Ray));
-	float4 Clip = Depth > 0.0 ? mul(float4(View.TranslatedWorldCameraOrigin + V * Depth, 1.0), View.TranslatedWorldToClip)
-		: mul(float4(V, 0.0), View.TranslatedWorldToClip);
+	float3 Was = View.TranslatedWorldCameraOrigin + V * Depth + float3(CloudDrift, 0.0);
+	float4 Clip = Depth > 0.0 ? mul(float4(Was, 1.0), View.TranslatedWorldToClip) : mul(float4(V, 0.0), View.TranslatedWorldToClip);
 	float4 Prev = mul(Clip, View.ClipToPrevClip);
 	float2 PrevUV = (Prev.xy / max(Prev.w, 1.0e-6)) * float2(0.5, -0.5) + 0.5;
 	// (At the ray grid the history was drawn at: the screen percentage may have changed since.)
@@ -1371,6 +1374,8 @@ void TemporalCS(uint3 Id : SV_DispatchThreadID)
 	// so nothing trails behind them.
 	float Motion = length(PrevRay - (float2(Ray) + 0.5));
 	float Weight = HistoryWeight + (1.0 - HistoryWeight) * 0.7 * (1.0 - smoothstep(0.25, 1.5, Motion));
+	// (Less of it the further the world's clock ran since: the clouds changed in their own right.)
+	Weight *= HistoryFresh;
 	// Where the clouds a ray found are a funnel's (their depth within its column) the history weighs little: a funnel
 	// turns, moves and grows within seconds, and at the still view's weight its rope took twenty seconds to show. (Not on
 	// the clouds round it, nor the base lowered round its top, nor its top flared into it: lowered there, the jitter's

@@ -383,6 +383,8 @@ class FDreamSkyCloudTemporalCS : public FGlobalShader
 		SHADER_PARAMETER_SAMPLER(SamplerState, HistorySampler)
 		SHADER_PARAMETER(FVector2f, HistoryInvExtent)
 		SHADER_PARAMETER(float, HistoryWeight)
+		SHADER_PARAMETER(FVector2f, CloudDrift)
+		SHADER_PARAMETER(float, HistoryFresh)
 		SHADER_PARAMETER(uint32, TemporalDebug)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, HistoryRaySize)
 		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float4>, OutColor)
@@ -718,6 +720,7 @@ void FDreamSkyCloudViewExtension::SetupViewFamily(FSceneViewFamily& InViewFamily
 		Settings.Downsample = FMath::Clamp(CVarDreamSkyCloudRenderDownsample.GetValueOnGameThread(), 1, 4);
 		Settings.MaxSamples = FMath::Clamp(CVarDreamSkyCloudRenderSamples.GetValueOnGameThread(), 16, 512);
 		Settings.HistoryWeight = FMath::Clamp(CVarDreamSkyCloudRenderHistory.GetValueOnGameThread(), 0.0f, 0.98f);
+		Settings.WorldSeconds = Clock->GetWorldSeconds();
 		Settings.SunMapSlices = FMath::Clamp(CVarDreamSkyCloudRenderSunMapSlices.GetValueOnGameThread(), 1, 8);
 		Settings.bSunMapsWhole = Clock && Clock->IsCinematicMode();
 		Settings.TimeJumpSerial = Clock ? Clock->GetTimeJumpSerial() : 0;
@@ -913,6 +916,9 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 
 		// The previous frames, where this view has any (scene captures without a view state have none).
 		const uint32 Key = InView.GetViewKey();
+		// (How far the wind has carried the clouds' field, as DCS_Shape reads it: DDW_Cloud1's x, y in 2.2 km times the
+		// scale, DDW_Cloud0's z.)
+		const FVector2f Drift = FVector2f(Settings.Parameters[6].X, Settings.Parameters[6].Y) * 220000.0f * FMath::Max(Settings.Parameters[5].Z, 0.05f);
 		TSharedPtr<FHistory> History;
 		if (Key != 0 && Settings.HistoryWeight > 0.0f)
 		{
@@ -958,6 +964,18 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			Params->OutRaySize = GraphBuilder.CreateUAV(OutRaySize);
 			// (Without one, the temporal pass puts out the neighbourhood's mean: a smooth frame, not one march's grain.)
 			Params->HistoryWeight = bHistory ? Settings.HistoryWeight : (Settings.HistoryWeight > 0.0f ? -1.0f : 0.0f);
+			// How far the wind has carried the clouds since the history was drawn: a cloud there stood that much further
+			// on (a jump of the clock or the drift's wrap, tens of kilometres, none: the neighbourhood then holds it).
+			const FVector2f Moved = Drift - (bHistory ? History->Drift : Drift);
+			Params->CloudDrift = Moved.Size() < 5.0e6f ? Moved : FVector2f::ZeroVector;
+			// And how much of the history still holds by how far the world's clock ran since: the clouds form, dissolve
+			// and light up within the game seconds a frame spans, which the drift does not follow. Held at the still
+			// view's weight, the neighbourhood's range cut the old frames into blocks round the clouds' edges, a darker rim
+			// with them (the dusk sequence: six hours in twenty seconds). All of it in real time, 0.94 of it at the
+			// showcase's twelve-minute day, 0.6 in the dusk sequence, half at a game minute a frame, none across a jump of
+			// the clock.
+			const double Ran = bHistory ? FMath::Abs(Settings.WorldSeconds - History->WorldSeconds) : 0.0;
+			Params->HistoryFresh = float(1.0 / (1.0 + Ran / 60.0));
 			Params->TemporalDebug = Settings.DebugMode == 3 ? 1u : 0u;
 			Params->OutColor = GraphBuilder.CreateUAV(OutColor);
 			Params->OutDepth = GraphBuilder.CreateUAV(OutDepth);
@@ -974,6 +992,8 @@ void FDreamSkyCloudViewExtension::RenderClouds(FRDGBuilder& GraphBuilder, FScene
 			History->Downsample = Downsample;
 			History->Look = Settings.Look;
 			History->LastFrame = GFrameCounterRenderThread;
+			History->Drift = Drift;
+			History->WorldSeconds = Settings.WorldSeconds;
 		}
 		Clouds = OutColor;
 
