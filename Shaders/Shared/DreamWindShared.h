@@ -299,8 +299,9 @@ DW_FN FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos
 	// oriented box for shelters
 	if (type == DW_SOURCE_TWISTER)
 	{
-		// Rankine: turning as a solid body inside the core, falling off as 1/r outside it; the core rising, fastest on the
-		// axis and from a core's height up; the air drawn in along the ground toward the core's edge.
+		// Rankine: turning as a solid body inside the core, falling off as 1/r outside it; rising in the core's wall,
+		// fastest a little inside its edge (the axis rises less: the column is a hollow tube of rising air), from a core's
+		// height up; the air drawn in along the ground toward the core's edge.
 		float height = R * stretch;
 		float along = dot(d, dir);
 		float3 radialVec = d - dir * along;
@@ -315,7 +316,7 @@ DW_FN FDreamWindSourceEval DW_EvalSource(FDreamWindSourceData S, float3 WorldPos
 		float3 tangent = r > 0.001f ? cross(dir, radialVec) * (1.0f / r) : float3(0.0f, 0.0f, 0.0f);
 		float3 inward = r > 0.001f ? radialVec * (-1.0f / r) : float3(0.0f, 0.0f, 0.0f);
 		float spin = rc < 1.0f ? rc : 1.0f / rc;
-		float rise = exp(-rc * rc) * saturate(along / core + 0.2f);
+		float rise = exp(-(rc - 0.8f) * (rc - 0.8f) * 2.0f) * saturate(along / core + 0.2f);
 		float low = exp(-max(along, 0.0f) / core);
 		float draw = rc < 1.0f ? rc : 1.0f / rc;
 		T.Velocity = tangent * (S.DirectionStrength.w * spin) + dir * (S.BoxExtent.x * rise) + inward * (S.BoxExtent.y * draw * low);

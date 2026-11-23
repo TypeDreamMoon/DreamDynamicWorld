@@ -10,6 +10,7 @@
 #include "DreamWindQualityTier.h"
 #include "DreamWindSubsystem.h"
 #include "DreamWindTestMap.h"
+#include "DreamWindVortex.h"
 #include "DreamWorldInterior.h"
 
 #include "Editor.h"
@@ -1329,6 +1330,128 @@ bool FDreamWindFluidPortalTest::RunTest(const FString& Parameters)
 			H->Pane->Destroy();
 		}
 		SetCVar(TEXT("DreamWind.Fluid.DistanceField"), -1);
+		SetCVar(TEXT("DreamWind.Fluid"), -1);
+		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
+		SetCVar(TEXT("DreamWind.Occlusion"), -1);
+		SetCVar(TEXT("r.DreamWind.Quality"), -1);
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(FVector::ZeroVector, false);
+		}
+		FAutomationEditorCommonUtils::CreateNewMap();
+	});
+	WaitFrames(2);
+	Then([]() { CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS); });
+	return true;
+}
+
+// ---- A whirlwind in the fluid --------------------------------------------------------------------------------------
+// A dust devil in a calm on open ground: the fluid turns round its core, rises up it and draws the air in along the
+// ground toward it (its core a sink there).
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamWindFluidTwisterTest, "DreamWind.Gpu.FluidTwister", DreamWindFluidTests::Flags)
+bool FDreamWindFluidTwisterTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWindFluidTests;
+	if (!FApp::CanEverRender() || !GEditor)
+	{
+		AddWarning(TEXT("Needs the editor with a renderer (not -nullrhi)."));
+		return true;
+	}
+	if (!FPackageName::DoesPackageExist(DreamWorld::Setup::WindTestMapPackage))
+	{
+		AddError(TEXT("The wind field test level is missing: run Setup -WindFieldTestMap."));
+		return false;
+	}
+	GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = false;
+	SetCVar(TEXT("DreamWind.Fluid"), 1);
+	SetCVar(TEXT("DreamWind.RuntimeTerrain"), 0);
+	SetCVar(TEXT("DreamWind.Occlusion"), 0);
+	SetCVar(TEXT("r.DreamWind.Quality"), 3);
+	FAutomationEditorCommonUtils::LoadMap(DreamWorld::Setup::WindTestMapPackage);
+	WaitFrames(10);
+	const FVector Foot(-1500.0, 0.0, 0.0);
+	TSharedRef<TWeakObjectPtr<ADreamWindVortex>> Devil = MakeShared<TWeakObjectPtr<ADreamWindVortex>>();
+	Then([Foot, Devil]()
+	{
+		for (FLevelEditorViewportClient* C : GEditor->GetLevelViewportClients())
+		{
+			if (C && C->IsPerspective())
+			{
+				C->SetRealtime(true);
+				C->SetViewLocation(Foot + FVector(-2000.0, 0.0, 1500.0));
+				C->SetViewRotation(FRotator(-35.0, 0.0, 0.0));
+				C->Invalidate();
+			}
+		}
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->OverrideVolumeCenter(Foot + FVector(0.0, 0.0, 200.0), true);
+			FDreamWindGlobalWind Calm = W->GetGlobalWind();
+			Calm.Speed = 0.0f;
+			Calm.GustStrength = 0.0f;
+			Calm.TurbulenceStrength = 0.0f;
+			W->SetGlobalWind(Calm, 0.0f);
+		}
+		FActorSpawnParameters Spawn;
+		Spawn.ObjectFlags |= RF_Transient;
+		if (ADreamWindVortex* V = EditorWorld()->SpawnActor<ADreamWindVortex>(Foot, FRotator::ZeroRotator, Spawn))
+		{
+			V->SetKind(EDreamVortexKind::DustDevil);
+			V->Intensity = 1.0f;
+			V->Refresh();
+			*Devil = V;
+		}
+		GShaderCompilingManager->FinishAllCompilation();
+	});
+	WaitFrames(300);
+	TSharedRef<FVolume> V = MakeShared<FVolume>();
+	for (int32 i = 0; i < 6; ++i)
+	{
+		Then([V]() { V->Read(); });
+		WaitFrames(20);
+	}
+	Then([this, V, Devil, Foot]()
+	{
+		const ADreamWindVortex* D = Devil->Get();
+		if (!TestTrue(TEXT("the dust devil and the near volume"), D && V->Reads > 0))
+		{
+			return;
+		}
+		// the deviation is the whole wind here (a calm, no terrain map): averaged round the core's edge, and inward round
+		// twice its radius near the ground
+		auto Deviation = [&V](const FVector& P)
+		{
+			const int32 I = V->IndexOf(P);
+			return I != INDEX_NONE ? FVector(V->Deviation[I] / float(V->Reads)) : FVector::ZeroVector;
+		};
+		double Turning = 0.0, Inward = 0.0;
+		for (int32 k = 0; k < 16; ++k)
+		{
+			const double A = 2.0 * UE_DOUBLE_PI * k / 16.0;
+			const FVector Out(FMath::Cos(A), FMath::Sin(A), 0.0);
+			const FVector Round(-Out.Y, Out.X, 0.0);   // counter-clockwise from above
+			Turning += FVector::DotProduct(Deviation(Foot + Out * D->CoreRadius + FVector(0.0, 0.0, 300.0)), Round) / 16.0;
+			Inward -= FVector::DotProduct(Deviation(Foot + Out * D->CoreRadius * 2.0 + FVector(0.0, 0.0, 60.0)), Out) / 16.0;
+		}
+		double Rising = 0.0;
+		for (int32 k = 0; k < 16; ++k)
+		{
+			const double A = 2.0 * UE_DOUBLE_PI * k / 16.0;
+			Rising += Deviation(Foot + FVector(FMath::Cos(A), FMath::Sin(A), 0.0) * D->CoreRadius * 0.8 + FVector(0.0, 0.0, 800.0)).Z / 16.0;
+		}
+		AddInfo(FString::Printf(TEXT("a dust devil (%.0f cm/s round its core, %.0f up it, %.0f in) in the fluid: round the core's edge 3 m up %.0f cm/s, up its core's wall 8 m up %.0f, in along the ground %.0f"),
+			D->TangentialSpeed, D->Updraft, D->Inflow, Turning, Rising, Inward));
+		TestTrue(TEXT("the fluid turns round it, counter-clockwise"), Turning > 0.5 * D->TangentialSpeed);
+		TestTrue(TEXT("rises up its core's wall"), Rising > 0.3 * D->Updraft);
+		TestTrue(TEXT("and draws the air in along the ground"), Inward > 0.0);
+	});
+	Then([Devil]()
+	{
+		if (Devil->IsValid())
+		{
+			Devil->Get()->Destroy();
+		}
 		SetCVar(TEXT("DreamWind.Fluid"), -1);
 		SetCVar(TEXT("DreamWind.RuntimeTerrain"), -1);
 		SetCVar(TEXT("DreamWind.Occlusion"), -1);
