@@ -96,8 +96,9 @@ The clouds are drawn by the plugin's own cloud renderer (`Source/DreamSky/Privat
 `Shaders/Private/DreamSkyCloudRender.usf`): per view, right after the base pass, a compute pass marches the field at
 reduced resolution (`DreamSky.CloudRender.Downsample`, 2) with the shared cloud march (`DreamCloudMarch.ush`) —
 skipping clear air by the cumulonimbus' distance bound over the layer, walking no longer than a billow near a
-surface (by the distance alone through cumulus and for the toon surface, however much of the layer is left: stretched to
-the samples left, thin fringes fell between the steps in rows of dashes), each ray's steps offset per pixel and frame —
+surface (by the distance alone for the toon surface and through cumulus until a fifth of the way is covered, however
+much of the layer is left: stretched to the samples left, thin fringes fell between the steps in rows of dashes), each
+ray's steps offset per pixel and frame —
 a second pass blends the frames before, reprojected by the
 clouds' depth and the wind's drift since (`DreamSky.CloudRender.History`, 0.9; less of it the further the world's clock
 ran since, `1 / (1 + game seconds / 60)`: all of it in real time, less of it as the day runs faster, none across a
@@ -146,7 +147,9 @@ works the ground shadow out by an even march per texel, a reference for the sun 
 (the optical depth toward the sun round the view, a near and a far cascade) are redrawn a slice a frame, the
 cascades taking turns (`DreamSky.CloudRender.SunMapSlices`, 6: each redrawn whole every twelfth frame; 1 a whole
 cascade a frame), and whole when the view moves a texel or the light turns a quarter of a degree (on the cascade's
-turn), at once on a jump of the clock, and every frame in the cinematic mode.
+turn), at once on a jump of the clock, and every frame in the cinematic mode. On the showcase's cloudy view at
+1280×720 (rays at half resolution) the clouds take some 0.83 ms toon and 0.97 ms realistic (the march 0.68 and 0.82 of
+it, a sun map slice 0.08), `ProfileGPU` on an RTX 4070 Ti SUPER.
 
 The renderer needs Shader Model 5 (the desktop renderer, deferred or forward). Under the mobile renderer, and in the
 editor's mobile preview, the sky is drawn without its cumulus — the sky itself, the high cloud and the rain shafts as

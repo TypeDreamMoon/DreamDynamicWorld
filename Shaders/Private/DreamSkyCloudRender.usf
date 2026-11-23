@@ -286,7 +286,8 @@ FDSkyCloudField DSkyR_Field()
 // tower seen from under it in some 140 m steps where 70 m were meant, and the toon surface came out blurred and mottled,
 // a realistic or painted one washed out); skips up to 4 km, trusted in full (a true bound, or a step meant as one).
 // bByDistance: the fine steps by the distance alone -- the toon march's (which stops at its surface and walks no cloud
-// through), the realistic and painted marches' out of a deck (whose long way through needs the samples). Stretched to
+// through), the realistic and painted marches' out of a deck (whose long way through needs the samples) while the ray is
+// still mostly clear. Stretched to
 // the samples left (tens of kilometres of the layer ahead of a ray aslant), a cloud's thin fringe and a deck's first
 // lenses fell between them on some rays and not on their neighbours', in rows of dashes and stripes across the clouds.
 FDCloudMarchParams DSkyR_Params(float3 V, float T, float T1, int Left, float Jitter, FDSkyCloudField F, bool bByDistance)
@@ -839,7 +840,11 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 	{
 		float T = M.T;
 		FDSkyCloudSample C = DSkyR_Sample(V, T, F, Anchor);
-		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F, C.Deck <= 0.05);
+		// (By the distance alone out of a deck while the ray is still mostly clear -- a thin fringe and a deck's first
+		// lenses are seen against the sky behind them; once a fifth of the way is covered, behind them, the steps stretch to
+		// the samples left again: a ray through a cumulus walked it all in the short steps, and they cost the realistic
+		// clouds a third more.)
+		FDCloudMarchParams P = DSkyR_Params(V, T, T1, MaxSamples - i, Jitter, F, C.Deck <= 0.05 && M.Transmittance > 0.8);
 		FDCloudField Fd;
 		Fd.Signed = C.Signed - F.Iso;
 		Fd.Density = C.Volume;
