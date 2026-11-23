@@ -1163,6 +1163,82 @@ bool FDreamSurfaceGpuTrailsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuWavesTest, "DreamSurface.Gpu.PuddleWaves", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuWavesTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Rain();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.GoTo(At(12.0));
+	FlushRenderingCommands();
+	const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+	UTextureRenderTarget2D* Trails = Maps ? Maps->GetTrailMap() : nullptr;
+	if (!TestNotNull(TEXT("trail map (run the Setup)"), Trails))
+	{
+		return false;
+	}
+	// The water's surface (the trail map's blue) at a point.
+	auto HeightAt = [Trails, Maps](const FVector2D& P)
+	{
+		TArray<FLinearColor> Pixels;
+		Trails->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
+		const int32 Size = Trails->SizeX;
+		const FVector2D UV = (P - Maps->GetTrailCenter()) / UDreamSurfaceSettings::Get()->TrailExtent + 0.5;
+		return Pixels[FMath::Clamp(int32(UV.Y * Size), 0, Size - 1) * Size + FMath::Clamp(int32(UV.X * Size), 0, Size - 1)].B;
+	};
+	// Frames in real time (the waves run on it), drawing the trail map each one.
+	auto RunFor = [&W](double Seconds)
+	{
+		const double End = FPlatformTime::Seconds() + Seconds;
+		while (FPlatformTime::Seconds() < End)
+		{
+			FPlatformProcess::Sleep(0.02f);
+			W.Clock->Tick(0.0f);
+			FlushRenderingCommands();
+		}
+	};
+	// A step into a puddle: the water under the foot is pushed away.
+	const FVector2D Foot(300.0, -200.0);
+	W.Surface->Stamp(FVector(Foot, 0.0), 12.0f, 0.0f, false, true);
+	W.Clock->Tick(0.0f);
+	FlushRenderingCommands();
+	const float Pushed = HeightAt(Foot);
+	// A moment later a ring runs out from it.
+	float Crest = 0.0f;
+	float Trough = 0.0f;
+	const double Start = FPlatformTime::Seconds();
+	while (FPlatformTime::Seconds() - Start < 1.0)
+	{
+		RunFor(0.05);
+		for (double R = 15.0; R <= 60.0; R += 5.0)
+		{
+			const float H = HeightAt(Foot + FVector2D(R, 0.0));
+			Crest = FMath::Max(Crest, H);
+			Trough = FMath::Min(Trough, H);
+		}
+	}
+	// And a few seconds on the water has flowed back level.
+	RunFor(5.0);
+	const float After = HeightAt(Foot);
+	AddInfo(FString::Printf(TEXT("under the foot %.2f; around it, a crest %.3f and a trough %.3f within a second; %.3f five seconds on"), Pushed, Crest, Trough, After));
+	TestTrue(TEXT("a step pushes the water away"), Pushed < -0.9f);
+	TestTrue(TEXT("a wave runs out from it"), Crest > 0.01f || Trough < -0.01f);
+	TestTrue(TEXT("and the water flows back level"), FMath::Abs(After) < 0.05f);
+	TestTrue(TEXT("nothing far away"), FMath::Abs(HeightAt(Foot + FVector2D(1500.0, 0.0))) < 1.0e-3f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuTest, "DreamSurface.Gpu.MatchesCpu", DreamSurface::Tests::Flags)
 bool FDreamSurfaceGpuTest::RunTest(const FString& Parameters)
 {
