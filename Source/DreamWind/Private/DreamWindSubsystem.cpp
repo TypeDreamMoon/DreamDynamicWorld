@@ -74,6 +74,9 @@ namespace DreamWind
 	static int32 GCVarDebugColor = 0;
 	static FAutoConsoleVariableRef CVarDebugColor(TEXT("DreamWind.DebugDraw.Color"), GCVarDebugColor,
 		TEXT("Arrow field colouring: 0 = speed ramp (blue -> green -> yellow -> red up to MaxSpeed), 1 = direction hue like M_DreamWindDebug (+X red, +Y green, -X cyan) with brightness = speed, 2 = gust factor (blue = lull, white = nominal, red = strong gust)."), ECVF_Default);
+	static int32 GCVarOcclusion = -1;
+	static FAutoConsoleVariableRef CVarOcclusion(TEXT("DreamWind.Occlusion"), GCVarOcclusion,
+		TEXT("Override the terrain map's wind shadow: -1 = project setting (Occlusion Strength), 0 = off (every consumer skips its upwind march), 1 = on at the project's strength."), ECVF_Default);
 	static float GCVarTimeScale = -1.0f;
 	static FAutoConsoleVariableRef CVarTimeScale(TEXT("DreamWind.TimeScale"), GCVarTimeScale,
 		TEXT("Override the wind time scale: <0 = the value set through the API (default 1), 0 freezes the wind."), ECVF_Default);
@@ -584,7 +587,8 @@ void UDreamWindSubsystem::BuildFrameData(float DeltaTime)
 		const FVector2D Size = TerrainCpu->Bounds.GetSize();
 		FrameData.T0 = FVector4f(float(TerrainCpu->Bounds.Min.X), float(TerrainCpu->Bounds.Min.Y), 1.0f / float(FMath::Max(Size.X, 1.0)), 1.0f / float(FMath::Max(Size.Y, 1.0)));
 		FrameData.T1 = FVector4f(1.0f, Settings->TerrainSteerScale, Settings->TerrainSpeedScale, TerrainCpu->TexelSize());
-		FrameData.T2 = FVector4f(Settings->OcclusionStrength, Settings->OcclusionRange, Settings->OcclusionSlope, TerrainCpu->HeightBase);
+		const float Occlusion = DreamWind::GCVarOcclusion == 0 ? 0.0f : Settings->OcclusionStrength;
+		FrameData.T2 = FVector4f(Occlusion, Settings->OcclusionRange, Settings->OcclusionSlope, TerrainCpu->HeightBase);
 	}
 	else
 	{
