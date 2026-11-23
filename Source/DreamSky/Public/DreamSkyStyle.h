@@ -976,6 +976,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", UIMax = "45", Units = "Degrees"))
 	float MoonDiffuseSourceAngle = 20.0f;
 
+	/** How much darker the moon's maria are than its highlands, 0 none .. 1 black (the real ones some half as bright). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (ClampMin = "0", ClampMax = "1"))
+	float MoonMaria = 0.45f;
+
+	/** The moon's colour through a dust storm's haze -- its disk, its glow and its light -- as far as the haze hides the
+	 *  night sky (NightSkyThrough): the dust takes the blue first. A fog's droplets leave it white. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Moon", meta = (HideAlphaChannel))
+	FLinearColor MoonDustTint = FLinearColor(1.0f, 0.6f, 0.35f, 1.0f);
 
 	/** How much of the moonlight's hue (MoonLightColor) the toon clouds' moonlit side takes, 0 .. 1: by moonlight the eye
 	 *  sees little colour (low, a grey-blue; 1, the moonlight's blue as it is). */

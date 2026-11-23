@@ -435,6 +435,13 @@ void UDreamSkyStyle::ApplyWeather(const FDreamWorldEnvironment& Env, FDreamSkyLi
 	L.MoonIlluminance *= MoonLeft;
 	L.MainLightIlluminance *= L.bMainLightIsMoon ? MoonLeft : 1.0f;
 	L.MoonShadow = MoonAir * (1.0f - Overcast);
+	// Through dust it reddens, the dust taking the blue first: its disk, its glow and its light, as far as the haze hides
+	// it.
+	const FLinearColor Reddened = FMath::Lerp(FLinearColor::White, MoonDustTint, (1.0f - MoonAir) * FMath::Clamp(2.0f * Dust, 0.0f, 1.0f));
+	Look.MoonDisk = Look.MoonDisk * FLinearColor(Reddened.R, Reddened.G, Reddened.B, 1.0f);
+	Look.MoonHalo = Look.MoonHalo * FLinearColor(Reddened.R, Reddened.G, Reddened.B, 1.0f);
+	L.MoonColor = L.MoonColor * FLinearColor(Reddened.R, Reddened.G, Reddened.B, 1.0f);
+	L.MainLightColor = L.bMainLightIsMoon ? L.MoonColor : L.MainLightColor;
 	// The lift keeps a grey day from going murky; a storm's darkness is meant to show, so it fades out with it.
 	L.ExposureEV100 -= OvercastExposureLift * Overcast * (1.0f - Dark);
 	L.ExposureEV100 -= FogExposureLift * FMath::Clamp(Env.Fog, 0.0f, 1.0f) + DustExposureLift * FMath::Clamp(Env.Dust, 0.0f, 1.0f);

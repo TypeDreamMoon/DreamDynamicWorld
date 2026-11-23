@@ -24,7 +24,7 @@ namespace DreamSky::Names
 	inline const FName MPC_Stars(TEXT("DDW_Stars"));              // intensity, density, twinkle, the share of them (dimmest first) hidden
 	inline const FName MPC_StarLook(TEXT("DDW_StarLook"));        // the stars' size, twinkle speed, the stylized scatter's dimmest, -
 	inline const FName MPC_StarPole(TEXT("DDW_StarPole"));        // xyz the north celestial pole in the world, w 1 = the catalogue's stars (T_DreamStarMap), 0 = the stylized ones
-	inline const FName MPC_MoonLook(TEXT("DDW_MoonLook"));        // how soft the moon's terminator, how bright its earthshine at most, -, -
+	inline const FName MPC_MoonLook(TEXT("DDW_MoonLook"));        // how soft the moon's terminator, how bright its earthshine at most, how much darker its maria, -
 	inline const FName MPC_Halo(TEXT("DDW_Halo"));                // the 22 degree ring, the sun dogs, the corona (each times how far it shows), the sheet's milkiness
 	inline const FName MPC_EarthShadow(TEXT("DDW_EarthShadow"));  // over the style's gradient: rgb the shadow's tint, a its height (sun depressions)
 	inline const FName MPC_EarthBelt(TEXT("DDW_EarthBelt"));      // rgb the Belt of Venus's tint, a how strongly both are drawn

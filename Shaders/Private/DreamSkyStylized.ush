@@ -97,8 +97,9 @@ float DSky_Disk(float3 V, float3 Dir, float RadiusDeg)
 // The moon as a lit sphere: Phase 0 new (dark), 0.5 full. Its lit side shades as the moon's dust does (Lommel-Seeliger:
 // a full moon is evenly bright to its limb), the terminator soft over Look.x (in the sun's cosine); the dark side shows
 // the earthshine, Look.y of the lit side at its strongest, a little blue, the brighter the fuller the earth stands in
-// the moon's sky -- most near the new moon, gone at the full. Lunar = (how much the earth's umbra covers it, the umbra's
-// centre on it and its radius, in moon radii): the umbra turns it a dark copper, with a soft edge.
+// the moon's sky -- most near the new moon, gone at the full; its maria Look.z darker than its highlands, large dark
+// patches over the near side. Lunar = (how much the earth's umbra covers it, the umbra's centre on it and its radius,
+// in moon radii): the umbra turns it a dark copper, with a soft edge.
 float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float RadiusDeg, float3 Color, float4 Lunar, float4 Look)
 {
 	float Facing = dot(V, MoonDir);
@@ -129,7 +130,10 @@ float3 DSky_Moon(float3 V, float3 MoonDir, float3 SunDir, float Phase, float Rad
 	float Soft = max(Look.x, 0.002);
 	float Lit = 2.0 * saturate(NdL) / max(saturate(NdL) + N.z, 1.0e-3) * smoothstep(-Soft, Soft, NdL);
 	float Earth = max(Look.y, 0.0) * 0.5 * (1.0 + cos(A));
-	float Mare = DSky_ValueNoise(UV * 3.0 + 11.0) * 0.3 + 0.7;
+	// (The maria: large patches, their edges uneven, a little texture over all of it -- by a faint noise alone, under a
+	// bright full moon's tone they were all but gone.)
+	float Seas = smoothstep(0.42, 0.62, DSky_ValueNoise(UV * 1.7 + 11.0) * 0.75 + DSky_ValueNoise(UV * 4.3 + 3.0) * 0.25);
+	float Mare = (1.0 - saturate(Look.z) * Seas) * (0.9 + 0.1 * DSky_ValueNoise(UV * 9.0 + 5.0));
 	float3 Shown = Color * Inside * Mare * (Lit + Earth * float3(0.85, 0.93, 1.1) * (1.0 - saturate(Lit)));
 	if (Lunar.x > 0.0)
 	{
