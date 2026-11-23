@@ -408,6 +408,7 @@ struct FDSkyCloudField
 	float4 Cloud1;
 	float4 Cloud2;
 	float4 CloudLayer;
+	float Thin;        // how much the clouds along this ray are thinned (the clearing round the sun and the moon), 0..1
 };
 
 // What the field holds at a point besides its density.
@@ -531,6 +532,15 @@ FDSkyCloudSample DSky_CloudAt(float3 P, FDSkyCloudField F, bool bNear, FDCloudAn
 	{
 		C = DCS_Shape(P, World, Z, F.Cloud0, F.Cloud1, F.Cloud2, F.CloudLayer, MapParams, Detail, Map, MapSampler, Noise,
 			NoiseSampler);
+	}
+	// The clearing round the sun and the moon: the shape eaten back from its edges (the thicker cores last) and the
+	// volume thinned -- only ever less cloud, so the march's bounds hold.
+	if (F.Thin > 0.0)
+	{
+		float Eaten = 0.22 * F.Thin;
+		C.Solid = max(C.Solid - Eaten, 0.0);
+		C.Signed -= Eaten;
+		C.Density *= saturate(1.0 - 0.85 * F.Thin) * saturate(1.0 - Eaten * 2.0);
 	}
 	FDSkyCloudSample S;
 	// (0.5 on the surface, 0 to 1 within a sixteenth of the shape either side of it.)
@@ -1111,6 +1121,21 @@ float4 DSky_HighClouds(float3 V, float4 Cloud0, float4 Cloud1, float4 Cloud3, fl
 	return float4(Color * Alpha, Alpha);
 }
 
+// How much the clouds along V thin round the sun and the moon: Clearing = (the strength by the sun, by the moon, the
+// radius in degrees, the falloff's exponent), each light's strength times exp(-(angle / radius)^exponent).
+float DSky_Clearing(float3 V, float3 Sun, float3 Moon, float4 Clearing)
+{
+	if (Clearing.x <= 0.0 && Clearing.y <= 0.0)
+	{
+		return 0.0;
+	}
+	float Radius = radians(max(Clearing.z, 1.0));
+	float ToSun = acos(clamp(dot(V, Sun), -1.0, 1.0)) / Radius;
+	float ToMoon = acos(clamp(dot(V, Moon), -1.0, 1.0)) / Radius;
+	float Exponent = max(Clearing.w, 0.5);
+	return saturate(max(Clearing.x * exp(-pow(ToSun, Exponent)), Clearing.y * exp(-pow(ToMoon, Exponent))));
+}
+
 // The Bessel function J1 (the corona's diffraction): its series near the middle, its far form beyond.
 float DSky_BesselJ1(float X)
 {
@@ -1388,7 +1413,7 @@ float3 DSky_EarthShadow(float3 V, float3 Sun, float3 Sky, float4 Shadow, float4 
 // where the weather is (a storm), in the style's tones when it asks (FlatClouds.y); veiled by the air far off like any
 // cloud. Returns the colour (premultiplied) and the cover.
 float4 DSky_FlatClouds(float3 V, float3 Camera, float3 LightDir, float4 Cloud0, float4 Cloud1, float4 Cloud3, float4 CloudLayer,
-	float4 MapParams, float4 FlatClouds, float4 CloudLit, float4 CloudShadow, float3 SkyBehind, float3 Halo, Texture2D Map,
+	float4 MapParams, float4 FlatClouds, float4 CloudLit, float4 CloudShadow, float3 SkyBehind, float3 Halo, float Thin, Texture2D Map,
 	SamplerState MapSampler, Texture3D Noise, SamplerState NoiseSampler)
 {
 	if (FlatClouds.x <= 0.0 || V.z <= 0.003 || Camera.z >= CloudLayer.x)
@@ -1399,6 +1424,8 @@ float4 DSky_FlatClouds(float3 V, float3 Camera, float3 LightDir, float4 Cloud0, 
 	float2 W = Camera.xy + V.xy * T;
 	float Lod = DSky_NoiseLod(T, 95000.0);
 	float2 Here = DFC_Cover(W, Cloud0, Cloud1, CloudLayer, MapParams, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Lod);
+	// (Thinned round the sun and the moon: eaten back from the edges, the rest fainter.)
+	Here.x = saturate((Here.x - 0.35 * Thin) / (1.0 - 0.35 * Thin)) * (1.0 - 0.5 * Thin);
 	if (Here.x <= 0.001)
 	{
 		return float4(0, 0, 0, 0);
@@ -1536,7 +1563,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds, float4 CloudClearing,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1584,6 +1611,9 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		VC = Panorama.SampleLevel(PanoramaSampler, UV, 0);
 	}
 	float4 High = DSky_HighClouds(V, Cloud0, Cloud1, Cloud3, Camera, Base + Halo, CloudLit, Halo, Noise, NoiseSampler);
+	// (The clouds clearing round the sun and the moon: the high cloud fainter there.)
+	float Thin = DSky_Clearing(V, Sun, Moon, CloudClearing);
+	High *= 1.0 - 0.85 * Thin;
 	float4 Shafts = DSky_RainShafts(V, Camera, Cloud0, CloudLayer, Cloud3, MapParams, WeatherMap, WeatherMapSampler, Noise,
 		NoiseSampler, Base + Halo, CloudShadow.rgb);
 	// The flat clouds, where the renderer does not draw (CloudLayer.w = 0).
@@ -1591,7 +1621,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	if (CloudLayer.w < 0.5 && FlatClouds.x > 0.0)
 	{
 		Flat = DSky_FlatClouds(V, Camera, LightDir, Cloud0, Cloud1, Cloud3, CloudLayer, MapParams, FlatClouds, CloudLit, CloudShadow,
-			Base + Halo, Halo, WeatherMap, WeatherMapSampler, Noise, NoiseSampler);
+			Base + Halo, Halo, Thin, WeatherMap, WeatherMapSampler, Noise, NoiseSampler);
 	}
 	float Clear = (1.0 - VC.a) * (1.0 - 0.6 * High.a) * (1.0 - Flat.a);
 

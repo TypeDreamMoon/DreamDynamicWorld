@@ -331,6 +331,15 @@ is the air's own light, so the style's `Rainbow` is on by default; `Intensity` s
 colours spread, `Patchiness` how broken it is. How strongly it shows is `UDreamSkySubsystem::GetRainbow`;
 `DreamSky.Rainbow <intensity>` draws it whatever the style says (-1 = the style's).
 
+**Clouds clearing round the sun and the moon.** With the sun low the clouds round it thin out, its disk and the glow
+about it showing through, and the moon's likewise: each ray's cloud is eaten back from its edges and its volume
+thinned as near the light as `CloudClearing.Radius` (14 degrees) and `Exponent` (2, a soft bell) say, so the clouds
+shrink and fade toward the light rather than a hole opening -- for the toon, realistic and painted clouds, the high
+cloud and the flat clouds alike (the light's own shading and the shadows are left as they are). How strongly is a
+curve over the light's elevation, `SunStrength` and `MoonStrength` (by default plain with the light low, almost none
+overhead); a sky modifier's *Cloud Clearing* turns all four toward its own. `DreamSky.CloudClearing <scale>` scales it
+whatever the style says (0 to compare; -1 = the style's).
+
 **Halos and the corona.** Under a sheet of high ice cloud the dome draws the 22 degree halo round the main light (the
 sun, or the moon by night), red on its sharp inner edge, running out to a whitish fade (`Radius`, `Width`), and the
 sun dogs either side of it at the light's height, red toward it with a white tail outward, moving out as the light

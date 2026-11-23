@@ -45,7 +45,7 @@ float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, floa
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams,
 	float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 HaloRing, float4 HaloRing2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds, Texture2D Map, VolumeTexture Noise,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 HaloRing, float4 HaloRing2, float4 EarthShadow, float4 EarthBelt, float4 Noctilucent, float4 NoctilucentColor, float4 Meteors, float4 MeteorRadiant, float4 MeteorLook, float4 FlatClouds, float4 CloudClearing, Texture2D Map, VolumeTexture Noise,
 	Texture2D Panorama, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarCells, float4 MilkyWay, float4 MilkyWayDust,
 	Texture2D Galaxy, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
 	float4 SkyGrade0, float4 SkyGrade1, float4 SkyGrade2, float4 SkyGrade3, float4 AtmosphereSun, float4 AtmosphereMoon, VolumeTexture Air)
@@ -53,7 +53,7 @@ float3 DreamSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, floa
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSkyStylized.ush"
 	return DSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo, Stars,
 		Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, HaloRing, HaloRing2, EarthShadow, EarthBelt, Noctilucent, NoctilucentColor, Meteors, MeteorRadiant, MeteorLook, FlatClouds, Map, MapSampler, Noise, NoiseSampler, Panorama,
+		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, HaloRing, HaloRing2, EarthShadow, EarthBelt, Noctilucent, NoctilucentColor, Meteors, MeteorRadiant, MeteorLook, FlatClouds, CloudClearing, Map, MapSampler, Noise, NoiseSampler, Panorama,
 		PanoramaSampler, AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, MoonLook, StarLook, StarPole, StarEquinox, StarCells, MilkyWay, MilkyWayDust, Galaxy, GalaxySampler, Camera, ScreenUV,
 		Seconds, Capture, SkyGrade0, SkyGrade1, SkyGrade2, SkyGrade3, AtmosphereSun, AtmosphereMoon, Air, AirSampler);
 }
@@ -102,6 +102,7 @@ export void M_DreamSky(inout material m)
 	float4 MeteorRadiant = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MeteorRadiant");
 	float4 MeteorLook  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MeteorLook");
 	float4 FlatClouds  = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_FlatClouds");
+	float4 CloudClearing = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_CloudClearing");
 	float4 StarLook    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_StarLook");
 	float4 MoonLook    = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_MoonLook");
 	float4 AuroraTones = UE.CollectionParameter(Collection = "/DreamDynamicWorld/MPC_DreamDynamicWorld.MPC_DreamDynamicWorld", Parameter = "DDW_AuroraTones");
@@ -122,7 +123,7 @@ export void M_DreamSky(inout material m)
 	float Capture = UE.ReflectionCapturePassSwitch(Default = 0.0, Reflection = 1.0);
 	m.EmissiveColor = DreamSky_Shade(V, SunDir, MoonDir, Time, Zenith, Horizon, Ground, SunHalo, SunDisk, MoonDisk, MoonHalo,
 		Stars, Cloud0, Cloud1, Cloud2, Cloud3, CloudLit, CloudShadow, MainLight, MainLightColor, CloudLayer, MapParams, Flash, Extra,
-		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, HaloRing, HaloRing2, EarthShadow, EarthBelt, Noctilucent, NoctilucentColor, Meteors, MeteorRadiant, MeteorLook, FlatClouds, WeatherMap, CloudNoise, CloudPanorama,
+		Haze, Aurora, AuroraLow, AuroraHigh, NightGlow, LightPollution, Eclipse, LunarEclipse, HaloRing, HaloRing2, EarthShadow, EarthBelt, Noctilucent, NoctilucentColor, Meteors, MeteorRadiant, MeteorLook, FlatClouds, CloudClearing, WeatherMap, CloudNoise, CloudPanorama,
 		AuroraTones, AuroraShape, AuroraShape2, AuroraShape3, MoonLook, StarLook, StarPole, StarEquinox, StarMap, MilkyWay, MilkyWayDust, MilkyWayMap,
 		UE.CameraPositionWS(),
 		UE.ScreenPosition().ViewportUV,

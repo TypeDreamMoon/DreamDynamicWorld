@@ -204,6 +204,13 @@ struct DREAMSKY_API FDreamSkyModifierSettings
 	float CloudDarkness = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
+	bool bOverride_CloudClearing = false;
+	/** The clouds' clearing round the sun and the moon the sky turns toward: x the strength by the sun, y by the moon (0..1),
+	 *  z how far round (degrees), w the falloff's exponent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_CloudClearing"))
+	FVector4f CloudClearing = FVector4f(0.6f, 0.4f, 14.0f, 2.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (InlineEditConditionToggle))
 	bool bOverride_HighCloudCover = false;
 	/** The thin high cloud's cover the sky turns toward, 0..1 (a sheet of it, over the style's ice halo threshold, shows the halos). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clouds", meta = (EditCondition = "bOverride_HighCloudCover", ClampMin = "0", ClampMax = "1"))

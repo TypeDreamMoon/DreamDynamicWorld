@@ -95,6 +95,9 @@ UDreamSkyStyle::UDreamSkyStyle()
 	SetKeys(MoonLightColor, { { -90.0f, C(0.55f, 0.65f, 1.0f) }, { 0.0f, C(0.60f, 0.65f, 0.95f) } });
 	SetKeys(MoonIlluminance, { { -12.0f, 1.2f }, { -6.0f, 0.5f }, { -2.0f, 0.0f } });
 	SetKeys(StarIntensity, { { -12.0f, 1.0f }, { -6.0f, 0.3f }, { -2.0f, 0.0f } });
+	// The clouds clearing round the light: plain with it low (the evening's sun showing through), almost none overhead.
+	SetKeys(CloudClearing.SunStrength, { { -4.0f, 0.0f }, { 0.0f, 0.55f }, { 6.0f, 0.55f }, { 15.0f, 0.3f }, { 30.0f, 0.05f }, { 45.0f, 0.0f } });
+	SetKeys(CloudClearing.MoonStrength, { { -4.0f, 0.0f }, { 0.0f, 0.4f }, { 10.0f, 0.35f }, { 30.0f, 0.15f }, { 60.0f, 0.05f } });
 
 	// Sunlit cloud tops are about as bright as a white surface in the sun; their shaded sides take the sky's blue.
 	SetKeys(CloudLitColor, {
@@ -145,6 +148,10 @@ FDreamSkyLook UDreamSkyStyle::EvaluateLook(const FDreamCelestialState& Celestial
 	Look.CloudCoverage = CloudCoverage;
 	Look.CloudDarkness = 0.0f;
 	Look.HighCover = FMath::Clamp(CloudHighCover, 0.0f, 1.0f);
+	Look.SunClearing = CloudClearing.bEnabled ? FMath::Clamp(Eval(CloudClearing.SunStrength, Celestial.SunElevation), 0.0f, 1.0f) : 0.0f;
+	Look.MoonClearing = CloudClearing.bEnabled ? FMath::Clamp(Eval(CloudClearing.MoonStrength, Celestial.MoonElevation), 0.0f, 1.0f) : 0.0f;
+	Look.ClearingRadius = FMath::Max(CloudClearing.Radius, 1.0f);
+	Look.ClearingExponent = FMath::Max(CloudClearing.Exponent, 0.5f);
 	Look.Meteors = 1.0f;
 	Look.LightPollution = FMath::Max(NightGlow.LightPollution, 0.0f);
 	Look.LightShafts = FMath::Max(LightShafts.Intensity, 0.0f);

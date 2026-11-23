@@ -129,6 +129,13 @@ void FDreamSkyModifierSettings::Apply(FDreamSkyLighting& L, FDreamSkyLook& K, fl
 		K.CloudCoverageKept *= 1.0f - Alpha;
 		K.CloudCoverageAdded = Toward(K.CloudCoverageAdded, Target);
 	}
+	if (bOverride_CloudClearing)
+	{
+		K.SunClearing = Toward(K.SunClearing, FMath::Clamp(CloudClearing.X, 0.0f, 1.0f));
+		K.MoonClearing = Toward(K.MoonClearing, FMath::Clamp(CloudClearing.Y, 0.0f, 1.0f));
+		K.ClearingRadius = Toward(K.ClearingRadius, FMath::Max(CloudClearing.Z, 1.0f));
+		K.ClearingExponent = Toward(K.ClearingExponent, FMath::Max(CloudClearing.W, 0.5f));
+	}
 	if (bOverride_HighCloudCover) { K.HighCover = Toward(K.HighCover, FMath::Clamp(HighCloudCover, 0.0f, 1.0f)); }
 	if (bOverride_CloudDarkness)
 	{

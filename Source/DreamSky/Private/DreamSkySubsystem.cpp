@@ -31,6 +31,11 @@ static TAutoConsoleVariable<float> CVarDreamSkyMeteors(
 	TEXT(" satellites; 100 = a dense sky to look at); -1 = the style's."),
 	ECVF_Default);
 
+static TAutoConsoleVariable<float> CVarDreamSkyCloudClearing(
+	TEXT("DreamSky.CloudClearing"), -1.0f,
+	TEXT("Scales the clouds' clearing round the sun and the moon whatever the style says (0 = none, to compare); -1 = the style's."),
+	ECVF_Default);
+
 DECLARE_CYCLE_STAT(TEXT("DreamSky Update"), STAT_DreamSkyUpdate, STATGROUP_Game);
 
 namespace DreamSky::Subsystem
@@ -762,6 +767,13 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The clouds clearing round the sun and the moon (the renderer and the dome read it).
+	{
+		const float Forced = CVarDreamSkyCloudClearing.GetValueOnGameThread();
+		const float Scale = Forced >= 0.0f ? Forced : 1.0f;
+		Clock.SetVectorParameter(MPC_CloudClearing, FLinearColor(FMath::Clamp(Look.SunClearing * Scale, 0.0f, 1.0f), FMath::Clamp(Look.MoonClearing * Scale, 0.0f, 1.0f),
+			Look.ClearingRadius, Look.ClearingExponent));
+	}
 	// The flat clouds, while the dome draws them instead of the renderer.
 	{
 		const FDreamSkyFlatClouds& F = Style.FlatClouds;

@@ -549,6 +549,7 @@ const TArray<FName>& FDreamSkyCloudViewExtension::GetParameterNames()
 		TEXT("DDW_SkyHaze"), TEXT("DDW_Flash"), TEXT("DDW_SkyModClouds"), TEXT("DDW_NightGlow"), TEXT("DDW_LightPollution"),
 		TEXT("DDW_MoonDir"), TEXT("DDW_SkyGrade0"), TEXT("DDW_SkyGrade1"), TEXT("DDW_SkyGrade2"), TEXT("DDW_SkyGrade3"),
 		TEXT("DDW_AtmosphereSun"), TEXT("DDW_AtmosphereMoon"), TEXT("DDW_AmbientSky"), TEXT("DDW_AmbientEquator"),
+		TEXT("DDW_CloudClearing"),
 	};
 	check(Names.Num() == NumParameters);
 	return Names;

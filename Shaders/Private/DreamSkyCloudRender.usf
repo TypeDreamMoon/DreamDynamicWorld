@@ -42,7 +42,7 @@ SamplerState SkyTableSampler;
 
 // The shared parameter collection's vectors (FDreamSkyCloudViewExtension::GetParameterNames). (Before the cloud shape:
 // its every read of the weather map takes the sky modifiers' change to it, DCS_MAP_ADJUST.)
-float4 Parameters[30];
+float4 Parameters[31];
 #define P_SunDir       Parameters[0]
 #define P_Zenith       Parameters[1]
 #define P_Horizon      Parameters[2]
@@ -73,6 +73,7 @@ float4 Parameters[30];
 #define P_AtmosphereMoon Parameters[27]
 #define P_AmbientSky   Parameters[28]
 #define P_AmbientEquator Parameters[29]
+#define P_CloudClearing Parameters[30]
 #define DCS_MAP_ADJUST P_SkyModClouds
 
 // The realistic, painted and toon looks' settings (FDreamSkyCloudViewExtension::PackLookParameters): the volumetric cloud
@@ -267,6 +268,7 @@ FDSkyCloudField DSkyR_Field()
 	F.Cloud1 = P_Cloud1;
 	F.Cloud2 = P_Cloud2;
 	F.CloudLayer = P_CloudLayer;
+	F.Thin = 0.0;
 	return F;
 }
 
@@ -535,6 +537,8 @@ float4 DSkyR_Toon(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		return float4(0, 0, 0, 0);
 	}
 	FDSkyCloudField F = DSkyR_Field();
+	// (Thinned round the sun and the moon, as this ray sees them.)
+	F.Thin = DSky_Clearing(V, normalize(P_SunDir.xyz), normalize(P_MoonDir.xyz), P_CloudClearing);
 	float T0;
 	float T1;
 	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, min(DSkyR_MaxDist, SceneT), T0, T1);
@@ -645,6 +649,8 @@ float4 DSkyR_Realistic(float3 V, int2 Ray, float SceneT, out float SurfaceDepth)
 		return float4(0, 0, 0, 0);
 	}
 	FDSkyCloudField F = DSkyR_Field();
+	// (Thinned round the sun and the moon, as this ray sees them.)
+	F.Thin = DSky_Clearing(V, normalize(P_SunDir.xyz), normalize(P_MoonDir.xyz), P_CloudClearing);
 	float T0;
 	float T1;
 	DSky_LayerSpan(CameraWorld, V, F.Base, F.Base + DCS_STORM_TOP, min(DSkyR_MaxDist, SceneT), T0, T1);

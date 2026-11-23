@@ -729,6 +729,38 @@ struct DREAMSKY_API FDreamSkyFlatClouds
 	float ShadowStrength = 0.65f;
 };
 
+/**
+ * The clouds clearing round the sun and the moon: a low sun's evening clouds thin out round it, its disk and the glow
+ * about it showing through, and the moon's likewise. Each ray's cloud is eaten back from its edges and thinned as near
+ * the light as the falloff says (the thicker cores last), so the clouds shrink and fade toward it rather than a hole
+ * opening; the same for every cloud look, the high cloud and the flat clouds.
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyCloudClearing
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing")
+	bool bEnabled = true;
+
+	/** How far round the light the clouds thin, degrees (to some 37% of the strength at this angle). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "1", UIMax = "60"))
+	float Radius = 14.0f;
+
+	/** How it falls off with the angle: 2 a soft bell, higher a flatter middle with a quicker edge, 1 a long tail. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ClampMin = "0.5", UIMax = "8"))
+	float Exponent = 2.0f;
+
+	/** How much the clouds thin right by the sun (0 none .. 1 most of them), over the sun's elevation: by default plain
+	 *  with a low sun, almost none by noon. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Sun elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve SunStrength;
+
+	/** The same by the moon, over the moon's elevation. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (XAxisName = "Moon elevation", YAxisName = "Strength"))
+	FRuntimeFloatCurve MoonStrength;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -978,6 +1010,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flat Clouds", meta = (ShowOnlyInnerProperties))
 	FDreamSkyFlatClouds FlatClouds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cloud Clearing", meta = (ShowOnlyInnerProperties))
+	FDreamSkyCloudClearing CloudClearing;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
