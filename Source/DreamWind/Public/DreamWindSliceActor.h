@@ -22,6 +22,8 @@ enum class EDreamWindSliceMode : uint8
 	Volume = 2,
 	/** The engine's global distance field (what the fluid wind's obstacles come from): red on surfaces, blue far off. */
 	DistanceField = 3,
+	/** The runtime terrain wind map alone: how much wind it leaves at this height, where it speeds the wind up. */
+	RuntimeTerrain = 4,
 };
 
 /**
