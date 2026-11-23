@@ -85,6 +85,11 @@ logs in `<host>/Saved/ClaudeRuns/`.
 no shader compiles, then that many frames), `time <hours>`, `aim <pitch> [yaw]`, `move <x> <y> [z]`, `rise <dz>`,
 `home`, `fly <m/s> [heading] [climb m/s]`, `shot <name>`, `frames <name> <count>`, `mark <label>`, `quit`.
 
+`time` stops the clock (it sets the hour paused), and `settle` and `wait` only let frames go by: after a `time` no game
+hour passes, whatever `DreamWorld.DayLength` says. For weather to build up over hours (snow lying, rime, puddles, the
+surfaces' memory), let the clock run: `DreamWorld.Pause 0`, `wait <frames>`, `DreamWorld.Pause 1` (as
+`Tools/Showcase/tour_cold.dws` does).
+
 ```powershell
 pwsh -NoProfile -File Tools\TestHost\Measure-DreamSkyGpu.ps1 -OffScreen
 pwsh -NoProfile -File Tools\TestHost\Measure-DreamSkyGpu.ps1 -Modes Painted -Weathers WP_Cloudy,WP_Storm -Views Up=35 -OffScreen

@@ -21,6 +21,13 @@ enum class EDreamWindSourceType : uint8
 	 * makes a wind zone (corridor draft, wind tunnel). Uses BoxExtent / BoxRotation instead of Radius.
 	 */
 	Shelter     = 3,
+	/**
+	 * A whirlwind standing on the ground at Position, Direction its axis: a dust devil, a tornado. The air turns round it
+	 * (Strength cm/s at the core's edge, InnerRadiusFraction the core's share of Radius; positive counter-clockwise seen
+	 * from above), rises in its core (Updraft) and is drawn in along the ground (Inflow), up to Radius * Stretch high.
+	 * Added to the wind it stands in (it is carried along), not blended toward. Analytic: the same on every machine.
+	 */
+	Twister     = 4,
 };
 
 /** Quality of the analytic (L0) evaluation. */
@@ -127,12 +134,23 @@ struct DREAMWIND_API FDreamWindSourceDesc
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (ClampMin = "0", ClampMax = "1"))
 	float InnerRadiusFraction = 0.2f;
 
+	/** A Twister's rise in its core and the inflow along the ground, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (EditCondition = "Type == EDreamWindSourceType::Twister"))
+	float Updraft = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Source", meta = (EditCondition = "Type == EDreamWindSourceType::Twister"))
+	float Inflow = 0.0f;
+
 	/** Radius of the sphere (about Position) that contains the footprint: the box's bounding sphere, a stretched jet's tip, or Radius. */
 	float GetBoundingRadius() const
 	{
 		if (Type == EDreamWindSourceType::Shelter)
 		{
 			return static_cast<float>(BoxExtent.GetAbs().Size());
+		}
+		if (Type == EDreamWindSourceType::Twister)
+		{
+			return Radius * FMath::Sqrt(1.0f + FMath::Square(FMath::Max(Stretch, 1.0f)));
 		}
 		return (Type == EDreamWindSourceType::Radial) ? Radius : Radius * FMath::Max(Stretch, 1.0f);
 	}

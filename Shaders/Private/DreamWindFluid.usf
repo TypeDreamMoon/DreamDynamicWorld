@@ -381,7 +381,8 @@ void ForcesCS(uint3 Id : SV_DispatchThreadID)
 		}
 		const FDreamWindSourceEval E = DW_EvalSource(S, X);
 		const float Weight = saturate(E.Weight * saturate(S.Misc.y * DeltaTime * Scale));
-		Dc = lerp(Dc, E.Velocity - Bc, Weight);
+		// (a whirlwind is carried by the wind it stands in: its own motion is the deviation it asks for)
+		Dc = lerp(Dc, int(S.Misc.x) == DW_SOURCE_TWISTER ? E.Velocity : E.Velocity - Bc, Weight);
 	}
 
 	// The pull toward the background: slow inside, tight along the open sides and the top (no reflections there).
@@ -442,7 +443,9 @@ float DivergenceAt(int3 C)
 
 /**
  * The divergence the radial sources ask for here (1/s): air appearing in their spheres, Strength cm/s out through the
- * surface (3 S / R over a uniform sphere, more at the middle as the footprint falls off toward the edge).
+ * surface (3 S / R over a uniform sphere, more at the middle as the footprint falls off toward the edge). A whirlwind's
+ * core near the ground is a sink: the air leaves it upward (out of the grid's top, as the column does), and the pressure
+ * draws the air round it in along the ground (2 Inflow / core, as a ring flowing in at Inflow across the core's edge).
  */
 float ExpansionAt(int3 C)
 {
@@ -457,6 +460,19 @@ float ExpansionAt(int3 C)
 	{
 		float Scale;
 		const FDreamWindSourceData S = LoadSource(TileSources[Range.x + k], Scale);
+		if (int(S.Misc.x) == DW_SOURCE_TWISTER)
+		{
+			const float3 Axis = S.DirectionStrength.xyz;
+			const float3 Dx = X - S.PositionRadius.xyz;
+			const float Along = dot(Dx, Axis);
+			const float Core = max(S.PositionRadius.w * saturate(S.Misc.z), 1.0f);
+			const float Rc = length(Dx - Axis * Along) / Core;
+			if (Along > -0.25f * S.PositionRadius.w)
+			{
+				Sum -= Scale * 2.0f * S.BoxExtent.y / Core * exp(-Rc * Rc) * exp(-max(Along, 0.0f) / Core);
+			}
+			continue;
+		}
 		if (int(S.Misc.x) != DW_SOURCE_RADIAL)
 		{
 			continue;
