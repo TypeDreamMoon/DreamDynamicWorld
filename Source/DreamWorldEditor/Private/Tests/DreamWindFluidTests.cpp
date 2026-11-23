@@ -623,6 +623,32 @@ bool FDreamWindFluidDisturbanceTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("rotor (8 m up, 1500 cm/s): 3.5 m up under it %.0f cm/s down; 5 m out over the ground, %.0f cm/s outward on average"), -Under.Z, Out));
 		TestTrue(TEXT("rotor: the downwash goes down under it"), -Under.Z > 300.0f);
 		TestTrue(TEXT("rotor: over the ground it spreads out in a ring"), Out > 100.0);
+	});
+
+	// The wind as the eye sees it (SampleWindVisual): asked under the rotor for a few frames, its answer comes back from
+	// the GPU with the downwash in it; the CPU sample has none.
+	static const FName ProbeKey(TEXT("DreamWindTests.UnderTheRotor"));
+	const FVector ProbePoint(Rotor.X, Rotor.Y, 350.0);
+	TSharedRef<int32> Asked = MakeShared<int32>(0);
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Asked, ProbePoint]()
+	{
+		if (UDreamWindSubsystem* W = Wind())
+		{
+			W->SampleWindVisual(ProbeKey, ProbePoint);
+		}
+		return ++(*Asked) >= 12;
+	}));
+	Then([this, ProbePoint]()
+	{
+		UDreamWindSubsystem* W = Wind();
+		if (!W)
+		{
+			return;
+		}
+		const FVector Visual = W->SampleWindVisual(ProbeKey, ProbePoint).Velocity;
+		const FVector Plain = W->SampleWindVelocity(ProbePoint);
+		AddInfo(FString::Printf(TEXT("probe under the rotor after 12 frames: as seen %s, the CPU sample %s (cm/s)"), *Visual.ToCompactString(), *Plain.ToCompactString()));
+		TestTrue(TEXT("probe: the wind as seen carries the downwash, read back from the GPU"), Visual.Z < -300.0 && FMath::Abs(Plain.Z) < 100.0);
 		GEngine->Exec(EditorWorld(), TEXT("DreamWind.Rotor off"));
 	});
 
