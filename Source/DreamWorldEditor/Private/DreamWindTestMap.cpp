@@ -37,9 +37,8 @@ bool DreamWorld::Setup::BuildWindTestMap(UDreamSkyStyle* Style)
 {
 	using namespace DreamWorld::Setup::WindTest;
 	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
-	UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
 	UStaticMesh* Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
-	if (!Cube || !Plane || !Cone)
+	if (!Cube || !Cone)
 	{
 		UE_LOG(LogDreamWorld, Error, TEXT("Wind test level: the engine's basic shapes are missing."));
 		return false;
@@ -67,7 +66,9 @@ bool DreamWorld::Setup::BuildWindTestMap(UDreamSkyStyle* Style)
 	Sky->SetActorLabel(TEXT("DreamSky"));
 
 	// The ground (300 m), and what the wind meets on it.
-	SurfaceSetup::AddMesh(*World, Plane, nullptr, FVector::ZeroVector, FVector(300.0, 300.0, 1.0), FRotator::ZeroRotator, TEXT("Ground"));
+	// (a deep slab, not a plane: the global distance field has no inside for a sheet, and the fluid's walls would miss it,
+	// the far grid's 4 m cells under the ground too)
+	WindTestMapImpl::AddBox(*World, Cube, FVector(0.0, 0.0, -1000.0), FVector(30000.0, 30000.0, 2000.0), TEXT("Ground"));
 	WindTestMapImpl::AddBox(*World, Cube, HouseCenter, HouseSize, TEXT("House"));
 	WindTestMapImpl::AddBox(*World, Cube, WallCenter, WallSize, TEXT("Wall"));
 	const FVector ArmAlongX(1200.0, 40.0, 300.0);
