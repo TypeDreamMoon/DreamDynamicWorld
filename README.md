@@ -1211,7 +1211,9 @@ placed by `DDW_SurfaceNear / Far` in the shared collection; beyond both the land
 (`DDW_SurfaceView`, `DDW_SurfaceViewIce`, `DDW_SurfaceViewHail`; `GetRegionState`): the weather with no zone, no wind
 lee and no water body over it, integrated at the view beside its own state (`GetViewState`) -- what the far map holds
 away from the zones, so the far land meets it without a seam, and a zone or a flood round the camera does not reach
-the horizon. `DDW_SurfaceViewHail.w` says whether the maps may hold hail or silt at all (hail in some step of the
+the horizon. (Steep slopes take no dust and hold no standing water, so on the horizon a far range stands apart from a
+dusty or flooded plain before it: it keeps its own colour while the plain greys -- under the aerial perspective and the
+fog it hardly shows.) `DDW_SurfaceViewHail.w` says whether the maps may hold hail or silt at all (hail in some step of the
 memory or a zone, a muddy water body); while it is 0 the materials do not read the hail maps. GPU cost: some 0.03 ms a
 frame (both maps and the cover); an integration (a step going by) costs the near map some 0.6 ms and the far one 0.2 ms
 on the showcase, the far map a frame after the near one so no frame pays both. The hail's part of the integral is left
