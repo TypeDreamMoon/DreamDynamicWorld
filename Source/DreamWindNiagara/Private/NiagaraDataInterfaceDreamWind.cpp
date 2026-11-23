@@ -52,16 +52,33 @@ struct FNDIDreamWindInstanceData_RT
 	FVector4f T0 = FVector4f::Zero();
 	FVector4f T1 = FVector4f::Zero();
 	FVector4f T2 = FVector4f::Zero();
+	FVector4f L1Near = FVector4f::Zero();
+	FVector4f L1Far = FVector4f::Zero();
+	FVector4f L1Params = FVector4f::Zero();
 	TArray<FVector4f> Sources;                   // DW_SOURCE_FLOAT4S float4 per source
 	TWeakObjectPtr<UTexture> VolumeTexture;      // read on the render thread only through TextureReferenceRHI
 	TWeakObjectPtr<UTexture> VolumeFarTexture;
 	TWeakObjectPtr<UTexture> TerrainTexture;
+	TWeakObjectPtr<UTexture> L1NearTexture;
+	TWeakObjectPtr<UTexture> L1FarTexture;
 
 	// per graph-builder transient state
 	FRDGBufferSRVRef TransientSourcesSRV = nullptr;
 	FRDGTextureRef TransientVolumeTexture = nullptr;
 	FRDGTextureRef TransientVolumeFarTexture = nullptr;
 	FRDGTextureRef TransientTerrainTexture = nullptr;
+	FRDGTextureRef TransientL1NearTexture = nullptr;
+	FRDGTextureRef TransientL1FarTexture = nullptr;
+
+	void ResetTransients()
+	{
+		TransientSourcesSRV = nullptr;
+		TransientVolumeTexture = nullptr;
+		TransientVolumeFarTexture = nullptr;
+		TransientTerrainTexture = nullptr;
+		TransientL1NearTexture = nullptr;
+		TransientL1FarTexture = nullptr;
+	}
 };
 
 /** Registers a render target's RHI texture with the graph once per builder; null when it is not usable. */
@@ -101,10 +118,7 @@ struct FNDIDreamWindProxy : public FNiagaraDataInterfaceProxy
 		FNDIDreamWindInstanceData_RT* FromGT = static_cast<FNDIDreamWindInstanceData_RT*>(PerInstanceData);
 		FNDIDreamWindInstanceData_RT& Data = InstanceData_RT.FindOrAdd(InstanceID);
 		Data = MoveTemp(*FromGT);
-		Data.TransientSourcesSRV = nullptr;
-		Data.TransientVolumeTexture = nullptr;
-		Data.TransientVolumeFarTexture = nullptr;
-		Data.TransientTerrainTexture = nullptr;
+		Data.ResetTransients();
 		FromGT->~FNDIDreamWindInstanceData_RT();
 	}
 
@@ -114,10 +128,7 @@ struct FNDIDreamWindProxy : public FNiagaraDataInterfaceProxy
 		{
 			if (FNDIDreamWindInstanceData_RT* Data = InstanceData_RT.Find(Context.GetSystemInstanceID()))
 			{
-				Data->TransientSourcesSRV = nullptr;
-				Data->TransientVolumeTexture = nullptr;
-				Data->TransientVolumeFarTexture = nullptr;
-				Data->TransientTerrainTexture = nullptr;
+				Data->ResetTransients();
 			}
 		}
 	}
@@ -238,6 +249,11 @@ void UNiagaraDataInterfaceDreamWind::ProvidePerInstanceDataForRenderThread(void*
 	RT->T0 = GT->Frame.T0;
 	RT->T1 = GT->Frame.T1;
 	RT->T2 = GT->Frame.T2;
+	RT->L1Near = GT->Frame.L1Near;
+	RT->L1Far = GT->Frame.L1Far;
+	RT->L1Params = GT->Frame.L1Params;
+	RT->L1NearTexture = GT->Frame.L1NearDerived.Get();
+	RT->L1FarTexture = GT->Frame.L1FarDerived.Get();
 	RT->Sources.Reserve(GT->Frame.Sources.Num() * DW_SOURCE_FLOAT4S);
 	for (const FDreamWindSourceData& S : GT->Frame.Sources)
 	{
@@ -314,6 +330,7 @@ void UNiagaraDataInterfaceDreamWind::VMSampleWind(FVectorVMExternalFunctionConte
 	const bool bHave = InstData->bHaveWind;
 	const FDreamWindTerrainParams TP = InstData->Frame.GetTerrainParams();
 	const FDreamWindTerrainCpuData* Terrain = (TP.Enabled > 0.0f && InstData->Frame.TerrainCpu.IsValid()) ? InstData->Frame.TerrainCpu.Get() : nullptr;
+	const FDreamWindTerrainGridData* Grid = InstData->Frame.TerrainGrid.Get();
 
 	for (int32 i = 0; i < Context.GetNumInstances(); ++i)
 	{
@@ -327,7 +344,12 @@ void UNiagaraDataInterfaceDreamWind::VMSampleWind(FVectorVMExternalFunctionConte
 		const FVector WorldPos = InstData->LWCConverter.ConvertSimulationPositionToWorld(SimPos);
 		const float3 Pos = ToHlsl(WorldPos);
 		FDreamWindSample S = bFull ? DW_SampleAnalytic(P, Pos) : DW_SampleAnalyticCheap(P, Pos);
-		if (Terrain)
+		// The runtime map's CPU grid where it reaches, the baked map beyond (as the subsystem's own sample).
+		if (Grid && Grid->Weight(Pos.x, Pos.y) > 0.0f)
+		{
+			S = Grid->Apply(S, Pos);
+		}
+		else if (Terrain)
 		{
 			S = Terrain->ApplyAll(S, TP, Pos);
 		}
@@ -427,6 +449,10 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 		SP->VolumeTexture = BlackVolume;
 		SP->VolumeFarTexture = BlackVolume;
 		SP->TerrainTexture = BlackTexture;
+		SP->L1Near = SP->L1Far = SP->L1Params = FVector4f::Zero();
+		SP->L1NearMap = BlackTexture;
+		SP->L1FarMap = BlackTexture;
+		SP->L1Sampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
 		return;
 	}
 
@@ -486,6 +512,24 @@ void UNiagaraDataInterfaceDreamWind::SetShaderParameters(const FNiagaraDataInter
 	}
 	SP->VolumeTexture = VolumeRDG;
 	SP->VolumeFarTexture = VolumeFarRDG;
+
+	// The runtime terrain wind map, when it runs.
+	SP->L1Sampler = TStaticSamplerState<SF_Bilinear, AM_Wrap, AM_Wrap, AM_Wrap>::GetRHI();
+	SP->L1Params = Data->L1Params;
+	FRDGTextureRef L1NearRDG = nullptr;
+	FRDGTextureRef L1FarRDG = nullptr;
+	if (Data->L1Near.W > 0.5f && Context.IsResourceBound(&SP->L1NearMap))
+	{
+		L1NearRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->L1NearTexture, Data->TransientL1NearTexture, TEXT("DreamWind.NDIL1Near"), ETextureDimension::Texture2D);
+	}
+	if (Data->L1Far.W > 0.5f && Context.IsResourceBound(&SP->L1FarMap))
+	{
+		L1FarRDG = RegisterTextureForDispatch(Context, GraphBuilder, Data->L1FarTexture, Data->TransientL1FarTexture, TEXT("DreamWind.NDIL1Far"), ETextureDimension::Texture2D);
+	}
+	SP->L1Near = L1NearRDG ? Data->L1Near : FVector4f::Zero();
+	SP->L1Far = L1FarRDG ? Data->L1Far : FVector4f::Zero();
+	SP->L1NearMap = L1NearRDG ? L1NearRDG : BlackTexture;
+	SP->L1FarMap = L1FarRDG ? L1FarRDG : BlackTexture;
 }
 
 #undef LOCTEXT_NAMESPACE

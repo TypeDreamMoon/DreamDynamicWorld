@@ -360,6 +360,13 @@ void FDreamSurfaceMaps::DrawCover(UDreamWorldSubsystem& Clock, const FVector2D& 
 			Args.TerrainParams[1] = Frame.T1;
 			Args.TerrainParams[2] = Frame.T2;
 		}
+		// The runtime terrain map's heights where it runs: the level as it stands now, roofs that moved included.
+		UTextureRenderTarget2D* RuntimeHeight = Frame.L1NearHeight.Get();
+		if (RuntimeHeight && Frame.L1Near.W > 0.5f)
+		{
+			Args.L1Height = RuntimeHeight->GameThread_GetRenderTargetResource();
+			Args.L1Level = Frame.L1Near;
+		}
 	}
 
 	// Shelter boxes in reach of the map.

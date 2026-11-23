@@ -1,0 +1,163 @@
+// Copyright DreamMoon. All Rights Reserved.
+//
+// The runtime terrain wind map (L1), one level at a time. See FDreamWindTerrainField and DreamWindShared.h.
+//   ScatterCS   a top-down depth capture of a rectangle of cells -> the height ring buffer (cm)
+//   BlurCS      a box blur along one axis (the far level's terrain shapes)
+//   ShadowCS    one doubling step of the wind shadow's sweep along the wind
+//   FinalizeCS  the derived map: speed multiplier and steering (far level, from the blurred heights) and the shadow height
+//
+// Texel (i, j) of an N x N level holds the world cell (cx, cy) with cx = i, cy = j modulo N; the window is the N x N
+// cells from WindowMin. A texel's own cell is WindowMin + ((i - WindowMin) mod N).
+
+#include "/Engine/Private/Common.ush"
+#include "/Plugin/DreamDynamicWorld/Shared/DreamWindShared.h"
+
+int Size;              // N
+int2 WindowMin;        // the window's first cell (world cell index)
+float TexelSize;       // cm per cell
+
+int PositiveMod(int A, int B)
+{
+	int R = A % B;
+	return R < 0 ? R + B : R;
+}
+
+/** The world cell a texel holds now. */
+int2 CellOfTexel(int2 Texel)
+{
+	return int2(WindowMin.x + PositiveMod(Texel.x - WindowMin.x, Size), WindowMin.y + PositiveMod(Texel.y - WindowMin.y, Size));
+}
+
+// ---- Scatter ------------------------------------------------------------------------------------------------------
+
+Texture2D<float4> CaptureDepth;
+int2 CaptureSize;      // pixels: x = cells along world +Y, y = cells along world -X
+int2 RectMin;          // the captured rectangle's first cell (x, y)
+float CaptureZ;        // world Z of the capture's camera
+float MaxDepth;        // deeper than this is nothing
+RWTexture2D<float> OutHeight;
+
+[numthreads(8, 8, 1)]
+void ScatterCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (any(int2(Id.xy) >= CaptureSize))
+	{
+		return;
+	}
+	// Looking straight down at yaw 0: the image's x runs along world +Y, its y along world -X.
+	const int CellY = RectMin.y + int(Id.x);
+	const int CellX = RectMin.x + (CaptureSize.y - 1 - int(Id.y));
+	const float Depth = CaptureDepth.Load(int3(Id.xy, 0)).r;
+	const float Height = (Depth > 0.0f && Depth < MaxDepth) ? CaptureZ - Depth : CaptureZ - MaxDepth;
+	OutHeight[int2(PositiveMod(CellX, Size), PositiveMod(CellY, Size))] = Height;
+}
+
+// ---- Blur ---------------------------------------------------------------------------------------------------------
+
+Texture2D<float> BlurIn;
+int2 BlurAxis;         // (1, 0) or (0, 1)
+int BlurRadius;        // texels
+RWTexture2D<float> BlurOut;
+
+[numthreads(8, 8, 1)]
+void BlurCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (int(Id.x) >= Size || int(Id.y) >= Size)
+	{
+		return;
+	}
+	// Within the window only: past its edge the ring holds other places, the edge texel stands in for them.
+	const int2 Cell = CellOfTexel(int2(Id.xy));
+	float Sum = 0.0f;
+	for (int k = -BlurRadius; k <= BlurRadius; ++k)
+	{
+		const int2 C = clamp(Cell + BlurAxis * k, WindowMin, WindowMin + Size - 1);
+		Sum += BlurIn.Load(int3(PositiveMod(C.x, Size), PositiveMod(C.y, Size), 0));
+	}
+	BlurOut[Id.xy] = Sum / float(2 * BlurRadius + 1);
+}
+
+// ---- Shadow -------------------------------------------------------------------------------------------------------
+
+Texture2D<float> ShadowIn;
+float2 UpwindOffset;   // texels toward where the wind comes from, this step's distance
+float StepDistance;    // cm
+float Slope;           // rise / run of the lee's wedge
+RWTexture2D<float> ShadowOut;
+
+float LoadShadow(int2 Cell)
+{
+	return ShadowIn.Load(int3(PositiveMod(Cell.x, Size), PositiveMod(Cell.y, Size), 0));
+}
+
+[numthreads(8, 8, 1)]
+void ShadowCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (int(Id.x) >= Size || int(Id.y) >= Size)
+	{
+		return;
+	}
+	const int2 Cell = CellOfTexel(int2(Id.xy));
+	float Here = ShadowIn.Load(int3(Id.xy, 0));
+	// The point upwind, bilinear between the four cells around it; outside the window nothing shades.
+	const float2 P = float2(Cell) + UpwindOffset;
+	const int2 P0 = int2(floor(P));
+	const float2 F = P - float2(P0);
+	if (all(P0 >= WindowMin) && all(P0 + 1 < WindowMin + Size))
+	{
+		const float S00 = LoadShadow(P0);
+		const float S10 = LoadShadow(P0 + int2(1, 0));
+		const float S01 = LoadShadow(P0 + int2(0, 1));
+		const float S11 = LoadShadow(P0 + int2(1, 1));
+		// The highest of the four rather than their blend: a one-texel wall keeps its full height whatever the angle.
+		const float Upwind = max(max(S00, S10), max(S01, S11));
+		Here = DW_L1ShadowStep(Here, Upwind, StepDistance, Slope);
+	}
+	ShadowOut[Id.xy] = Here;
+}
+
+// ---- Finalize -----------------------------------------------------------------------------------------------------
+
+Texture2D<float> FinalHeight;
+Texture2D<float> FinalBlur;
+Texture2D<float> FinalShadow;
+int bShape;            // 1: speed multiplier and steering from the blurred heights (far level); 0: neutral (near)
+float ExposureScale;   // cm above / below the blurred terrain that counts as fully exposed / sheltered
+float ExposureGain;    // exposed ridges blow at 1 + gain, sheltered hollows at 1 - gain
+float SteerGain;       // the blurred slope times this is added to the wind direction
+float MaxSteer;        // the steering offset's longest
+RWTexture2D<float4> OutDerived;
+
+float LoadBlur(int2 Cell)
+{
+	const int2 C = clamp(Cell, WindowMin, WindowMin + Size - 1);
+	return FinalBlur.Load(int3(PositiveMod(C.x, Size), PositiveMod(C.y, Size), 0));
+}
+
+[numthreads(8, 8, 1)]
+void FinalizeCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (int(Id.x) >= Size || int(Id.y) >= Size)
+	{
+		return;
+	}
+	float4 Out = float4(1.0f, 0.0f, 0.0f, FinalShadow.Load(int3(Id.xy, 0)));
+	if (bShape != 0)
+	{
+		const int2 Cell = CellOfTexel(int2(Id.xy));
+		const float H = FinalHeight.Load(int3(Id.xy, 0));
+		const float B = LoadBlur(Cell);
+		Out.x = 1.0f + ExposureGain * clamp((H - B) / max(ExposureScale, 1.0f), -1.0f, 1.0f);
+		// Downhill on the blurred terrain: toward the valleys.
+		float2 Grad = float2(LoadBlur(Cell + int2(1, 0)) - LoadBlur(Cell - int2(1, 0)), LoadBlur(Cell + int2(0, 1)) - LoadBlur(Cell - int2(0, 1))) / (2.0f * TexelSize);
+		float2 Steer = -Grad * SteerGain;
+		const float L = length(Steer);
+		if (L > MaxSteer)
+		{
+			Steer *= MaxSteer / L;
+		}
+		Out.y = Steer.x;
+		Out.z = Steer.y;
+	}
+	OutDerived[Id.xy] = Out;
+}

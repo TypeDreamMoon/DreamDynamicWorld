@@ -166,9 +166,26 @@ StructuredBuffer<float4> Shelters;  // three float4 each: (centre x, y, cos yaw,
 RWTexture2D<float4> OutCover;
 float LowRadius;        // how far around a texel the ground's lows are judged (cm)
 
-// The baked level height (the top surface) at a world point; a point beyond the map stands at the edge's height.
+// The wind's runtime terrain map's near level (the level's top surfaces as they stand now, around the camera):
+// DW_UnpackL1Level, w = 0 when it does not run; its height map (cm).
+float4 L1Level;
+Texture2D L1HeightMap;
+SamplerState L1HeightSampler;
+
+// Whether the runtime map covers a world point (well inside its window).
+bool RuntimeCovers(float2 P)
+{
+	return DW_L1Weight(float3(P.x, P.y, 0.0f), DW_UnpackL1Level(L1Level)) > 0.99f;
+}
+
+// The level height (the top surface) at a world point: the runtime map's where it covers it, else the baked map's (a
+// point beyond the baked map stands at its edge's height).
 float TerrainHeightAt(float2 P, FDreamWindTerrainParams T)
 {
+	if (RuntimeCovers(P))
+	{
+		return L1HeightMap.SampleLevel(L1HeightSampler, DW_L1UV(float3(P.x, P.y, 0.0f), DW_UnpackL1Level(L1Level)), 0).r;
+	}
 	float2 UV = saturate(DW_TerrainUV(float3(P.x, P.y, 0.0f), T));
 	return DW_TerrainHeight(TerrainTexture.SampleLevel(TerrainSampler, DW_TerrainAtlasUV(UV, 0, T), 0), T);
 }
@@ -213,7 +230,7 @@ void CoverCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 	FDreamWindTerrainParams T = DW_UnpackTerrain(Terrain0, Terrain1, Terrain2);
 	float2 UV = DW_TerrainUV(float3(P.x, P.y, 0.0f), T);
-	if (DW_TerrainInside(UV, T) > 0.5f)
+	if (RuntimeCovers(P) || DW_TerrainInside(UV, T) > 0.5f)
 	{
 		Height = TerrainHeightAt(P, T);
 		Strength = 1.0f;
