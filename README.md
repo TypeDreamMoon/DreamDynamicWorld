@@ -1299,7 +1299,7 @@ told, its mesh lifted, found, the view under it, the snapshot).
 walls, what stands in it -- through a decal from just over its surface down past its bottom (`M_DreamWaterCaustics`):
 a moving net of light (two layers of wandering cells, *Caustic Size* across, bent by a slow swell, *Caustic Speed*),
 shifted along the light by the depth (it lies where the light that made it lands), added to what it lands on without
-changing its material (only the decal's emissive is written). How bright: the main light's colour and illuminance
+changing its material (only the decal's emissive is written; the engine adds a decal's emissive times its opacity, so a decal that only adds light writes opacity 1, not 0). How bright: the main light's colour and illuminance
 (`DDW_MainLight`, so it follows the sun, the overcast and the night) times *Caustic Strength*, fading with depth over
 *Caustic Fade Depth*, with the turbidity, toward the surface (none on it) and as the sun goes low. It shows through a
 clear water surface (the demo's `M_DreamWaterClearDemo`, translucent) and under the water of a cut-away; a decal knows
