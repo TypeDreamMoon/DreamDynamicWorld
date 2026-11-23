@@ -7,8 +7,8 @@ import sys
 from PIL import Image, ImageDraw
 
 shots, out = sys.argv[1], sys.argv[2]
-views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow', 'Car', 'CarGlass', 'Walker']
-rows = ['Clear', 'Cloudy', 'Rain', 'Storm', 'AfterRain', 'Snow', 'Dust', 'Night', 'SnowDay', 'DustDay', 'StormNight', 'FogDay', 'WindFog', 'TerrainFog']
+views = ['Wide', 'Toon', 'Inside', 'Door', 'Pond', 'Grove', 'Snow', 'Car', 'CarGlass', 'Walker', 'Basin']
+rows = ['Clear', 'Cloudy', 'Rain', 'Storm', 'AfterRain', 'Snow', 'Dust', 'Night', 'SnowDay', 'DustDay', 'StormNight', 'FogDay', 'WindFog', 'TerrainFog', 'Caustics', 'PondDry', 'PondRain', 'PondAfter']
 W, H = 480, 270
 
 

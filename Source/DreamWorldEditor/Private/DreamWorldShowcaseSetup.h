@@ -18,10 +18,18 @@ namespace DreamWorld::Setup
 	inline const TCHAR* ShowcaseCloudPaintPackage = TEXT("/DreamDynamicWorld/Showcase/CP_ShowcaseClouds");
 	inline const TCHAR* ShowcasePondPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcasePond");
 
-	/** The showcase pond: its middle, its water level (cm), and how far inside the bank's waterline its rim lies. */
+	/**
+	 * The showcase pond: its middle, its usual water level (cm), and how high its water can rise (its water body's brim):
+	 * the water's mesh reaches out under the bank to where the bank stands that high, so the risen water still meets it.
+	 */
 	inline const FVector2D ShowcasePondCenter(900.0, -1100.0);
 	constexpr double ShowcasePondLevel = -55.0;
-	constexpr double ShowcasePondInset = 12.0;
+	constexpr double ShowcasePondRise = 30.0;
+	constexpr double ShowcasePondReach = 40.0;
+
+	/** The clear basin in the sun (its caustics): its middle and its inner size (cm). */
+	inline const FVector2D ShowcaseBasinCenter(2700.0, -1500.0);
+	inline const FVector2D ShowcaseBasinSize(300.0, 200.0);
 
 	/** The far land round the set (near hills 5-7.5 km out, mid mountains 12-16 km, a far range 24-30 km, to 2 km high). */
 	inline const TCHAR* ShowcaseFarLandPackage = TEXT("/DreamDynamicWorld/Showcase/Meshes/SM_DreamShowcaseFarLand");

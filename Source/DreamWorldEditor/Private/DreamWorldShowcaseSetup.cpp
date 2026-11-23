@@ -15,6 +15,7 @@
 #include "DreamWeather.h"
 #include "DreamWeatherFallPaths.h"
 #include "DreamTerrainFog.h"
+#include "DreamWaterBody.h"
 #include "DreamWeatherFog.h"
 #include "DreamWeatherModule.h"
 #include "DreamWeatherPreset.h"
@@ -187,16 +188,17 @@ namespace DreamWorld::ShowcaseSetup
 	}
 
 	/**
-	 * The pond's water: a disc whose rim follows the bank, just inside the line where the ground (SurfaceSetup's
-	 * height) comes up out of the water at the pond's level - a smooth shore of 128 sides instead of the ground's grid
-	 * cut by a flat plane. The rim is found along each ray from the middle (the first rise above the water), so the
-	 * outline is as round or as long as the hollow is. Centred on the pond's middle, at its level.
+	 * The pond's water: a disc whose rim lies under the bank, on the line where the ground (SurfaceSetup's height) stands
+	 * ShowcasePondReach above the pond's usual level -- above its brim, so the water, raised by the rain, still meets the
+	 * bank and its shore moves out over the hollow's sides (and at the usual level the bank hides what lies beyond the
+	 * waterline). The rim is found along each ray from the middle, so the outline is as round or as long as the hollow
+	 * is. Centred on the pond's middle, at its level.
 	 */
 	UStaticMesh* EnsurePond()
 	{
 		constexpr int32 Sides = 128;
 		const FVector2D Center = Setup::ShowcasePondCenter;
-		const double Level = Setup::ShowcasePondLevel;
+		const double Level = Setup::ShowcasePondLevel + Setup::ShowcasePondReach;
 		auto Above = [&](const FVector2D& Dir, double R) { const FVector2D P = Center + Dir * R; return SurfaceSetup::GroundHeight(P.X, P.Y) >= Level; };
 		TArray<FVector2D> Rim;
 		double Reach = 0.0;
@@ -205,7 +207,7 @@ namespace DreamWorld::ShowcaseSetup
 			const double Angle = 2.0 * UE_DOUBLE_PI * i / Sides;
 			const FVector2D Dir(FMath::Cos(Angle), FMath::Sin(Angle));
 			double Out = 10.0;
-			while (Out < 3000.0 && !Above(Dir, Out))
+			while (Out < 9000.0 && !Above(Dir, Out))
 			{
 				Out += 10.0;
 			}
@@ -215,7 +217,7 @@ namespace DreamWorld::ShowcaseSetup
 				const double Mid = 0.5 * (In + Out);
 				(Above(Dir, Mid) ? Out : In) = Mid;
 			}
-			const double R = FMath::Max(In - Setup::ShowcasePondInset, 10.0);
+			const double R = FMath::Max(Out, 10.0);
 			Rim.Add(Dir * R);
 			Reach = FMath::Max(Reach, R);
 		}
@@ -481,6 +483,11 @@ namespace DreamWorld::ShowcaseSetup
 		}
 	};
 
+	/**
+	 * A raised stone basin of clear water in the sun: a pale floor, low walls, a translucent water surface 40 cm up with
+	 * a water body on it (its level rising a few cm with the rain, its caustics thrown on the floor and walls).
+	 */
+
 	/** A box of this size (cm) centred here, a 1 m cube scaled. */
 	AStaticMeshActor* AddBox(UWorld& World, const FShowcaseKit& Kit, UMaterialInterface* Material, const FVector& Center, const FVector& Size, const TCHAR* Label)
 	{
@@ -618,6 +625,54 @@ namespace DreamWorld::ShowcaseSetup
 	}
 
 	/** A campfire: warm air (a temperature volume), no snow or puddles round it (a mask brush), and the fire itself. */
+	void AddBasin(UWorld& World, const FShowcaseKit& Kit, const FVector2D& Center)
+	{
+		// Level, on the highest of the ground under it.
+		const FVector2D In = Setup::ShowcaseBasinSize;
+		constexpr double Wall = 20.0, Height = 50.0, Water = 40.0;
+		double Ground = -1.0e9;
+		for (int32 I = -1; I <= 1; ++I)
+		{
+			for (int32 J = -1; J <= 1; ++J)
+			{
+				Ground = FMath::Max(Ground, SurfaceSetup::GroundHeight(Center.X + I * 0.6 * In.X, Center.Y + J * 0.6 * In.Y));
+			}
+		}
+		const double Floor = Ground + 8.0;
+		const double Outer = In.X + 2.0 * Wall;
+		AddBox(World, Kit, Kit.Paving, FVector(Center, Floor - 14.0), FVector(Outer, In.Y + 2.0 * Wall, 28.0), TEXT("Basin_Floor"));
+		AddBox(World, Kit, Kit.Stone, FVector(Center.X, Center.Y + 0.5 * (In.Y + Wall), Floor + 0.5 * Height), FVector(Outer, Wall, Height), TEXT("Basin_WallN"));
+		AddBox(World, Kit, Kit.Stone, FVector(Center.X, Center.Y - 0.5 * (In.Y + Wall), Floor + 0.5 * Height), FVector(Outer, Wall, Height), TEXT("Basin_WallS"));
+		AddBox(World, Kit, Kit.Stone, FVector(Center.X + 0.5 * (In.X + Wall), Center.Y, Floor + 0.5 * Height), FVector(Wall, In.Y, Height), TEXT("Basin_WallE"));
+		AddBox(World, Kit, Kit.Stone, FVector(Center.X - 0.5 * (In.X + Wall), Center.Y, Floor + 0.5 * Height), FVector(Wall, In.Y, Height), TEXT("Basin_WallW"));
+		// A stone lying in it, for the light to play on.
+		SurfaceSetup::AddMesh(World, Kit.Sphere, Kit.Stone, FVector(Center + FVector2D(60.0, -30.0), Floor + 10.0), FVector(0.45, 0.35, 0.25), FRotator::ZeroRotator, TEXT("Basin_Stone"));
+		// The water: clear, 40 cm deep, its level rising a few cm with the rain (to the walls' brim), its caustics on all
+		// under it.
+		UMaterialInterface* Clear = LoadObject<UMaterialInterface>(nullptr, TEXT("/DreamDynamicWorld/Water/M_DreamWaterClearDemo.M_DreamWaterClearDemo"));
+		if (AStaticMeshActor* Surface = SurfaceSetup::AddMesh(World, Kit.Plane, Clear ? Clear : Kit.Glass, FVector(Center, Floor + Water), FVector(In.X / 100.0, In.Y / 100.0, 1.0), FRotator::ZeroRotator, TEXT("Basin_Water")))
+		{
+			Surface->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Surface->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			UDreamWaterBodyComponent* Body = NewObject<UDreamWaterBodyComponent>(Surface, TEXT("BasinWater"));
+			Body->Extent = FVector2D(0.5 * In.X, 0.5 * In.Y);
+			Body->Depth = float(Water);
+			Body->bMoveOwner = true;
+			Body->Rules.CatchmentRatio = 0.2f;   // its own surface and the walls' tops
+			Body->Rules.MaxRise = float(Height - Water - 2.0);
+			Body->Rules.MaxDrop = 15.0f;
+			Body->Rules.HighAbove = 3.0f;
+			Body->Rules.LowBelow = 8.0f;
+			Body->Rules.TurbidityPerCm = 0.01f;
+			Body->CausticStrength = 0.8f;
+			Body->CausticSize = 35.0f;
+			Body->CausticFadeDepth = 300.0f;
+			Body->SetupAttachment(Surface->GetRootComponent());
+			Surface->AddInstanceComponent(Body);
+			Body->RegisterComponent();
+		}
+	}
+
 	void AddCampfire(UWorld& World, const FShowcaseKit& Kit, const FVector& At)
 	{
 		ADreamTemperatureVolume* Warmth = World.SpawnActor<ADreamTemperatureVolume>(At + FVector(0.0, 0.0, 50.0), FRotator::ZeroRotator);
@@ -878,7 +933,26 @@ namespace DreamWorld::ShowcaseSetup
 		AddHut(*World, Kit, FVector(2450.0, 700.0, -3.0));
 		AddPorch(*World, Kit, FVector(1960.0, 700.0, -3.0));
 		AddWindow(*World, Kit, FVector(850.0, 820.0, 120.0));
-		SurfaceSetup::AddMesh(*World, Kit.Pond, Kit.Water, FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FVector(1.0), FRotator::ZeroRotator, TEXT("Pond"));
+		// The pond fills with the rain and drains after (its water body: the mesh rides on its level, the shore moving out
+		// over the hollow's sides as it rises), turning muddy; and a clear basin in the sun shows the caustics.
+		if (AStaticMeshActor* Pond = SurfaceSetup::AddMesh(*World, Kit.Pond, Kit.Water, FVector(Setup::ShowcasePondCenter, Setup::ShowcasePondLevel), FVector(1.0), FRotator::ZeroRotator, TEXT("Pond")))
+		{
+			Pond->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);   // it rides on the level
+			UDreamWaterBodyComponent* Body = NewObject<UDreamWaterBodyComponent>(Pond, TEXT("PondWater"));
+			Body->Extent = FVector2D(900.0, 900.0);
+			Body->Depth = 45.0f;
+			Body->bMoveOwner = true;
+			Body->bCaustics = false;   // dark, opaque water: nothing shows under it
+			Body->Rules.CatchmentRatio = 30.0f;
+			Body->Rules.MaxRise = float(Setup::ShowcasePondRise);
+			Body->Rules.MaxDrop = 30.0f;
+			Body->Rules.HighAbove = 15.0f;
+			Body->Rules.LowBelow = 15.0f;
+			Body->SetupAttachment(Pond->GetRootComponent());
+			Pond->AddInstanceComponent(Body);
+			Body->RegisterComponent();
+		}
+		AddBasin(*World, Kit, Setup::ShowcaseBasinCenter);
 
 		// The land out to the horizon, its ranges in the distance: no collision (nothing walks or lands there), left out
 		// of the wind's level heights.

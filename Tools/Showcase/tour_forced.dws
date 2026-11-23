@@ -233,4 +233,36 @@ aim -10 18
 wait 3
 settle 8
 shot SHOW_TerrainFog_Toon
+DreamWeather.Set WP_Clear 0
+time 11.5
+settle 20
+wait 30
+DreamWater.Bodies 0 0
+wait 5
+move 2540 -1640 190
+aim -48 38
+wait 3
+settle 8
+shot SHOW_Caustics_Basin
+move 400 -600 250
+aim -20 -45
+wait 3
+settle 8
+shot SHOW_PondDry_Pond
+DreamWeather.Set WP_Rain 0
+DreamWorld.Pause 0
+wait 225
+DreamWorld.Pause 1
+DreamWater.Bodies
+settle 20
+wait 30
+shot SHOW_PondRain_Pond
+DreamWeather.Set WP_Clear 0
+DreamWorld.Pause 0
+wait 900
+DreamWorld.Pause 1
+DreamWater.Bodies
+settle 20
+wait 30
+shot SHOW_PondAfter_Pond
 DreamWeather.Clear
