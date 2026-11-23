@@ -11,6 +11,7 @@
 //   dust    the block shifts toward the dust's colour, with a hard edge
 //   cold    a glaze shifts the block toward a pale ice tint with a wider highlight band; a frozen puddle is a hard-edged
 //           pale block with hard crack lines; frost and rime a hard-edged white-blue cover with sparse glint dots
+//   hail    hard-edged white stones with a shaded crescent each; heaped up, a hard-edged white cover
 // The amounts and where they lie are the realistic function's (the shared hollow pattern and covers,
 // DreamSurfaceShared.h); the HLSL is Shaders/Private/DreamSurfaceMaterial.ush. How far each block shifts, where the hard
 // edges fall and the covers' colours are material parameters (group "Toon Weather Look"): set them in an instance, or in
@@ -63,6 +64,18 @@ Function float2 DreamSurfaceToon_ColdMarks(in float3 WorldPos, in float3 Normal)
 	// A frozen puddle's crack lines, and the frost's glint dots, for hard-edged lines and dots.
 	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
 	return float2(DSM_IceCracks(WorldPos), DSM_GlintDots(WorldPos, Normal));
+}
+
+Function float4 DreamSurfaceToon_Hail(
+	in float3 WorldPos,
+	in float4 NearPlace, in float4 FarPlace, in float4 ViewHail, in float4 Params, in float3 Normal, in float Gain,
+	in Texture2D NearHailMap, in Texture2D FarHailMap, in Texture2D CoverMap, in Texture2D MaskMap)
+{
+	// The hailstones' cover (the realistic look's stones and heap, soft): the graph hardens their edges.
+	#include "/Plugin/DreamDynamicWorld/Private/DreamSurfaceMaterial.ush"
+	float Hail = DSM_HailState(WorldPos, NearPlace, FarPlace, ViewHail, NearHailMap, NearHailMapSampler, FarHailMap, FarHailMapSampler);
+	Hail = DSM_HailShown(Hail, DSM_Mask(WorldPos, NearPlace, MaskMap, MaskMapSampler), DSM_Exposure(WorldPos, NearPlace, Params, CoverMap, CoverMapSampler));
+	return DSM_HailCovers(Hail, Normal, WorldPos, Gain);
 }
 
 Function float DreamSurfaceToon_RainHere(in float3 WorldPos, in float4 NearPlace, in float4 Params, in float4 Weather0, in Texture2D CoverMap)
@@ -119,11 +132,14 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		const Texture2D MaskMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceMask");
 		const Texture2D NearIceMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearIce");
 		const Texture2D FarIceMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarIce");
+		const Texture2D NearHailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceNearHail");
+		const Texture2D FarHailMap  = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceFarHail");
 		const Texture2D TrailMap = Path(Plugin.DreamDynamicWorld, "Surface/RT_DreamSurfaceTrails");
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceNear") NearPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceFar") FarPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceView") ViewState;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewIce") ViewIce;
+		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceViewHail") ViewHail;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceParams") Params;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_SurfaceTrails") TrailPlace;
 		UE.CollectionParam(Collection = Path(Plugin.DreamDynamicWorld, "MPC_DreamDynamicWorld"), Parameter = "DDW_Weather0") Weather0;
@@ -177,6 +193,13 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 			ScalarParameter ToonGlintBrightness    = 0.25 [Slider(0, 1); Description="How bright the frost's glint dots are."];
 			ScalarParameter ToonFrostAmount        = 0.5  [Slider(0, 1); Description="How far frost shifts the block toward its colour: a frost lets the block show through."];
 			ScalarParameter ToonRimeAmount         = 0.9  [Slider(0, 1); Description="How far rime shifts the block toward its colour (a crust)."];
+		}
+		Group("Toon Weather Look|Hail") {
+			ScalarParameter ToonHailThreshold      = 0.5  [Slider(0, 1); Description="Where a hailstone's (and the heaped cover's) hard edge falls."];
+			VectorParameter ToonHailColor          = float4(0.9, 0.94, 1.0, 1.0) [Description="The hailstones' colour."];
+			ScalarParameter ToonHailRoughness      = 0.6  [Slider(0, 1)];
+			ScalarParameter ToonHailCoverGain      = 1.0  [Slider(0, 3); Description="How readily the hail covers."];
+			ScalarParameter ToonHailShade          = 0.12 [Slider(0, 1); Description="How much darker a stone's shaded side is (a hard-edged crescent, so the stones read as round)."];
 		}
 	}
 
@@ -245,6 +268,13 @@ ShaderFunction(Name="Surface/MaterialFunctions/MF_DreamSurfaceWeatherToon", Root
 		float RimeCover = smoothstep(ToonFrostThreshold - W, ToonFrostThreshold + W, Cold.w) * (1.0 - SnowCover);
 		Color = lerp(Color, ToonFrostColor.rgb, max(FrostCover * ToonFrostAmount, RimeCover * ToonRimeAmount)) + Marks.y * ToonGlintBrightness * max(FrostCover, RimeCover);
 		Rough = lerp(Rough, ToonFrostRoughness, max(FrostCover, RimeCover));
+
+		// Hail under the snow: hard-edged white stones, each with a hard-edged shaded crescent; heaped up, a white cover.
+		float4 Stones = DreamSurfaceToon_Hail(WP, NearPlace, FarPlace, ViewHail, Params, UE.VertexNormalWS(), ToonHailCoverGain, NearHailMap, FarHailMap, CoverMap, MaskMap);
+		float HailCover = smoothstep(ToonHailThreshold - W, ToonHailThreshold + W, max(Stones.x, Stones.w * 0.9)) * (1.0 - SnowCover);
+		float HailShaded = smoothstep(0.25 - W, 0.25 + W, Stones.y - Stones.z);
+		Color = lerp(Color, ToonHailColor.rgb * (1.0 - ToonHailShade * HailShaded), HailCover);
+		Rough = lerp(Rough, ToonHailRoughness, HailCover);
 
 		// The weather never takes the roughness below the floor (0.4, or the surface's own): a lit toon material keeps the
 		// engine's reflections (screen space, Lumen) blurred, never a mirror; the puddles' reflection is the sky colour above.

@@ -98,6 +98,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath FarIceMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceFarIce.RT_DreamSurfaceFarIce"));
 
+	/** The hail lying beside each state map (RGBA16F, the same size; x the hail, the rest free). */
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath NearHailMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceNearHail.RT_DreamSurfaceNearHail"));
+
+	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
+	FSoftObjectPath FarHailMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceFarHail.RT_DreamSurfaceFarHail"));
+
 	UPROPERTY(Config, EditAnywhere, Category = "Surface Maps", meta = (AllowedClasses = "/Script/Engine.TextureRenderTarget2D"))
 	FSoftObjectPath CoverMapTexture = FSoftObjectPath(TEXT("/DreamDynamicWorld/Surface/RT_DreamSurfaceCover.RT_DreamSurfaceCover"));
 

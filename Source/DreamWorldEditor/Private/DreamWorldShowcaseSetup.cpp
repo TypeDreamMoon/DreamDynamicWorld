@@ -732,6 +732,23 @@ namespace DreamWorld::ShowcaseSetup
 		Field->SetActorLabel(TEXT("SnowField"));
 	}
 
+	/**
+	 * A patch where it always hails, on the open ground south-east of the start: the stones falling and bouncing, the
+	 * ground white with them (on the winter's frozen ground they do not melt), the edge where the patch ends.
+	 */
+	void AddHailField(UWorld& World, const FVector& Center)
+	{
+		ADreamWeatherZone* Field = World.SpawnActor<ADreamWeatherZone>(Center, FRotator::ZeroRotator);
+		Field->Zone->Shape = EDreamWeatherZoneShape::Circle;
+		Field->Zone->Extent = FVector2D(650.0, 650.0);
+		Field->Zone->BlendDistance = 350.0f;
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_CloudCoverage, 1.0f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Precipitation, 0.85f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Hail, 0.8f);
+		Field->Zone->Channels.Add(DreamWeather::Tags::Channel_Sleet, 0.0f);
+		Field->SetActorLabel(TEXT("HailField"));
+	}
+
 	/** A storm that drifts in from the west in the morning: over the area around eleven, gone by early afternoon. */
 	void AddStorm(UWorld& World)
 	{
@@ -948,6 +965,7 @@ namespace DreamWorld::ShowcaseSetup
 		AddCar(*World, Kit, FVector(200.0, -1000.0, SurfaceSetup::GroundHeight(200.0, -1000.0)), 90.0f, FVector::ZeroVector, false, TEXT("ParkedCar"));
 		AddCar(*World, Kit, FVector(-200.0, -1000.0, SurfaceSetup::GroundHeight(-200.0, -1000.0)), 90.0f, FVector(1670.0, 0.0, 0.0), true, TEXT("DrivingCar"));
 		AddSnowField(*World, FVector(4800.0, -2300.0, 0.0));
+		AddHailField(*World, FVector(-900.0, 2300.0, 0.0));
 		AddStorm(*World);
 
 		// The wind, with level heights baked over the set: roofs keep the rain off, puddles follow the dips. The bake

@@ -175,14 +175,17 @@ namespace DreamSurface::Tests
 		FMapTexel Out;
 		UTextureRenderTarget2D* Map = bNear ? Maps.GetNearMap() : Maps.GetFarMap();
 		UTextureRenderTarget2D* Ice = bNear ? Maps.GetNearIceMap() : Maps.GetFarIceMap();
-		if (!Map || !Ice)
+		UTextureRenderTarget2D* Hail = bNear ? Maps.GetNearHailMap() : Maps.GetFarHailMap();
+		if (!Map || !Ice || !Hail)
 		{
 			return Out;
 		}
 		TArray<FLinearColor> Pixels;
 		TArray<FLinearColor> IcePixels;
+		TArray<FLinearColor> HailPixels;
 		Map->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(Pixels);
 		Ice->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(IcePixels);
+		Hail->GameThread_GetRenderTargetResource()->ReadLinearColorPixels(HailPixels);
 		const int32 Size = Map->SizeX;
 		const FVector2D Center = bNear ? Maps.GetNearCenter() : Maps.GetFarCenter();
 		const float Extent = bNear ? Maps.GetNearExtent() : Maps.GetFarExtent();
@@ -190,13 +193,14 @@ namespace DreamSurface::Tests
 		const int32 X = FMath::Clamp(FMath::FloorToInt32(UV.X * Size), 0, Size - 1);
 		const int32 Y = FMath::Clamp(FMath::FloorToInt32(UV.Y * Size), 0, Size - 1);
 		const int32 Index = Y * Size + X;
-		if (!Pixels.IsValidIndex(Index) || !IcePixels.IsValidIndex(Index))
+		if (!Pixels.IsValidIndex(Index) || !IcePixels.IsValidIndex(Index) || !HailPixels.IsValidIndex(Index))
 		{
 			return Out;
 		}
 		const FLinearColor S = Pixels[Index];
 		const FLinearColor C = IcePixels[Index];
-		Out.State = FDreamSurfaceState::FromVectors(FVector4f(S.R, S.G, S.B, S.A), FVector4f(C.R, C.G, C.B, C.A));
+		const FLinearColor H = HailPixels[Index];
+		Out.State = FDreamSurfaceState::FromVectors(FVector4f(S.R, S.G, S.B, S.A), FVector4f(C.R, C.G, C.B, C.A), FVector4f(H.R, 0.0f, 0.0f, 0.0f));
 		Out.Texel = Center + (FVector2D(X + 0.5, Y + 0.5) / Size - 0.5) * Extent;
 		Out.bRead = true;
 		return Out;
@@ -204,8 +208,8 @@ namespace DreamSurface::Tests
 
 	FString Describe(const FDreamSurfaceState& S)
 	{
-		return FString::Printf(TEXT("wet %.3f water %.3f snow %.3f dust %.3f | ice %.3f frost %.3f rime %.3f frozen %.3f"),
-			S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater);
+		return FString::Printf(TEXT("wet %.3f water %.3f snow %.3f dust %.3f | ice %.3f frost %.3f rime %.3f frozen %.3f | hail %.3f"),
+			S.Wetness, S.Water, S.Snow, S.Dust, S.Ice, S.Frost, S.Rime, S.FrozenWater, S.Hail);
 	}
 }
 
@@ -1569,6 +1573,182 @@ bool FDreamSurfaceGpuIceTest::RunTest(const FString& Parameters)
 	CheckMaps(TEXT("at 9:30"));
 	W.GoTo(At(Day + 12.0));
 	CheckMaps(TEXT("after a jump to noon"));
+	return true;
+}
+
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceHailTest, "DreamSurface.Hail", DreamSurface::Tests::Flags)
+bool FDreamSurfaceHailTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	using namespace DreamWind::Hlsl;
+	const FDreamSurfaceRates Rates;
+	const float4 R4(Rates.R4().X, Rates.R4().Y, Rates.R4().Z, Rates.R4().W);
+	const float4 R5(Rates.R5().X, Rates.R5().Y, Rates.R5().Z, Rates.R5().W);
+	auto Hail = [&](float Start, float Landing, float Air, float Hours)
+	{
+		// Overcast (no sun), still air.
+		const float4 D0(0.0f, 0.0f, Air, 0.0f);
+		const float4 D1(0.0f, 0.0f, 0.0f, 0.0f);
+		return DSF_StepHail(float4(Start, 0.0f, 0.0f, 0.0f), D0, D1, float4(Landing, 0.0f, 0.0f, 0.0f), R4, R5, Hours).x;
+	};
+	// It heaps up within minutes of a full hailstorm, even on warm summer ground.
+	TestNearlyEqual(TEXT("a full cover in a cold storm's settle time"), Hail(0.0f, 1.0f, 2.0f, Rates.HailSettleHours * 1.05f), 1.0f, 0.02f);
+	float Summer = 0.0f;
+	for (int32 i = 0; i < 20; ++i)
+	{
+		Summer = Hail(Summer, 0.6f, 22.0f, 1.0f / 60.0f);
+	}
+	TestTrue(*FString::Printf(TEXT("twenty minutes of a summer hailstorm whitens the ground (%.2f)"), Summer), Summer > 0.6f);
+	// Then it melts: within minutes on warm ground, slowly near freezing, not at all on frozen ground.
+	float Warm = 1.0f, Cool = 1.0f, Frozen = 1.0f;
+	for (int32 i = 0; i < 45; ++i)
+	{
+		Warm = Hail(Warm, 0.0f, 22.0f, 1.0f / 60.0f);
+		Cool = Hail(Cool, 0.0f, 1.0f, 1.0f / 60.0f);
+		Frozen = Hail(Frozen, 0.0f, -5.0f, 1.0f / 60.0f);
+	}
+	TestNearlyEqual(TEXT("three quarters of an hour after: gone from warm ground"), Warm, 0.0f, 1e-4f);
+	TestTrue(*FString::Printf(TEXT("still lying near freezing (%.2f)"), Cool), Cool > 0.5f && Cool < 1.0f);
+	TestNearlyEqual(TEXT("all of it on frozen ground"), Frozen, 1.0f, 1e-5f);
+	// The melt wets the surface.
+	const float4 Dry(0.0f, 0.0f, 0.0f, 0.0f);
+	const float4 Still(0.0f, 0.0f, 0.0f, 0.0f);
+	auto ToHlsl = [](const FVector4f& V) { return float4(V.X, V.Y, V.Z, V.W); };
+	const float4 Melting = DSF_Step(Dry, Dry, float4(1.0f, 0.0f, 0.0f, 0.0f), float4(0.0f, 0.0f, 22.0f, 0.0f), Still, ToHlsl(Rates.R0()), ToHlsl(Rates.R1()),
+		ToHlsl(Rates.R2()), ToHlsl(Rates.R3()), R4, R5, 0.1f);
+	TestTrue(*FString::Printf(TEXT("melting hail wets the surface (%.2f)"), Melting.x), Melting.x > 0.05f);
+
+	// What lands: the hail on its own, the sleet half as rain and half as snow, the rest as before.
+	const float4 Weather(1.0f, 0.5f, 0.8f, 0.0f);
+	const float4 Air(10.0f, 0.2f, 0.0f, 0.5f);
+	const float4 Plain = DSF_OpenD0(Weather, Air, 0.0f, float2(0.0f, 0.0f));
+	TestTrue(TEXT("no hail, no sleet: all of it rain on a mild day"), FMath::IsNearlyEqual(Plain.x, 0.8f, 1e-5f) && FMath::IsNearlyEqual(Plain.y, 0.0f, 1e-5f)
+		&& FMath::IsNearlyEqual(DSF_OpenD2(Weather, Air, 0.0f, float2(0.0f, 0.0f)).x, 0.0f, 1e-6f));
+	const float4 Sleet = DSF_OpenD0(Weather, Air, 0.0f, float2(0.0f, 1.0f));
+	TestTrue(TEXT("sleet: half rain, half snow"), FMath::IsNearlyEqual(Sleet.x, 0.4f, 1e-5f) && FMath::IsNearlyEqual(Sleet.y, 0.4f, 1e-5f));
+	const float4 Storm = DSF_OpenD0(Weather, Air, 0.0f, float2(0.5f, 0.0f));
+	TestNearlyEqual(TEXT("half hail: the rest rain"), Storm.x, 0.4f, 1e-5f);
+	TestNearlyEqual(TEXT("half hail: the hail landing"), DSF_OpenD2(Weather, Air, 0.0f, float2(0.5f, 0.0f)).x, 0.4f, 1e-5f);
+
+	// In a world: a summer hailstorm whitens the ground, the contact says hail; an hour after it, gone and the ground wet.
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	const double Day = 24.0 * 183.0;
+	W.GoTo(At(Day + 14.0));
+	const float Offset = 22.0f - W.Weather->SampleWeatherAt(FVector::ZeroVector, W.Weather->GetGlobalValues(), At(Day + 15.0)).Temperature;
+	UDreamWeatherPreset* HailStorm = MakePreset(TEXT("SurfHailStorm"), { { Channel_CloudCoverage, 1.0f }, { Channel_Precipitation, 0.9f }, { Channel_Hail, 0.7f },
+		{ Channel_Temperature, Offset } });
+	UDreamWeatherPreset* After = MakePreset(TEXT("SurfAfterHail"), { { Channel_CloudCoverage, 0.4f }, { Channel_Temperature, Offset } });
+	W.Weather->ForceWeather(HailStorm, 0.0f);
+	W.RunTo(At(Day + 15.0) - 300.0);
+	W.Weather->ForceWeather(After, 0.0f);
+	W.RunTo(At(Day + 15.0));
+	const FDreamSurfaceState Lying = W.Surface->SampleSurface(FVector::ZeroVector);
+	AddInfo(FString::Printf(TEXT("five minutes after the storm: %s"), *Describe(Lying)));
+	TestTrue(TEXT("hail lying after the storm"), Lying.Hail > 0.3f);
+	const FDreamSurfaceContact Contact = W.Surface->SampleContact(FVector::ZeroVector, FVector::UpVector);
+	TestTrue(TEXT("the contact: hail, less grip"), (Contact.Kind == EDreamSurfaceContactKind::Hail || Lying.Hail < 0.4f) && Contact.Grip < 1.0f);
+	W.RunTo(At(Day + 16.0));
+	const FDreamSurfaceState Gone = W.Surface->SampleSurface(FVector::ZeroVector);
+	AddInfo(FString::Printf(TEXT("an hour later: %s"), *Describe(Gone)));
+	TestTrue(TEXT("melted within the hour"), Gone.Hail < 0.05f);
+	TestTrue(TEXT("and the ground wet from it and the rain"), Gone.Wetness > 0.2f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceGpuHailTest, "DreamSurface.Gpu.Hail", DreamSurface::Tests::Flags)
+bool FDreamSurfaceGpuHailTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamSurface::Tests;
+	if (!FApp::CanEverRender() || GUsingNullRHI)
+	{
+		AddInfo(TEXT("No RHI: skipped (run it in an editor that renders)."));
+		return true;
+	}
+	UDreamWeatherSelector_Fixed* Fixed = NewObject<UDreamWeatherSelector_Fixed>();
+	Fixed->Preset = Clear();
+	FSurfaceWorld W(Fixed);
+	if (!TestNotNull(TEXT("surface"), W.Surface))
+	{
+		return false;
+	}
+	const double Day = 24.0 * 183.0;
+	W.GoTo(At(Day + 14.0));
+	const float Offset = 18.0f - W.Weather->SampleWeatherAt(FVector::ZeroVector, W.Weather->GetGlobalValues(), At(Day + 15.0)).Temperature;
+	UDreamWeatherPreset* Showers = MakePreset(TEXT("SurfShowers"), { { Channel_CloudCoverage, 1.0f }, { Channel_Precipitation, 0.7f }, { Channel_Hail, 0.3f },
+		{ Channel_Temperature, Offset } });
+	UDreamWeatherPreset* After = MakePreset(TEXT("SurfAfterShowers"), { { Channel_CloudCoverage, 0.5f }, { Channel_Temperature, Offset } });
+
+	// A hailstorm 40 m east and a sleet 40 m west, by zones: their hail and sleet reach the maps per texel as the query
+	// has them.
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ADreamWeatherZone* Storm = W.World->SpawnActor<ADreamWeatherZone>(FVector(4000, 0, 0), FRotator::ZeroRotator, Params);
+	Storm->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Storm->Zone->Extent = FVector2D(1500, 1500);
+	Storm->Zone->BlendDistance = 600.0f;
+	Storm->Zone->Channels.Add(Channel_CloudCoverage, 1.0f);
+	Storm->Zone->Channels.Add(Channel_Precipitation, 1.0f);
+	Storm->Zone->Channels.Add(Channel_Hail, 0.9f);
+	ADreamWeatherZone* Slush = W.World->SpawnActor<ADreamWeatherZone>(FVector(-4000, 0, 0), FRotator::ZeroRotator, Params);
+	Slush->Zone->Shape = EDreamWeatherZoneShape::Circle;
+	Slush->Zone->Extent = FVector2D(1500, 1500);
+	Slush->Zone->BlendDistance = 600.0f;
+	Slush->Zone->Channels.Add(Channel_CloudCoverage, 1.0f);
+	Slush->Zone->Channels.Add(Channel_Precipitation, 0.8f);
+	Slush->Zone->Channels.Add(Channel_Sleet, 1.0f);
+	Slush->Zone->Channels.Add(Channel_Hail, 0.0f);
+	Slush->Zone->Channels.Add(Channel_Temperature, Offset - 17.0f);
+
+	W.Clock->ReportView(FVector(0, 0, 0), FRotator::ZeroRotator, true);
+	W.Weather->ForceWeather(Showers, 0.0f);
+	W.RunTo(At(Day + 15.0) - 900.0);
+
+	auto CheckMaps = [this, &W](const TCHAR* When)
+	{
+		const FDreamSurfaceMaps* Maps = W.Surface->GetMaps();
+		if (!TestNotNull(TEXT("maps"), Maps) || !TestNotNull(TEXT("near hail map (run the Setup)"), Maps->GetNearHailMap()) || !TestNotNull(TEXT("far hail map"), Maps->GetFarHailMap()))
+		{
+			return;
+		}
+		// The maps drawn at this very moment (between steps they redraw at most every Map Interval of real time, and the
+		// clock has just been run on much faster than that: the hail melts within minutes).
+		const_cast<FDreamSurfaceMaps*>(Maps)->RequestIntegrate();
+		W.GoTo(W.Clock->GetWorldSeconds());
+		FlushRenderingCommands();
+		auto Read = [this, &W, When, Maps](bool bNear, const FVector2D& Point, const TCHAR* What)
+		{
+			const FMapTexel Gpu = ReadMaps(*Maps, bNear, Point);
+			const FDreamSurfaceState Cpu = W.Surface->SampleSurface(FVector(Gpu.Texel, 0.0));
+			AddInfo(FString::Printf(TEXT("%s, %s: GPU %s / CPU %s"), When, What, *Describe(Gpu.State), *Describe(Cpu)));
+			TestTrue(FString::Printf(TEXT("%s, %s: the map holds the query's state"), When, What), Gpu.bRead && Cpu.Equals(Gpu.State, 0.01f));
+			return Gpu.State;
+		};
+		const FDreamSurfaceState NearHere = Read(true, FVector2D(0, 0), TEXT("near at the view"));
+		const FDreamSurfaceState FarHere = Read(false, FVector2D(0, 0), TEXT("far at the view"));
+		Read(true, FVector2D(4000, 0), TEXT("near in the hailstorm"));
+		Read(true, FVector2D(5800, 0), TEXT("near at the hailstorm's edge"));
+		Read(true, FVector2D(-4000, 0), TEXT("near in the sleet"));
+		Read(true, FVector2D(-5800, 0), TEXT("near at the sleet's edge"));
+		TestTrue(FString::Printf(TEXT("%s: near and far agree on the hail at the view"), When), FMath::IsNearlyEqual(NearHere.Hail, FarHere.Hail, 0.1f));
+	};
+
+	CheckMaps(TEXT("in the showers"));
+	TestTrue(TEXT("hail heaped up in the hailstorm"), W.Surface->SampleSurface(FVector(4000, 0, 0)).Hail > 0.6f);
+	const FDreamSurfaceState Sleet = W.Surface->SampleSurface(FVector(-4000, 0, 0));
+	TestTrue(TEXT("no hail in the sleet, but snow and wet from it"), Sleet.Hail < 0.01f && Sleet.Snow > 0.0f && Sleet.Wetness > 0.2f);
+	// The showers pass: the hail melting, values between the ends; then a jump.
+	W.Weather->ForceWeather(After, 0.0f);
+	W.RunTo(At(Day + 15.0) + 300.0);
+	CheckMaps(TEXT("melting"));
+	W.GoTo(At(Day + 17.0));
+	CheckMaps(TEXT("after a jump"));
 	return true;
 }
 
