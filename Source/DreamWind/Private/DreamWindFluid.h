@@ -96,7 +96,8 @@ private:
 	void Step_RenderThread(FRDGBuilder& GraphBuilder, const FStepArgs& Args);
 	/** One level's step; returns its output volume (registered), or null when it did not run. */
 	FRDGTextureRef StepLevel(FRDGBuilder& GraphBuilder, FLevel& Level, const FLevelArgs& LevelArgs, const FStepArgs& Args,
-		const FDreamWindBackgroundParameters& Background, FRDGBufferSRVRef Sources, uint32 NumSources, FRDGTextureRef FarVolume, const FLevelArgs* FarArgs);
+		const FDreamWindBackgroundParameters& Background, FRDGBufferSRVRef Sources, TConstArrayView<DreamWind::Hlsl::FDreamWindSourceData> Records,
+		FRDGTextureRef FarVolume, const FLevelArgs* FarArgs);
 	void AddWallPass(FRDGBuilder& GraphBuilder, const FSceneView& View, FLevel& Level);
 
 	FLevel Near;

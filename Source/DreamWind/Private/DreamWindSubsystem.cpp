@@ -4,6 +4,7 @@
 #include "DreamWindModule.h"
 #include "DreamWindSettings.h"
 #include "DreamWindSourceComponent.h"
+#include "DreamWindMoverComponent.h"
 #include "DreamWindPreset.h"
 #include "DreamWindTerrainMap.h"
 #include "DreamWindVolumeRenderer.h"
@@ -407,6 +408,7 @@ void UDreamWindSubsystem::Deinitialize()
 	}
 
 	SourceComponents.Reset();
+	MoverComponents.Reset();
 	Impulses.Reset();
 
 	Super::Deinitialize();
@@ -461,6 +463,7 @@ void UDreamWindSubsystem::Tick(float DeltaTime)
 	AdvanceGlobalWind(DeltaTime);
 	GatherSources();
 	BuildFrameData(DeltaTime);
+	GatherMovers();
 
 	// The runtime terrain map's CPU grid: wherever there is collision (a dedicated server too), not only where it renders.
 	const bool bRuntimeTerrain = (DreamWind::GCVarRuntimeTerrain >= 0 ? DreamWind::GCVarRuntimeTerrain != 0 : Settings->bRuntimeTerrain) && Settings->bTerrainEnabled;
@@ -1758,3 +1761,105 @@ void UDreamWindSubsystem::UnregisterSourceComponent(UDreamWindSourceComponent* C
 {
 	SourceComponents.RemoveAll([Component](const TWeakObjectPtr<UDreamWindSourceComponent>& W) { return !W.IsValid() || W.Get() == Component; });
 }
+
+void UDreamWindSubsystem::RegisterMover(UDreamWindMoverComponent* Mover)
+{
+	if (Mover)
+	{
+		MoverComponents.AddUnique(Mover);
+	}
+}
+
+void UDreamWindSubsystem::UnregisterMover(UDreamWindMoverComponent* Mover)
+{
+	MoverComponents.RemoveAll([Mover](const TWeakObjectPtr<UDreamWindMoverComponent>& W) { return !W.IsValid() || W.Get() == Mover; });
+}
+
+void UDreamWindSubsystem::GatherMovers()
+{
+	// Every mover advances its velocity every frame; the nearest MaxMovers to the camera reach the fluid.
+	struct FNear
+	{
+		double Distance2;
+		int32 First;
+		int32 Count;
+	};
+	const float DeltaTime = static_cast<float>(FApp::GetDeltaTime());
+	TArray<FDreamWindSourceDesc> Descs;
+	TArray<FNear> Order;
+	for (int32 Index = MoverComponents.Num() - 1; Index >= 0; --Index)
+	{
+		UDreamWindMoverComponent* Mover = MoverComponents[Index].Get();
+		if (!Mover || !IsValid(Mover))
+		{
+			MoverComponents.RemoveAtSwap(Index);
+			continue;
+		}
+		const int32 First = Descs.Num();
+		Mover->BuildSources(Descs, DeltaTime);
+		if (Descs.Num() > First)
+		{
+			Order.Add({ FVector::DistSquared(Mover->GetComponentLocation(), VolumeCenter), First, Descs.Num() - First });
+		}
+	}
+	Order.Sort([](const FNear& A, const FNear& B) { return A.Distance2 < B.Distance2; });
+	const int32 MaxMovers = FMath::Max(UDreamWindSettings::Get()->MaxMovers, 0);
+	FrameData.Movers.Reset();
+	for (int32 i = 0; i < FMath::Min(Order.Num(), MaxMovers); ++i)
+	{
+		for (int32 k = 0; k < Order[i].Count; ++k)
+		{
+			FrameData.Movers.Add(PackSource(Descs[Order[i].First + k], 1.0f));
+		}
+	}
+}
+
+FDreamWindImpulseHandle UDreamWindSubsystem::AddExplosion(FVector Position, float Radius, float Strength, float Duration)
+{
+	FDreamWindSourceDesc Desc;
+	Desc.Type = EDreamWindSourceType::Radial;
+	Desc.Position = Position;
+	Desc.Radius = FMath::Max(Radius, 1.0f);
+	Desc.Strength = Strength;
+	Desc.InjectRate = 60.0f;
+	Desc.InnerRadiusFraction = 0.0f;
+	return AddImpulse(Desc, FMath::Max(Duration, 0.01f), FMath::Max(Duration, 0.01f) * 0.5f);
+}
+
+// DreamWind.SetWind speed [gust] [turbulence] [yaw]: the global wind at once (tours, debugging).
+static FAutoConsoleCommandWithWorldAndArgs GDreamWindSetWindCommand(
+	TEXT("DreamWind.SetWind"),
+	TEXT("DreamWind.SetWind <speed cm/s> [gust strength] [turbulence strength] [yaw degrees, 0 = along +x]: set the global wind at once (until something else sets it)."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		UDreamWindSubsystem* Wind = UDreamWindSubsystem::Get(World);
+		if (!Wind || Args.Num() < 1)
+		{
+			return;
+		}
+		FDreamWindGlobalWind W = Wind->GetGlobalWind();
+		W.Speed = FMath::Max(FCString::Atof(*Args[0]), 0.0f);
+		if (Args.Num() > 1) { W.GustStrength = FMath::Max(FCString::Atof(*Args[1]), 0.0f); }
+		if (Args.Num() > 2) { W.TurbulenceStrength = FMath::Max(FCString::Atof(*Args[2]), 0.0f); }
+		if (Args.Num() > 3)
+		{
+			const float Yaw = FMath::DegreesToRadians(FCString::Atof(*Args[3]));
+			W.Direction = FVector(FMath::Cos(Yaw), FMath::Sin(Yaw), 0.0);
+		}
+		Wind->SetGlobalWind(W, 0.0f);
+	}));
+
+// DreamWind.Explode X Y Z [radius] [strength]: an explosion there (the wind fluid pushes it out round the walls).
+static FAutoConsoleCommandWithWorldAndArgs GDreamWindExplodeCommand(
+	TEXT("DreamWind.Explode"),
+	TEXT("DreamWind.Explode <x> <y> <z> [radius cm, 400] [strength cm/s, 2000] [duration s, 0.25]: an explosion of the wind at a point."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		UDreamWindSubsystem* Wind = UDreamWindSubsystem::Get(World);
+		if (!Wind || Args.Num() < 3)
+		{
+			return;
+		}
+		const FVector At(FCString::Atod(*Args[0]), FCString::Atod(*Args[1]), FCString::Atod(*Args[2]));
+		Wind->AddExplosion(At, Args.Num() > 3 ? FCString::Atof(*Args[3]) : 400.0f, Args.Num() > 4 ? FCString::Atof(*Args[4]) : 2000.0f, Args.Num() > 5 ? FCString::Atof(*Args[5]) : 0.25f);
+	}));

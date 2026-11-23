@@ -120,6 +120,8 @@ struct DREAMWIND_API FDreamWindFrameData
 	FVector4f T2 = FVector4f::Zero();
 	/** Live sources this frame, strongest first, already envelope-scaled. */
 	TArray<DreamWind::Hlsl::FDreamWindSourceData> Sources;
+	/** The moving bodies' records (bodies, wakes, downwash), nearest the camera first: for the fluid only, not the CPU sample. */
+	TArray<DreamWind::Hlsl::FDreamWindSourceData> Movers;
 	/** Volume render targets (null when a level is disabled or its asset is missing). */
 	TWeakObjectPtr<UTextureRenderTargetVolume> VolumeTexture;
 	TWeakObjectPtr<UTextureRenderTargetVolume> VolumeFarTexture;
@@ -265,6 +267,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DreamWind")
 	FDreamWindImpulseHandle AddRadialImpulse(FVector Position, float Radius, float Strength, float Duration = 0.3f);
 
+	/**
+	 * An explosion: air bursting out of a sphere of Radius cm at Strength cm/s through its surface, for Duration seconds
+	 * (fading over the second half). In the wind fluid it is an expansion, so the outflow goes round walls and curls back
+	 * behind them; the CPU sample sees the radial burst as before.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DreamWind")
+	FDreamWindImpulseHandle AddExplosion(FVector Position, float Radius = 400.0f, float Strength = 2000.0f, float Duration = 0.25f);
+
 	/** Directional gust helper: spell, wing flap, wake. */
 	UFUNCTION(BlueprintCallable, Category = "DreamWind")
 	FDreamWindImpulseHandle AddDirectionalImpulse(FVector Position, FVector Direction, float Radius, float Strength, float Duration = 0.5f);
@@ -289,6 +299,10 @@ public:
 	/** Persistent, possibly moving sources register themselves here (see UDreamWindSourceComponent). */
 	void RegisterSourceComponent(UDreamWindSourceComponent* Component);
 	void UnregisterSourceComponent(UDreamWindSourceComponent* Component);
+
+	/** Moving bodies register themselves here (see UDreamWindMoverComponent). */
+	void RegisterMover(class UDreamWindMoverComponent* Mover);
+	void UnregisterMover(class UDreamWindMoverComponent* Mover);
 
 	// ---- GPU / render side --------------------------------------------------------------------
 
@@ -415,6 +429,8 @@ private:
 	TArray<FActiveImpulse> Impulses;
 	int32 NextImpulseId = 1;
 	TArray<TWeakObjectPtr<UDreamWindSourceComponent>> SourceComponents;
+	TArray<TWeakObjectPtr<class UDreamWindMoverComponent>> MoverComponents;
+	void GatherMovers();
 
 	FDreamWindFrameData FrameData;
 
