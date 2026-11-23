@@ -445,6 +445,24 @@ height, the weather's offset) and `Dream.Weather.State.*` tags for gameplay cond
 `OnWeatherChanged`, `OnPrecipitationStarted / Stopped` (with hysteresis), `OnWeatherTagsChanged`. The modifiers
 are saved in the world snapshot; the schedule needs nothing saved.
 
+**Ground fog and wind fog.** Two actors for fog of a place rather than of the whole sky (module `DreamWeatherFX`):
+
+- **Fog bank** (`ADreamFogBank`): patches of fog filling a box (*Extent*, the actor at its floor), each a local fog
+  volume hugging the ground (*Height Falloff*), *Patch Radius* across, drifting on the wind (the wind at each patch,
+  taken up at *Wind Drag*) and wrapping round within the box, coming and going over half a minute: a bank lying in a dip
+  or along a valley, its fog moving through it in patches. How thick (*Density*) follows the weather's fog channel at the
+  bank, down to *Clear Weather Share* of it with none. The patches draw with or without the scene's volumetric fog.
+  `DreamWeather.FogBank [density] [clear share]` lists the banks and sets them.
+- **Wind fog** (`ADreamWindFog`): an unbound post-process pass (`M_DreamWindFog`) that marches a slab of noise from the
+  actor's height up *Thickness*, from the camera to what it sees (no further than *Reach*), the noise stretched along
+  the wind and drifting with it: wisps stream past at knee to head height. It shows as far as the weather has fog and
+  the wind blows (`DDW_Weather1` at the view), times *Amount*.
+
+Both drift with the wind summed at the view, frame by frame (`DDW_FogDrift`: xy how far the air has been carried, zw
+the wind now; the effects subsystem keeps it, `GetFogDrift`), so a change of wind never jumps the fog. The showcase has
+a bank in the dip round the pond and wind fog over the set; the forced tour shoots a foggy morning and a fog in a wind
+(`FogDay`, `WindFog`). `DreamWeather.FX.Fog` checks the drift, the bank's density and drift, and the pass's slab.
+
 **What it drives.** The sky (cloud cover, a greyer and dimmer sky under cloud, more fog, an exposure lift), the
 wind's speed and gusts, and the shared collection (`DDW_Weather0/1` at the view). The zones are also drawn by a
 compute pass into a **weather map** around the camera (`RT_DreamWeatherMap`); the sky material looks the clouds
