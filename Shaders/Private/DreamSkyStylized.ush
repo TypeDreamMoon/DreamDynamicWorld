@@ -1191,6 +1191,28 @@ float3 DSky_Halos(float3 V, float3 LightDir, float3 Moon, float3 Lit, float4 Hal
 	return Light * Lit * Shows;
 }
 
+// The earth's shadow and the Belt of Venus over the style's gradient (Share: how much of the sky is the gradient; the
+// physical sky has its own): after sunset, away from the sun, the gradient is tinted blue-grey (Shadow.rgb) up to
+// Shadow.a times the sun's depression and pink (Belt.rgb) in a band over it, as strongly as Belt.a; from the sun's
+// setting to some 9 degrees under, broad across the sky away from it.
+float3 DSky_EarthShadow(float3 V, float3 Sun, float3 Sky, float4 Shadow, float4 Belt, float Share)
+{
+	float Down = -Sun.z;
+	float Shows = smoothstep(0.0, 0.02, Down) * (1.0 - smoothstep(0.1, 0.16, Down)) * Belt.a * Share;
+	if (Shows <= 0.0 || dot(V.xy, V.xy) < 1.0e-6 || dot(Sun.xy, Sun.xy) < 1.0e-6)
+	{
+		return Sky;
+	}
+	float Away = saturate(-dot(normalize(V.xy), normalize(Sun.xy)));
+	float Spread = Away * sqrt(Away) * Shows;
+	float Top = Shadow.a * Down;
+	float Under = 1.0 - smoothstep(0.8 * Top, 1.15 * Top, V.z);
+	float Width = 0.6 * Top + 0.03;
+	float Band = exp(-DSky_Square((V.z - 1.3 * Top) / Width)) * smoothstep(-0.01, 0.0, V.z);
+	Sky *= lerp(float3(1, 1, 1), Shadow.rgb, Under * Spread);
+	return Sky * lerp(float3(1, 1, 1), Belt.rgb, Band * (1.0 - Under) * Spread);
+}
+
 // Rain hanging under distant clouds: grey curtains from the cloud base down into the horizon, wherever the weather
 // map has rain under a closed cover some way off along V (looked for from 8 to 45 km; the nearest raining one hangs
 // its curtain). Broad curtains in azimuth, finely streaked, thinning as they fall and veiled by the air like
@@ -1305,7 +1327,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 	float4 SunHalo, float4 SunDisk, float4 MoonDisk, float4 MoonHalo, float4 Stars, float4 Cloud0, float4 Cloud1,
 	float4 Cloud2, float4 Cloud3, float4 CloudLit, float4 CloudShadow, float4 MainLight, float4 MainLightColor, float4 CloudLayer,
 	float4 MapParams, float4 Flash, float4 Extra, float4 Haze, float4 Aurora, float4 AuroraLow, float4 AuroraHigh, float4 NightGlow,
-	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2,
+	float4 LightPollution, float4 Eclipse, float4 LunarEclipse, float4 Halo4, float4 Halo2, float4 EarthShadow, float4 EarthBelt,
 	Texture2D WeatherMap, SamplerState WeatherMapSampler, Texture3D Noise, SamplerState NoiseSampler, Texture2D Panorama,
 	SamplerState PanoramaSampler, float4 AuroraTones, float4 AuroraShape, float4 AuroraShape2, float4 AuroraShape3, float4 MoonLook, float4 StarLook, float4 StarPole, float4 StarEquinox, Texture2D StarMap, float4 MilkyWay,
 	float4 MilkyWayDust, Texture2D Galaxy, SamplerState GalaxySampler, float3 Camera, float2 ScreenUV, float Seconds, float Capture,
@@ -1334,6 +1356,7 @@ float3 DSky_Shade(float3 V, float4 SunDir, float4 MoonDir, float4 Time, float4 Z
 		float3 Afterglow = lerp(float3(0.16, 0.06, 0.13), float3(0.55, 0.24, 0.12), smoothstep(-0.15, -0.03, Sun.z));
 		Sky += Afterglow * Dusk * Side * Side * Side * Band * GradientShare;
 	}
+	Sky = DSky_EarthShadow(V, Sun, Sky, EarthShadow, EarthBelt, GradientShare);
 	// Through the holes of an overcast the sky shows its own colour: the style greys the whole sky as the cover closes
 	// (by then it is mostly seen through the cloud), and a hole would show that grey; there it is given its blue back.
 	float Closing = smoothstep(0.7, 0.95, Cloud0.x) * GradientShare;

@@ -755,6 +755,12 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 	const float Grown = FMath::Lerp(1.0f, DreamSky::CumulusGrowth(Clock.GetTimeOfDay()), FMath::Clamp(Style.CloudDiurnal, 0.0f, 1.0f));
 	Clock.SetVectorParameter(MPC_Cloud2, FLinearColor(Grown, Style.CloudErosion, Style.CloudDetail, 0.0f));
 	Clock.SetVectorParameter(MPC_Cloud3, FLinearColor(Style.CloudVisibility, Style.CloudHazeHeight, Look.HighCover, Style.CloudHighAltitude));
+	// The earth's shadow and the Belt of Venus over the style's gradient (the physical sky has its own).
+	{
+		const FDreamSkyEarthShadow& E = Style.EarthShadow;
+		Clock.SetVectorParameter(MPC_EarthShadow, With(E.ShadowTint, FMath::Max(E.Height, 0.5f)));
+		Clock.SetVectorParameter(MPC_EarthBelt, With(E.BeltTint, E.bEnabled ? FMath::Clamp(E.Strength, 0.0f, 1.0f) : 0.0f));
+	}
 	// The ice halos under a sheet of high cloud, the corona in thinner cloud (the dome hides both under a closing overcast).
 	{
 		const FDreamSkyHalos& H = Style.Halos;

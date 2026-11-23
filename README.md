@@ -326,6 +326,13 @@ corona: the style's own thin cirrus, 0.35, shows neither) and how bright (`Inten
 modifier's *High Cloud Cover* brings a sheet over (the showcase's clear morning has one from 8 to 9). A closing
 overcast hides them.
 
+**The earth's shadow.** After sunset the low sky away from the sun lies in the earth's own shadow: a blue-grey band
+along that horizon, rising to some twice the sun's depression as it sinks, and over it the pink Belt of Venus, air still
+in the reddened sun; gone by some 9 degrees under. The physical sky has them of itself (the sky table's walk leaves the
+air in the planet's shadow unlit), so they show whenever the grade's `GradientBlend` is 0. Over the style's own
+gradient the style's `EarthShadow` draws them as far as the gradient shows: `ShadowTint` and `BeltTint` multiply the
+gradient, `Height` is the shadow's top in sun depressions (2, as the physical sky's), `Strength` how strongly.
+
 **Per level.** The actor's panel shows only what is worth setting: the style, the clock, the clouds, and this
 level's **overrides**, in four groups — Clouds (cover, scale, base altitude, drift, how fast they form, the hour's
 effect, erosion, detail, cirrus, storm darkening, visibility, and the realistic and painted looks' extinction, glow,

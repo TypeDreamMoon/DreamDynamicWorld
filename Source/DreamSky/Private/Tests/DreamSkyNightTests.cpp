@@ -771,6 +771,14 @@ bool FDreamSkyHalosTest::RunTest(const FString& Parameters)
 	Live->Halos.bEnabled = false;
 	W.Clock->Tick(0.016f);
 	TestTrue(TEXT("turned off: nothing"), W.Parameter(MPC_Halo).Equals(FLinearColor::Transparent, 1e-6f));
+
+	// The earth's shadow over the style's gradient: its tints, its height, its strength (none when off).
+	TestNearlyEqual(TEXT("the earth's shadow drawn as strongly as the style says"), W.Parameter(MPC_EarthBelt).A, Live->EarthShadow.Strength, 1e-5f);
+	TestNearlyEqual(TEXT("as high"), W.Parameter(MPC_EarthShadow).A, Live->EarthShadow.Height, 1e-5f);
+	TestTrue(TEXT("its shadow blue-grey, its belt pink"), W.Parameter(MPC_EarthShadow).B > W.Parameter(MPC_EarthShadow).R && W.Parameter(MPC_EarthBelt).R > W.Parameter(MPC_EarthBelt).G);
+	Live->EarthShadow.bEnabled = false;
+	W.Clock->Tick(0.016f);
+	TestEqual(TEXT("off: not drawn"), W.Parameter(MPC_EarthBelt).A, 0.0f);
 	return true;
 }
 

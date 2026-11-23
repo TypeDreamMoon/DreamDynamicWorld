@@ -198,4 +198,26 @@ bool FDreamAtmosphereAerialModelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamAtmosphereEarthShadowTest, "DreamAtmosphere.Model.EarthShadow", DreamAtmosphere::ModelTests::Flags)
+bool FDreamAtmosphereEarthShadowTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	using namespace DreamAtmosphere::ModelTests;
+	const FDSA_Atmosphere A = Earth();
+	constexpr int32 Steps = 64;
+	auto Sky = [&](float ViewElevation, float SunElevation) { return DSA_SkyLuminance(A, 0.0f, Toward(ViewElevation, 180.0f), Toward(SunElevation, 0.0f), Steps); };
+	// After sunset the low sky away from the sun lies in the earth's own shadow: dark and blue-grey, up to some twice the
+	// sun's depression; over it the air still in the sun, lit by its reddened light from far off, glows pink (the Belt of
+	// Venus).
+	const float3 Shadow = Sky(1.0f, -3.0f), Belt = Sky(10.0f, -3.0f);
+	TestTrue(FString::Printf(TEXT("sun 3 degrees down: the shadow low (%.2e) darker than the belt over it (%.2e)"), Luma(Shadow), Luma(Belt)), Luma(Shadow) < 0.6f * Luma(Belt));
+	TestTrue(FString::Printf(TEXT("the shadow blue-grey (r/b %.2f)"), Shadow.x / Shadow.z), Shadow.x < Shadow.z);
+	TestTrue(FString::Printf(TEXT("the belt pink (r/b %.2f, g/b %.2f)"), Belt.x / Belt.z, Belt.y / Belt.z), Belt.x > 1.3f * Belt.z && Belt.y < Belt.x);
+	TestTrue(TEXT("the shadow rises as the sun sinks: 4 degrees up is in it at 3 down, not at 1 down"),
+		Luma(Sky(4.0f, -3.0f)) < 0.6f * Luma(Sky(10.0f, -3.0f)) && Luma(Sky(4.0f, -1.0f)) > Luma(Sky(1.0f, -1.0f)));
+	const float3 Before = Sky(1.0f, 1.0f);
+	TestTrue(FString::Printf(TEXT("with the sun still up no shadow: the low sky warm (r/b %.2f)"), Before.x / Before.z), Before.x > Before.z);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

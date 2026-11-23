@@ -543,6 +543,36 @@ struct DREAMSKY_API FDreamSkyHalos
 	float CoronaRadius = 2.5f;
 };
 
+/**
+ * The earth's shadow and the Belt of Venus: after sunset the low sky away from the sun lies in the earth's own shadow,
+ * blue-grey up to some twice the sun's depression, with a pink band over it. The physical sky has them of itself; these
+ * settings draw them over the style's own gradient, as far as the grade's GradientBlend shows it (none at 0).
+ */
+USTRUCT(BlueprintType)
+struct DREAMSKY_API FDreamSkyEarthShadow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow")
+	bool bEnabled = true;
+
+	/** How strongly they are drawn over the gradient, 0 .. 1. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ClampMin = "0", ClampMax = "1"))
+	float Strength = 1.0f;
+
+	/** The shadow's colour, times the gradient. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (HideAlphaChannel))
+	FLinearColor ShadowTint = FLinearColor(0.5f, 0.56f, 0.82f);
+
+	/** The belt's colour over it, times the gradient. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (HideAlphaChannel))
+	FLinearColor BeltTint = FLinearColor(1.45f, 0.95f, 1.12f);
+
+	/** How high the shadow stands, in the sun's depressions (the physical sky's: about 2). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ClampMin = "0.5", UIMax = "4"))
+	float Height = 2.0f;
+};
+
 UCLASS(BlueprintType)
 class DREAMSKY_API UDreamSkyStyle : public UDataAsset
 {
@@ -769,6 +799,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Halos", meta = (ShowOnlyInnerProperties))
 	FDreamSkyHalos Halos;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Earth Shadow", meta = (ShowOnlyInnerProperties))
+	FDreamSkyEarthShadow EarthShadow;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Stars", meta = (ClampMin = "0", ClampMax = "1"))
 	float StarTwinkle = 0.4f;
