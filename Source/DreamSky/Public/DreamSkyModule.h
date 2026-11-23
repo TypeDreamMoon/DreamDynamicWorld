@@ -35,6 +35,10 @@ namespace DreamSky::Names
 	inline const FName MPC_MeteorLook(TEXT("DDW_MeteorLook"));      // rgb the meteors' colour, a their trails' length
 	inline const FName MPC_FlatClouds(TEXT("DDW_FlatClouds"));      // the flat clouds: opacity (0 = not drawn), tones (0 smooth), the pattern's scale, the shadow's strength
 	inline const FName MPC_CloudClearing(TEXT("DDW_CloudClearing")); // the clouds' clearing round the lights: strength by the sun, by the moon, radius (degrees), falloff exponent
+	// The tornadoes' funnel clouds nearest the view (DreamSkyFunnels.h): root x, y, radius at the cloud base, strength x spin;
+	// how far it has turned, the ground's height, the lean x, y.
+	inline const FName MPC_Funnel[4] = { TEXT("DDW_Funnel0"), TEXT("DDW_Funnel1"), TEXT("DDW_Funnel2"), TEXT("DDW_Funnel3") };
+	inline const FName MPC_FunnelShape[4] = { TEXT("DDW_FunnelShape0"), TEXT("DDW_FunnelShape1"), TEXT("DDW_FunnelShape2"), TEXT("DDW_FunnelShape3") };
 	inline const FName MPC_Halo2(TEXT("DDW_Halo2"));              // the ring's radius, its width, the corona's first ring, the moon's drawn radius (degrees)
 	inline const FName MPC_AuroraShape(TEXT("DDW_AuroraShape"));  // the aurora's ribbons: length, width (km), sharpness; ray spacing (km)
 	inline const FName MPC_AuroraShape2(TEXT("DDW_AuroraShape2")); // ray contrast, upward fade, the banded tones' first two levels

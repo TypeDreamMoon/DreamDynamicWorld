@@ -33,6 +33,50 @@ namespace DreamWorld::Console
 		return Subsystem;
 	}
 
+	/**
+	 * DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed]: registers or moves a whirlwind by hand
+	 * (Id 0 a new one, logged), for looking at a funnel cloud without a tornado; DreamWorld.Vortex.Remove Id.
+	 */
+	static FAutoConsoleCommandWithWorldAndArgs VortexCommand(
+		TEXT("DreamWorld.Vortex"),
+		TEXT("Registers or moves a whirlwind by hand: DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed] (cm, cm/s; Id 0 = a new one)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UDreamWorldSubsystem* Clock = World ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr;
+			if (!Clock || Args.Num() < 6)
+			{
+				UE_LOG(LogDreamWorld, Display, TEXT("DreamWorld.Vortex Id X Y Z Radius Strength [Spin] [LeanX] [LeanY] [Speed]"));
+				return;
+			}
+			auto Arg = [&Args](int32 Index, float Default) { return Args.IsValidIndex(Index) ? FCString::Atof(*Args[Index]) : Default; };
+			const int32 Id = FCString::Atoi(*Args[0]);
+			const FDreamWorldVortex* Known = Clock->GetVortices().Find(Id);
+			FDreamWorldVortex V = Known ? *Known : FDreamWorldVortex();
+			if (!Known)
+			{
+				V.BornSeconds = Clock->GetWorldSeconds();
+			}
+			V.Location = FVector(Arg(1, 0.0f), Arg(2, 0.0f), Arg(3, 0.0f));
+			V.Radius = FMath::Max(Arg(4, V.Radius), 100.0f);
+			V.Strength = FMath::Clamp(Arg(5, V.Strength), 0.0f, 1.0f);
+			V.Spin = Arg(6, V.Spin) < 0.0f ? -1.0f : 1.0f;
+			V.Lean = FVector2D(Arg(7, float(V.Lean.X)), Arg(8, float(V.Lean.Y)));
+			V.TangentialSpeed = FMath::Max(Arg(9, V.TangentialSpeed), 0.0f);
+			UE_LOG(LogDreamWorld, Display, TEXT("Vortex %d at (%.0f, %.0f, %.0f), radius %.0f, strength %.2f"), Clock->SetVortex(Id, V),
+				V.Location.X, V.Location.Y, V.Location.Z, V.Radius, V.Strength);
+		}));
+
+	static FAutoConsoleCommandWithWorldAndArgs VortexRemoveCommand(
+		TEXT("DreamWorld.Vortex.Remove"),
+		TEXT("Removes a whirlwind registered by hand: DreamWorld.Vortex.Remove Id."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (UDreamWorldSubsystem* Clock = World && Args.Num() > 0 ? World->GetSubsystem<UDreamWorldSubsystem>() : nullptr)
+			{
+				Clock->RemoveVortex(FCString::Atoi(*Args[0]));
+			}
+		}));
+
 	static FAutoConsoleCommandWithWorldAndArgs TimeCommand(
 		TEXT("DreamWorld.Time"),
 		TEXT("DreamWorld.Time <hours>: jump to an hour of the current day (e.g. 18.5). Without an argument, print the date and time."),

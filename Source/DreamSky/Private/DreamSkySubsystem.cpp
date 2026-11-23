@@ -5,6 +5,7 @@
 #include "DreamSky.h"
 #include "DreamSkyCloudRenderer.h"
 #include "DreamSkyEclipse.h"
+#include "DreamSkyFunnels.h"
 #include "DreamSkyModifier.h"
 #include "DreamSkyModule.h"
 #include "DreamSkyStyle.h"
@@ -784,6 +785,18 @@ void UDreamSkySubsystem::WriteParameters(UDreamWorldSubsystem& Clock, const UDre
 		const float Scale = Forced >= 0.0f ? Forced : 1.0f;
 		Clock.SetVectorParameter(MPC_CloudClearing, FLinearColor(FMath::Clamp(Look.SunClearing * Scale, 0.0f, 1.0f), FMath::Clamp(Look.MoonClearing * Scale, 0.0f, 1.0f),
 			Look.ClearingRadius, Look.ClearingExponent));
+	}
+	// The tornadoes' funnel clouds nearest the view (the renderer draws them).
+	{
+		FLinearColor Funnel[DreamSky::Funnels::MaxFunnels];
+		FLinearColor Shape[DreamSky::Funnels::MaxFunnels];
+		const FVector View = Clock.HasViewLocation() ? Clock.GetViewLocation() : FVector::ZeroVector;
+		DreamSky::Funnels::Pack(Clock.GetVortices(), View, Clock.GetWorldSeconds(), Clock.GetTimeScale(), Funnel, Shape);
+		for (int32 i = 0; i < DreamSky::Funnels::MaxFunnels; ++i)
+		{
+			Clock.SetVectorParameter(MPC_Funnel[i], Funnel[i]);
+			Clock.SetVectorParameter(MPC_FunnelShape[i], Shape[i]);
+		}
 	}
 	// The flat clouds, while the dome draws them instead of the renderer.
 	{

@@ -599,3 +599,19 @@ bool UDreamWorldSubsystem::IsCinematicMode() const
 	}
 	return false;
 }
+
+int32 UDreamWorldSubsystem::SetVortex(int32 Id, const FDreamWorldVortex& Vortex)
+{
+	if (Id <= 0 || !Vortices.Contains(Id))
+	{
+		Id = Id > 0 ? Id : NextVortexId++;
+		NextVortexId = FMath::Max(NextVortexId, Id + 1);
+	}
+	Vortices.Add(Id, Vortex);
+	return Id;
+}
+
+void UDreamWorldSubsystem::RemoveVortex(int32 Id)
+{
+	Vortices.Remove(Id);
+}
