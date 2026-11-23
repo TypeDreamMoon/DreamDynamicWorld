@@ -7,6 +7,7 @@
 #include "DreamSurfaceRoofCapture.h"
 #include "DreamSurfaceSettings.h"
 #include "DreamSurfaceSubsystem.h"
+#include "DreamSurfaceVehicleGlass.h"
 
 #include "DreamWeather.h"
 #include "DreamWeatherChannels.h"
@@ -466,6 +467,92 @@ bool FDreamSurfaceGlassRainTest::RunTest(const FString& Parameters)
 		}
 	}
 	TestTrue(TEXT("a running drop was found to measure"), bMeasured);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDreamSurfaceVehicleGlassTest, "DreamSurface.VehicleGlass", DreamSurface::Tests::Flags)
+bool FDreamSurfaceVehicleGlassTest::RunTest(const FString& Parameters)
+{
+	using namespace DreamWind::Hlsl;
+	// The flow: on a still pane the drops run down; at speed the air pushes them up a windscreen, and a side wind across.
+	const float4 Still = DSF_GlassFlow(float2(0.0f, 0.0f), 1.0f);
+	TestTrue(TEXT("still: they run straight down at gravity's speed"), FMath::IsNearlyEqual(Still.y, -1.0f, 1.0e-4f) && FMath::IsNearlyEqual(Still.z, 1.0f, 1.0e-4f) && Still.w < 1.0e-4f);
+	const float4 Slow = DSF_GlassFlow(float2(0.0f, 300.0f), 0.5f);
+	TestTrue(TEXT("a light air up the pane does not move them"), FMath::IsNearlyEqual(Slow.y, -1.0f, 1.0e-4f));
+	const float4 Motorway = DSF_GlassFlow(float2(0.0f, 2400.0f * 0.87f), 0.5f);   // 86 km/h on a windscreen raked 30 degrees
+	AddInfo(FString::Printf(TEXT("86 km/h on a raked windscreen: flow (%.2f, %.2f), speed %.2f, stretch %.2f"), Motorway.x, Motorway.y, Motorway.z, Motorway.w));
+	TestTrue(TEXT("at speed the drops go up the windscreen"), Motorway.y > 0.5f);
+	TestTrue(TEXT("and streak"), Motorway.w > 0.4f);
+	const float4 Side = DSF_GlassFlow(float2(1800.0f, 0.0f), 1.0f);
+	TestTrue(TEXT("a wind across a side window drives them across and down"), Side.x > 0.3f && Side.y < -0.3f);
+	TestNearlyEqual(TEXT("a windscreen meeting the rain at 97 km/h catches four times as much"), DSF_GlassRainGain(1.0f, 2700.0f), 4.0f, 1.0e-4f);
+	TestNearlyEqual(TEXT("a rear window none more"), DSF_GlassRainGain(0.0f, 2700.0f), 1.0f, 1.0e-4f);
+
+	// The wipers: a blade swinging from 0 to 180 degrees once a second, started at 0: the top of its arc (90 degrees) is
+	// swept a quarter of the way through each swing and again three quarters through.
+	const float Half = 3.14159265f * 0.5f;
+	TestTrue(TEXT("not swept before the blade gets there"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.2f, 0.0f, 1.0f) > 1.0e5f);
+	TestNearlyEqual(TEXT("swept on the way out"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.3f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestNearlyEqual(TEXT("and on the way back"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 0.8f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestNearlyEqual(TEXT("the next swing"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 1.3f, 0.0f, 1.0f), 0.05f, 1.0e-3f);
+	TestTrue(TEXT("beyond its arc never"), DSF_WiperSince(-0.3f, 0.0f, 3.14159265f, 5.0f, 0.0f, 1.0f) > 1.0e5f);
+	TestTrue(TEXT("parked never"), DSF_WiperSince(Half, 0.0f, 3.14159265f, 5.0f, 0.0f, 0.0f) > 1.0e5f);
+	TestNearlyEqual(TEXT("just swept: clear"), DSF_WiperClear(0.0f, 1.0f).x, 1.0f, 1.0e-4f);
+	TestTrue(TEXT("a heavy rain lays the drops again within seconds"), DSF_WiperClear(4.0f, 1.0f).x < 0.01f);
+	TestTrue(TEXT("a drizzle more slowly"), DSF_WiperClear(4.0f, 0.1f).x > 0.3f);
+
+	// What a wiper clears holds no water; elsewhere the rain lies on the pane.
+	const float4 Flow = DSF_GlassFlow(float2(0.0f, 0.0f), 0.5f);
+	float Wiped = 0.0f, Rained = 0.0f;
+	for (int32 i = 0; i < 400; ++i)
+	{
+		const float2 At(float(i % 20) * 0.731f, float(i / 20) * 0.917f);
+		Wiped += DSF_GlassRainFlow(At, 1.0f, 1.0f, 1.0f, Flow, 1.0f).z;
+		Rained += DSF_GlassRainFlow(At, 1.0f, 1.0f, 1.0f, Flow, 0.0f).z;
+	}
+	TestTrue(TEXT("a pane just wiped is clear"), Wiped < 1.0e-4f);
+	TestTrue(TEXT("one in the rain is not"), Rained > 20.0f);
+
+	// The component writes the glass's velocity in each glass mesh's own frame and the wipers' state.
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	if (!TestNotNull(TEXT("world"), World))
+	{
+		return false;
+	}
+	ON_SCOPE_EXIT { World->DestroyWorld(false); };
+	AActor* Car = World->SpawnActor<AActor>(FVector::ZeroVector, FRotator(0.0, 90.0, 0.0));
+	USceneComponent* Root = NewObject<USceneComponent>(Car, TEXT("Root"));
+	Car->SetRootComponent(Root);
+	Root->RegisterComponent();
+	Root->SetWorldRotation(FRotator(0.0, 90.0, 0.0));
+	UStaticMeshComponent* Screen = NewObject<UStaticMeshComponent>(Car, TEXT("Screen"));
+	Screen->SetupAttachment(Root);
+	Screen->SetRelativeRotation(FRotator(-30.0, 0.0, 0.0));
+	Screen->ComponentTags.Add(TEXT("DreamGlass"));
+	Screen->RegisterComponent();
+	UStaticMeshComponent* Body = NewObject<UStaticMeshComponent>(Car, TEXT("Body"));
+	Body->SetupAttachment(Root);
+	Body->RegisterComponent();
+	UDreamSurfaceVehicleGlassComponent* Glass = NewObject<UDreamSurfaceVehicleGlassComponent>(Car, TEXT("Glass"));
+	Glass->ExtraVelocity = FVector(1000.0, 0.0, 0.0);
+	Glass->RegisterComponent();
+	TestEqual(TEXT("it writes to the tagged glass only"), Glass->GetGlass().Num(), 1);
+	Glass->TickComponent(0.016f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("the car's forward speed, in its world"), Glass->GetGlassVelocity().Equals(FVector(0.0, 1000.0, 0.0), 0.5));
+	const TArray<float>& Data = Screen->GetCustomPrimitiveData().Data;
+	if (TestTrue(TEXT("the glass has the data"), Data.Num() >= UDreamSurfaceVehicleGlassComponent::DataIndex + 8))
+	{
+		const FVector Local(Data[24], Data[25], Data[26]);
+		const FVector Expected = Screen->GetComponentTransform().InverseTransformVectorNoScale(FVector(0.0, 1000.0, 0.0));
+		AddInfo(FString::Printf(TEXT("velocity in the windscreen's frame (%.0f, %.0f, %.0f)"), Local.X, Local.Y, Local.Z));
+		TestTrue(TEXT("in the windscreen's own frame"), Local.Equals(Expected, 0.5));
+		TestEqual(TEXT("wipers parked"), Data[28], 0.0f);
+	}
+	Glass->WiperPeriod = 1.5f;
+	Glass->SetWipers(true);
+	const TArray<float>& Wiping = Screen->GetCustomPrimitiveData().Data;
+	TestTrue(TEXT("wipers running"), Wiping.Num() > 29 && FMath::IsNearlyEqual(Wiping[28], 1.5f));
+	TestTrue(TEXT("the body has none"), Body->GetCustomPrimitiveData().Data.Num() == 0);
 	return true;
 }
 
