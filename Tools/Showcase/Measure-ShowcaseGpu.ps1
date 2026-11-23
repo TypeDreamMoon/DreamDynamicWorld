@@ -32,6 +32,10 @@
 [CmdletBinding()]
 param(
     [string]$Project,
+    # -Scene Showcase: the showcase level's features (above). WindField: the wind's on the wind field test level
+    # (Setup -WindFieldTestMap): WindVolume, WindOcclusion, WindOcclusionVolume, WindVolumeAll, WindGrass.
+    [ValidateSet('Showcase', 'WindField')]
+    [string]$Scene = 'Showcase',
     [string[]]$Only = @(),
     [int]$Samples = 7,
     # Start only once the GPU reads under this many percent busy; give up after WaitMinutes.
@@ -106,6 +110,28 @@ $Features = @(
     (Feature Eclipse 'Solar eclipse' 'by date (realistic sky) or modifier' toggle 12 WP_Clear Sun -Off @('DreamSky.Modifier.Clear 0') `
         -On @('DreamSky.Modifier.Add Eclipse 0') -Reset @('DreamSky.Modifier.Clear 0'))
 )
+if ($Scene -eq 'WindField')
+{
+    # The wind on its test level: 40 000 blades of wind grass, a house, a wall, a corner, a burst every 4 s, a steady
+    # wind along +x, no weather actor. Grass looks over the grass at the house; Shadow down on the house's lee.
+    $Map = '/DreamDynamicWorld/Wind/Maps/Lvl_DreamWindFieldTest'
+    $Views = @{
+        Grass  = @('move -800 -2200 250', 'aim -8 45')
+        Shadow = @('move 600 -1800 900', 'aim -35 60')
+    }
+    $Features = @(
+        (Feature WindVolume 'Wind volume update (near + far, compute)' 'yes' events 11 '' Grass -Event '^DreamWindVolume')
+        (Feature WindOcclusion 'Wind shadow march (materials + volume, frame)' 'yes, with a baked terrain map' toggle 11 '' Grass `
+            -Off @('DreamWind.Occlusion 0') -On @('DreamWind.Occlusion 1') -Reset @('DreamWind.Occlusion -1'))
+        (Feature WindOcclusionVolume 'Wind shadow march (the volume update''s share)' 'yes, with a baked terrain map' toggle 11 '' Grass `
+            -Off @('DreamWind.Occlusion 0') -On @('DreamWind.Occlusion 1') -Reset @('DreamWind.Occlusion -1') -Event '^DreamWindVolume')
+        (Feature WindVolumeAll 'Wind volume (update + material reads, frame)' 'yes' toggle 11 '' Grass `
+            -Off @('DreamWind.Volume 0') -On @('DreamWind.Volume 1') -Reset @('DreamWind.Volume -1'))
+        (Feature WindGrass 'Wind grass, 40 000 blades (all its draws, frame)' 'per level' toggle 11 '' Grass `
+            -Off @('ShowFlag.InstancedStaticMeshes 0') -On @('ShowFlag.InstancedStaticMeshes 1') -Reset @('ShowFlag.InstancedStaticMeshes 1'))
+    )
+}
+$MapName = Split-Path $Map -Leaf
 if ($Only.Count -gt 0)
 {
     $Unknown = @($Only | Where-Object { $Features.Key -notcontains $_ })
@@ -185,7 +211,7 @@ if (-not $Log)
         {
             $Now = (Get-Date).ToString('o')
             $Rows = nvidia-smi pmon -c 1 -s u | Where-Object { $_ -notmatch '^\s*#' }
-            $Ours = @(Get-CimInstance Win32_Process -Filter "Name='UnrealEditor.exe'" | Where-Object { $_.CommandLine -match 'Lvl_DreamWorldShowcase' } | ForEach-Object { $_.ProcessId })
+            $Ours = @(Get-CimInstance Win32_Process -Filter "Name='UnrealEditor.exe'" | Where-Object { $_.CommandLine -match $using:MapName } | ForEach-Object { $_.ProcessId })
             foreach ($Row in $Rows) { Add-Content -Path $Out -Value "$Now|$($Ours -join ',')|$Row" }
             Start-Sleep -Seconds 2
         }
